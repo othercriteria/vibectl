@@ -1,4 +1,9 @@
-# Python Virtual Environment and Dependencies
+---
+description: Python project setup
+globs: 
+alwaysApply: false
+---
+ # Python Virtual Environment and Dependencies
 
 Prefer Python's native virtual environment and pyproject.toml-based dependency 
 management over Flake-managed Python dependencies.

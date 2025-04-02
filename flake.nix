@@ -15,6 +15,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            gnumake
             python
             python.pkgs.pip
             python.pkgs.virtualenv
