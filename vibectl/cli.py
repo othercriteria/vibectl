@@ -8,6 +8,9 @@ from typing import NoReturn, Optional, List
 
 import click
 from rich.console import Console
+from rich.table import Table
+
+from .config import Config
 
 console = Console()
 error_console = Console(stderr=True)
@@ -16,8 +19,18 @@ error_console = Console(stderr=True)
 def run_kubectl(args: List[str]) -> None:
     """Run kubectl with the given arguments"""
     try:
+        cmd = ["kubectl"]
+        
+        # Add kubeconfig if configured
+        cfg = Config()
+        kubeconfig = cfg.get("kubeconfig")
+        if kubeconfig:
+            cmd.extend(["--kubeconfig", kubeconfig])
+            
+        cmd.extend(args)
+        
         result = subprocess.run(
-            ["kubectl"] + args,
+            cmd,
             check=True,
             text=True,
             capture_output=True
@@ -33,24 +46,52 @@ def run_kubectl(args: List[str]) -> None:
         sys.exit(1)
 
 
-@click.group(invoke_without_command=True, context_settings={"ignore_unknown_options": True})
+@click.group()
 @click.version_option()
-@click.option("--no-vibes", is_flag=True, help="Disable vibes and proxy directly to kubectl")
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
-def cli(ctx: click.Context, no_vibes: bool, args: tuple) -> None:
+def cli() -> None:
     """vibectl - A vibes-based alternative to kubectl"""
-    ctx.ensure_object(dict)
-    ctx.obj["NO_VIBES"] = no_vibes
+    pass
 
-    if no_vibes:
-        if args:
-            run_kubectl(list(args))
-        else:
-            console.print("Usage: vibectl --no-vibes <kubectl commands>")
-            sys.exit(1)
-    elif ctx.invoked_subcommand is None:
-        ctx.invoke(vibe)
+
+@cli.command()
+@click.argument('args', nargs=-1, type=click.UNPROCESSED)
+def proxy(args: tuple) -> None:
+    """Proxy commands directly to kubectl"""
+    if not args:
+        console.print("Usage: vibectl proxy <kubectl commands>")
+        sys.exit(1)
+    run_kubectl(list(args))
+
+
+@cli.group()
+def config() -> None:
+    """Manage vibectl configuration"""
+    pass
+
+
+@config.command(name="set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a configuration value"""
+    cfg = Config()
+    cfg.set(key, value)
+    console.print(f"[green]✓[/] Set {key} to {value}")
+
+
+@config.command(name="show")
+def config_show() -> None:
+    """Show current configuration"""
+    cfg = Config()
+    
+    table = Table(title="vibectl Configuration")
+    table.add_column("Key", style="cyan")
+    table.add_column("Value", style="green")
+    
+    for key, value in cfg.show().items():
+        table.add_row(key, str(value))
+    
+    console.print(table)
 
 
 @cli.command()

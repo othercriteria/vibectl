@@ -2,6 +2,7 @@
 Tests for vibectl CLI
 """
 
+import os
 import subprocess
 from unittest.mock import patch, Mock
 
@@ -12,8 +13,16 @@ from vibectl.cli import cli
 
 
 @pytest.fixture
-def cli_runner():
+def runner():
     return CliRunner()
+
+
+@pytest.fixture
+def mock_config_dir(tmp_path, monkeypatch):
+    """Create a temporary config directory and set XDG_CONFIG_HOME"""
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    return config_dir
 
 
 def test_cli_version() -> None:
@@ -24,47 +33,74 @@ def test_cli_version() -> None:
     assert "version" in result.output.lower()
 
 
-def test_vibe_command() -> None:
-    """Test vibe command"""
-    runner = CliRunner()
-    result = runner.invoke(cli, ["vibe"])
-    assert result.exit_code == 0
-    assert "checking cluster vibes" in result.output.lower()
-
-
-def test_no_vibes_proxy_command(cli_runner):
-    """Test that --no-vibes properly proxies commands to kubectl"""
+def test_proxy_command(runner, mock_config_dir):
+    """Test that proxy properly forwards commands to kubectl with config"""
     mock_result = Mock()
     mock_result.stdout = "mock kubectl output\n"
     mock_result.stderr = ""
 
-    with patch('subprocess.run', return_value=mock_result) as mock_run:
-        result = cli_runner.invoke(cli, ['--no-vibes', 'get', 'pods'])
-        
+    # Mock the Config class to return a specific kubeconfig path
+    mock_config = Mock()
+    mock_config.get.return_value = "/test/kubeconfig"
+
+    with patch('subprocess.run', return_value=mock_result) as mock_run, \
+         patch('vibectl.cli.Config', return_value=mock_config):
+        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
+
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(
-            ['kubectl', 'get', 'pods'],
-            check=True,
-            text=True,
-            capture_output=True
-        )
-        assert "mock kubectl output" in result.output
+        mock_run.assert_called_once()
+        cmd_args = mock_run.call_args[0][0]
+        assert cmd_args == ["kubectl", "--kubeconfig", "/test/kubeconfig", "get", "pods"]
 
 
-def test_no_vibes_kubectl_not_found(cli_runner):
+def test_proxy_command_no_args(runner, mock_config_dir):
+    """Test proxy command with no arguments"""
+    result = runner.invoke(cli, ["proxy"])
+    assert result.exit_code == 1
+    assert "Usage: vibectl proxy <kubectl commands>" in result.output
+
+
+def test_proxy_kubectl_not_found(runner, mock_config_dir):
     """Test error handling when kubectl is not found"""
     with patch('subprocess.run', side_effect=FileNotFoundError()):
-        result = cli_runner.invoke(cli, ['--no-vibes', 'get', 'pods'])
+        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
         assert result.exit_code == 1
-        assert "kubectl not found in PATH" in result.output
+        assert "kubectl not found" in result.output
 
 
-def test_no_vibes_kubectl_error(cli_runner):
+def test_proxy_kubectl_error(runner, mock_config_dir):
     """Test error handling when kubectl returns an error"""
     mock_error = subprocess.CalledProcessError(1, ['kubectl'])
     mock_error.stderr = "mock kubectl error\n"
-    
+
     with patch('subprocess.run', side_effect=mock_error):
-        result = cli_runner.invoke(cli, ['--no-vibes', 'get', 'pods'])
+        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
         assert result.exit_code == 1
-        assert "mock kubectl error" in result.output
+        assert "Error:" in result.output
+
+
+def test_config_show(runner, mock_config_dir):
+    """Test config show command"""
+    result = runner.invoke(cli, ["config", "show"])
+    assert result.exit_code == 0
+    assert "vibectl Configuration" in result.output
+
+
+def test_config_set_and_show(runner, mock_config_dir):
+    """Test config set command and verify with show"""
+    # Set the config
+    result = runner.invoke(cli, ["config", "set", "kubeconfig", "/test/path"])
+    assert result.exit_code == 0
+    assert "Set kubeconfig to /test/path" in result.output
+
+    # Verify the config
+    result = runner.invoke(cli, ["config", "show"])
+    assert result.exit_code == 0
+    assert "/test/path" in result.output
+
+
+def test_vibe_command(runner, mock_config_dir):
+    """Test vibe command"""
+    result = runner.invoke(cli, ["vibe"])
+    assert result.exit_code == 0
+    assert "Checking cluster vibes" in result.output
