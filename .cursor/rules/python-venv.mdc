@@ -1,0 +1,57 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+ # Python Virtual Environment and Dependencies
+
+Prefer Python's native virtual environment and pyproject.toml-based dependency 
+management over Flake-managed Python dependencies.
+
+<rule>
+name: python_venv_deps
+description: Enforces use of venv and pyproject.toml for Python dependency management
+filters:
+  # Match Python dependency management discussions
+  - type: intent
+    pattern: "python_dependency_management"
+  # Match Python environment setup
+  - type: intent
+    pattern: "python_environment_setup"
+  # Match Flake Python package references
+  - type: content
+    pattern: "python.pkgs\\.[a-zA-Z0-9_]+\\s+"
+  # Match dependency discussions
+  - type: content
+    pattern: "(?i)\\b(dependencies|packages|requirements|pip)\\b"
+
+actions:
+  - type: guide
+    message: |
+      For Python dependency management:
+      - Use pyproject.toml for declaring all Python dependencies
+      - Keep Flake buildInputs minimal (only virtualenv, pip, setuptools, wheel)
+      - Install all project dependencies via pip within the virtualenv
+      - Use [project.dependencies] for runtime dependencies
+      - Use [project.optional-dependencies] for development dependencies
+      - Install with `pip install -e ".[dev]"` in the development shell
+
+  - type: suggest
+    message: |
+      Instead of adding Python packages to Flake buildInputs:
+      - Add runtime dependencies to pyproject.toml [project.dependencies]
+      - Add development dependencies to [project.optional-dependencies]
+      - Let pip manage versions and resolution within the virtualenv
+      - Use Flake only for creating/activating the virtualenv
+
+examples:
+  - input: "How do I add a new dependency?"
+    output: "Add it to pyproject.toml under [project.dependencies] or [project.optional-dependencies], not to flake.nix buildInputs."
+  - input: "Should I add pytest to buildInputs?"
+    output: "No, add pytest to [project.optional-dependencies] in pyproject.toml and install with pip install -e '.[dev]'"
+
+metadata:
+  priority: high
+  version: 1.0
+  applies_to: ["*.py", "pyproject.toml", "flake.nix"]
+</rule>

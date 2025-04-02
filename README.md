@@ -74,6 +74,26 @@ flake8
 mypy .
 ```
 
+### Cursor Rules
+
+This project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain 
+consistent development practices and automate common tasks. The rules system, 
+inspired by Geoffrey Huntley's [excellent blog post on building a Cursor 
+stdlib](https://ghuntley.com/stdlib/), helps enforce:
+
+- Python virtual environment usage over Flake-managed dependencies
+- Consistent rule file organization
+- Project-specific conventions
+
+Rules are stored in `.cursor/rules/` and include:
+- `python-venv.mdc`: Enforces virtual environment usage for Python dependencies
+- `rules.mdc`: Defines standards for rule file organization
+- Additional rules as needed for project automation
+
+The rules system acts as a "standard library" of development practices, helping
+maintain consistency and automating repetitive tasks. Special thanks to Geoffrey
+Huntley for sharing insights on effective Cursor rule usage.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
