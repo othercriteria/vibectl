@@ -2,9 +2,9 @@
 Command-line interface for vibectl
 """
 
-import sys
 import subprocess
-from typing import NoReturn, Optional, List
+import sys
+from typing import List, NoReturn
 
 import click
 from rich.console import Console
@@ -20,21 +20,16 @@ def run_kubectl(args: List[str]) -> None:
     """Run kubectl with the given arguments"""
     try:
         cmd = ["kubectl"]
-        
+
         # Add kubeconfig if configured
         cfg = Config()
         kubeconfig = cfg.get("kubeconfig")
         if kubeconfig:
             cmd.extend(["--kubeconfig", kubeconfig])
-            
+
         cmd.extend(args)
-        
-        result = subprocess.run(
-            cmd,
-            check=True,
-            text=True,
-            capture_output=True
-        )
+
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
         if result.stdout:
             # Disable markup and highlighting for kubectl output
             console.print(result.stdout, end="", markup=False, highlight=False)
@@ -54,7 +49,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.argument('args', nargs=-1, type=click.UNPROCESSED)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def proxy(args: tuple) -> None:
     """Proxy commands directly to kubectl"""
     if not args:
@@ -83,14 +78,14 @@ def config_set(key: str, value: str) -> None:
 def config_show() -> None:
     """Show current configuration"""
     cfg = Config()
-    
+
     table = Table(title="vibectl Configuration")
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="green")
-    
+
     for key, value in cfg.show().items():
         table.add_row(key, str(value))
-    
+
     console.print(table)
 
 

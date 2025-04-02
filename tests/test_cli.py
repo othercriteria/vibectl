@@ -2,9 +2,8 @@
 Tests for vibectl CLI
 """
 
-import os
 import subprocess
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -43,14 +42,21 @@ def test_proxy_command(runner, mock_config_dir):
     mock_config = Mock()
     mock_config.get.return_value = "/test/kubeconfig"
 
-    with patch('subprocess.run', return_value=mock_result) as mock_run, \
-         patch('vibectl.cli.Config', return_value=mock_config):
-        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
+    with patch("subprocess.run", return_value=mock_result) as mock_run, patch(
+        "vibectl.cli.Config", return_value=mock_config
+    ):
+        result = runner.invoke(cli, ["proxy", "get", "pods"])
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
         cmd_args = mock_run.call_args[0][0]
-        assert cmd_args == ["kubectl", "--kubeconfig", "/test/kubeconfig", "get", "pods"]
+        assert cmd_args == [
+            "kubectl",
+            "--kubeconfig",
+            "/test/kubeconfig",
+            "get",
+            "pods",
+        ]
 
 
 def test_proxy_command_no_args(runner, mock_config_dir):
@@ -62,19 +68,19 @@ def test_proxy_command_no_args(runner, mock_config_dir):
 
 def test_proxy_kubectl_not_found(runner, mock_config_dir):
     """Test error handling when kubectl is not found"""
-    with patch('subprocess.run', side_effect=FileNotFoundError()):
-        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
+    with patch("subprocess.run", side_effect=FileNotFoundError()):
+        result = runner.invoke(cli, ["proxy", "get", "pods"])
         assert result.exit_code == 1
         assert "kubectl not found" in result.output
 
 
 def test_proxy_kubectl_error(runner, mock_config_dir):
     """Test error handling when kubectl returns an error"""
-    mock_error = subprocess.CalledProcessError(1, ['kubectl'])
+    mock_error = subprocess.CalledProcessError(1, ["kubectl"])
     mock_error.stderr = "mock kubectl error\n"
 
-    with patch('subprocess.run', side_effect=mock_error):
-        result = runner.invoke(cli, ['proxy', 'get', 'pods'])
+    with patch("subprocess.run", side_effect=mock_error):
+        result = runner.invoke(cli, ["proxy", "get", "pods"])
         assert result.exit_code == 1
         assert "Error:" in result.output
 
