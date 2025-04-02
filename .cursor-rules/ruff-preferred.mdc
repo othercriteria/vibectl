@@ -1,0 +1,53 @@
+# Ruff Preferred
+
+Enforces the use of `ruff` as the primary Python code quality tool over alternatives.
+
+<rule>
+name: ruff_preferred
+description: Enforces ruff as the preferred Python code quality tool
+filters:
+  # Match Python code quality tool terms
+  - type: content
+    pattern: "(?i)\\b(black|isort|flake8|pylint|autopep8|pycodestyle|pep8|bandit)\\b"
+  # Match config files for other tools
+  - type: file_name
+    pattern: "^(\\.?flake8|\\.pylintrc|\\.pep8|\\.pycodestyle|\\.bandit)$"
+  # Match tool sections in pyproject.toml
+  - type: content
+    pattern: "\\[tool\\.(black|isort|flake8|pylint|autopep8|pycodestyle|pep8|bandit)\\]"
+
+actions:
+  - type: reject
+    message: |
+      Please use ruff instead of other Python code quality tools:
+      - ruff format (replaces black)
+      - ruff check (replaces flake8, pylint, etc.)
+      - ruff check --fix (replaces isort and other auto-fixers)
+
+      Ruff is significantly faster and can replace multiple tools while maintaining compatibility with their rules.
+
+  - type: suggest
+    message: |
+      To switch to ruff:
+      1. Remove other tool configurations
+      2. Add ruff to dev dependencies
+      3. Configure in pyproject.toml under [tool.ruff]
+      4. Use make targets:
+         - make format (ruff format)
+         - make lint (ruff check --fix)
+
+examples:
+  - input: "Let's add black and isort"
+    output: "We use ruff instead. It provides both formatting (ruff format) and import sorting (ruff check --fix)."
+  - input: "How do I configure flake8?"
+    output: "We use ruff instead of flake8. Add your configuration under [tool.ruff.lint] in pyproject.toml."
+
+metadata:
+  priority: high
+  version: 1.0
+  applies_to:
+    - "**/*.py"
+    - "**/pyproject.toml"
+    - "**/setup.cfg"
+    - "**/.flake8"
+</rule> 
