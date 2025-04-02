@@ -35,6 +35,13 @@ vibectl = "vibectl.cli:cli"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+include = [
+    "vibectl/**/*.py",
+    "vibectl/**/*.pyi",
+    "vibectl/py.typed",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -76,6 +83,7 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
+mypy_path = "typings"
 
 [[tool.mypy.overrides]]
 module = ["kubernetes.*"]

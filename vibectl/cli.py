@@ -7,7 +7,7 @@ import sys
 from typing import List, NoReturn, Optional
 
 import click
-import llm  # type: ignore[import-untyped]
+import llm
 from rich.console import Console
 from rich.table import Table
 
