@@ -1,6 +1,6 @@
 ---
 description: Python project setup
-globs: 
+globs:
 alwaysApply: false
 ---
  # Ruff Preferred

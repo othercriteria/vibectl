@@ -50,4 +50,4 @@ metadata:
     - "**/pyproject.toml"
     - "**/setup.cfg"
     - "**/.flake8"
-</rule> 
+</rule>

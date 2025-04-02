@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import yaml
+from yaml.error import YAMLError
 
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
@@ -33,16 +34,29 @@ class Config:
         if not self.config_file.exists():
             return DEFAULT_CONFIG.copy()
 
-        with open(self.config_file) as f:
-            loaded_config = yaml.safe_load(f) or {}
-            config = DEFAULT_CONFIG.copy()
-            config.update(loaded_config)
-            return config
+        try:
+            with open(self.config_file) as f:
+                loaded_config = yaml.safe_load(f)
+                # Handle None, non-dict, and empty dict cases
+                if not isinstance(loaded_config, dict):
+                    return DEFAULT_CONFIG.copy()
+                config = DEFAULT_CONFIG.copy()
+                config.update(loaded_config)
+                return config
+        except (YAMLError, OSError):
+            # Handle YAML parsing errors and file read errors
+            # by returning default config
+            return DEFAULT_CONFIG.copy()
 
     def save(self) -> None:
         """Save current configuration to file"""
-        with open(self.config_file, "w") as f:
-            yaml.dump(self.config, f)
+        try:
+            with open(self.config_file, "w") as f:
+                yaml.dump(self.config, f)
+        except OSError:
+            # Log error or handle it appropriately
+            # For now, we'll just let it propagate since this is a write operation
+            raise
 
     def get(self, key: str) -> Any:
         """Get a configuration value"""

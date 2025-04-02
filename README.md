@@ -1,6 +1,6 @@
 # vibectl
 
-A vibes-based alternative to kubectl for interacting with Kubernetes clusters. Make 
+A vibes-based alternative to kubectl for interacting with Kubernetes clusters. Make
 your cluster management more intuitive and fun!
 
 ## Features
@@ -76,9 +76,9 @@ mypy .
 
 ### Cursor Rules
 
-This project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain 
-consistent development practices and automate common tasks. The rules system, 
-inspired by Geoffrey Huntley's [excellent blog post on building a Cursor 
+This project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain
+consistent development practices and automate common tasks. The rules system,
+inspired by Geoffrey Huntley's [excellent blog post on building a Cursor
 stdlib](https://ghuntley.com/stdlib/), helps enforce:
 
 - Python virtual environment usage over Flake-managed dependencies
@@ -100,5 +100,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file 
-for details. 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
+for details.

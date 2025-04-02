@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test check clean install
+.PHONY: help format lint typecheck test check clean install install-dev install-pre-commit
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -11,11 +11,20 @@ help:  ## Display this help message
 install:  ## Install development dependencies
 	pip install -e ".[dev]"
 
+install-dev: install-pre-commit
+	python -m pip install -e ".[dev]"
+	python -m pip install pydantic  # Ensure pydantic is installed
+
+install-pre-commit:
+	python -m pip install pre-commit
+	pre-commit install
+
 format:  ## Format code using ruff
-	ruff format $(PYTHON_FILES)
+	pre-commit run ruff --all-files
+	pre-commit run ruff-format --all-files
 
 lint:  ## Lint and fix code using ruff
-	ruff check --fix $(PYTHON_FILES)
+	pre-commit run --all-files
 
 typecheck:  ## Run static type checking using mypy
 	mypy $(PYTHON_FILES)
@@ -35,4 +44,4 @@ clean:  ## Clean up python cache files
 	find . -type d -name "*.egg" -exec rm -rf {} +
 	find . -type d -name ".pytest_cache" -exec rm -rf {} +
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +
-	find . -type d -name ".mypy_cache" -exec rm -rf {} + 
+	find . -type d -name ".mypy_cache" -exec rm -rf {} +
