@@ -1,0 +1,72 @@
+# Autonomous Commits
+
+This rule defines when and how to autonomously commit changes to the repository.
+
+<rule>
+name: autonomous_commits
+description: Defines criteria and behavior for autonomous commits
+filters:
+  - type: intent
+    pattern: "code_change_complete"
+  - type: content
+    pattern: "(?i)\\b(commit|save|checkpoint)\\b"
+
+actions:
+  - type: commit
+    message: |
+      Commits should be made when changes represent:
+      1. A complete, self-contained unit of work
+      2. All tests are passing
+      3. Pre-commit checks pass
+      4. Changes are properly documented
+      5. No known issues or TODOs remain
+
+criteria:
+  required:
+    - All tests pass (both unit and integration if applicable)
+    - Pre-commit checks pass
+    - Changes are logically complete
+    - Documentation is updated if needed
+    - No debug/temporary code remains
+  optional:
+    - Minor formatting or style fixes can be bundled with functional changes
+    - Small related improvements can be included
+
+commit_message_format: |
+  {type}: {concise description}
+
+  {detailed description if needed}
+
+  {breaking changes if any}
+
+  {related issues/tickets}
+
+types:
+  - feat: New feature
+  - fix: Bug fix
+  - refactor: Code restructuring
+  - docs: Documentation updates
+  - test: Test additions/updates
+  - chore: Maintenance tasks
+
+examples:
+  - input: "Added new config validation with tests"
+    output: |
+      feat: add config validation with comprehensive tests
+
+      - Add YAML schema validation
+      - Add type checking for config values
+      - Add unit tests covering edge cases
+      - Update documentation with validation rules
+  - input: "Fixed YAML parsing error handling"
+    output: |
+      fix: improve YAML parsing error handling
+
+      - Add proper error catching for YAMLError
+      - Add type validation for loaded config
+      - Add tests for invalid YAML cases
+      - Ensure graceful fallback to defaults
+
+metadata:
+  priority: high
+  version: 1.0
