@@ -1,3 +1,8 @@
+---
+description:
+globs:
+alwaysApply: true
+---
 # Autonomous Commits
 
 This rule defines when and how to autonomously commit changes to the repository.

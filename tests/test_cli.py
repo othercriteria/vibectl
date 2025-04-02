@@ -10,6 +10,7 @@ import pytest
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
+from vibectl import __version__
 from vibectl.cli import cli
 
 
@@ -26,11 +27,39 @@ def mock_config_dir(tmp_path: Path, monkeypatch: MonkeyPatch) -> Path:
     return config_dir
 
 
-def test_cli_version(runner: CliRunner) -> None:
-    """Test CLI version command"""
+def test_cli_version_flag(runner: CliRunner) -> None:
+    """Test CLI --version flag"""
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
     assert "version" in result.output.lower()
+
+
+def test_version_command(runner: CliRunner) -> None:
+    """Test version command output and kubectl version handling"""
+    # Mock successful kubectl version call
+    mock_result = Mock()
+    mock_result.stdout = (
+        '{"clientVersion": {"major": "1", "minor": "27", "gitVersion": "v1.27.3"}}'
+    )
+
+    with patch("subprocess.run", return_value=mock_result) as mock_run:
+        result = runner.invoke(cli, ["version"])
+        assert result.exit_code == 0
+        assert f"vibectl version {__version__}" in result.output
+        assert "kubectl client version" in result.output
+        mock_run.assert_called_once_with(
+            ["kubectl", "version", "--client", "--output=json"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+
+    # Test handling of missing kubectl
+    with patch("subprocess.run", side_effect=FileNotFoundError()):
+        result = runner.invoke(cli, ["version"])
+        assert result.exit_code == 0
+        assert f"vibectl version {__version__}" in result.output
+        assert "kubectl version information not available" in result.output
 
 
 def test_proxy_command(runner: CliRunner, mock_config_dir: Path) -> None:
@@ -114,40 +143,20 @@ def test_vibe_command(runner: CliRunner, mock_config_dir: Path) -> None:
 
 
 def test_cli_help(runner: CliRunner) -> None:
-    # Implementation of the test_cli_help function
-    pass
+    """Test help output"""
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Commands:" in result.output
+    for command in ["config", "proxy", "version", "vibe"]:
+        assert command in result.output
 
 
-def test_cli_run_with_config(runner: CliRunner, monkeypatch: MonkeyPatch) -> None:
-    # Implementation of the test_cli_run_with_config function
-    pass
-
-
-def test_cli_run_with_invalid_config(runner: CliRunner) -> None:
-    # Implementation of the test_cli_run_with_invalid_config function
-    pass
-
-
-def test_cli_run_with_missing_config(runner: CliRunner) -> None:
-    # Implementation of the test_cli_run_with_missing_config function
-    pass
-
-
-def test_cli_run_with_env_vars(runner: CliRunner, monkeypatch: MonkeyPatch) -> None:
-    # Implementation of the test_cli_run_with_env_vars function
-    pass
-
-
-def test_cli_run_with_custom_config_path(runner: CliRunner) -> None:
-    # Implementation of the test_cli_run_with_custom_config_path function
-    pass
-
-
-def test_cli_run_with_invalid_custom_path(runner: CliRunner) -> None:
-    # Implementation of the test_cli_run_with_invalid_custom_path function
-    pass
-
-
-def test_cli_run_with_additional_args(runner: CliRunner) -> None:
-    # Implementation of the test_cli_run_with_additional_args function
-    pass
+def test_config_help(runner: CliRunner) -> None:
+    """Test config subcommand help output"""
+    result = runner.invoke(cli, ["config", "--help"])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Commands:" in result.output
+    for subcommand in ["set", "show"]:
+        assert subcommand in result.output

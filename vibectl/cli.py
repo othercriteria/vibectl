@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from . import __version__
 from .config import Config
 
 console = Console()
@@ -94,6 +95,25 @@ def vibe() -> None:
     """Check the current vibe of your cluster"""
     console.print("✨ [bold green]Checking cluster vibes...[/]")
     # TODO: Implement cluster vibe checking
+
+
+@cli.command()
+def version() -> None:
+    """Display vibectl version information"""
+    console.print(f"vibectl version [bold green]{__version__}[/]")
+
+    # Show kubectl version for reference
+    try:
+        result = subprocess.run(
+            ["kubectl", "version", "--client", "--output=json"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        console.print("\nkubectl client version:")
+        console.print_json(result.stdout)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        console.print("\n[yellow]Note:[/] kubectl version information not available")
 
 
 def main() -> NoReturn:

@@ -31,7 +31,23 @@ The development environment will automatically:
 
 ## Usage
 
-Coming soon!
+Basic commands:
+
+```zsh
+# Display version information
+vibectl version
+
+# Show configuration
+vibectl config show
+
+# Set configuration values
+vibectl config set <key> <value>
+
+# Pass commands directly to kubectl
+vibectl proxy <kubectl-commands>
+```
+
+More commands coming soon!
 
 ## Development
 
