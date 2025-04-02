@@ -1,7 +1,6 @@
 ---
 description: Cursor Rules Location
 globs: *.mdc
-alwaysApply: false
 ---
 # Cursor Rules Location
 
@@ -20,6 +19,9 @@ filters:
   # Match file creation events
   - type: event
     pattern: "file_create"
+  # Match directory creation for rules
+  - type: content
+    pattern: "(?i)\\b(rules?|cursor.*rules?)\\b.*\\bdirectory\\b"
 
 actions:
   - type: reject
@@ -27,11 +29,16 @@ actions:
       - pattern: "^(?!\\.\\/\\.cursor\\/rules\\/.*\\.mdc$)"
         message: "Cursor rule files (.mdc) must be placed in the .cursor/rules directory"
 
-  - type: suggest
+  - type: guide
     message: |
       When creating Cursor rules:
 
-      1. Always place rule files in PROJECT_ROOT/.cursor/rules/:
+      1. First ensure the .cursor/rules directory exists:
+         ```zsh
+         mkdir -p .cursor/rules
+         ```
+
+      2. Always place rule files directly in .cursor/rules/:
          ```
          .cursor/rules/
          ├── your-rule-name.mdc
@@ -39,12 +46,12 @@ actions:
          └── ...
          ```
 
-      2. Follow the naming convention:
-         - Use kebab-case for filenames
+      3. Follow the naming convention:
+         - Use kebab-case for filenames (e.g., python-venv.mdc)
          - Always use .mdc extension
          - Make names descriptive of the rule's purpose
 
-      3. Directory structure:
+      4. Directory structure must be exactly:
          ```
          PROJECT_ROOT/
          ├── .cursor/
@@ -54,23 +61,36 @@ actions:
          └── ...
          ```
 
-      4. Never place rule files:
-         - In the project root
-         - In subdirectories outside .cursor/rules
-         - In any other location
+      5. Never create or place rule files in:
+         - The project root
+         - A 'rules' directory in the project root
+         - Subdirectories outside .cursor/rules
+         - Subdirectories inside .cursor/rules
+         - Any other location
 
 examples:
   - input: |
-      # Bad: Rule file in wrong location
-      rules/my-rule.mdc
-      my-rule.mdc
-      .rules/my-rule.mdc
+      # Bad: Wrong locations
+      rules/my-rule.mdc                    # Wrong: directory in project root
+      my-rule.mdc                          # Wrong: in project root
+      .rules/my-rule.mdc                   # Wrong: wrong directory name
+      .cursor/my-rule.mdc                  # Wrong: not in rules subdirectory
+      .cursor/rules/subdirectory/rule.mdc  # Wrong: no subdirectories allowed
 
-      # Good: Rule file in correct location
-      .cursor/rules/my-rule.mdc
-    output: "Correctly placed Cursor rule file"
+      # Good: Correct location
+      .cursor/rules/my-rule.mdc            # Correct: directly in .cursor/rules
+    output: "Place all rule files directly in .cursor/rules/"
+
+  - input: "Where should I create a new rule for Python standards?"
+    output: "Create it at .cursor/rules/python-standards.mdc"
+
+  - input: "Do I need to create the rules directory first?"
+    output: "Yes, run 'mkdir -p .cursor/rules' before creating any rule files"
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
+  changelog:
+    - 1.1: Added explicit directory creation guidance and more examples
+    - 1.0: Initial version
 </rule>
