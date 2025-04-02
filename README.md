@@ -57,6 +57,11 @@ vibectl get pods
 vibectl get deployments -n kube-system
 vibectl get pods --raw  # Show raw kubectl output too
 
+# Describe resources with concise summaries
+vibectl describe pod my-pod
+vibectl describe deployment my-deployment -n kube-system
+vibectl describe pod my-pod --raw  # Show raw kubectl output too
+
 # Pass commands directly to kubectl
 vibectl proxy <kubectl-commands>
 ```
@@ -78,7 +83,8 @@ vibectl config set show_raw_output true
 
 ### Output Formatting
 
-The `get` command provides AI-powered summaries using rich text formatting:
+The `get` and `describe` commands provide AI-powered summaries using rich text
+formatting:
 - Resource names and counts in **bold**
 - Healthy/good status in green
 - Warnings in yellow

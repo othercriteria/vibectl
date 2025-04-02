@@ -1,26 +1,53 @@
 """
-Prompt templates for LLM interactions
+Prompt templates for LLM interactions with kubectl output.
+
+Each template follows a consistent format using rich.Console() markup for styling,
+ensuring clear and visually meaningful summaries of Kubernetes resources.
 """
 
-GET_RESOURCE_PROMPT = """Summarize this kubectl output focusing on key information,
-notable patterns, and potential issues.
-
-Be direct and concise - skip any introductory phrases like "This output shows"
-or "I can see".
-
-Format your response using rich.Console() markup syntax with matched closing tags:
-- [bold]resource names and counts[/bold] for emphasis
-- [green]healthy/good status[/green] for positive states
+# Common formatting instructions for all prompts
+FORMATTING_INSTRUCTIONS = """Format your response using rich.Console() markup syntax
+with matched closing tags:
+- [bold]resource names and key fields[/bold] for emphasis
+- [green]healthy states[/green] for positive states
 - [yellow]warnings or potential issues[/yellow] for concerning states
 - [red]errors or critical issues[/red] for problems
 - [blue]namespaces and other Kubernetes concepts[/blue] for k8s terms
-- [italic]additional context or timing information[/italic] for metadata
+- [italic]timestamps and metadata[/italic] for timing information
+
+Important:
+- Do NOT use markdown formatting (e.g., #, ##, *, -)
+- Use plain text with rich.Console() markup only
+- Skip any introductory phrases like "This output shows" or "I can see"
+- Be direct and concise"""
+
+# Template for summarizing 'kubectl get' output
+GET_RESOURCE_PROMPT = f"""Summarize this kubectl output focusing on key information,
+notable patterns, and potential issues.
+
+{FORMATTING_INSTRUCTIONS}
 
 Example format:
-[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green].
-[bold]nginx-pod[/bold] [italic]running for 2 days[/italic].
-[yellow]Warning: 2 pods have high restart counts[/yellow].
+[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]
+[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
+[yellow]Warning: 2 pods have high restart counts[/yellow]
 
 Here's the output:
 
-{output}"""
+{{output}}"""
+
+# Template for summarizing 'kubectl describe' output
+DESCRIBE_RESOURCE_PROMPT = f"""Summarize this kubectl describe output.
+Focus only on the most important details and any issues that need attention.
+Keep the response under 200 words.
+
+{FORMATTING_INSTRUCTIONS}
+
+Example format:
+[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green]
+[yellow]Readiness probe failing[/yellow], [italic]last restart 2h ago[/italic]
+[red]OOMKilled 3 times in past day[/red]
+
+Here's the output:
+
+{{output}}"""
