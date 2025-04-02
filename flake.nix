@@ -37,6 +37,9 @@
             echo "Installing development dependencies..."
             pip install -e ".[dev]"
 
+            # Install Anthropic models for `llm`
+            llm install llm-anthropic
+
             echo "Welcome to vibectl development environment!"
             echo "Python version: $(python --version)"
             echo "Virtual environment: $(which python)"

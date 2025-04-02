@@ -4,20 +4,22 @@ Command-line interface for vibectl
 
 import subprocess
 import sys
-from typing import List, NoReturn
+from typing import List, NoReturn, Optional
 
 import click
+import llm  # type: ignore[import-untyped]
 from rich.console import Console
 from rich.table import Table
 
 from . import __version__
 from .config import Config
+from .prompt import GET_RESOURCE_PROMPT
 
 console = Console()
 error_console = Console(stderr=True)
 
 
-def run_kubectl(args: List[str]) -> None:
+def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
     """Run kubectl with the given arguments"""
     try:
         cmd = ["kubectl"]
@@ -28,12 +30,16 @@ def run_kubectl(args: List[str]) -> None:
         if kubeconfig:
             cmd.extend(["--kubeconfig", kubeconfig])
 
-        cmd.extend(args)
+        # Ensure all arguments are strings
+        cmd.extend(str(arg) for arg in args)
 
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
         if result.stdout:
+            if capture:
+                return result.stdout
             # Disable markup and highlighting for kubectl output
             console.print(result.stdout, end="", markup=False, highlight=False)
+        return None
     except subprocess.CalledProcessError as e:
         error_console.print(f"[bold red]Error:[/] {e.stderr}")
         sys.exit(1)
@@ -47,6 +53,51 @@ def run_kubectl(args: List[str]) -> None:
 def cli() -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     pass
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource")
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw", is_flag=True, help="Show raw kubectl output")
+def get(resource: str, args: tuple, raw: bool) -> None:
+    """Get Kubernetes resources with a vibe-based summary"""
+    # Get the configured model
+    cfg = Config()
+    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
+    show_raw = raw or cfg.get("show_raw_output")
+
+    # Run kubectl get and capture the output
+    cmd = ["get", resource]
+    if args:
+        # Convert tuple to list and ensure all items are strings
+        args_list = [str(arg) for arg in args]
+        cmd.extend(args_list)
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+
+    # Print the raw output if requested
+    if show_raw:
+        console.print(output, markup=False, highlight=False)
+        console.print()  # Add a blank line for readability
+
+    # Use LLM to summarize
+    try:
+        model = llm.get_model(model_name)
+        prompt = GET_RESOURCE_PROMPT.format(output=output)
+        response = model.prompt(prompt)
+        summary = response.text() if hasattr(response, "text") else str(response)
+        if show_raw:
+            console.print("[bold green]✨ Vibe check:[/bold green]")
+        console.print(summary, markup=True, highlight=False)
+    except Exception as e:
+        # Always show raw output when LLM fails
+        if not show_raw:
+            console.print(output, markup=False, highlight=False)
+            console.print()  # Add a blank line for readability
+        error_console.print(
+            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+        )
 
 
 @cli.command()

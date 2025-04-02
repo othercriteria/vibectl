@@ -9,6 +9,7 @@ your cluster management more intuitive and fun!
 - 🚀 Intuitive commands that just feel right
 - 🎯 Simplified cluster management
 - 🔍 Smart context awareness
+- ✨ AI-powered summaries of cluster state
 
 ## Installation
 
@@ -22,6 +23,14 @@ your cluster management more intuitive and fun!
 4. Set up the development environment:
    ```zsh
    flake develop
+   ```
+5. Install the Anthropic LLM provider:
+   ```zsh
+   llm install llm-anthropic
+   ```
+6. Configure your Anthropic API key:
+   ```zsh
+   export ANTHROPIC_API_KEY=your-api-key
    ```
 
 The development environment will automatically:
@@ -43,11 +52,80 @@ vibectl config show
 # Set configuration values
 vibectl config set <key> <value>
 
+# Get resources with AI-powered summaries
+vibectl get pods
+vibectl get deployments -n kube-system
+vibectl get pods --raw  # Show raw kubectl output too
+
 # Pass commands directly to kubectl
 vibectl proxy <kubectl-commands>
 ```
 
+### Configuration
+
+You can customize vibectl's behavior with these configuration options:
+
+```zsh
+# Set a custom kubeconfig file
+vibectl config set kubeconfig /path/to/kubeconfig
+
+# Use a different LLM model (default: claude-3.7-sonnet)
+vibectl config set llm_model your-preferred-model
+
+# Always show raw kubectl output along with summaries
+vibectl config set show_raw_output true
+```
+
+### Output Formatting
+
+The `get` command provides AI-powered summaries using rich text formatting:
+- Resource names and counts in **bold**
+- Healthy/good status in green
+- Warnings in yellow
+- Errors in red
+- Kubernetes concepts (namespaces, etc.) in blue
+- Timing information in *italics*
+
+Example:
+```
+[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green].
+[bold]nginx-pod[/bold] [italic]running for 2 days[/italic].
+[yellow]Warning: 2 pods have high restart counts[/yellow].
+```
+
 More commands coming soon!
+
+## Project Structure
+
+```
+vibectl/                 # Root directory
+├── .cursor/            # Cursor rules and configuration
+│   └── rules/         # Cursor rule files (.mdc)
+├── vibectl/           # Main package directory
+│   ├── __init__.py   # Package initialization
+│   ├── cli.py        # Command-line interface implementation
+│   └── config.py     # Configuration management
+├── tests/            # Test directory
+│   ├── test_cli.py   # CLI tests
+│   ├── test_config.py # Configuration tests
+│   └── test_get.py   # Get command tests
+├── flake.nix         # Nix flake configuration
+├── flake.lock        # Nix flake lockfile
+├── pyproject.toml    # Python project configuration and dependencies
+├── .pre-commit-config.yaml # Pre-commit hooks configuration
+├── Makefile          # Development automation
+├── LICENSE           # MIT License
+└── README.md         # This file
+```
+
+### Key Components
+
+- **cli.py**: Implements the command-line interface and kubectl interactions
+- **config.py**: Manages configuration storage and retrieval
+- **tests/**: Contains pytest test files for each module
+- **pyproject.toml**: Defines project metadata, dependencies, and tool configurations
+- **.cursor/rules/**: Contains Cursor rules for development practices
+- **flake.nix**: Defines the development environment
 
 ## Development
 
