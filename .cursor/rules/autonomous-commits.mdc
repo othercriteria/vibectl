@@ -19,13 +19,15 @@ filters:
 
 actions:
   - type: commit
-    message: |
-      Commits should be made when changes represent:
-      1. A complete, self-contained unit of work
-      2. All tests are passing
-      3. Pre-commit checks pass
-      4. Changes are properly documented
-      5. No known issues or TODOs remain
+    command: |
+      git commit \
+        -m "{type}: {concise description}" \
+        -m "{detailed description if needed}" \
+        -m "" \
+        -m "Breaking Changes:" \
+        -m "{breaking changes if any}" \
+        -m "" \
+        -m "Related Issues: {related issues/tickets}"
 
 criteria:
   required:
@@ -59,24 +61,24 @@ types:
 examples:
   - input: "Added new config validation with tests"
     output: |
-      feat: add config validation with comprehensive tests
-
-      Add YAML schema validation, type checking, unit tests for edge cases, updated docs
-
-      Breaking Changes:
-      None
-
-      Related Issues: #123
+      git commit \
+        -m "feat: add config validation with comprehensive tests" \
+        -m "Add YAML schema validation, type checking, unit tests for edge cases, updated docs" \
+        -m "" \
+        -m "Breaking Changes:" \
+        -m "None" \
+        -m "" \
+        -m "Related Issues: #123"
   - input: "Fixed YAML parsing error handling"
     output: |
-      fix: improve YAML parsing error handling
-
-      Add error catching for YAMLError, type validation, tests for invalid cases
-
-      Breaking Changes:
-      None
-
-      Related Issues: #456
+      git commit \
+        -m "fix: improve YAML parsing error handling" \
+        -m "Add error catching for YAMLError, type validation, tests for invalid cases" \
+        -m "" \
+        -m "Breaking Changes:" \
+        -m "None" \
+        -m "" \
+        -m "Related Issues: #456"
 
 metadata:
   priority: high
