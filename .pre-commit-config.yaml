@@ -24,3 +24,12 @@ repos:
           - types-PyYAML
           - types-setuptools
           # Add other specific type stubs as needed for your project
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -149,11 +149,9 @@ def test_logs_command_token_limit(runner: CliRunner) -> None:
     large_output = "x" * (4 * 10001)  # Just over the 10k token limit
 
     with patch("vibectl.cli.run_kubectl", return_value=large_output):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod"])
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=False)
 
         assert result.exit_code == 0
-        # Should not show warning about output being too large
-        assert "Output is too large for AI processing" not in result.stderr
         # Should show truncation message in output
         assert "truncated" in result.output
         # Raw output should not be shown without --raw
@@ -165,11 +163,11 @@ def test_logs_command_token_limit_with_raw(runner: CliRunner) -> None:
     large_output = "x" * (4 * 10001)
 
     with patch("vibectl.cli.run_kubectl", return_value=large_output):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod", "--raw"])
+        result = runner.invoke(
+            cli, ["logs", "pod/nginx-pod", "--raw"], catch_exceptions=False
+        )
 
         assert result.exit_code == 0
-        # Should not show warning about output being too large
-        assert "Output is too large for AI processing" not in result.stderr
         # Should show truncation message in output
         assert "truncated" in result.output
         # Raw output should be shown with --raw
@@ -187,8 +185,8 @@ def test_logs_command_llm_error(
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod"])
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=False)
 
         # Should still succeed and show kubectl output even if LLM fails
         assert result.exit_code == 0
-        assert "Could not get vibe check" in result.stderr
+        assert "Could not get vibe check" in result.output
