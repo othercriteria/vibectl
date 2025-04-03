@@ -23,6 +23,20 @@ filters:
 actions:
   - type: commit
     command: |
+      # Check if STRUCTURE.md needs updating
+      CHANGED_FILES=$(git diff --cached --name-only)
+      NEEDS_STRUCTURE_UPDATE=false
+
+      # Check for structural changes that would require STRUCTURE.md updates
+      echo "$CHANGED_FILES" | grep -qE '^(\.cursor/rules/.*\.mdc|.*\.py|pyproject\.toml|Makefile|flake\.nix)$' && NEEDS_STRUCTURE_UPDATE=true
+
+      # If structural changes detected but STRUCTURE.md not modified
+      if [ "$NEEDS_STRUCTURE_UPDATE" = true ] && ! echo "$CHANGED_FILES" | grep -q '^STRUCTURE\.md$'; then
+        echo "Error: Structural changes detected but STRUCTURE.md not updated."
+        echo "Please review and update STRUCTURE.md to reflect the changes."
+        exit 1
+      fi
+
       # Process all parts to handle newlines
       DESCRIPTION=$(echo -e "{detailed description if needed}")
       CONCISE=$(echo -e "{type}: {concise description}")
@@ -65,6 +79,7 @@ criteria:
     - Pre-commit checks pass (NEVER disable or bypass these)
     - Changes are logically complete
     - Documentation is updated if needed
+    - STRUCTURE.md is up-to-date with any structural changes
     - No debug/temporary code remains
     - All linting and formatting issues are resolved
   optional:

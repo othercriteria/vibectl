@@ -114,18 +114,10 @@ vibectl logs vibe what's happening in the api pods
 
 ## Project Structure
 
-```
-vibectl/                 # Root directory
-├── .cursor/            # Cursor rules and configuration
-│   └── rules/         # Cursor rule files (.mdc)
-├── vibectl/           # Main package directory
-│   ├── cli.py        # Command-line interface
-│   ├── config.py     # Configuration management
-│   └── prompt.py     # LLM prompt templates
-├── tests/            # Test directory
-├── flake.nix         # Development environment
-└── README.md         # This file
-```
+For a comprehensive overview of the project's structure and organization, please see
+[STRUCTURE.md](STRUCTURE.md). This documentation is maintained according to our
+[project structure rules](.cursor/rules/project-structure.mdc) to ensure it stays
+up-to-date and accurate.
 
 ## Development
 
