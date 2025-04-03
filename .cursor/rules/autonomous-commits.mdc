@@ -23,6 +23,15 @@ filters:
 actions:
   - type: commit
     command: |
+      # Check for untracked .mdc files in .cursor/rules
+      UNTRACKED_RULES=$(git ls-files --others --exclude-standard .cursor/rules/*.mdc)
+      if [ -n "$UNTRACKED_RULES" ]; then
+        echo "Error: Found untracked rule files:"
+        echo "$UNTRACKED_RULES"
+        echo "Please add these files to git before committing."
+        exit 1
+      fi
+
       # Check if STRUCTURE.md needs updating
       CHANGED_FILES=$(git diff --cached --name-only)
       NEEDS_STRUCTURE_UPDATE=false
@@ -80,6 +89,7 @@ criteria:
     - Changes are logically complete
     - Documentation is updated if needed
     - STRUCTURE.md is up-to-date with any structural changes
+    - All Cursor rule files (.mdc) are tracked in git
     - No debug/temporary code remains
     - All linting and formatting issues are resolved
   optional:

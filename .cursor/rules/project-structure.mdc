@@ -1,0 +1,66 @@
+# Project Structure Documentation
+
+This rule defines requirements for maintaining project structure documentation and where to
+find information about the project's organization.
+
+<rule>
+name: project_structure
+description: Standards for maintaining project structure documentation
+filters:
+  # Match STRUCTURE.md file
+  - type: file
+    pattern: "STRUCTURE\\.md$"
+  # Match queries about project structure
+  - type: intent
+    pattern: "(?i)\\b(structure|organization|layout|architecture)\\b"
+
+actions:
+  - type: suggest
+    message: |
+      Project structure must be documented in STRUCTURE.md at the project root.
+      The file should include:
+
+      1. High-level overview of project organization
+      2. Key directories and their purposes
+      3. Important file locations and their roles
+      4. Dependencies between components
+      5. Configuration file locations
+      6. Build/deployment artifact locations
+
+      Update STRUCTURE.md when:
+      - Adding new directories
+      - Moving significant files
+      - Changing build organization
+      - Modifying deployment structure
+      - Adding new components
+
+  - type: reject
+    conditions:
+      - pattern: "^(?!.*STRUCTURE\\.md$)"
+        message: "Project structure documentation must be in STRUCTURE.md"
+
+criteria:
+  required:
+    - STRUCTURE.md exists in project root
+    - File is up-to-date with current project structure
+    - All major components are documented
+    - Directory purposes are clearly explained
+    - Key file locations are listed
+  optional:
+    - Diagrams or visual representations
+    - Build/deployment flow documentation
+    - Component dependency graphs
+
+examples:
+  - input: "Where should I put my new service component?"
+    output: |
+      Please check STRUCTURE.md for guidelines on component placement.
+      Update STRUCTURE.md after adding your new service.
+
+  - input: "What's the project layout?"
+    output: |
+      Refer to STRUCTURE.md for a comprehensive overview of the project structure.
+
+metadata:
+  priority: high
+  version: 1.0
