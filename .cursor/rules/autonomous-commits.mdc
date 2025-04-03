@@ -23,14 +23,28 @@ filters:
 actions:
   - type: commit
     command: |
+      # Convert literal \n to actual newlines in detailed description
+      DESCRIPTION=$(echo -e "{detailed description if needed}")
+
+      # Only add breaking changes section if there are breaking changes
+      if [ -n "{breaking changes if any}" ] && [ "{breaking changes if any}" != "None" ]; then
+        BREAKING_CHANGES="-m \"\" -m \"Breaking Changes:\" -m \"{breaking changes if any}\""
+      else
+        BREAKING_CHANGES=""
+      fi
+
+      # Only add related issues section if there are related issues
+      if [ -n "{related issues/tickets}" ] && [ "{related issues/tickets}" != "None" ]; then
+        RELATED_ISSUES="-m \"\" -m \"Related Issues: {related issues/tickets}\""
+      else
+        RELATED_ISSUES=""
+      fi
+
       git commit \
         -m "{type}: {concise description}" \
-        -m "{detailed description if needed}" \
-        -m "" \
-        -m "Breaking Changes:" \
-        -m "{breaking changes if any}" \
-        -m "" \
-        -m "Related Issues: {related issues/tickets}"
+        -m "$DESCRIPTION" \
+        $BREAKING_CHANGES \
+        $RELATED_ISSUES
 
   - type: reject
     conditions:
@@ -77,22 +91,19 @@ examples:
     output: |
       git commit \
         -m "feat: add config validation with comprehensive tests" \
-        -m "Add YAML schema validation, type checking, unit tests for edge cases, updated docs" \
-        -m "" \
-        -m "Breaking Changes:" \
-        -m "None" \
-        -m "" \
-        -m "Related Issues: #123"
-  - input: "Fixed YAML parsing error handling"
+        -m "Add YAML schema validation, type checking, unit tests for edge cases, updated docs"
+
+  - input: "Fixed YAML parsing error handling with breaking changes"
     output: |
       git commit \
         -m "fix: improve YAML parsing error handling" \
-        -m "Add error catching for YAMLError, type validation, tests for invalid cases" \
+        -m "Add error catching for YAMLError\nAdd type validation\nAdd tests for invalid cases" \
         -m "" \
         -m "Breaking Changes:" \
-        -m "None" \
+        -m "- Changed error return type from string to structured Error object" \
         -m "" \
         -m "Related Issues: #456"
+
   - input: "SKIP=pre-commit git commit -m 'fix: bypass hooks'"
     output: |
       Error: Disabling pre-commit hooks is not allowed.
