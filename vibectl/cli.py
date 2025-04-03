@@ -6,6 +6,7 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
+import json
 import subprocess
 import sys
 from typing import List, NoReturn, Optional
@@ -199,24 +200,85 @@ def vibe() -> None:
 
 @cli.command()
 def version() -> None:
-    """Display vibectl version information.
+    """Display version information for client and server components.
 
-    Shows both vibectl version and kubectl client version for reference.
+    Shows version information for:
+    - vibectl client version
+    - kubectl client version
+    - Kubernetes server version (if available)
+    - Additional components like Kustomize
     """
-    console.print(f"vibectl version [bold green]{__version__}[/]")
+    # Show vibectl client version
+    console.print(f"Client Version:")
+    console.print(f"  vibectl Version: [bold green]{__version__}[/]")
 
-    # Show kubectl version for reference
+    # Get kubectl version info
     try:
         result = subprocess.run(
-            ["kubectl", "version", "--client", "--output=json"],
+            ["kubectl", "version", "--output=json"],
             check=True,
             text=True,
             capture_output=True,
         )
-        console.print("\nkubectl client version:")
-        console.print_json(result.stdout)
+        version_info = json.loads(result.stdout)
+        
+        # Print kubectl client version
+        if "clientVersion" in version_info:
+            client = version_info["clientVersion"]
+            major = client.get('major', '0')
+            minor = client.get('minor', '0')
+            version_str = f"v{major}.{minor}"
+            console.print(f"  kubectl Version: {version_str}")
+            if "kustomizeVersion" in version_info:
+                kustomize_ver = version_info["kustomizeVersion"]
+                console.print(f"  Kustomize Version: {kustomize_ver}")
+        
+        # Print server version if available
+        if "serverVersion" in version_info:
+            console.print("\nServer Version:")
+            server = version_info["serverVersion"]
+            git_version = server.get('gitVersion', 'unknown')
+            major = server.get('major', '0')
+            minor = server.get('minor', '0')
+            version_str = f"v{major}.{minor} ({git_version})"
+            console.print(f"  Version: {version_str}")
+            platform = server.get('platform', 'unknown')
+            go_version = server.get('goVersion', 'unknown')
+            console.print(f"  Platform: {platform}")
+            console.print(f"  Go Version: {go_version}")
+
+    except json.JSONDecodeError:
+        # Handle older kubectl versions that don't support JSON output
+        try:
+            result = subprocess.run(
+                ["kubectl", "version"],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            # Split output into client and server sections
+            lines = result.stdout.splitlines()
+            for line in lines:
+                if line.startswith("Client Version:"):
+                    console.print(f"  kubectl {line}")
+                elif line.startswith("Kustomize Version:"):
+                    console.print(f"  {line}")
+                elif line.startswith("Server Version:"):
+                    console.print("\nServer Version:")
+                    server_ver = line.replace('Server Version: ', '')
+                    console.print(f"  {server_ver}")
+        except subprocess.CalledProcessError:
+            pass
+
     except (subprocess.CalledProcessError, FileNotFoundError):
-        console.print("\n[yellow]Note:[/] kubectl version information not available")
+        msg = "\n[yellow]Note:[/yellow] kubectl version information not available"
+        error_console.print(msg)
+    except Exception as e:
+        msg = (
+            f"\n[yellow]Note:[/yellow] Error getting version information: "
+            f"[red]{e}[/red]"
+        )
+        error_console.print(msg)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -333,15 +395,12 @@ def logs(resource: str, args: tuple, raw: bool) -> None:
     if not output:
         return
 
-    # Print the raw output if requested
-    if show_raw:
-        # Write raw output without any processing
-        console.file.write(output)
-        console.print()  # Add a blank line for readability
-
     # Check token count and handle large outputs
     output_len = len(output)
     token_estimate = output_len / 4
+    truncated = False
+    llm_output = output
+
     if token_estimate > MAX_TOKEN_LIMIT:
         # For large outputs, take first and last third
         chunk_size = int(
@@ -352,7 +411,17 @@ def logs(resource: str, args: tuple, raw: bool) -> None:
             f"[...truncated {output_len - 2*chunk_size} characters...]\n"
             f"{output[-chunk_size:]}"
         )
-        output = truncated_output
+        llm_output = truncated_output
+        truncated = True
+
+    # Print the raw output if requested
+    if show_raw:
+        # Write raw output without any processing
+        console.file.write(output)
+        if truncated:
+            msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
+            console.print(msg)
+        console.print()  # Add a blank line for readability
 
     # Use LLM to summarize with progress indicator
     try:
@@ -364,7 +433,7 @@ def logs(resource: str, args: tuple, raw: bool) -> None:
         ) as progress:
             progress.add_task("summarize", total=None)
             model = llm.get_model(model_name)
-            prompt = LOGS_PROMPT.format(output=output)
+            prompt = LOGS_PROMPT.format(output=llm_output)
             response = model.prompt(prompt)
             summary = response.text() if hasattr(response, "text") else str(response)
 
@@ -376,6 +445,9 @@ def logs(resource: str, args: tuple, raw: bool) -> None:
         if not show_raw:
             # Write raw output without any processing
             console.file.write(output)
+            if truncated:
+                msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
+                console.print(msg)
             console.print()  # Add a blank line for readability
         error_console.print(
             f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"

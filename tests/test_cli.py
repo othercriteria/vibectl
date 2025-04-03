@@ -5,6 +5,7 @@ Tests for vibectl CLI
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
+import json
 
 import pytest
 from click.testing import CliRunner
@@ -36,30 +37,73 @@ def test_cli_version_flag(runner: CliRunner) -> None:
 
 def test_version_command(runner: CliRunner) -> None:
     """Test version command output and kubectl version handling"""
-    # Mock successful kubectl version call
+    # Mock successful kubectl version call with JSON output
     mock_result = Mock()
     mock_result.stdout = (
-        '{"clientVersion": {"major": "1", "minor": "27", "gitVersion": "v1.27.3"}}'
+        '{'
+        '"clientVersion": {'
+        '"major": "1", "minor": "27", "gitVersion": "v1.27.3"'
+        '}, '
+        '"kustomizeVersion": "v5.0.1", '
+        '"serverVersion": {'
+        '"major": "1", "minor": "27", "gitVersion": "v1.27.3", '
+        '"platform": "linux/amd64", "goVersion": "go1.20.3"'
+        '}'
+        '}'
     )
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         result = runner.invoke(cli, ["version"])
         assert result.exit_code == 0
-        assert f"vibectl version {__version__}" in result.output
-        assert "kubectl client version" in result.output
+        assert "Client Version:" in result.output
+        assert f"vibectl Version: {__version__}" in result.output
+        assert "kubectl Version: v1.27" in result.output
+        assert "Kustomize Version: v5.0.1" in result.output
+        assert "Server Version:" in result.output
+        assert "Version: v1.27 (v1.27.3)" in result.output
+        assert "Platform: linux/amd64" in result.output
+        assert "Go Version: go1.20.3" in result.output
         mock_run.assert_called_once_with(
-            ["kubectl", "version", "--client", "--output=json"],
+            ["kubectl", "version", "--output=json"],
             check=True,
             text=True,
             capture_output=True,
         )
 
+    # Test handling of older kubectl version without JSON support
+    mock_result.stdout = (
+        "Client Version: v1.27.3\n"
+        "Kustomize Version: v5.0.1\n"
+        "Server Version: v1.27.3"
+    )
+    with patch(
+        "subprocess.run",
+        side_effect=[json.JSONDecodeError("", "", 0), mock_result]
+    ):
+        result = runner.invoke(cli, ["version"])
+        assert result.exit_code == 0
+        assert "Client Version:" in result.output
+        assert f"vibectl Version: {__version__}" in result.output
+        assert "kubectl Client Version: v1.27.3" in result.output
+        assert "Kustomize Version: v5.0.1" in result.output
+        assert "Server Version:" in result.output
+        assert "v1.27.3" in result.output
+
     # Test handling of missing kubectl
     with patch("subprocess.run", side_effect=FileNotFoundError()):
         result = runner.invoke(cli, ["version"])
         assert result.exit_code == 0
-        assert f"vibectl version {__version__}" in result.output
+        assert "Client Version:" in result.output
+        assert f"vibectl Version: {__version__}" in result.output
         assert "kubectl version information not available" in result.output
+
+    # Test handling of general error
+    with patch("subprocess.run", side_effect=Exception("test error")):
+        result = runner.invoke(cli, ["version"])
+        assert result.exit_code == 0
+        assert "Client Version:" in result.output
+        assert f"vibectl Version: {__version__}" in result.output
+        assert "Error getting version information: test error" in result.output
 
 
 def test_just_command(runner: CliRunner, mock_config_dir: Path) -> None:
