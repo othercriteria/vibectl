@@ -14,72 +14,53 @@ your cluster management more intuitive and fun!
 
 ## Installation
 
-1. Make sure you have [Python](https://python.org) 3.8+ installed
-2. Install [Flake](https://flake.build)
-3. Clone this repository:
+1. Install [Flake](https://flake.build)
+2. Clone and set up:
    ```zsh
    git clone https://github.com/yourusername/vibectl.git
    cd vibectl
-   ```
-4. Set up the development environment:
-   ```zsh
    flake develop
    ```
-5. Install the Anthropic LLM provider:
-   ```zsh
-   llm install llm-anthropic
-   ```
-6. Configure your Anthropic API key:
+3. Configure your Anthropic API key:
    ```zsh
    export ANTHROPIC_API_KEY=your-api-key
    ```
 
 The development environment will automatically:
-- Create a virtual environment in `.venv` if it doesn't exist
-- Activate the virtual environment
-- Install the package in development mode with all dev dependencies
+- Create and activate a Python virtual environment
+- Install all dependencies including development tools
+- Set up the Anthropic LLM provider
 
 ## Usage
 
-Basic commands:
+Basic commands with AI-powered summaries:
 
 ```zsh
-# Display version information
+# Display version and configuration
 vibectl version
-
-# Show configuration
 vibectl config show
 
-# Set configuration values
-vibectl config set <key> <value>
+# Get resources
+vibectl get pods                                    # List pods with summary
+vibectl get vibe show me pods with high restarts   # Natural language query
 
-# Get resources with AI-powered summaries
-vibectl get pods
-vibectl get deployments -n kube-system
-vibectl get pods --raw  # Show raw kubectl output too
+# Create resources
+vibectl create -f manifest.yaml                     # Create from file
+vibectl create vibe an nginx pod with 3 replicas   # Natural language creation
 
-# Get resources using natural language
-vibectl get vibe i know i have some pods that belong to the nginx app
-vibectl get vibe show me all pods in every namespace
-vibectl get vibe find pods with high restart counts
+# Describe resources
+vibectl describe deployment my-app                  # Get detailed info
+vibectl describe vibe tell me about the nginx pods  # Natural language query
 
-# Describe resources with concise summaries
-vibectl describe pod my-pod
-vibectl describe deployment my-deployment -n kube-system
-vibectl describe pod my-pod --raw  # Show raw kubectl output too
+# View logs
+vibectl logs pod/my-pod                            # Get pod logs
+vibectl logs vibe show errors from frontend pods   # Natural language query
 
-# Get container logs with smart summaries
-vibectl logs pod/my-pod
-vibectl logs deployment/my-deployment -n kube-system
-vibectl logs pod/my-pod -c my-container --raw  # Show raw logs too
-
-# Pass commands directly to kubectl
-vibectl just <kubectl-commands>
+# Direct kubectl access
+vibectl just get pods                              # Pass directly to kubectl
 ```
 
 ### Configuration
-
-You can customize vibectl's behavior with these configuration options:
 
 ```zsh
 # Set a custom kubeconfig file
@@ -88,57 +69,48 @@ vibectl config set kubeconfig /path/to/kubeconfig
 # Use a different LLM model (default: claude-3.7-sonnet)
 vibectl config set llm_model your-preferred-model
 
-# Always show raw kubectl output along with summaries
+# Always show raw kubectl output
 vibectl config set show_raw_output true
 ```
 
 ### Output Formatting
 
-The `get`, `describe`, and `logs` commands provide AI-powered summaries using rich
-text formatting:
+Commands provide AI-powered summaries using rich text formatting:
 - Resource names and counts in **bold**
 - Healthy/good status in green
 - Warnings in yellow
 - Errors in red
-- Kubernetes concepts (namespaces, etc.) in blue
+- Kubernetes concepts in blue
 - Timing information in *italics*
 
 Example:
 ```
-[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green].
-[bold]nginx-pod[/bold] [italic]running for 2 days[/italic].
-[yellow]Warning: 2 pods have high restart counts[/yellow].
+[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]
+[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
+[yellow]Warning: 2 pods have high restart counts[/yellow]
 ```
 
-### Natural Language Queries
+### Natural Language Support
 
-The `get vibe` command allows you to find resources using natural language. It
-understands various ways of expressing what you're looking for:
+The `vibe` subcommand supports natural language for all operations:
 
 ```zsh
-# Find pods by label
-vibectl get vibe i need pods with app=nginx
-
-# Find resources in specific namespaces
+# Find resources
 vibectl get vibe show me pods in kube-system
+vibectl get vibe find pods with high restart counts
 
-# Find resources across all namespaces
-vibectl get vibe show me all pods in every namespace
+# Create resources
+vibectl create vibe a redis pod with persistent storage
+vibectl create vibe a deployment with 3 nginx replicas
 
-# Find resources by status or condition
-vibectl get vibe find pods that aren't running
-vibectl get vibe show me pods with high restart counts
+# Describe resources
+vibectl describe vibe tell me about the nginx pods
+vibectl describe vibe what's wrong with the database
 
-# Combine multiple criteria
-vibectl get vibe find nginx pods in production namespace that are ready
+# View logs
+vibectl logs vibe show me recent errors
+vibectl logs vibe what's happening in the api pods
 ```
-
-The command will:
-1. Interpret your request and determine the appropriate kubectl arguments
-2. Run the kubectl command to fetch the resources
-3. Provide a human-friendly summary of the results
-
-More commands coming soon!
 
 ## Project Structure
 
@@ -147,49 +119,18 @@ vibectl/                 # Root directory
 ├── .cursor/            # Cursor rules and configuration
 │   └── rules/         # Cursor rule files (.mdc)
 ├── vibectl/           # Main package directory
-│   ├── __init__.py   # Package initialization
-│   ├── cli.py        # Command-line interface implementation
-│   └── config.py     # Configuration management
+│   ├── cli.py        # Command-line interface
+│   ├── config.py     # Configuration management
+│   └── prompt.py     # LLM prompt templates
 ├── tests/            # Test directory
-│   ├── test_cli.py   # CLI tests
-│   ├── test_config.py # Configuration tests
-│   └── test_get.py   # Get command tests
-├── flake.nix         # Nix flake configuration
-├── flake.lock        # Nix flake lockfile
-├── pyproject.toml    # Python project configuration and dependencies
-├── .pre-commit-config.yaml # Pre-commit hooks configuration
-├── Makefile          # Development automation
-├── LICENSE           # MIT License
+├── flake.nix         # Development environment
 └── README.md         # This file
 ```
 
-### Key Components
-
-- **cli.py**: Implements the command-line interface and kubectl interactions
-- **config.py**: Manages configuration storage and retrieval
-- **tests/**: Contains pytest test files for each module
-- **pyproject.toml**: Defines project metadata, dependencies, and tool configurations
-- **.cursor/rules/**: Contains Cursor rules for development practices
-- **flake.nix**: Defines the development environment
-
 ## Development
 
-This project uses Flake for development environment management and Python's virtual
-environment for package isolation. The development environment is automatically set
-up when you run `flake develop`.
-
-### Manual Setup (if not using Flake)
-
-1. Create and activate a virtual environment:
-   ```zsh
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-2. Install development dependencies:
-   ```zsh
-   pip install -e ".[dev]"
-   ```
+This project uses [Flake](https://flake.build) for development environment
+management. The environment is automatically set up when you run `flake develop`.
 
 ### Running Tests
 
@@ -199,43 +140,21 @@ pytest
 
 ### Code Quality
 
-The project uses several tools to maintain code quality:
+The project uses pre-commit hooks for code quality, configured in
+`.pre-commit-config.yaml`. These run automatically on commit and include:
 - Black for code formatting
 - isort for import sorting
 - Flake8 for style guide enforcement
 - MyPy for type checking
 
-Run them with:
-```zsh
-black .
-isort .
-flake8
-mypy .
-```
-
 ### Cursor Rules
 
-This project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain
-consistent development practices and automate common tasks. The rules system,
-inspired by Geoffrey Huntley's [excellent blog post on building a Cursor
-stdlib](https://ghuntley.com/stdlib/), helps enforce:
-
-- Python virtual environment usage over Flake-managed dependencies
-- Consistent rule file organization
-- Project-specific conventions
-
-Rules are stored in `.cursor/rules/` and include:
-- `python-venv.mdc`: Enforces virtual environment usage for Python dependencies
-- `rules.mdc`: Defines standards for rule file organization
-- Additional rules as needed for project automation
-
-The rules system acts as a "standard library" of development practices, helping
-maintain consistency and automating repetitive tasks. Special thanks to Geoffrey
-Huntley for sharing insights on effective Cursor rule usage.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+The project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain
+consistent development practices. These include:
+- `python-venv.mdc`: Python virtual environment usage
+- `rules.mdc`: Rule file organization standards
+- `no-bazel.mdc`: Build system standards
+- `autonomous-commits.mdc`: Commit automation
 
 ## License
 

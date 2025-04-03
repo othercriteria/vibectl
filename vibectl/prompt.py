@@ -169,3 +169,81 @@ Output:
 Here's the request:
 
 {request}"""
+
+# Template for planning kubectl create commands
+PLAN_CREATE_PROMPT = """Given this natural language request to create Kubernetes
+resources, determine the appropriate kubectl create command arguments and YAML manifest.
+
+Important:
+- Return the list of arguments (if any) followed by '---' and then the YAML manifest
+- Do not include 'kubectl' or 'create' in the output
+- Include any necessary flags (-n, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "create an nginx hello world pod"
+Output:
+-n
+default
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-hello
+  labels:
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+
+Input: "create a deployment with 3 nginx replicas in prod namespace"
+Output:
+-n
+prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+
+Here's the request:
+
+{request}"""
+
+# Template for summarizing 'kubectl create' output
+CREATE_RESOURCE_PROMPT = f"""Summarize the result of creating Kubernetes resources.
+Focus on what was created and any issues that need attention.
+
+{FORMATTING_INSTRUCTIONS}
+
+Example format:
+Created [bold]nginx-pod[/bold] in [blue]default namespace[/blue]
+[green]Successfully created[/green] with [italic]default resource limits[/italic]
+[yellow]Note: No liveness probe configured[/yellow]
+
+Here's the output:
+
+{{output}}"""

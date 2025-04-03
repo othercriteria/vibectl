@@ -45,6 +45,12 @@ def mock_llm_plain_response() -> str:
     )
 
 
+@pytest.fixture
+def runner() -> CliRunner:
+    """Create a Click test runner that preserves stderr"""
+    return CliRunner(mix_stderr=False, env={"FORCE_COLOR": "0"})
+
+
 def test_logs_command_basic(
     runner: CliRunner,
     mock_kubectl_output: str,
@@ -191,4 +197,4 @@ def test_logs_command_llm_error(
 
         # Should still succeed and show kubectl output even if LLM fails
         assert result.exit_code == 0
-        assert "Could not get vibe check" in result.output
+        assert "Could not get vibe check" in result.stderr

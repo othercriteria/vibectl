@@ -13,7 +13,7 @@ from vibectl.cli import cli
 @pytest.fixture
 def runner() -> CliRunner:
     """Create a Click test runner that preserves stderr"""
-    return CliRunner(mix_stderr=False)
+    return CliRunner(mix_stderr=False, env={"FORCE_COLOR": "0"})
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_get_vibe_command_llm_error(
         )
 
         assert result.exit_code == 1
-        assert "Could not process request: LLM error" in result.stderr
+        assert "Could not get vibe check" in result.stderr
 
 
 def test_get_command_basic(
