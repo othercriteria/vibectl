@@ -14,7 +14,6 @@ from typing import List, NoReturn, Optional
 import click
 import llm
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from . import __version__
@@ -23,7 +22,9 @@ from .prompt import (
     DESCRIBE_RESOURCE_PROMPT,
     GET_RESOURCE_PROMPT,
     LOGS_PROMPT,
+    PLAN_DESCRIBE_PROMPT,
     PLAN_GET_PROMPT,
+    PLAN_LOGS_PROMPT,
 )
 
 console = Console()
@@ -84,6 +85,148 @@ def cli() -> None:
     pass
 
 
+def handle_vibe_request(
+    request: str,
+    command: str,
+    plan_prompt: str,
+    summary_prompt: str,
+    show_raw: bool,
+    model_name: str,
+) -> None:
+    """Handle a vibe-based request for any kubectl command.
+
+    Args:
+        request: The natural language request from the user
+        command: The kubectl command (get, describe, logs)
+        plan_prompt: The prompt template for planning the command
+        summary_prompt: The prompt template for summarizing the output
+        show_raw: Whether to show raw kubectl output
+        model_name: The LLM model to use
+
+    Raises:
+        SystemExit: If the request is invalid or an error occurs
+    """
+    try:
+        model = llm.get_model(model_name)
+        prompt = plan_prompt.format(request=request)
+        response = model.prompt(prompt)
+        planned_args = response.text().strip().split("\n")
+
+        # Check for error response
+        if planned_args[0].startswith("ERROR:"):
+            error_console.print(f"[bold red]Error:[/] {planned_args[0][6:].strip()}")
+            sys.exit(1)
+
+        # Run the planned kubectl command
+        cmd = [command, *planned_args]
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Print the raw output if requested
+        if show_raw:
+            console.print(output, markup=False, highlight=False)
+            console.print()  # Add a blank line for readability
+
+        # Use LLM to summarize
+        prompt = summary_prompt.format(output=output)
+        response = model.prompt(prompt)
+        summary = response.text() if hasattr(response, "text") else str(response)
+        if show_raw:
+            console.print("[bold green]✨ Vibe check:[/bold green]")
+        console.print(summary, markup=True, highlight=False)
+    except Exception as e:
+        error_console.print(
+            f"[yellow]Note:[/yellow] Could not process request: [red]{e}[/red]"
+        )
+        sys.exit(1)
+
+
+def handle_regular_command(
+    command: str,
+    resource: str,
+    args: tuple,
+    show_raw: bool,
+    model_name: str,
+    summary_prompt: str,
+) -> None:
+    """Handle a regular kubectl command with AI summary.
+
+    Args:
+        command: The kubectl command (get, describe, logs)
+        resource: The resource type/name
+        args: Additional command arguments
+        show_raw: Whether to show raw kubectl output
+        model_name: The LLM model to use
+        summary_prompt: The prompt template for summarizing the output
+    """
+    cmd = [command, resource]
+    if args:
+        # Convert tuple to list and ensure all items are strings
+        args_list = [str(arg) for arg in args]
+        cmd.extend(args_list)
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+
+    # Print the raw output if requested
+    if show_raw:
+        console.print(output, markup=False, highlight=False)
+        console.print()  # Add a blank line for readability
+
+    # Check token count and handle large outputs
+    output_len = len(output)
+    token_estimate = output_len / 4
+    truncated = False
+    llm_output = output
+
+    if token_estimate > MAX_TOKEN_LIMIT:
+        if command == "logs":
+            # For logs, take first and last third
+            chunk_size = int(
+                MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+            )  # Convert back to chars
+            truncated_output = (
+                f"{output[:chunk_size]}\n"
+                f"[...truncated {output_len - 2*chunk_size} characters...]\n"
+                f"{output[-chunk_size:]}"
+            )
+            llm_output = truncated_output
+            truncated = True
+            if show_raw:
+                msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
+                console.print(msg)
+                console.print()  # Add a blank line for readability
+        else:
+            # For other commands, warn and optionally show raw output
+            error_console.print(
+                "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                "Please try describing a more specific resource."
+            )
+            return
+
+    # Use LLM to summarize
+    try:
+        model = llm.get_model(model_name)
+        prompt = summary_prompt.format(output=llm_output)
+        response = model.prompt(prompt)
+        summary = response.text() if hasattr(response, "text") else str(response)
+        if show_raw:
+            console.print("[bold green]✨ Vibe check:[/bold green]")
+        console.print(summary, markup=True, highlight=False)
+    except Exception as e:
+        # Always show raw output when LLM fails
+        if not show_raw:
+            console.print(output, markup=False, highlight=False)
+            if truncated:
+                msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
+                console.print(msg)
+            console.print()  # Add a blank line for readability
+        error_console.print(
+            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+        )
+
+
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource")
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
@@ -114,78 +257,25 @@ def get(resource: str, args: tuple, raw: bool) -> None:
                 "[bold red]Error:[/] Please provide a request after 'vibe'"
             )
             sys.exit(1)
-
-        # Use LLM to plan the kubectl command
-        try:
-            model = llm.get_model(model_name)
-            prompt = PLAN_GET_PROMPT.format(request=request)
-            response = model.prompt(prompt)
-            planned_args = response.text().strip().split("\n")
-
-            # Check for error response
-            if planned_args[0].startswith("ERROR:"):
-                error_console.print(
-                    f"[bold red]Error:[/] {planned_args[0][6:].strip()}"
-                )
-                sys.exit(1)
-
-            # Run the planned kubectl command
-            cmd = ["get", *planned_args]
-            output = run_kubectl(cmd, capture=True)
-            if not output:
-                return
-
-            # Print the raw output if requested
-            if show_raw:
-                console.print(output, markup=False, highlight=False)
-                console.print()  # Add a blank line for readability
-
-            # Use LLM to summarize
-            prompt = GET_RESOURCE_PROMPT.format(output=output)
-            response = model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
-            if show_raw:
-                console.print("[bold green]✨ Vibe check:[/bold green]")
-            console.print(summary, markup=True, highlight=False)
-        except Exception as e:
-            error_console.print(
-                f"[yellow]Note:[/yellow] Could not process request: [red]{e}[/red]"
-            )
-            sys.exit(1)
+        handle_vibe_request(
+            request=request,
+            command="get",
+            plan_prompt=PLAN_GET_PROMPT,
+            summary_prompt=GET_RESOURCE_PROMPT,
+            show_raw=show_raw,
+            model_name=model_name,
+        )
         return
 
     # Regular get command
-    cmd = ["get", resource]
-    if args:
-        # Convert tuple to list and ensure all items are strings
-        args_list = [str(arg) for arg in args]
-        cmd.extend(args_list)
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-
-    # Print the raw output if requested
-    if show_raw:
-        console.print(output, markup=False, highlight=False)
-        console.print()  # Add a blank line for readability
-
-    # Use LLM to summarize
-    try:
-        model = llm.get_model(model_name)
-        prompt = GET_RESOURCE_PROMPT.format(output=output)
-        response = model.prompt(prompt)
-        summary = response.text() if hasattr(response, "text") else str(response)
-        if show_raw:
-            console.print("[bold green]✨ Vibe check:[/bold green]")
-        console.print(summary, markup=True, highlight=False)
-    except Exception as e:
-        # Always show raw output when LLM fails
-        if not show_raw:
-            console.print(output, markup=False, highlight=False)
-            console.print()  # Add a blank line for readability
-        error_console.print(
-            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
-        )
+    handle_regular_command(
+        command="get",
+        resource=resource,
+        args=args,
+        show_raw=show_raw,
+        model_name=model_name,
+        summary_prompt=GET_RESOURCE_PROMPT,
+    )
 
 
 @cli.command()
@@ -347,73 +437,45 @@ def describe(resource: str, args: tuple, raw: bool) -> None:
     summary focusing on the most important details and any issues that need
     attention. Supports all standard kubectl describe arguments and options.
 
-    The output is limited to prevent memory issues with very large resources.
-    If the output is too large, you'll be prompted to describe a more specific
-    resource.
-
     Examples:
         vibectl describe pod my-pod
         vibectl describe deployment my-deployment -n kube-system
         vibectl describe pod my-pod --raw
+        vibectl describe vibe tell me about the nginx pod
     """
     # Get the configured model
     cfg = Config()
     model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
     show_raw = raw or cfg.get("show_raw_output")
 
-    # Run kubectl describe and capture the output
-    cmd = ["describe", resource]
-    if args:
-        # Convert tuple to list and ensure all items are strings
-        args_list = [str(arg) for arg in args]
-        cmd.extend(args_list)
-    output = run_kubectl(cmd, capture=True)
-    if not output:
+    # Handle vibe subcommand
+    if resource == "vibe":
+        # Join args into a single request string
+        request = " ".join(args)
+        if not request:
+            error_console.print(
+                "[bold red]Error:[/] Please provide a request after 'vibe'"
+            )
+            sys.exit(1)
+        handle_vibe_request(
+            request=request,
+            command="describe",
+            plan_prompt=PLAN_DESCRIBE_PROMPT,
+            summary_prompt=DESCRIBE_RESOURCE_PROMPT,
+            show_raw=show_raw,
+            model_name=model_name,
+        )
         return
 
-    # Check token count (rough estimate: 4 chars per token)
-    if len(output) / 4 > MAX_TOKEN_LIMIT:
-        error_console.print(
-            "[yellow]Warning:[/] Output is too large for AI processing. "
-            "Please try describing a more specific resource."
-        )
-        if show_raw:
-            # Write raw output without any processing
-            console.file.write(output)
-        return
-
-    # Print the raw output if requested
-    if show_raw:
-        # Write raw output without any processing
-        console.file.write(output)
-        console.print()  # Add a blank line for readability
-
-    # Use LLM to summarize with progress indicator
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Getting the vibe...[/bold blue]"),
-            console=console,
-            transient=True,
-        ) as progress:
-            progress.add_task("summarize", total=None)
-            model = llm.get_model(model_name)
-            prompt = DESCRIBE_RESOURCE_PROMPT.format(output=output)
-            response = model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
-
-        if show_raw:
-            console.print("[bold green]✨ Vibe check:[/bold green]")
-        console.print(summary, markup=True, highlight=False)
-    except Exception as e:
-        # Always show raw output when LLM fails
-        if not show_raw:
-            # Write raw output without any processing
-            console.file.write(output)
-            console.print()  # Add a blank line for readability
-        error_console.print(
-            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
-        )
+    # Regular describe command
+    handle_regular_command(
+        command="describe",
+        resource=resource,
+        args=args,
+        show_raw=show_raw,
+        model_name=model_name,
+        summary_prompt=DESCRIBE_RESOURCE_PROMPT,
+    )
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -423,90 +485,49 @@ def describe(resource: str, args: tuple, raw: bool) -> None:
 def logs(resource: str, args: tuple, raw: bool) -> None:
     """Get container logs with a vibe-based summary.
 
-    Runs 'kubectl logs' and uses AI to generate a concise, human-friendly summary
-    focusing on key events, patterns, errors, and notable state changes. Supports
-    all standard kubectl logs arguments and options.
-
-    For large log outputs, shows a summary of the first and last portions to
-    maintain context while staying within memory limits.
+    Runs 'kubectl logs' and uses AI to generate a concise, human-friendly
+    summary focusing on key events, patterns, errors, and notable state changes.
+    Supports all standard kubectl logs arguments and options.
 
     Examples:
         vibectl logs pod/my-pod
         vibectl logs deployment/my-deployment -n kube-system
         vibectl logs pod/my-pod -c my-container --raw
+        vibectl logs vibe show me logs from the nginx pod
     """
     # Get the configured model
     cfg = Config()
     model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
     show_raw = raw or cfg.get("show_raw_output")
 
-    # Run kubectl logs and capture the output
-    cmd = ["logs", resource]
-    if args:
-        # Convert tuple to list and ensure all items are strings
-        args_list = [str(arg) for arg in args]
-        cmd.extend(args_list)
-    output = run_kubectl(cmd, capture=True)
-    if not output:
+    # Handle vibe subcommand
+    if resource == "vibe":
+        # Join args into a single request string
+        request = " ".join(args)
+        if not request:
+            error_console.print(
+                "[bold red]Error:[/] Please provide a request after 'vibe'"
+            )
+            sys.exit(1)
+        handle_vibe_request(
+            request=request,
+            command="logs",
+            plan_prompt=PLAN_LOGS_PROMPT,
+            summary_prompt=LOGS_PROMPT,
+            show_raw=show_raw,
+            model_name=model_name,
+        )
         return
 
-    # Check token count and handle large outputs
-    output_len = len(output)
-    token_estimate = output_len / 4
-    truncated = False
-    llm_output = output
-
-    if token_estimate > MAX_TOKEN_LIMIT:
-        # For large outputs, take first and last third
-        chunk_size = int(
-            MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
-        )  # Convert back to chars
-        truncated_output = (
-            f"{output[:chunk_size]}\n"
-            f"[...truncated {output_len - 2*chunk_size} characters...]\n"
-            f"{output[-chunk_size:]}"
-        )
-        llm_output = truncated_output
-        truncated = True
-
-    # Print the raw output if requested
-    if show_raw:
-        # Write raw output without any processing
-        console.file.write(output)
-        if truncated:
-            msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
-            console.print(msg)
-        console.print()  # Add a blank line for readability
-
-    # Use LLM to summarize with progress indicator
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Getting the vibe...[/bold blue]"),
-            console=console,
-            transient=True,
-        ) as progress:
-            progress.add_task("summarize", total=None)
-            model = llm.get_model(model_name)
-            prompt = LOGS_PROMPT.format(output=llm_output)
-            response = model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
-
-        if show_raw:
-            console.print("[bold green]✨ Vibe check:[/bold green]")
-        console.print(summary, markup=True, highlight=False)
-    except Exception as e:
-        # Always show raw output when LLM fails
-        if not show_raw:
-            # Write raw output without any processing
-            console.file.write(output)
-            if truncated:
-                msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
-                console.print(msg)
-            console.print()  # Add a blank line for readability
-        error_console.print(
-            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
-        )
+    # Regular logs command
+    handle_regular_command(
+        command="logs",
+        resource=resource,
+        args=args,
+        show_raw=show_raw,
+        model_name=model_name,
+        summary_prompt=LOGS_PROMPT,
+    )
 
 
 def main() -> NoReturn:

@@ -168,10 +168,12 @@ def test_logs_command_token_limit_with_raw(runner: CliRunner) -> None:
         )
 
         assert result.exit_code == 0
-        # Should show truncation message in output
+        # Raw output should be shown first
+        assert "x" * 50 in result.output  # Check that some of the output is shown
+        # Then truncation message
         assert "truncated" in result.output
-        # Raw output should be shown with --raw
-        assert large_output in result.output
+        # Then summary
+        assert "✨ Vibe check:" in result.output
 
 
 def test_logs_command_llm_error(

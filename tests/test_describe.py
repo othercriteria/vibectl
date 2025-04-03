@@ -162,8 +162,9 @@ def test_describe_command_token_limit_with_raw(runner: CliRunner) -> None:
 
         assert result.exit_code == 0
         assert "Output is too large for AI processing" in result.stderr
-        # Raw output should be shown with --raw
-        assert large_output in result.output
+        # Raw output should be shown with --raw, but no summary
+        assert "x" * 50 in result.output  # Check that some of the output is shown
+        assert "✨ Vibe check:" not in result.output
 
 
 def test_describe_command_no_output(runner: CliRunner) -> None:

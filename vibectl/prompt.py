@@ -102,3 +102,70 @@ Example format:
 Here's the output:
 
 {{output}}"""
+
+# Template for planning kubectl describe commands
+PLAN_DESCRIBE_PROMPT = """Given this natural language request for Kubernetes
+resource details, determine the appropriate kubectl describe command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'describe' in the output
+- Include any necessary flags (-n, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "tell me about the nginx pod"
+Output:
+pod
+nginx
+
+Input: "describe the deployment in kube-system namespace"
+Output:
+deployment
+-n
+kube-system
+
+Input: "show me details of all pods with app=nginx"
+Output:
+pods
+--selector=app=nginx
+
+Here's the request:
+
+{request}"""
+
+# Template for planning kubectl logs commands
+PLAN_LOGS_PROMPT = """Given this natural language request for container logs,
+determine the appropriate kubectl logs command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'logs' in the output
+- Include any necessary flags (-n, -c, --tail, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "show me logs from the nginx pod"
+Output:
+pod/nginx
+
+Input: "get logs from the api container in my-app pod"
+Output:
+pod/my-app
+-c
+api
+
+Input: "show me the last 100 lines from all pods with app=nginx"
+Output:
+--selector=app=nginx
+--tail=100
+
+Here's the request:
+
+{request}"""
