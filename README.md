@@ -68,7 +68,7 @@ vibectl logs deployment/my-deployment -n kube-system
 vibectl logs pod/my-pod -c my-container --raw  # Show raw logs too
 
 # Pass commands directly to kubectl
-vibectl proxy <kubectl-commands>
+vibectl just <kubectl-commands>
 ```
 
 ### Configuration

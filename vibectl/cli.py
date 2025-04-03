@@ -134,14 +134,18 @@ def get(resource: str, args: tuple, raw: bool) -> None:
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-def proxy(args: tuple) -> None:
-    """Proxy commands directly to kubectl.
+def just(args: tuple) -> None:
+    """Pass commands directly to kubectl.
 
     Passes all arguments directly to kubectl without any processing.
-    Useful for commands not yet supported by vibectl.
+    Useful for commands not yet supported by vibectl or when you want
+    to use kubectl directly.
+
+    Example:
+        vibectl just get pods  # equivalent to: kubectl get pods
     """
     if not args:
-        console.print("Usage: vibectl proxy <kubectl commands>")
+        console.print("Usage: vibectl just <kubectl commands>")
         sys.exit(1)
     run_kubectl(list(args))
 

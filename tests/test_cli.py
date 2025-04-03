@@ -62,8 +62,8 @@ def test_version_command(runner: CliRunner) -> None:
         assert "kubectl version information not available" in result.output
 
 
-def test_proxy_command(runner: CliRunner, mock_config_dir: Path) -> None:
-    """Test that proxy properly forwards commands to kubectl with config"""
+def test_just_command(runner: CliRunner, mock_config_dir: Path) -> None:
+    """Test that just properly forwards commands to kubectl with config"""
     mock_result = Mock()
     mock_result.stdout = "mock kubectl output\n"
     mock_result.stderr = ""
@@ -75,7 +75,7 @@ def test_proxy_command(runner: CliRunner, mock_config_dir: Path) -> None:
     with patch("subprocess.run", return_value=mock_result) as mock_run, patch(
         "vibectl.cli.Config", return_value=mock_config
     ):
-        result = runner.invoke(cli, ["proxy", "get", "pods"])
+        result = runner.invoke(cli, ["just", "get", "pods"])
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -89,28 +89,28 @@ def test_proxy_command(runner: CliRunner, mock_config_dir: Path) -> None:
         ]
 
 
-def test_proxy_command_no_args(runner: CliRunner, mock_config_dir: Path) -> None:
-    """Test proxy command with no arguments"""
-    result = runner.invoke(cli, ["proxy"])
+def test_just_command_no_args(runner: CliRunner, mock_config_dir: Path) -> None:
+    """Test just command with no arguments"""
+    result = runner.invoke(cli, ["just"])
     assert result.exit_code == 1
-    assert "Usage: vibectl proxy <kubectl commands>" in result.output
+    assert "Usage: vibectl just <kubectl commands>" in result.output
 
 
-def test_proxy_kubectl_not_found(runner: CliRunner, mock_config_dir: Path) -> None:
+def test_just_kubectl_not_found(runner: CliRunner, mock_config_dir: Path) -> None:
     """Test error handling when kubectl is not found"""
     with patch("subprocess.run", side_effect=FileNotFoundError()):
-        result = runner.invoke(cli, ["proxy", "get", "pods"])
+        result = runner.invoke(cli, ["just", "get", "pods"])
         assert result.exit_code == 1
         assert "kubectl not found" in result.output
 
 
-def test_proxy_kubectl_error(runner: CliRunner, mock_config_dir: Path) -> None:
+def test_just_kubectl_error(runner: CliRunner, mock_config_dir: Path) -> None:
     """Test error handling when kubectl returns an error"""
     mock_error = subprocess.CalledProcessError(1, ["kubectl"])
     mock_error.stderr = "mock kubectl error\n"
 
     with patch("subprocess.run", side_effect=mock_error):
-        result = runner.invoke(cli, ["proxy", "get", "pods"])
+        result = runner.invoke(cli, ["just", "get", "pods"])
         assert result.exit_code == 1
         assert "Error:" in result.output
 
@@ -148,7 +148,7 @@ def test_cli_help(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert "Usage:" in result.output
     assert "Commands:" in result.output
-    for command in ["config", "proxy", "version", "vibe"]:
+    for command in ["config", "just", "version", "vibe"]:
         assert command in result.output
 
 
