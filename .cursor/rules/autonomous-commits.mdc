@@ -23,25 +23,28 @@ filters:
 actions:
   - type: commit
     command: |
-      # Convert literal \n to actual newlines in detailed description
+      # Process all parts to handle newlines
       DESCRIPTION=$(echo -e "{detailed description if needed}")
+      CONCISE=$(echo -e "{type}: {concise description}")
 
       # Only add breaking changes section if there are breaking changes
       if [ -n "{breaking changes if any}" ] && [ "{breaking changes if any}" != "None" ]; then
-        BREAKING_CHANGES="-m \"\" -m \"Breaking Changes:\" -m \"{breaking changes if any}\""
+        BREAKING_CHANGES_TEXT=$(echo -e "{breaking changes if any}")
+        BREAKING_CHANGES="-m \"\" -m \"Breaking Changes:\" -m \"$BREAKING_CHANGES_TEXT\""
       else
         BREAKING_CHANGES=""
       fi
 
       # Only add related issues section if there are related issues
       if [ -n "{related issues/tickets}" ] && [ "{related issues/tickets}" != "None" ]; then
-        RELATED_ISSUES="-m \"\" -m \"Related Issues: {related issues/tickets}\""
+        RELATED_ISSUES_TEXT=$(echo -e "{related issues/tickets}")
+        RELATED_ISSUES="-m \"\" -m \"Related Issues: $RELATED_ISSUES_TEXT\""
       else
         RELATED_ISSUES=""
       fi
 
       git commit \
-        -m "{type}: {concise description}" \
+        -m "$CONCISE" \
         -m "$DESCRIPTION" \
         $BREAKING_CHANGES \
         $RELATED_ISSUES
