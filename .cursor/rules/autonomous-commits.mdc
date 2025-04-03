@@ -16,6 +16,9 @@ filters:
     pattern: "code_change_complete"
   - type: content
     pattern: "(?i)\\b(commit|save|checkpoint|approved|lgtm|looks good)\\b"
+  # Match attempts to disable pre-commit hooks
+  - type: content
+    pattern: "(?i)\\b(skip|disable|bypass|no|ignore)[-_]?(pre[-_]?commit|hooks?)\\b"
 
 actions:
   - type: commit
@@ -29,13 +32,24 @@ actions:
         -m "" \
         -m "Related Issues: {related issues/tickets}"
 
+  - type: reject
+    conditions:
+      - pattern: "(?i)\\b(skip|disable|bypass|no|ignore)[-_]?(pre[-_]?commit|hooks?)\\b"
+        message: |
+          Disabling pre-commit hooks is not allowed. These hooks ensure code quality and consistency.
+          If you're encountering issues with pre-commit hooks:
+          1. Fix the issues reported by the hooks
+          2. If the fixes are non-trivial or unclear, ask the user for guidance
+          3. NEVER bypass the hooks by disabling them
+
 criteria:
   required:
     - All tests pass (both unit and integration if applicable)
-    - Pre-commit checks pass
+    - Pre-commit checks pass (NEVER disable or bypass these)
     - Changes are logically complete
     - Documentation is updated if needed
     - No debug/temporary code remains
+    - All linting and formatting issues are resolved
   optional:
     - Minor formatting or style fixes can be bundled with functional changes
     - Small related improvements can be included
@@ -79,7 +93,11 @@ examples:
         -m "None" \
         -m "" \
         -m "Related Issues: #456"
+  - input: "SKIP=pre-commit git commit -m 'fix: bypass hooks'"
+    output: |
+      Error: Disabling pre-commit hooks is not allowed.
+      Please fix the issues reported by the hooks or ask for guidance.
 
 metadata:
-  priority: high
-  version: 1.0
+  priority: critical  # Upgraded from high to critical
+  version: 1.1  # Version bump for the new pre-commit hooks policy
