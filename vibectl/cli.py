@@ -19,7 +19,12 @@ from rich.table import Table
 
 from . import __version__
 from .config import Config
-from .prompt import DESCRIBE_RESOURCE_PROMPT, GET_RESOURCE_PROMPT, LOGS_PROMPT
+from .prompt import (
+    DESCRIBE_RESOURCE_PROMPT,
+    GET_RESOURCE_PROMPT,
+    LOGS_PROMPT,
+    PLAN_GET_PROMPT,
+)
 
 console = Console()
 error_console = Console(stderr=True)
@@ -93,13 +98,63 @@ def get(resource: str, args: tuple, raw: bool) -> None:
         vibectl get pods
         vibectl get deployments -n kube-system
         vibectl get pods --raw
+        vibectl get vibe i know i have some pods that belong to the nginx app
     """
     # Get the configured model
     cfg = Config()
     model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
     show_raw = raw or cfg.get("show_raw_output")
 
-    # Run kubectl get and capture the output
+    # Handle vibe subcommand
+    if resource == "vibe":
+        # Join args into a single request string
+        request = " ".join(args)
+        if not request:
+            error_console.print(
+                "[bold red]Error:[/] Please provide a request after 'vibe'"
+            )
+            sys.exit(1)
+
+        # Use LLM to plan the kubectl command
+        try:
+            model = llm.get_model(model_name)
+            prompt = PLAN_GET_PROMPT.format(request=request)
+            response = model.prompt(prompt)
+            planned_args = response.text().strip().split("\n")
+
+            # Check for error response
+            if planned_args[0].startswith("ERROR:"):
+                error_console.print(
+                    f"[bold red]Error:[/] {planned_args[0][6:].strip()}"
+                )
+                sys.exit(1)
+
+            # Run the planned kubectl command
+            cmd = ["get", *planned_args]
+            output = run_kubectl(cmd, capture=True)
+            if not output:
+                return
+
+            # Print the raw output if requested
+            if show_raw:
+                console.print(output, markup=False, highlight=False)
+                console.print()  # Add a blank line for readability
+
+            # Use LLM to summarize
+            prompt = GET_RESOURCE_PROMPT.format(output=output)
+            response = model.prompt(prompt)
+            summary = response.text() if hasattr(response, "text") else str(response)
+            if show_raw:
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+            console.print(summary, markup=True, highlight=False)
+        except Exception as e:
+            error_console.print(
+                f"[yellow]Note:[/yellow] Could not process request: [red]{e}[/red]"
+            )
+            sys.exit(1)
+        return
+
+    # Regular get command
     cmd = ["get", resource]
     if args:
         # Convert tuple to list and ensure all items are strings
@@ -209,7 +264,7 @@ def version() -> None:
     - Additional components like Kustomize
     """
     # Show vibectl client version
-    console.print(f"Client Version:")
+    console.print("Client Version:")
     console.print(f"  vibectl Version: [bold green]{__version__}[/]")
 
     # Get kubectl version info
@@ -221,29 +276,29 @@ def version() -> None:
             capture_output=True,
         )
         version_info = json.loads(result.stdout)
-        
+
         # Print kubectl client version
         if "clientVersion" in version_info:
             client = version_info["clientVersion"]
-            major = client.get('major', '0')
-            minor = client.get('minor', '0')
+            major = client.get("major", "0")
+            minor = client.get("minor", "0")
             version_str = f"v{major}.{minor}"
             console.print(f"  kubectl Version: {version_str}")
             if "kustomizeVersion" in version_info:
                 kustomize_ver = version_info["kustomizeVersion"]
                 console.print(f"  Kustomize Version: {kustomize_ver}")
-        
+
         # Print server version if available
         if "serverVersion" in version_info:
             console.print("\nServer Version:")
             server = version_info["serverVersion"]
-            git_version = server.get('gitVersion', 'unknown')
-            major = server.get('major', '0')
-            minor = server.get('minor', '0')
+            git_version = server.get("gitVersion", "unknown")
+            major = server.get("major", "0")
+            minor = server.get("minor", "0")
             version_str = f"v{major}.{minor} ({git_version})"
             console.print(f"  Version: {version_str}")
-            platform = server.get('platform', 'unknown')
-            go_version = server.get('goVersion', 'unknown')
+            platform = server.get("platform", "unknown")
+            go_version = server.get("goVersion", "unknown")
             console.print(f"  Platform: {platform}")
             console.print(f"  Go Version: {go_version}")
 
@@ -265,7 +320,7 @@ def version() -> None:
                     console.print(f"  {line}")
                 elif line.startswith("Server Version:"):
                     console.print("\nServer Version:")
-                    server_ver = line.replace('Server Version: ', '')
+                    server_ver = line.replace("Server Version: ", "")
                     console.print(f"  {server_ver}")
         except subprocess.CalledProcessError:
             pass

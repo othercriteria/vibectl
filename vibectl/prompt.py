@@ -21,6 +21,40 @@ Important:
 - Skip any introductory phrases like "This output shows" or "I can see"
 - Be direct and concise"""
 
+# Template for planning kubectl get commands
+PLAN_GET_PROMPT = """Given this natural language request for Kubernetes resources,
+determine the appropriate kubectl get command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'get' in the output
+- Include any necessary flags (-n, --selector, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "show me pods in kube-system"
+Output:
+pods
+-n
+kube-system
+
+Input: "get pods with app=nginx label"
+Output:
+pods
+--selector=app=nginx
+
+Input: "show me all pods in every namespace"
+Output:
+pods
+--all-namespaces
+
+Here's the request:
+
+{request}"""
+
 # Template for summarizing 'kubectl get' output
 GET_RESOURCE_PROMPT = f"""Summarize this kubectl output focusing on key information,
 notable patterns, and potential issues.

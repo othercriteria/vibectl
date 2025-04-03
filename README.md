@@ -10,6 +10,7 @@ your cluster management more intuitive and fun!
 - 🎯 Simplified cluster management
 - 🔍 Smart context awareness
 - ✨ AI-powered summaries of cluster state
+- 🧠 Natural language resource queries
 
 ## Installation
 
@@ -57,6 +58,11 @@ vibectl get pods
 vibectl get deployments -n kube-system
 vibectl get pods --raw  # Show raw kubectl output too
 
+# Get resources using natural language
+vibectl get vibe i know i have some pods that belong to the nginx app
+vibectl get vibe show me all pods in every namespace
+vibectl get vibe find pods with high restart counts
+
 # Describe resources with concise summaries
 vibectl describe pod my-pod
 vibectl describe deployment my-deployment -n kube-system
@@ -103,6 +109,34 @@ Example:
 [bold]nginx-pod[/bold] [italic]running for 2 days[/italic].
 [yellow]Warning: 2 pods have high restart counts[/yellow].
 ```
+
+### Natural Language Queries
+
+The `get vibe` command allows you to find resources using natural language. It
+understands various ways of expressing what you're looking for:
+
+```zsh
+# Find pods by label
+vibectl get vibe i need pods with app=nginx
+
+# Find resources in specific namespaces
+vibectl get vibe show me pods in kube-system
+
+# Find resources across all namespaces
+vibectl get vibe show me all pods in every namespace
+
+# Find resources by status or condition
+vibectl get vibe find pods that aren't running
+vibectl get vibe show me pods with high restart counts
+
+# Combine multiple criteria
+vibectl get vibe find nginx pods in production namespace that are ready
+```
+
+The command will:
+1. Interpret your request and determine the appropriate kubectl arguments
+2. Run the kubectl command to fetch the resources
+3. Provide a human-friendly summary of the results
 
 More commands coming soon!
 
