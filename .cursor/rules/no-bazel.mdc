@@ -1,6 +1,7 @@
 ---
 description: No Bazel
 globs: *
+alwaysApply: false
 ---
 # No Bazel
 

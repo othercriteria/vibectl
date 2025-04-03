@@ -1,6 +1,6 @@
 ---
-description:
-globs:
+description: Standards for organizing Cursor rule files
+globs: ["**/*.mdc"]
 alwaysApply: true
 ---
 # Cursor Rules Location

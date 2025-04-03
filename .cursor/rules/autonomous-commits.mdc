@@ -1,8 +1,9 @@
 ---
-description:
-globs:
+description: Defines criteria and behavior for autonomous commits
+globs: ["**/*"]
 alwaysApply: true
 ---
+
 # Autonomous Commits
 
 This rule defines when and how to autonomously commit changes to the repository.
@@ -14,7 +15,7 @@ filters:
   - type: intent
     pattern: "code_change_complete"
   - type: content
-    pattern: "(?i)\\b(commit|save|checkpoint)\\b"
+    pattern: "(?i)\\b(commit|save|checkpoint|approved|lgtm|looks good)\\b"
 
 actions:
   - type: commit
@@ -42,9 +43,10 @@ commit_message_format: |
 
   {detailed description if needed}
 
+  Breaking Changes:
   {breaking changes if any}
 
-  {related issues/tickets}
+  Related Issues: {related issues/tickets}
 
 types:
   - feat: New feature
@@ -59,18 +61,22 @@ examples:
     output: |
       feat: add config validation with comprehensive tests
 
-      - Add YAML schema validation
-      - Add type checking for config values
-      - Add unit tests covering edge cases
-      - Update documentation with validation rules
+      Add YAML schema validation, type checking, unit tests for edge cases, updated docs
+
+      Breaking Changes:
+      None
+
+      Related Issues: #123
   - input: "Fixed YAML parsing error handling"
     output: |
       fix: improve YAML parsing error handling
 
-      - Add proper error catching for YAMLError
-      - Add type validation for loaded config
-      - Add tests for invalid YAML cases
-      - Ensure graceful fallback to defaults
+      Add error catching for YAMLError, type validation, tests for invalid cases
+
+      Breaking Changes:
+      None
+
+      Related Issues: #456
 
 metadata:
   priority: high

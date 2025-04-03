@@ -1,6 +1,6 @@
 ---
 description: Python project setup
-globs:
+globs: ["*.py", "pyproject.toml", "flake.nix"]
 alwaysApply: false
 ---
  # Python Virtual Environment and Dependencies
