@@ -18,7 +18,7 @@ from rich.table import Table
 
 from . import __version__
 from .config import Config
-from .prompt import DESCRIBE_RESOURCE_PROMPT, GET_RESOURCE_PROMPT
+from .prompt import DESCRIBE_RESOURCE_PROMPT, GET_RESOURCE_PROMPT, LOGS_PROMPT
 
 console = Console()
 error_console = Console(stderr=True)
@@ -26,6 +26,9 @@ error_console = Console(stderr=True)
 # Arbitrary token limit to prevent OOM issues with LLM processing
 # Using a conservative estimate of 4 chars per token
 MAX_TOKEN_LIMIT = 10000
+
+# For logs, we'll show first and last third when output is too large
+LOGS_TRUNCATION_RATIO = 3
 
 
 def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
@@ -275,6 +278,89 @@ def describe(resource: str, args: tuple, raw: bool) -> None:
             progress.add_task("summarize", total=None)
             model = llm.get_model(model_name)
             prompt = DESCRIBE_RESOURCE_PROMPT.format(output=output)
+            response = model.prompt(prompt)
+            summary = response.text() if hasattr(response, "text") else str(response)
+
+        if show_raw:
+            console.print("[bold green]✨ Vibe check:[/bold green]")
+        console.print(summary, markup=True, highlight=False)
+    except Exception as e:
+        # Always show raw output when LLM fails
+        if not show_raw:
+            # Write raw output without any processing
+            console.file.write(output)
+            console.print()  # Add a blank line for readability
+        error_console.print(
+            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+        )
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource")
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw", is_flag=True, help="Show raw kubectl output")
+def logs(resource: str, args: tuple, raw: bool) -> None:
+    """Get container logs with a vibe-based summary.
+
+    Runs 'kubectl logs' and uses AI to generate a concise, human-friendly summary
+    focusing on key events, patterns, errors, and notable state changes. Supports
+    all standard kubectl logs arguments and options.
+
+    For large log outputs, shows a summary of the first and last portions to
+    maintain context while staying within memory limits.
+
+    Examples:
+        vibectl logs pod/my-pod
+        vibectl logs deployment/my-deployment -n kube-system
+        vibectl logs pod/my-pod -c my-container --raw
+    """
+    # Get the configured model
+    cfg = Config()
+    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
+    show_raw = raw or cfg.get("show_raw_output")
+
+    # Run kubectl logs and capture the output
+    cmd = ["logs", resource]
+    if args:
+        # Convert tuple to list and ensure all items are strings
+        args_list = [str(arg) for arg in args]
+        cmd.extend(args_list)
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+
+    # Print the raw output if requested
+    if show_raw:
+        # Write raw output without any processing
+        console.file.write(output)
+        console.print()  # Add a blank line for readability
+
+    # Check token count and handle large outputs
+    output_len = len(output)
+    token_estimate = output_len / 4
+    if token_estimate > MAX_TOKEN_LIMIT:
+        # For large outputs, take first and last third
+        chunk_size = int(
+            MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+        )  # Convert back to chars
+        truncated_output = (
+            f"{output[:chunk_size]}\n"
+            f"[...truncated {output_len - 2*chunk_size} characters...]\n"
+            f"{output[-chunk_size:]}"
+        )
+        output = truncated_output
+
+    # Use LLM to summarize with progress indicator
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Getting the vibe...[/bold blue]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            progress.add_task("summarize", total=None)
+            model = llm.get_model(model_name)
+            prompt = LOGS_PROMPT.format(output=output)
             response = model.prompt(prompt)
             summary = response.text() if hasattr(response, "text") else str(response)
 

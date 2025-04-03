@@ -51,3 +51,20 @@ Example format:
 Here's the output:
 
 {{output}}"""
+
+# Template for summarizing 'kubectl logs' output
+LOGS_PROMPT = f"""Analyze these container logs and provide a concise summary.
+Focus on key events, patterns, errors, and notable state changes.
+If the logs are truncated, mention this in your summary.
+
+{FORMATTING_INSTRUCTIONS}
+
+Example format:
+[bold]Container startup[/bold] at [italic]2024-03-20 10:15:00[/italic]
+[green]Successfully connected[/green] to [blue]database[/blue]
+[yellow]Slow query detected[/yellow] [italic]10s ago[/italic]
+[red]3 connection timeouts[/red] in past minute
+
+Here's the output:
+
+{{output}}"""
