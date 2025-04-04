@@ -1,0 +1,102 @@
+---
+description: Strictly prohibits unmocked LLM calls in test code
+globs: ["tests/**/*.py", "test/**/*.py"]
+alwaysApply: true
+---
+# No LLM Calls in Tests
+
+Strictly prohibits unmocked LLM calls in test code to ensure fast, deterministic tests.
+
+<rule>
+name: no_llm_in_tests
+description: Prohibits unmocked LLM calls in test code
+filters:
+  # Match test files
+  - type: file_pattern
+    pattern: "^tests?/.*\\.(py|test\\.py|spec\\.py)$"
+  # Match test-related code
+  - type: content
+    pattern: "(?i)\\b(test|spec|fixture|mock|patch)\\b"
+
+actions:
+  - type: reject
+    conditions:
+      # Direct LLM imports without mocking
+      - pattern: "^\\s*import\\s+llm\\s*$"
+        message: "Direct LLM imports in test files must be mocked"
+      # Direct LLM usage without mocking
+      - pattern: "(?<!mock_)\\b(llm\\.get_model|LLMHandler|handle_vibe_request)\\b"
+        message: "LLM calls in tests must be mocked"
+      # Missing mock for LLM-related functions
+      - pattern: "def\\s+test_.*(?!.*@patch.*llm)"
+        message: "Test functions using LLM must mock all LLM calls"
+
+  - type: suggest
+    message: |
+      When writing tests that involve LLM functionality:
+
+      1. Always mock LLM calls:
+         ```python
+         @patch("llm.get_model")
+         def test_something(mock_get_model):
+             mock_model = Mock()
+             mock_model.prompt.return_value = Mock(text=lambda: "mocked response")
+             mock_get_model.return_value = mock_model
+         ```
+
+      2. Mock all LLM-related functions:
+         - llm.get_model
+         - LLMHandler methods
+         - handle_vibe_request
+         - Any other functions that make LLM calls
+
+      3. Use deterministic mock responses:
+         ```python
+         mock_model.prompt.return_value = Mock(
+             text=lambda: "predefined response"
+         )
+         ```
+
+      4. Test error cases:
+         ```python
+         mock_model.prompt.side_effect = Exception("LLM error")
+         ```
+
+      5. Verify mock calls:
+         ```python
+         mock_model.prompt.assert_called_once_with(expected_prompt)
+         ```
+
+examples:
+  - input: |
+      # Bad: Direct LLM usage
+      def test_get_command():
+          model = llm.get_model("gpt-4")
+          result = model.prompt("test")
+
+      # Good: Mocked LLM usage
+      @patch("llm.get_model")
+      def test_get_command(mock_get_model):
+          mock_model = Mock()
+          mock_model.prompt.return_value = Mock(text=lambda: "test response")
+          mock_get_model.return_value = mock_model
+    output: "Correctly mocked LLM calls in test"
+
+  - input: |
+      # Bad: Missing mock for LLM handler
+      def test_handle_request():
+          handler = LLMHandler("gpt-4")
+          result = handler.summarize("test", "prompt")
+
+      # Good: Mocked LLM handler
+      @patch("vibectl.llm.LLMHandler")
+      def test_handle_request(mock_handler_class):
+          mock_handler = Mock()
+          mock_handler.summarize.return_value = "test summary"
+          mock_handler_class.return_value = mock_handler
+    output: "Correctly mocked LLM handler in test"
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

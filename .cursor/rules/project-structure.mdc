@@ -1,3 +1,8 @@
+---
+description: Standards for maintaining project structure documentation
+globs: ["STRUCTURE.md"]
+alwaysApply: true
+---
 # Project Structure Documentation
 
 This rule defines requirements for maintaining project structure documentation and where to

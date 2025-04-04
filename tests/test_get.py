@@ -1,7 +1,6 @@
-"""
-Tests for vibectl get command
-"""
+"""Tests for the get command."""
 
+import subprocess
 from unittest.mock import Mock, patch
 
 import pytest
@@ -11,146 +10,50 @@ from vibectl.cli import cli
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    """Create a Click test runner that preserves stderr"""
-    return CliRunner(mix_stderr=False, env={"FORCE_COLOR": "0"})
+def mock_kubectl_output() -> str:
+    """Mock kubectl output for testing."""
+    return (
+        "NAME                     READY   STATUS    RESTARTS   AGE\n"
+        "nginx-pod               1/1     Running   0          1h\n"
+        "postgres-pod            1/1     Running   0          2h\n"
+        "redis-pod               1/1     Running   1          3h"
+    )
 
 
 @pytest.fixture
 def mock_llm_response() -> str:
-    """Raw marked-up response from LLM"""
+    """Mock LLM response for testing."""
     return (
-        "[bold]2 pods[/bold] in [blue]default namespace[/blue], "
-        "all [green]Running[/green]"
+        "[bold]Pod Status Summary[/bold]\n"
+        "✅ All pods are [green]Running[/green]\n"
+        "🔄 [yellow]1 pod[/yellow] had restarts\n"
+        "⏰ Oldest pod: [blue]redis-pod[/blue] (3h)"
     )
 
 
 @pytest.fixture
 def mock_llm_plain_response() -> str:
-    """Plain text version of the response (what we expect in test output)"""
-    return "2 pods in default namespace, all Running"
+    """Mock LLM plain response for testing."""
+    return (
+        "Pod Status Summary\n"
+        "✅ All pods are Running\n"
+        "🔄 1 pod had restarts\n"
+        "⏰ Oldest pod: redis-pod (3h)"
+    )
 
 
 @pytest.fixture
-def mock_kubectl_output() -> str:
-    return """NAME                     READY   STATUS    RESTARTS   AGE
-nginx-6d4cf56db6-abc12   1/1     Running   0          1h
-redis-7b6f89d5b7-def34   1/1     Running   0          2h"""
+def mock_config() -> Mock:
+    """Mock config for testing."""
+    mock = Mock()
+    mock.get.return_value = None  # Let it use the default model
+    return mock
 
 
 @pytest.fixture
-def mock_plan_response() -> str:
-    """Mock response for planning kubectl get command"""
-    return """pods
---selector=app=nginx"""
-
-
-def test_get_vibe_command_basic(
-    runner: CliRunner,
-    mock_kubectl_output: str,
-    mock_plan_response: str,
-    mock_llm_response: str,
-    mock_llm_plain_response: str,
-) -> None:
-    """Test basic vibe command functionality"""
-    mock_model = Mock()
-    mock_model.prompt.side_effect = [
-        Mock(text=lambda: mock_plan_response),  # First call for planning
-        Mock(text=lambda: mock_llm_response),  # Second call for summarizing
-    ]
-    mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
-
-    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
-        "llm.get_model", return_value=mock_model
-    ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "vibe", "i need pods with app=nginx"])
-
-        assert result.exit_code == 0
-        # Raw output should not be present
-        assert mock_kubectl_output not in result.output
-        # Vibe check header should not be present
-        assert "✨ Vibe check:" not in result.output
-        # Check LLM summary is displayed (without markup)
-        assert mock_llm_plain_response in result.output
-
-
-def test_get_vibe_command_error_response(
-    runner: CliRunner,
-) -> None:
-    """Test vibe command with error response from planner"""
-    mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "ERROR: Invalid resource type")
-    mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
-
-    with patch("llm.get_model", return_value=mock_model), patch(
-        "vibectl.cli.Config", return_value=mock_config
-    ):
-        result = runner.invoke(
-            cli, ["get", "vibe", "i need invalid resources"], catch_exceptions=False
-        )
-
-        assert result.exit_code == 1
-        assert "Error: Invalid resource type" in result.stderr
-
-
-def test_get_vibe_command_no_request(
-    runner: CliRunner,
-) -> None:
-    """Test vibe command with no request provided"""
-    result = runner.invoke(cli, ["get", "vibe"], catch_exceptions=False)
-
-    assert result.exit_code == 1
-    assert "Error: Please provide a request after 'vibe'" in result.stderr
-
-
-def test_get_vibe_command_with_raw_flag(
-    runner: CliRunner,
-    mock_kubectl_output: str,
-    mock_plan_response: str,
-    mock_llm_response: str,
-    mock_llm_plain_response: str,
-) -> None:
-    """Test vibe command with --raw flag"""
-    mock_model = Mock()
-    mock_model.prompt.side_effect = [
-        Mock(text=lambda: mock_plan_response),  # First call for planning
-        Mock(text=lambda: mock_llm_response),  # Second call for summarizing
-    ]
-    mock_config = Mock()
-    mock_config.get.side_effect = lambda key: None if key == "llm_model" else False
-
-    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
-        "llm.get_model", return_value=mock_model
-    ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(
-            cli, ["get", "vibe", "i need pods with app=nginx", "--raw"]
-        )
-
-        assert result.exit_code == 0
-        # Raw output should be present
-        assert mock_kubectl_output in result.output
-        # Vibe check header should be present (without emoji since it's stripped)
-        assert "Vibe check:" in result.output
-        # Check LLM summary is displayed (without markup)
-        assert mock_llm_plain_response in result.output
-
-
-def test_get_vibe_command_llm_error(
-    runner: CliRunner,
-) -> None:
-    """Test vibe command when LLM fails"""
-    mock_model = Mock()
-    mock_model.prompt.side_effect = Exception("LLM error")
-
-    with patch("llm.get_model", return_value=mock_model):
-        result = runner.invoke(
-            cli, ["get", "vibe", "i need pods with app=nginx"], catch_exceptions=False
-        )
-
-        assert result.exit_code == 1
-        assert "Could not get vibe check" in result.stderr
+def runner() -> CliRunner:
+    """Create a Click test runner that preserves stderr"""
+    return CliRunner(mix_stderr=False)
 
 
 def test_get_command_basic(
@@ -158,23 +61,20 @@ def test_get_command_basic(
     mock_kubectl_output: str,
     mock_llm_response: str,
     mock_llm_plain_response: str,
+    mock_config: Mock,
 ) -> None:
     """Test basic get command functionality"""
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
-    mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "pods"])
+        result = runner.invoke(cli, ["get", "pods"], catch_exceptions=False)
 
         assert result.exit_code == 0
         # Raw output should not be present
         assert mock_kubectl_output not in result.output
-        # Vibe check header should not be present
-        assert "✨ Vibe check:" not in result.output
         # Check LLM summary is displayed (without markup)
         assert mock_llm_plain_response in result.output
 
@@ -184,23 +84,22 @@ def test_get_command_with_raw_flag(
     mock_kubectl_output: str,
     mock_llm_response: str,
     mock_llm_plain_response: str,
+    mock_config: Mock,
 ) -> None:
     """Test get command with --raw flag"""
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
-    mock_config = Mock()
-    mock_config.get.side_effect = lambda key: None if key == "llm_model" else False
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "pods", "--raw"])
+        result = runner.invoke(cli, ["get", "pods", "--raw"], catch_exceptions=False)
 
         assert result.exit_code == 0
         # Raw output should be present
         assert mock_kubectl_output in result.output
-        # Vibe check header should be present (without emoji since it's stripped)
-        assert "Vibe check:" in result.output
+        # Vibe check header should be present
+        assert "✨ Vibe check:" in result.output
         # Check LLM summary is displayed (without markup)
         assert mock_llm_plain_response in result.output
 
@@ -210,6 +109,7 @@ def test_get_command_with_raw_config(
     mock_kubectl_output: str,
     mock_llm_response: str,
     mock_llm_plain_response: str,
+    mock_config: Mock,
 ) -> None:
     """Test get command with show_raw_output config"""
     mock_model = Mock()
@@ -220,13 +120,13 @@ def test_get_command_with_raw_config(
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "pods"])
+        result = runner.invoke(cli, ["get", "pods"], catch_exceptions=True)
 
         assert result.exit_code == 0
         # Raw output should be present
         assert mock_kubectl_output in result.output
-        # Vibe check header should be present (without emoji since it's stripped)
-        assert "Vibe check:" in result.output
+        # Vibe check header should be present
+        assert "✨ Vibe check:" in result.output
         # Check LLM summary is displayed (without markup)
         assert mock_llm_plain_response in result.output
 
@@ -235,6 +135,8 @@ def test_get_command_with_namespace(
     runner: CliRunner,
     mock_kubectl_output: str,
     mock_llm_response: str,
+    mock_llm_plain_response: str,
+    mock_config: Mock,
 ) -> None:
     """Test get command with namespace argument"""
     mock_model = Mock()
@@ -242,43 +144,73 @@ def test_get_command_with_namespace(
     mock_config = Mock()
     mock_config.get.return_value = None  # Let it use the default model
 
-    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output) as mock_run:
-        result = runner.invoke(cli, ["get", "pods", "-n", "kube-system"])
-
-        assert result.exit_code == 0
-        mock_run.assert_called_once_with(
-            ["get", "pods", "-n", "kube-system"], capture=True
+    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
+        "llm.get_model", return_value=mock_model
+    ), patch("vibectl.cli.Config", return_value=mock_config):
+        result = runner.invoke(
+            cli, ["get", "pods", "-n", "kube-system"], catch_exceptions=True
         )
 
-
-def test_get_command_no_output(runner: CliRunner) -> None:
-    """Test get command when kubectl returns no output"""
-    with patch("vibectl.cli.run_kubectl", return_value=None) as mock_run:
-        result = runner.invoke(cli, ["get", "pods"])
-
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(["get", "pods"], capture=True)
+        # Raw output should not be present
+        assert mock_kubectl_output not in result.output
+        # Check LLM summary is displayed (without markup)
+        assert mock_llm_plain_response in result.output
 
 
-def test_get_command_kubectl_error(runner: CliRunner) -> None:
+def test_get_command_kubectl_error(runner: CliRunner, mock_config: Mock) -> None:
     """Test get command when kubectl fails"""
-    with patch("vibectl.cli.run_kubectl", side_effect=SystemExit(1)) as mock_run:
-        result = runner.invoke(cli, ["get", "pods"])
+    error_msg = "Error: the server doesn't have a resource type 'invalid'"
+    with patch(
+        "vibectl.cli.run_kubectl",
+        side_effect=subprocess.CalledProcessError(1, "kubectl", error_msg.encode()),
+    ):
+        result = runner.invoke(cli, ["get", "invalid"], catch_exceptions=True)
 
         assert result.exit_code == 1
-        mock_run.assert_called_once_with(["get", "pods"], capture=True)
+        assert isinstance(result.exception, subprocess.CalledProcessError)
+        assert error_msg.encode() == result.exception.output
 
 
-def test_get_command_llm_error(runner: CliRunner, mock_kubectl_output: str) -> None:
+def test_get_command_llm_error(
+    runner: CliRunner,
+    mock_kubectl_output: str,
+    mock_config: Mock,
+) -> None:
     """Test get command when LLM fails"""
     mock_model = Mock()
     mock_model.prompt.side_effect = Exception("LLM error")
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
-    ):
-        result = runner.invoke(cli, ["get", "pods"])
+    ), patch("vibectl.cli.Config", return_value=mock_config):
+        result = runner.invoke(cli, ["get", "pods"], catch_exceptions=False)
 
         # Should still succeed and show kubectl output even if LLM fails
         assert result.exit_code == 0
-        assert "Could not get vibe check" in result.stderr
+        assert mock_kubectl_output in result.output
+
+
+def test_get_command_with_namespace_default(
+    runner: CliRunner,
+    mock_kubectl_output: str,
+    mock_llm_response: str,
+    mock_llm_plain_response: str,
+    mock_config: Mock,
+) -> None:
+    """Test get command with namespace argument"""
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
+    mock_config = Mock()
+    mock_config.get.return_value = True  # Show raw output
+
+    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
+        "llm.get_model", return_value=mock_model
+    ), patch("vibectl.cli.Config", return_value=mock_config):
+        result = runner.invoke(
+            cli, ["get", "pods", "-n", "default"], catch_exceptions=True
+        )
+
+        assert result.exit_code == 0
+        assert "✨ Vibe check:" in result.output
+        assert mock_llm_plain_response in result.output

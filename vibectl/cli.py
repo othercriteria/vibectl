@@ -52,7 +52,8 @@ def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
         The command output if capture=True, None otherwise
 
     Raises:
-        SystemExit: If kubectl is not found or returns an error
+        subprocess.CalledProcessError: If kubectl returns an error
+        FileNotFoundError: If kubectl is not found
     """
     try:
         cmd = ["kubectl"]
@@ -74,11 +75,11 @@ def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
             console.print(result.stdout, end="", markup=False, highlight=False)
         return None
     except subprocess.CalledProcessError as e:
-        error_console.print(f"[bold red]Error:[/] {e.stderr}")
-        sys.exit(1)
+        error_console.print(f"[bold red]Error:[/] {e.stderr}", end="")
+        raise  # Re-raise the original error
     except FileNotFoundError:
         error_console.print("[bold red]Error:[/] kubectl not found in PATH")
-        sys.exit(1)
+        raise
 
 
 @click.group()
@@ -141,7 +142,7 @@ def handle_vibe_request(
                 )  # Convert back to chars
                 truncated_output = (
                     f"{output[:chunk_size]}\n"
-                    f"[...truncated {output_len - 2*chunk_size} characters...]\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
                     f"{output[-chunk_size:]}"
                 )
                 llm_output = truncated_output
@@ -199,6 +200,9 @@ def handle_regular_command(
 
     Returns:
         The command output as a string
+
+    Raises:
+        subprocess.CalledProcessError: If kubectl returns an error
     """
     # Run the kubectl command
     output = run_kubectl([command, resource, *args], capture=True)
@@ -223,14 +227,14 @@ def handle_regular_command(
             )  # Convert back to chars
             truncated_output = (
                 f"{output[:chunk_size]}\n"
-                f"[...truncated {output_len - 2*chunk_size} characters...]\n"
+                f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
                 f"{output[-chunk_size:]}"
             )
             llm_output = truncated_output
-            if show_raw:
-                msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
-                error_console.print(msg)
-                console.print()  # Add a blank line for readability
+            error_console.print(
+                "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
+            )
+            console.print()  # Add a blank line for readability
         else:
             # For other commands, warn and optionally show raw output
             error_console.print(

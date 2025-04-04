@@ -26,12 +26,23 @@ actions:
     conditions:
       - pattern: "^(?!\\.\\/\\.cursor\\/rules\\/.*\\.mdc$)"
         message: "Cursor rule files (.mdc) must be placed in the .cursor/rules directory"
+      - pattern: "^(?!---\\s*\\n.*?\\n---\\s*\\n)"
+        message: "Cursor rule files must include YAML frontmatter with description, globs, and alwaysApply fields"
 
   - type: suggest
     message: |
       When creating Cursor rules:
 
-      1. Always place rule files in PROJECT_ROOT/.cursor/rules/:
+      1. Include required YAML frontmatter:
+         ```yaml
+         ---
+         description: Brief description of the rule's purpose
+         globs: ["pattern/to/match/*.ext"]
+         alwaysApply: true  # or false
+         ---
+         ```
+
+      2. Always place rule files in PROJECT_ROOT/.cursor/rules/:
          ```
          .cursor/rules/
          ├── your-rule-name.mdc
@@ -39,12 +50,12 @@ actions:
          └── ...
          ```
 
-      2. Follow the naming convention:
+      3. Follow the naming convention:
          - Use kebab-case for filenames
          - Always use .mdc extension
          - Make names descriptive of the rule's purpose
 
-      3. Directory structure:
+      4. Directory structure:
          ```
          PROJECT_ROOT/
          ├── .cursor/
@@ -54,21 +65,31 @@ actions:
          └── ...
          ```
 
-      4. Never place rule files:
+      5. Never place rule files:
          - In the project root
          - In subdirectories outside .cursor/rules
          - In any other location
 
 examples:
   - input: |
+      # Bad: Missing YAML frontmatter
+      # My Rule
+      <rule>...</rule>
+
       # Bad: Rule file in wrong location
       rules/my-rule.mdc
       my-rule.mdc
       .rules/my-rule.mdc
 
-      # Good: Rule file in correct location
-      .cursor/rules/my-rule.mdc
-    output: "Correctly placed Cursor rule file"
+      # Good: Complete rule file in correct location
+      ---
+      description: My rule description
+      globs: ["**/*.py"]
+      alwaysApply: true
+      ---
+      # My Rule
+      <rule>...</rule>
+    output: "Correctly formatted and placed Cursor rule file"
 
 metadata:
   priority: high
