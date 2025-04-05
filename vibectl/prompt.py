@@ -387,3 +387,61 @@ Example format:
 
 Here's the version information:
 {{version_info}}"""
+
+
+# Template for planning kubectl events commands
+PLAN_EVENTS_PROMPT = """Given this natural language request for Kubernetes events,
+determine the appropriate kubectl get events command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'get events' in the output
+- Include any necessary flags (-n, --field-selector, --sort-by, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "show events in default namespace"
+Output:
+-n
+default
+
+Input: "get events for pod nginx"
+Output:
+--field-selector=involvedObject.name=nginx,involvedObject.kind=Pod
+
+Input: "show all events in all namespaces"
+Output:
+--all-namespaces
+
+Here's the request:
+
+{request}"""
+
+
+# Template for summarizing 'kubectl events' output
+def events_prompt() -> str:
+    """Get the prompt template for summarizing kubectl events output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The events prompt template with current formatting instructions
+    """
+    return f"""Analyze these Kubernetes events and provide a concise summary.
+Focus on recent events, patterns, warnings, and notable occurrences.
+Group related events and highlight potential issues.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]12 events[/bold] in the last [italic]10 minutes[/italic]
+[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], [bold]nginx-2[/bold]
+[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold] [italic]5 minutes ago[/italic]
+[red]OOMKilled[/red] events for [bold]db-pod[/bold], [italic]happened 3 times[/italic]
+
+Here's the output:
+
+{{output}}"""

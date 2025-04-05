@@ -151,7 +151,7 @@ def handle_command_output(
         try:
             # Use the automatic output type detection and processing
             llm_output, was_truncated = output_processor.process_auto(output)
-            
+
             # Show truncation warning if needed
             if was_truncated:
                 console_manager.print_truncation_warning()

@@ -22,11 +22,13 @@ from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
+    PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     describe_resource_prompt,
+    events_prompt,
     get_resource_prompt,
     logs_prompt,
     version_prompt,
@@ -185,6 +187,8 @@ def handle_vibe_request(
                     )
                 elif command == "cluster-info":
                     prompt_with_time = cluster_info_prompt().format(output=llm_output)
+                elif command == "events":
+                    prompt_with_time = events_prompt().format(output=llm_output)
                 else:
                     # Fallback to original prompt if command isn't recognized
                     prompt_with_time = summary_prompt.format(output=llm_output)
@@ -216,7 +220,6 @@ def handle_vibe_request(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
-@click.option("--namespace", "-n", default=None, help="Namespace")
 def get(
     resource: str,
     args: tuple,
@@ -224,7 +227,6 @@ def get(
     show_raw_output: Optional[bool],
     show_vibe: Optional[bool],
     model: Optional[str],
-    namespace: Optional[str],
 ) -> None:
     """Get information about Kubernetes resources."""
     # Configure output flags
@@ -253,8 +255,6 @@ def get(
         return
 
     cmd = ["get", resource]
-    if namespace:
-        cmd.extend(["-n", namespace])
     cmd.extend(args)
 
     try:
@@ -411,7 +411,6 @@ def describe(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
-@click.option("--container", "-c", default=None, help="Container name")
 def logs(
     resource: str,
     args: tuple,
@@ -419,7 +418,6 @@ def logs(
     show_raw_output: Optional[bool],
     show_vibe: Optional[bool],
     model: Optional[str],
-    container: Optional[str],
 ) -> None:
     """Show logs from containers."""
     config = Config()
@@ -460,8 +458,6 @@ def logs(
         return
 
     cmd = ["logs", resource]
-    if container:
-        cmd.extend(["-c", container])
     cmd.extend(args)
 
     try:
@@ -523,8 +519,6 @@ def logs(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
-@click.option("--image", default=None, help="Container image")
-@click.option("--namespace", "-n", default=None, help="Namespace")
 def create(
     resource: str,
     args: tuple,
@@ -532,8 +526,6 @@ def create(
     show_raw_output: Optional[bool],
     show_vibe: Optional[bool],
     model: Optional[str],
-    image: Optional[str],
-    namespace: Optional[str],
 ) -> None:
     """Create a resource."""
     config = Config()
@@ -574,10 +566,6 @@ def create(
         return
 
     cmd = ["create", resource]
-    if image:
-        cmd.extend(["--image", image])
-    if namespace:
-        cmd.extend(["-n", namespace])
     cmd.extend(args)
 
     try:
@@ -706,7 +694,7 @@ def theme_list() -> None:
     """List available themes"""
     cfg = Config()
     available_themes = cfg.get_available_themes()
-    
+
     # Create a table to display available themes
     table = Table(
         title="Available Themes",
@@ -716,13 +704,13 @@ def theme_list() -> None:
     )
     table.add_column("Theme", style="key")
     table.add_column("Status", style="value")
-    
+
     current_theme = cfg.get("theme", "default")
-    
+
     for theme_name in available_themes:
         status = "[success]Active[/success]" if theme_name == current_theme else ""
         table.add_row(theme_name, status)
-    
+
     console_manager.console.print(table)
 
 
@@ -730,18 +718,18 @@ def theme_list() -> None:
 @click.argument("theme_name")
 def theme_set(theme_name: str) -> None:
     """Set the current theme
-    
+
     THEME_NAME: Name of the theme to use (default, dark, light, accessible)
     """
     cfg = Config()
-    
+
     try:
         # Update the config
         cfg.set("theme", theme_name)
-        
+
         # Update the console manager to use the new theme immediately
         console_manager.set_theme(theme_name)
-        
+
         console_manager.print_success(f"Theme set to {theme_name}")
     except ValueError as e:
         console_manager.print_error(str(e))
@@ -780,6 +768,91 @@ def version() -> None:
         console_manager.print_note("kubectl version information not available")
     except Exception as e:
         console_manager.print_note("Error getting version information", error=e)
+
+
+@cli.command()
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+def events(
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+) -> None:
+    """Display events from the Kubernetes cluster with AI interpretation."""
+    # Configure output flags
+    (
+        show_raw_output,
+        show_vibe,
+        suppress_output_warning,
+        model_name,
+    ) = configure_output_flags(raw, show_raw_output, show_vibe, model)
+
+    if args and args[0] == "vibe":
+        if len(args) < 2:
+            console_manager.print_missing_request_error()
+            sys.exit(1)
+        request = " ".join(args[1:])
+        handle_vibe_request(
+            request=request,
+            command="get",  # "get" because kubectl events is really "kubectl get events"
+            plan_prompt=PLAN_EVENTS_PROMPT,
+            summary_prompt=events_prompt(),
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
+        )
+        return
+
+    # Construct command: kubectl get events with any additional arguments
+    cmd = ["get", "events"]
+    cmd.extend(args)
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console_manager.print_raw(output)
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Process the output to stay within token limits
+            llm_output, _ = console_manager.process_output_for_vibe(
+                output, MAX_TOKEN_LIMIT, LOGS_TRUNCATION_RATIO
+            )
+
+            try:
+                llm_model = llm.get_model(model_name)
+                prompt = events_prompt().format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    # Add newline before vibe check
+                    console_manager.console.print()
+                console_manager.print_vibe(summary)
+            except Exception as e:
+                console_manager.print_note("Could not get vibe check", error=e)
+
+    except subprocess.CalledProcessError:
+        # Error is already shown by run_kubectl
+        sys.exit(1)
+    except Exception as e:
+        if "No key found" in str(e):
+            console_manager.print_missing_api_key_error()
+            sys.exit(1)
+        else:
+            console_manager.print_error(str(e))
+            sys.exit(1)
 
 
 @cli.command()

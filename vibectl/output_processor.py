@@ -7,9 +7,9 @@ handling token limits, and preparing data for AI processing.
 
 import json
 import re
-from typing import Any, Dict, List, Match, Optional, Tuple, Union, TypeVar, cast
+from typing import Any, Dict, List, Tuple, TypeVar, Union
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class OutputProcessor:
@@ -74,78 +74,98 @@ class OutputProcessor:
         output, was_truncated = self.process_for_llm(logs)
         self.truncation_ratio = original_ratio
         return output, was_truncated
-        
+
     def process_json(self, json_str: str) -> Tuple[str, bool]:
         """Process JSON output with specialized handling for better structure.
-        
+
         Args:
             json_str: The raw JSON string to process
-            
+
         Returns:
             Tuple containing (processed_json, was_truncated)
         """
         try:
             # First try to parse as JSON
             data = json.loads(json_str)
-            
+
             # For structured JSON, we can do more intelligent truncation
             # This function intelligently trims arrays and nested objects
             truncated_data = self._truncate_json_object(data)
-            
+
             # Convert back to formatted JSON string
             formatted_json = json.dumps(truncated_data, indent=2)
-            
+
             # If it's still too large, apply standard truncation
             return self.process_for_llm(formatted_json)
         except json.JSONDecodeError:
             # If it's not valid JSON, just use standard truncation
             return self.process_for_llm(json_str)
-            
-    def _truncate_json_object(self, obj: Union[Dict, List, str, int, float, bool, None], 
-                              depth: int = 0, max_depth: int = 3) -> Union[Dict, List, str, int, float, bool, None]:
+
+    def _truncate_json_object(
+        self,
+        obj: Union[Dict, List, str, int, float, bool, None],
+        depth: int = 0,
+        max_depth: int = 3,
+    ) -> Union[Dict, List, str, int, float, bool, None]:
         """Recursively truncate a JSON object to fit token limits.
-        
+
         Args:
             obj: The JSON object to truncate
             depth: Current recursion depth
             max_depth: Maximum depth to traverse before truncating
-            
+
         Returns:
             Truncated JSON object
         """
         # Base case - return primitives as is
         if not isinstance(obj, (dict, list)) or depth > max_depth:
             return obj
-            
+
         # Handle dictionaries
         if isinstance(obj, dict):
             result: Dict[str, Any] = {}
             for i, (key, value) in enumerate(obj.items()):
                 # Keep important keys at any level
-                is_important = any(k in key.lower() for k in ["name", "id", "status", "error"]) if isinstance(key, str) else False
-                
+                important_keys = ["name", "id", "status", "error"]
+                is_important = (
+                    any(k in key.lower() for k in important_keys)
+                    if isinstance(key, str)
+                    else False
+                )
+
                 # Always keep keys with certain names or if we have few items
                 if is_important or i < 10 or len(obj) < 20:
-                    result[key] = self._truncate_json_object(value, depth + 1, max_depth)
+                    result[key] = self._truncate_json_object(
+                        value, depth + 1, max_depth
+                    )
                 else:
                     # Once we hit 10 items, summarize the rest
                     result["..."] = f"{len(obj) - 10} more items truncated"
                     break
             return result
-            
+
         # Handle lists
         if isinstance(obj, list):
             # If the list is small, keep it all
             if len(obj) < 10:
-                return [self._truncate_json_object(item, depth + 1, max_depth) for item in obj]
-                
+                return [
+                    self._truncate_json_object(item, depth + 1, max_depth)
+                    for item in obj
+                ]
+
             # Otherwise keep first and last few items
-            first_items = [self._truncate_json_object(item, depth + 1, max_depth) for item in obj[:5]]
-            last_items = [self._truncate_json_object(item, depth + 1, max_depth) for item in obj[-3:]]
+            first_items = [
+                self._truncate_json_object(item, depth + 1, max_depth)
+                for item in obj[:5]
+            ]
+            last_items = [
+                self._truncate_json_object(item, depth + 1, max_depth)
+                for item in obj[-3:]
+            ]
             summary = [f"...{len(obj) - 8} items truncated..."]
-            
+
             return first_items + summary + last_items
-            
+
         # Should never reach here
         return obj
 
@@ -169,60 +189,63 @@ class OutputProcessor:
                 resource_type = resource_type + "s"
 
         return f"{resource_type}/{resource_name}"
-    
+
     def detect_output_type(self, output: str) -> str:
         """Detect the type of output for specialized processing.
-        
+
         Args:
             output: The raw output string
-            
+
         Returns:
             Output type: 'json', 'yaml', 'logs', or 'text'
         """
         # Try to detect JSON
         output_stripped = output.strip()
-        if (output_stripped.startswith('{') and output_stripped.endswith('}')) or \
-           (output_stripped.startswith('[') and output_stripped.endswith(']')):
+        if (output_stripped.startswith("{") and output_stripped.endswith("}")) or (
+            output_stripped.startswith("[") and output_stripped.endswith("]")
+        ):
             try:
                 json.loads(output_stripped)
-                return 'json'
+                return "json"
             except json.JSONDecodeError:
                 pass
-                
+
         # Check for YAML indicators
-        yaml_pattern = r'^(apiVersion:|kind:|metadata:|spec:|status:)'
+        yaml_pattern = r"^(apiVersion:|kind:|metadata:|spec:|status:)"
         if re.search(yaml_pattern, output, re.MULTILINE):
-            return 'yaml'
-            
+            return "yaml"
+
         # Check for log patterns (timestamps, log levels)
-        log_pattern = r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}'
+        log_pattern = r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
         if re.search(log_pattern, output, re.MULTILINE):
-            return 'logs'
-            
+            return "logs"
+
         # Default to text
-        return 'text'
-    
+        return "text"
+
     def process_auto(self, output: str) -> Tuple[str, bool]:
         """Automatically detect output type and process accordingly.
-        
+
         Args:
             output: The raw output to process
-            
+
         Returns:
             Tuple containing (processed_output, was_truncated)
         """
         output_type = self.detect_output_type(output)
-        
-        if output_type == 'json':
+
+        if output_type == "json":
             return self.process_json(output)
-        elif output_type == 'logs':
+        elif output_type == "logs":
             return self.process_logs(output)
-        elif output_type == 'yaml':
+        elif output_type == "yaml":
             # Use YAML section extraction for YAML
             sections = self.extract_yaml_sections(output)
-            if 'status' in sections and len(sections['status']) > 1000:
+            if "status" in sections and len(sections["status"]) > 1000:
                 # Truncate status section if it's large
-                sections['status'] = sections['status'][:500] + "\n...[status truncated]...\n" + sections['status'][-500:]
+                status = sections["status"]
+                trunc_msg = "\n...[status truncated]...\n"
+                sections["status"] = status[:500] + trunc_msg + status[-500:]
             processed_yaml = "\n".join(sections.values())
             return self.process_for_llm(processed_yaml)
         else:

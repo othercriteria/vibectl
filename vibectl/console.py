@@ -251,23 +251,29 @@ class ConsoleManager:
         self, output: str, max_token_limit: int, truncation_ratio: int
     ) -> Tuple[str, bool]:
         """Process output to ensure it stays within token limits for LLM.
-        
+
         This is a convenience method that delegates to the output_processor.
-        
+
         Args:
             output: The raw output to process
             max_token_limit: Maximum number of tokens for LLM input
             truncation_ratio: Ratio for truncating output
-            
+
         Returns:
             Tuple containing (processed_output, was_truncated)
         """
         # Configure the output processor with our token limits
         output_processor.max_token_limit = max_token_limit
         output_processor.truncation_ratio = truncation_ratio
-        
+
         # Use automatic processing for best results
-        return output_processor.process_auto(output)
+        result = output_processor.process_auto(output)
+
+        # Print truncation warning if needed
+        if result[1]:  # If was_truncated is True
+            self.print_truncation_warning()
+
+        return result
 
 
 # Create global instance for easy import

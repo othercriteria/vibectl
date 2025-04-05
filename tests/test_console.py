@@ -147,7 +147,10 @@ class TestConsoleManager(unittest.TestCase):
         # Create output that will exceed token limit (4 chars per token)
         large_output = "a" * 120000  # Should be about 30000 tokens
 
-        with patch("sys.stderr", new=io.StringIO()) as fake_stderr:
+        # Patch the print_truncation_warning method instead of stderr
+        with patch.object(
+            self.console_manager, "print_truncation_warning"
+        ) as mock_warning:
             processed_output, was_truncated = (
                 self.console_manager.process_output_for_vibe(
                     output=large_output, max_token_limit=10000, truncation_ratio=3
@@ -156,8 +159,8 @@ class TestConsoleManager(unittest.TestCase):
 
             # Output should be truncated
             self.assertTrue(was_truncated)
-            # Truncation warning should be printed
-            self.assertIn("Output is too large", fake_stderr.getvalue())
+            # Truncation warning should be called
+            mock_warning.assert_called_once()
             # Processed output should contain truncation message
             self.assertIn("[...truncated", processed_output)
             # Processed output should be shorter than original

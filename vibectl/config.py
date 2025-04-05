@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, TypeVar, cast
+from typing import Any, Dict, List, Tuple, Type, TypeVar, Union, cast
 
 import yaml
 
@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
 ConfigType = Union[Type, Tuple[Type, ...]]
 
 # T is a generic type variable for return type annotation
-T = TypeVar('T')
+T = TypeVar("T")
 
 # Valid configuration keys and their types
 CONFIG_SCHEMA: Dict[str, ConfigType] = {
@@ -79,45 +79,47 @@ class Config:
             The configuration value or default if not found
         """
         return self._config.get(key, default)
-        
+
     def _validate_key(self, key: str) -> None:
         """Validate that a key exists in the configuration schema.
-        
+
         Args:
             key: The configuration key to validate
-            
+
         Raises:
             ValueError: If the key is invalid
         """
         if key not in CONFIG_SCHEMA:
             valid_keys = ", ".join(CONFIG_SCHEMA.keys())
             raise ValueError(f"Invalid config key: {key}. Valid keys are: {valid_keys}")
-    
+
     def _convert_to_type(self, key: str, value: str) -> Any:
         """Convert a string value to the correct type based on the schema.
-        
+
         Args:
             key: The configuration key
             value: The string value to convert
-            
+
         Returns:
             The value converted to the correct type
-            
+
         Raises:
             ValueError: If the value can't be converted to the expected type
         """
         expected_type = CONFIG_SCHEMA[key]
-        
+
         # Handle None special case
         if value.lower() == "none":
             if isinstance(expected_type, tuple) and type(None) in expected_type:
                 return None
             raise ValueError(f"None is not a valid value for {key}")
-            
+
         # Handle boolean conversion
-        if expected_type == bool or (isinstance(expected_type, tuple) and bool in expected_type):
+        if isinstance(expected_type, bool) or (
+            isinstance(expected_type, tuple) and bool in expected_type
+        ):
             return self._convert_to_bool(key, value)
-            
+
         # Handle other types
         try:
             if isinstance(expected_type, tuple):
@@ -132,17 +134,17 @@ class Config:
             raise ValueError(
                 f"Invalid value for {key}: {value}. Expected type: {expected_type}"
             ) from err
-    
+
     def _convert_to_bool(self, key: str, value: str) -> bool:
         """Convert a string value to a boolean.
-        
+
         Args:
             key: The configuration key (for error messages)
             value: The string value to convert
-            
+
         Returns:
             The boolean value
-            
+
         Raises:
             ValueError: If the value can't be converted to a boolean
         """
@@ -154,14 +156,14 @@ class Config:
             f"Invalid boolean value for {key}: {value}. "
             f"Use true/false, yes/no, 1/0, or on/off"
         )
-    
+
     def _validate_allowed_values(self, key: str, value: Any) -> None:
         """Validate that a value is in the allowed values for a key.
-        
+
         Args:
             key: The configuration key
             value: The value to validate
-            
+
         Raises:
             ValueError: If the value is not allowed
         """
@@ -169,9 +171,9 @@ class Config:
             valid_values = CONFIG_VALID_VALUES[key]
             if value not in valid_values:
                 valid_values_str = ", ".join(str(v) for v in valid_values)
-                raise ValueError(
-                    f"Invalid value for {key}: {value}. Valid values: {valid_values_str}"
-                )
+                err_msg = f"Invalid value for {key}: {value}. "
+                err_msg += f"Valid values: {valid_values_str}"
+                raise ValueError(err_msg)
 
     def set(self, key: str, value: str) -> None:
         """Set a configuration value.
@@ -185,13 +187,13 @@ class Config:
         """
         # Validate key
         self._validate_key(key)
-        
+
         # Convert value to correct type
         typed_value = self._convert_to_type(key, value)
-        
+
         # Validate against allowed values if applicable
         self._validate_allowed_values(key, typed_value)
-        
+
         # Set the typed value
         self._config[key] = typed_value
         # Save to file
@@ -199,17 +201,17 @@ class Config:
 
     def get_typed(self, key: str, default: T) -> T:
         """Get a configuration value with type safety.
-        
+
         Args:
             key: The configuration key
             default: Default value if key is not found (also determines return type)
-            
+
         Returns:
             The configuration value with the same type as the default value
         """
         value = self._config.get(key, default)
         # Cast to the same type as the default to help type checking
-        return cast(T, value)
+        return cast("T", value)
 
     def get_available_themes(self) -> List[str]:
         """Get a list of available themes.

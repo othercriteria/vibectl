@@ -42,7 +42,9 @@ def mock_config_dir(tmp_path: Path) -> Path:
     """Create a mock config directory for testing."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    with patch.object(Config, "config_dir", config_dir), patch.object(Config, "config_file", config_dir / "config.yaml"):
+    with patch.object(Config, "config_dir", config_dir), patch.object(
+        Config, "config_file", config_dir / "config.yaml"
+    ):
         yield config_dir
 
 
@@ -55,9 +57,11 @@ def temp_config(mock_config_dir: Path) -> Config:
 @pytest.fixture
 def mock_plan_response() -> str:
     """Mock response for the plan command."""
-    return ("-n\ndefault\n---\napiVersion: v1\nkind: Pod\nmetadata:\n"
-            "  name: test-pod\nspec:\n  containers:\n  - name: test\n"
-            "    image: nginx:latest")
+    return (
+        "-n\ndefault\n---\napiVersion: v1\nkind: Pod\nmetadata:\n"
+        "  name: test-pod\nspec:\n  containers:\n  - name: test\n"
+        "    image: nginx:latest"
+    )
 
 
 @pytest.fixture
