@@ -126,14 +126,14 @@ def test_create_vibe_command_with_raw_flag(
     # Create a separate mock for each prompt call to ensure deterministic behavior
     plan_mock = Mock()
     plan_mock.text = lambda: mock_plan_response
-    
+
     summary_mock = Mock()
     summary_mock.text = lambda: mock_llm_response
-    
+
     mock_model = Mock()
     # Return different responses for each call
     mock_model.prompt.side_effect = [plan_mock, summary_mock]
-    
+
     mock_config = Mock()
     mock_config.get.side_effect = lambda key, default=None: default
 
@@ -141,16 +141,24 @@ def test_create_vibe_command_with_raw_flag(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
         # Test raw output only
-        result = runner.invoke(cli, ["create", "vibe", "an nginx hello world pod", "--raw", "--no-show-vibe"], catch_exceptions=False)
+        result = runner.invoke(
+            cli,
+            ["create", "vibe", "an nginx hello world pod", "--raw", "--no-show-vibe"],
+            catch_exceptions=False,
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" not in result.output
 
         # Reset the mock between runs
         mock_model.prompt.side_effect = [plan_mock, summary_mock]
-        
+
         # Test raw output with vibe
-        result = runner.invoke(cli, ["create", "vibe", "an nginx hello world pod", "--raw", "--show-vibe"], catch_exceptions=False)
+        result = runner.invoke(
+            cli,
+            ["create", "vibe", "an nginx hello world pod", "--raw", "--show-vibe"],
+            catch_exceptions=False,
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" in result.output
@@ -168,22 +176,30 @@ def test_create_vibe_command_with_raw_config(
     # Create separate mocks for deterministic behavior
     plan_mock = Mock()
     plan_mock.text = lambda: mock_plan_response
-    
+
     summary_mock = Mock()
     summary_mock.text = lambda: mock_llm_response
-    
+
     mock_model = Mock()
     mock_model.prompt.side_effect = [plan_mock, summary_mock]
-    
+
     mock_config = Mock()
 
     # Test raw output only
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else False if key == "show_vibe" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key == "show_raw_output"
+        else False
+        if key == "show_vibe"
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=False
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" not in result.output
@@ -191,15 +207,21 @@ def test_create_vibe_command_with_raw_config(
     # Reset the mock and mock_config for the second test
     mock_model = Mock()
     mock_model.prompt.side_effect = [plan_mock, summary_mock]
-    
+
     # Test raw output with vibe
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key, default=None: True if key in ["show_raw_output", "show_vibe"] else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key in ["show_raw_output", "show_vibe"]
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=False
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" in result.output
@@ -214,23 +236,29 @@ def test_create_vibe_command_invalid_plan_format(
     mock_response = Mock()
     mock_response.text = lambda: "invalid format without manifest"
     mock_model.prompt.return_value = mock_response
-    
+
     mock_config = Mock()
     mock_config.get.return_value = None  # Let it use the default model
-    mock_config.get.side_effect = lambda key, default=None: False  # Disable show_raw_output and show_vibe warnings
+    mock_config.get.side_effect = (
+        lambda key, default=None: False
+    )  # Disable show_raw_output and show_vibe warnings
 
     with patch("llm.get_model", return_value=mock_model), patch(
         "vibectl.cli.Config", return_value=mock_config
     ):
         # We expect sys.exit(1) to be called when invalid format is detected
-        result = runner.invoke(cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=True)
+        result = runner.invoke(
+            cli, ["create", "vibe", "an nginx hello world pod"], catch_exceptions=True
+        )
 
         assert result.exit_code == 1
         # Match either of these possible error messages
-        assert any([
-            "Invalid response format from planner" in result.stderr,
-            "error: Unexpected args" in result.stderr
-        ])
+        assert any(
+            [
+                "Invalid response format from planner" in result.stderr,
+                "error: Unexpected args" in result.stderr,
+            ]
+        )
 
 
 def test_create_command_basic(
@@ -242,7 +270,11 @@ def test_create_command_basic(
     mock_model.prompt.return_value = Mock(text=lambda: "Created resource successfully")
     mock_config = Mock()
     # Ensure both raw output and vibe are shown
-    mock_config.get.side_effect = lambda key, default=None: True if key in ["show_raw_output", "show_vibe"] else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key in ["show_raw_output", "show_vibe"]
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
@@ -265,7 +297,9 @@ def test_create_command_llm_error(
     mock_model.prompt.side_effect = Exception("LLM error")
     mock_config = Mock()
     # Ensure raw output is shown when LLM fails
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True if key == "show_raw_output" else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model

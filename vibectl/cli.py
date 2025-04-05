@@ -6,6 +6,7 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
+import datetime
 import json
 import subprocess
 import sys
@@ -18,14 +19,17 @@ from rich.table import Table
 
 from .config import Config
 from .prompt import (
+    CLUSTER_INFO_PROMPT,
     CREATE_RESOURCE_PROMPT,
     DESCRIBE_RESOURCE_PROMPT,
     GET_RESOURCE_PROMPT,
     LOGS_PROMPT,
+    PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
+    refresh_datetime,
 )
 
 console = Console()
@@ -39,9 +43,20 @@ DEFAULT_SHOW_RAW_OUTPUT = False
 DEFAULT_SHOW_VIBE = True
 DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
-# Prompt for version command
-VERSION_PROMPT = """Interpret this Kubernetes version information in a human-friendly way.
-Highlight important details like version compatibility, deprecation notices, or update recommendations.
+# Current datetime for version command
+CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# Define version prompt function that uses get_formatting_instructions
+def get_version_prompt() -> str:
+    """Get the prompt template for version command with current datetime.
+
+    Returns:
+        str: The version prompt template with current formatting instructions
+    """
+    return f"""Interpret this Kubernetes version information in a human-friendly way.
+Highlight important details like version compatibility, deprecation notices,
+or update recommendations.
 
 Format your response using rich.Console() markup syntax with matched closing tags:
 - [bold]Version numbers and key details[/bold] for emphasis
@@ -51,8 +66,16 @@ Format your response using rich.Console() markup syntax with matched closing tag
 - [blue]Kubernetes components[/blue] for k8s terms
 - [italic]Build dates and release info[/italic] for timing information
 
+Important:
+- Current date and time is {refresh_datetime()}
+- Timestamps in the future relative to this are not anomalies
+
 Here's the version information:
-{version_info}"""
+{{version_info}}"""
+
+
+# For backward compatibility
+VERSION_PROMPT = get_version_prompt()
 
 
 def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
@@ -118,12 +141,14 @@ def handle_vibe_request(
         # Show warning if no output will be shown and warning is not suppressed
         if not show_raw_output and not show_vibe and not suppress_output_warning:
             error_console.print(
-                "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
-                "Use --show-raw-output or --show-vibe to see output."
+                "[yellow]Warning:[/yellow] Neither raw output nor vibe output "
+                "is enabled. Use --show-raw-output or --show-vibe to see output."
             )
 
         # Get the plan from LLM
         llm_model = llm.get_model(model_name)
+
+        # Format prompt with request - plan prompts already use the latest formatting
         prompt = plan_prompt.format(request=request)
         response = llm_model.prompt(prompt)
         plan = response.text() if hasattr(response, "text") else str(response)
@@ -188,8 +213,36 @@ def handle_vibe_request(
                 )
 
             try:
-                prompt = summary_prompt.format(output=llm_output)
-                response = llm_model.prompt(prompt)
+                # Select the right command function to get the latest datetime
+                if command == "get":
+                    from .prompt import get_resource_prompt
+
+                    prompt_with_time = get_resource_prompt().format(output=llm_output)
+                elif command == "describe":
+                    from .prompt import describe_resource_prompt
+
+                    prompt_with_time = describe_resource_prompt().format(
+                        output=llm_output
+                    )
+                elif command == "logs":
+                    from .prompt import logs_prompt
+
+                    prompt_with_time = logs_prompt().format(output=llm_output)
+                elif command == "create":
+                    from .prompt import create_resource_prompt
+
+                    prompt_with_time = create_resource_prompt().format(
+                        output=llm_output
+                    )
+                elif command == "cluster-info":
+                    from .prompt import cluster_info_prompt
+
+                    prompt_with_time = cluster_info_prompt().format(output=llm_output)
+                else:
+                    # Fallback to original prompt if command isn't recognized
+                    prompt_with_time = summary_prompt.format(output=llm_output)
+
+                response = llm_model.prompt(prompt_with_time)
                 summary = (
                     response.text() if hasattr(response, "text") else str(response)
                 )
@@ -753,8 +806,9 @@ def config_set(key: str, value: str) -> None:
         kubeconfig: Path to kubeconfig file
         llm_model: Name of the LLM model to use (default: claude-3.7-sonnet)
         show_raw_output: Whether to always show raw kubectl output (default: false)
-        show_vibe: Whether to show vibe summaries by default (default: true)
-        suppress_output_warning: Whether to suppress warning when no output is shown (default: false)
+        show_vibe: Whether to show vibe summaries (default: true)
+        suppress_output_warning: Whether to suppress warning when no output is shown
+                            (default: false)
     """
     cfg = Config()
 
@@ -815,7 +869,9 @@ def version() -> None:
 
         # Use LLM to interpret the JSON response
         llm_model = llm.get_model(DEFAULT_MODEL)
-        prompt = VERSION_PROMPT.format(version_info=version_info)
+
+        # Get fresh version prompt with current datetime
+        prompt = get_version_prompt().format(version_info=version_info)
         response = llm_model.prompt(prompt)
         interpretation = response.text() if hasattr(response, "text") else str(response)
         console.print(interpretation, markup=True, highlight=False)
@@ -829,6 +885,130 @@ def version() -> None:
             f"[red]{e}[/red]"
         )
         error_console.print(msg)
+
+
+@cli.command()
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+def cluster_info(
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+) -> None:
+    """Display cluster information with AI-generated insights."""
+    config = Config()
+    model_name = model or config.get("model", DEFAULT_MODEL)
+
+    # Handle raw flag for backward compatibility
+    if raw is not None:
+        show_raw_output = raw
+
+    # Use config values if flags are not provided
+    if show_raw_output is None:
+        show_raw_output = config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+    if show_vibe is None:
+        show_vibe = config.get("show_vibe", DEFAULT_SHOW_VIBE)
+    suppress_output_warning = config.get(
+        "suppress_output_warning", DEFAULT_SUPPRESS_OUTPUT_WARNING
+    )
+
+    if args and args[0] == "vibe":
+        if len(args) < 2:
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing request after 'vibe'"
+            )
+            sys.exit(1)
+        request = " ".join(args[1:])
+        handle_vibe_request(
+            request=request,
+            command="cluster-info",
+            plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
+            summary_prompt=CLUSTER_INFO_PROMPT,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
+        )
+        return
+
+    # Default is to run 'cluster-info dump' or specific args if provided
+    cmd = ["cluster-info"]
+    if args:
+        cmd.extend(args)
+    else:
+        # No arguments means basic cluster-info, not dump
+        # cmd.append("dump")  # Removed to match kubectl behavior
+        pass
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
+                # For cluster-info, take first and last third
+                chunk_size = int(
+                    MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+                )  # Convert back to chars
+                truncated_output = (
+                    f"{output[:chunk_size]}\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
+                    f"{output[-chunk_size:]}"
+                )
+                llm_output = truncated_output
+                error_console.print(
+                    "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                    "Using truncated output for vibe check."
+                )
+
+            try:
+                llm_model = llm.get_model(model_name)
+
+                # Use fresh cluster info prompt with current datetime
+                from .prompt import cluster_info_prompt
+
+                prompt = cluster_info_prompt().format(output=llm_output)
+
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
+
+    except Exception as e:
+        if "No key found" in str(e):
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
+            )
+            sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
 
 
 def main() -> NoReturn:

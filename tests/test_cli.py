@@ -1,6 +1,5 @@
 """Tests for the CLI."""
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -9,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from vibectl import __version__
 from vibectl.cli import cli
 
 
@@ -114,7 +112,9 @@ class TestVersionCommand:
     ) -> None:
         """Test version command with JSON output"""
         mock_model = Mock()
-        mock_model.prompt.return_value = Mock(text=lambda: "Interpreted version information")
+        mock_model.prompt.return_value = Mock(
+            text=lambda: "Interpreted version information"
+        )
 
         with patch("subprocess.run", return_value=mock_kubectl_version), patch(
             "llm.get_model", return_value=mock_model
@@ -208,7 +208,7 @@ class TestConfigCommands:
         """Test config show command"""
         # First set a test value
         runner.invoke(cli, ["config", "set", "test_key", "test_value"])
-        
+
         # Then verify it shows up in config show
         result = runner.invoke(cli, ["config", "show"])
         assert result.exit_code == 0

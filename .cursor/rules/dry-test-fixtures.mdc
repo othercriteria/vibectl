@@ -88,10 +88,10 @@ examples:
       @pytest.fixture
       def test_data(request):
           """Provide test data with customizable content.
-          
+
           Args:
               request: Fixture request object
-              
+
           Returns:
               dict: Test data with specified content
           """
@@ -107,13 +107,13 @@ examples:
       @pytest.fixture
       def mock_service():
           """Create a mock service with common attributes.
-          
+
           This fixture provides a mock service object with pre-configured
           common attributes and methods used across multiple tests.
-          
+
           Returns:
               Mock: Configured mock service object
-          
+
           Example:
               def test_service_call(mock_service):
                   mock_service.method.return_value = "test"
@@ -126,4 +126,4 @@ examples:
 metadata:
   priority: high
   version: 1.0
-</rule> 
+</rule>

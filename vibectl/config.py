@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import yaml
-from yaml.error import YAMLError
 
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
@@ -17,7 +16,9 @@ class Config:
 
     def __init__(self) -> None:
         """Initialize configuration."""
-        self.config_dir = Path(os.getenv("XDG_CONFIG_HOME", "~/.config")).expanduser() / "vibectl"
+        self.config_dir = (
+            Path(os.getenv("XDG_CONFIG_HOME", "~/.config")).expanduser() / "vibectl"
+        )
         self.config_file = self.config_dir / "config.yaml"
         self._config: Dict[str, Any] = {}
         self._load_config()

@@ -2,15 +2,15 @@
 
 import os
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
-from pytest import MonkeyPatch
 from click.testing import CliRunner
-from unittest.mock import Mock, patch
+from pytest import MonkeyPatch
 
-from vibectl.config import Config
 from vibectl.cli import cli
+from vibectl.config import Config
 
 
 @pytest.fixture
@@ -164,7 +164,7 @@ def test_config_show_display_options(runner: CliRunner) -> None:
         "show_raw_output": False,
         "show_vibe": True,
         "llm_model": "claude-3.7-sonnet",
-        "kubeconfig": "/path/to/kubeconfig"
+        "kubeconfig": "/path/to/kubeconfig",
     }
 
     with patch("vibectl.cli.Config", return_value=mock_config):
@@ -243,7 +243,7 @@ def test_api_key_from_env(
     ), patch("vibectl.cli.run_kubectl", return_value="test output"):
         # Test any command that uses LLM
         result = runner.invoke(cli, ["create", "vibe", "test"], catch_exceptions=False)
-        
+
         # Should not raise API key error
         assert result.exit_code == 0
         assert "Error: Missing API key" not in result.stderr
@@ -271,7 +271,7 @@ def test_api_key_from_config(
     ):
         # Test any command that uses LLM
         result = runner.invoke(cli, ["create", "vibe", "test"], catch_exceptions=False)
-        
+
         # Should not raise API key error and show successful output
         assert result.exit_code == 0
         assert "Error: Missing API key" not in result.stderr

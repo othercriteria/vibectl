@@ -94,12 +94,16 @@ def test_get_command_with_raw_flag(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
         # Test raw output only
-        result = runner.invoke(cli, ["get", "pods", "--raw", "--no-show-vibe"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["get", "pods", "--raw", "--no-show-vibe"], catch_exceptions=False
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
 
         # Test raw output with vibe
-        result = runner.invoke(cli, ["get", "pods", "--raw", "--show-vibe"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["get", "pods", "--raw", "--show-vibe"], catch_exceptions=False
+        )
         assert result.exit_code == 0
         assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" in result.output
@@ -116,9 +120,15 @@ def test_get_command_with_raw_config(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    
+
     # Test raw output only
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else False if key == "show_vibe" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key == "show_raw_output"
+        else False
+        if key == "show_vibe"
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
@@ -130,7 +140,11 @@ def test_get_command_with_raw_config(
         assert mock_llm_plain_response not in result.output
 
     # Test raw output with vibe
-    mock_config.get.side_effect = lambda key, default=None: True if key in ["show_raw_output", "show_vibe"] else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key in ["show_raw_output", "show_vibe"]
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
@@ -192,14 +206,18 @@ def test_get_command_llm_error(
     """Test get command when LLM fails"""
     mock_model = Mock()
     mock_model.prompt.side_effect = Exception("LLM error")
-    
+
     # We need to ensure the raw output is displayed when LLM fails
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True if key == "show_raw_output" else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "pods", "--show-raw-output"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["get", "pods", "--show-raw-output"], catch_exceptions=False
+        )
 
         # Should still succeed and show kubectl output even if LLM fails
         assert result.exit_code == 0
@@ -223,7 +241,9 @@ def test_get_command_with_show_raw_output_flag(
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["get", "pods", "--show-raw-output"], catch_exceptions=False)
+        result = runner.invoke(
+            cli, ["get", "pods", "--show-raw-output"], catch_exceptions=False
+        )
 
         assert result.exit_code == 0
         # Raw output should be present
@@ -244,7 +264,9 @@ def test_get_command_with_show_raw_output_config(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True if key == "show_raw_output" else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
@@ -270,7 +292,9 @@ def test_get_command_with_show_vibe_config_false(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key, default=None: False if key == "show_vibe" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: False if key == "show_vibe" else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
@@ -297,14 +321,22 @@ def test_get_command_flag_overrides_config(
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
     # Config has show_raw_output=True and show_vibe=False
-    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else False if key == "show_vibe" else default
+    mock_config.get.side_effect = (
+        lambda key, default=None: True
+        if key == "show_raw_output"
+        else False
+        if key == "show_vibe"
+        else default
+    )
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
         # Override config with flags: show_raw_output=False and show_vibe=True
         result = runner.invoke(
-            cli, ["get", "pods", "--no-show-raw-output", "--show-vibe"], catch_exceptions=True
+            cli,
+            ["get", "pods", "--no-show-raw-output", "--show-vibe"],
+            catch_exceptions=True,
         )
 
         assert result.exit_code == 0
@@ -328,8 +360,10 @@ def test_get_command_suppress_output_warning(
     mock_config = Mock()
     # Set both show_raw_output and show_vibe to false, but enable suppress_output_warning
     mock_config.get.side_effect = lambda key, default=None: (
-        True if key == "suppress_output_warning" 
-        else False if key in ["show_raw_output", "show_vibe"] 
+        True
+        if key == "suppress_output_warning"
+        else False
+        if key in ["show_raw_output", "show_vibe"]
         else default
     )
 
@@ -350,7 +384,8 @@ def test_get_command_suppress_output_warning(
 
     # Now test with suppress_output_warning set to false (default)
     mock_config.get.side_effect = lambda key, default=None: (
-        False if key in ["show_raw_output", "show_vibe", "suppress_output_warning"] 
+        False
+        if key in ["show_raw_output", "show_vibe", "suppress_output_warning"]
         else default
     )
 

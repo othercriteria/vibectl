@@ -71,10 +71,10 @@ actions:
              mock_model = Mock()
              mock_model.prompt.side_effect = Exception("Token limit exceeded")
              mock_get_model.return_value = mock_model
-             
+
              # Generate large output that would exceed token limit
              large_output = "x" * 10000
-             
+
              # Test handling of large output
              result = runner.invoke(cli, ["command", "arg"])
              assert "Output is too large" in result.output
@@ -110,11 +110,11 @@ examples:
           mock_model = Mock()
           mock_model.prompt.return_value = Mock(text=lambda: "test response")
           mock_get_model.return_value = mock_model
-          
+
           # Test happy path
           result = handle_command("test")
           assert result == "test response"
-          
+
           # Test error handling
           mock_model.prompt.side_effect = Exception("LLM error")
           with pytest.raises(Exception):
@@ -133,7 +133,7 @@ examples:
           mock_model = Mock()
           mock_model.prompt.side_effect = Exception("Token limit exceeded")
           mock_get_model.return_value = mock_model
-          
+
           large_output = "x" * 10000
           result = process_output(large_output)
           assert "Output too large" in result

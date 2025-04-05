@@ -7,7 +7,11 @@ organization.
 
 ### Core Package (`vibectl/`)
 - `cli.py` - Main command-line interface implementation
-- `prompt.py` - Prompt handling and user interaction logic
+  - Core commands: get, describe, logs, create, cluster-info, version
+  - Configuration and utility functions
+- `prompt.py` - Prompt templates and LLM interaction logic
+  - Templates for each command type
+  - Formatting instructions
 - `config.py` - Configuration management and settings
 - `__init__.py` - Package initialization and version information
 

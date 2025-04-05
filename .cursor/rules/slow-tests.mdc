@@ -40,7 +40,7 @@ actions:
          ```bash
          # For pytest
          pytest --durations=0  # Shows all test durations
-         
+
          # For unittest
          python -m unittest -v  # Shows test run times
          ```
@@ -49,7 +49,7 @@ actions:
          ```python
          def test_complex_integration():
              """Slow test: Integration test requiring database setup and teardown.
-             
+
              This test takes ~2s due to:
              - Database schema creation
              - Multiple table population
@@ -91,7 +91,7 @@ examples:
       @pytest.mark.slow
       def test_data_processing():
           """Slow test: Processing of large dataset with actual file I/O.
-          
+
           This test takes ~2s due to:
           - Loading 1GB test dataset from disk
           - Running full data transformation pipeline

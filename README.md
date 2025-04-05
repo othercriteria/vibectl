@@ -40,6 +40,11 @@ Basic commands with AI-powered summaries:
 vibectl version
 vibectl config show
 
+# Get cluster information
+vibectl cluster-info                              # Show cluster info with insights
+vibectl cluster-info dump                         # Detailed cluster information
+vibectl cluster-info vibe how healthy is my control plane  # Natural language query
+
 # Get resources
 vibectl get pods                                    # List pods with summary
 vibectl get vibe show me pods with high restarts   # Natural language query
