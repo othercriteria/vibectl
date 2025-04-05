@@ -46,13 +46,28 @@ actions:
         exit 1
       fi
 
-      # Process all parts to handle newlines
-      DESCRIPTION=$(echo -e "{detailed description if needed}")
-      CONCISE=$(echo -e "{type}: {concise description}")
+      # Process commit message parts preserving actual newlines
+      # Create a temporary function to handle multiline variables safely
+      handle_multiline() {
+        local var="$1"
+        if [[ -n "$var" && "$var" != "None" ]]; then
+          local tmpfile=$(mktemp)
+          echo "$var" > "$tmpfile"
+          local processed=$(cat "$tmpfile")
+          rm "$tmpfile"
+          echo "$processed"
+        else
+          echo ""
+        fi
+      }
+
+      # Process the main commit message parts
+      DESCRIPTION=$(handle_multiline "{detailed description if needed}")
+      CONCISE="{type}: {concise description}"
 
       # Only add breaking changes section if there are breaking changes
       if [ -n "{breaking changes if any}" ] && [ "{breaking changes if any}" != "None" ]; then
-        BREAKING_CHANGES_TEXT=$(echo -e "{breaking changes if any}")
+        BREAKING_CHANGES_TEXT=$(handle_multiline "{breaking changes if any}")
         BREAKING_CHANGES="-m \"\" -m \"Breaking Changes:\" -m \"$BREAKING_CHANGES_TEXT\""
       else
         BREAKING_CHANGES=""
@@ -60,7 +75,7 @@ actions:
 
       # Only add related issues section if there are related issues
       if [ -n "{related issues/tickets}" ] && [ "{related issues/tickets}" != "None" ]; then
-        RELATED_ISSUES_TEXT=$(echo -e "{related issues/tickets}")
+        RELATED_ISSUES_TEXT=$(handle_multiline "{related issues/tickets}")
         RELATED_ISSUES="-m \"\" -m \"Related Issues: $RELATED_ISSUES_TEXT\""
       else
         RELATED_ISSUES=""
@@ -125,7 +140,9 @@ examples:
     output: |
       git commit \
         -m "fix: improve YAML parsing error handling" \
-        -m "Add error catching for YAMLError\nAdd type validation\nAdd tests for invalid cases" \
+        -m "Add error catching for YAMLError
+Add type validation
+Add tests for invalid cases" \
         -m "" \
         -m "Breaking Changes:" \
         -m "- Changed error return type from string to structured Error object" \
@@ -139,4 +156,4 @@ examples:
 
 metadata:
   priority: critical  # Upgraded from high to critical
-  version: 1.1  # Version bump for the new pre-commit hooks policy
+  version: 1.2  # Version bump for fixing newline handling in commit messages
