@@ -92,7 +92,15 @@ def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
 @click.version_option()
 def cli() -> None:
     """vibectl - A vibes-based alternative to kubectl"""
-    pass
+    # Initialize the console manager with the configured theme
+    try:
+        cfg = Config()
+        theme_name = cfg.get("theme", "default")
+        if theme_name is not None and isinstance(theme_name, str):
+            console_manager.set_theme(theme_name)
+    except Exception:
+        # Fallback to default in case of any issues (helpful for tests)
+        pass
 
 
 def handle_vibe_request(

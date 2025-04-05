@@ -9,15 +9,130 @@ from typing import Any, Dict, Optional, Tuple
 
 from rich.console import Console
 from rich.table import Table
+from rich.theme import Theme
+
+# Default themes
+DEFAULT_THEME = {
+    "success": "green",
+    "error": "bold red",
+    "warning": "yellow",
+    "note": "yellow",
+    "info": "blue",
+    "title": "bold green",
+    "highlight": "bold",
+    "timestamp": "italic",
+    "table_title": "bold",
+    "key": "bold",
+    "value": "",
+}
+
+DARK_THEME = {
+    "success": "green",
+    "error": "bold red",
+    "warning": "yellow",
+    "note": "yellow",
+    "info": "blue",
+    "title": "bold green",
+    "highlight": "bold white",
+    "timestamp": "italic grey70",
+    "table_title": "bold cyan",
+    "key": "bold white",
+    "value": "white",
+}
+
+LIGHT_THEME = {
+    "success": "green",
+    "error": "bold red",
+    "warning": "yellow",
+    "note": "blue",
+    "info": "dark_blue",
+    "title": "bold green",
+    "highlight": "bold black",
+    "timestamp": "italic grey50",
+    "table_title": "bold blue",
+    "key": "bold black",
+    "value": "black",
+}
+
+ACCESSIBLE_THEME = {
+    "success": "bold blue",
+    "error": "bold red",
+    "warning": "bold magenta",
+    "note": "bold cyan",
+    "info": "bold green",
+    "title": "bold blue",
+    "highlight": "bold",
+    "timestamp": "italic",
+    "table_title": "bold blue",
+    "key": "bold",
+    "value": "",
+}
 
 
 class ConsoleManager:
     """Manages console output and error handling for vibectl."""
 
-    def __init__(self) -> None:
-        """Initialize the console manager with stdout and stderr consoles."""
-        self.console = Console()
-        self.error_console = Console(stderr=True)
+    def __init__(self, theme_name: str = "default") -> None:
+        """Initialize the console manager with stdout and stderr consoles.
+
+        Args:
+            theme_name: The name of the theme to use (default, dark, light, accessible)
+        """
+        # Set up theme
+        self.theme_name = theme_name
+        self.themes = {
+            "default": DEFAULT_THEME,
+            "dark": DARK_THEME,
+            "light": LIGHT_THEME,
+            "accessible": ACCESSIBLE_THEME,
+        }
+        self._theme = self._create_theme(theme_name)
+
+        # Set up consoles with theme
+        self.console = Console(theme=self._theme)
+        self.error_console = Console(stderr=True, theme=self._theme)
+
+    def _create_theme(self, theme_name: str) -> Theme:
+        """Create a rich Theme object from theme dictionary.
+
+        Args:
+            theme_name: The name of the theme to use
+
+        Returns:
+            A rich Theme object
+        """
+        theme_dict = self.themes.get(theme_name, DEFAULT_THEME)
+        return Theme(theme_dict)
+
+    def set_theme(self, theme_name: str) -> None:
+        """Change the current theme.
+
+        Args:
+            theme_name: The name of the theme to use
+
+        Raises:
+            ValueError: If the theme name is not valid
+        """
+        if theme_name not in self.themes:
+            raise ValueError(
+                f"Invalid theme name: {theme_name}. "
+                f"Valid themes are: {', '.join(self.themes.keys())}"
+            )
+
+        self.theme_name = theme_name
+        self._theme = self._create_theme(theme_name)
+
+        # Recreate consoles with new theme
+        self.console = Console(theme=self._theme)
+        self.error_console = Console(stderr=True, theme=self._theme)
+
+    def get_available_themes(self) -> Dict[str, Dict[str, str]]:
+        """Get a dictionary of available themes.
+
+        Returns:
+            Dictionary of theme names and their color mappings
+        """
+        return self.themes
 
     def print(
         self,
@@ -35,11 +150,11 @@ class ConsoleManager:
 
     def print_error(self, message: str, end: str = "\n") -> None:
         """Print an error message to the error console."""
-        self.error_console.print(f"[bold red]Error:[/bold red] {message}", end=end)
+        self.error_console.print(f"[error]Error:[/error] {message}", end=end)
 
     def print_warning(self, message: str, end: str = "\n") -> None:
         """Print a warning message to the error console."""
-        self.error_console.print(f"[yellow]Warning:[/yellow] {message}", end=end)
+        self.error_console.print(f"[warning]Warning:[/warning] {message}", end=end)
 
     def print_note(
         self, message: str, error: Optional[Exception] = None, end: str = "\n"
@@ -47,14 +162,22 @@ class ConsoleManager:
         """Print a note message to the error console, optionally with an error."""
         if error:
             self.error_console.print(
-                f"[yellow]Note:[/yellow] {message}: [red]{error}[/red]", end=end
+                f"[note]Note:[/note] {message}: [error]{error}[/error]", end=end
             )
         else:
-            self.error_console.print(f"[yellow]Note:[/yellow] {message}", end=end)
+            self.error_console.print(f"[note]Note:[/note] {message}", end=end)
+
+    def print_info(self, message: str, end: str = "\n") -> None:
+        """Print an informational message to the console."""
+        self.console.print(f"[info]Info:[/info] {message}", end=end)
+
+    def print_success(self, message: str, end: str = "\n") -> None:
+        """Print a success message."""
+        self.console.print(f"[success]✓[/success] {message}", end=end)
 
     def print_vibe_header(self) -> None:
         """Print the vibe check header."""
-        self.console.print("[bold green]✨ Vibe check:[/bold green]")
+        self.console.print("[title]✨ Vibe check:[/title]")
 
     def print_vibe(self, summary: str) -> None:
         """Print a vibe check summary."""
@@ -91,20 +214,19 @@ class ConsoleManager:
         """Print a table showing configuration data."""
         # Create table with title
         table = Table(
-            title="vibectl Configuration", show_header=True, title_justify="center"
+            title="vibectl Configuration",
+            show_header=True,
+            title_justify="center",
+            title_style="table_title",
         )
-        table.add_column("Key", style="bold")
-        table.add_column("Value")
+        table.add_column("Key", style="key")
+        table.add_column("Value", style="value")
 
         # Add rows for each config item
         for key, value in config_data.items():
             table.add_row(str(key), str(value))
 
         self.console.print(table)
-
-    def print_success(self, message: str) -> None:
-        """Print a success message."""
-        self.console.print(f"[green]✓[/] {message}")
 
     def handle_vibe_output(
         self,

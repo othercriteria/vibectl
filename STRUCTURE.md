@@ -13,6 +13,15 @@ organization.
   - Templates for each command type
   - Formatting instructions
 - `config.py` - Configuration management and settings
+- `console.py` - Console output management and formatting
+  - Typed methods for different output types
+  - Theme support and styling configuration
+- `command_handler.py` - Common command handling patterns
+  - Reusable utilities for command execution
+  - Error handling and output processing
+- `output_processor.py` - Token limits and output preparation
+  - Processing output for LLM input
+  - Token limit management
 - `__init__.py` - Package initialization and version information
 
 ### Testing (`tests/`)

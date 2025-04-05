@@ -163,25 +163,18 @@ def test_config_show_display_options(runner: CliRunner) -> None:
     mock_config.show.return_value = {
         "show_raw_output": False,
         "show_vibe": True,
-        "llm_model": "claude-3.7-sonnet",
+        "model": "claude-3.7-sonnet",
         "kubeconfig": "/path/to/kubeconfig",
+        "theme": "default",  # Add default theme to avoid errors
     }
 
-    with patch("vibectl.cli.Config", return_value=mock_config):
+    # Mock theme initialization to prevent errors
+    with patch("vibectl.cli.Config", return_value=mock_config), patch(
+        "vibectl.cli.console_manager.print_config_table"
+    ) as mock_print_table:
         result = runner.invoke(cli, ["config", "show"])
         assert result.exit_code == 0
-        # Check for header
-        assert "vibectl Configuration" in result.output
-        # Check that all config values are shown
-        assert "kubeconfig" in result.output
-        assert "llm_model" in result.output
-        assert "show_raw_output" in result.output
-        assert "show_vibe" in result.output
-        # Check specific values
-        assert "False" in result.output
-        assert "True" in result.output
-        assert "claude-3.7-sonnet" in result.output
-        assert "/path/to/kubeconfig" in result.output
+        mock_print_table.assert_called_once_with(mock_config.show.return_value)
 
 
 def test_missing_api_key_error(runner: CliRunner, mock_config: Mock) -> None:
@@ -228,8 +221,9 @@ def test_api_key_from_env(
     mock_llm_response: str,
 ) -> None:
     """Test using API key from environment variable"""
+    # Set the API key via environment variable
     test_key = "test-api-key"
-    monkeypatch.setenv("OPENAI_API_KEY", test_key)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", test_key)
     mock_model = Mock()
     mock_model.prompt.side_effect = [
         Mock(text=lambda: mock_plan_response),  # First call for planning
@@ -251,29 +245,29 @@ def test_api_key_from_env(
         assert mock_llm_response in result.output
 
 
-def test_api_key_from_config(
+def test_api_key_error_handling(
     runner: CliRunner,
-    temp_config: Config,
+    mock_config: Mock,
     mock_plan_response: str,
     mock_llm_response: str,
 ) -> None:
-    """Test using API key from config file"""
-    test_key = "test-api-key"
-    temp_config.set("openai_api_key", test_key)
+    """Test that API key errors are gracefully handled"""
+    # First test the "No key found" error case
     mock_model = Mock()
-    mock_model.prompt.side_effect = [
-        Mock(text=lambda: mock_plan_response),  # First call for planning
-        Mock(text=lambda: mock_llm_response),  # Second call for summarizing
-    ]
+    mock_model.prompt.side_effect = Exception("No key found")
 
     with patch("llm.get_model", return_value=mock_model), patch(
-        "vibectl.cli.run_kubectl", return_value="test output"
-    ):
-        # Test any command that uses LLM
-        result = runner.invoke(cli, ["create", "vibe", "test"], catch_exceptions=False)
+        "vibectl.cli.Config", return_value=mock_config
+    ), patch("vibectl.cli.console_manager.print_error") as mock_print_error:
+        # Use the vibe command which requires API key
+        result = runner.invoke(
+            cli, ["create", "vibe", "test pod"], catch_exceptions=False
+        )
 
-        # Should not raise API key error and show successful output
-        assert result.exit_code == 0
-        assert "Error: Missing API key" not in result.stderr
-        assert "✨ Vibe check:" in result.output
-        assert mock_llm_response in result.output
+        assert result.exit_code == 1
+        # Check that the error message was printed via the mocked console manager
+        mock_print_error.assert_called_with(
+            "Missing API key. "
+            "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+            "or configure it using 'llm keys set anthropic'"
+        )

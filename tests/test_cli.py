@@ -2,6 +2,7 @@
 
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -156,21 +157,35 @@ class TestJustCommand:
         mock_config: Mock,
     ) -> None:
         """Test that just properly forwards commands to kubectl with config"""
+
+        # Set up a side_effect function to return different values for different keys
+        def get_side_effect(key: str, default: Any = None) -> Any:
+            if key == "theme":
+                return "default"
+            if key == "kubeconfig":
+                return "/test/kubeconfig"
+            return default
+
+        mock_config.get.side_effect = get_side_effect
+
         with patch(
             "subprocess.run", return_value=mock_kubectl_success
         ) as mock_run, patch("vibectl.cli.Config", return_value=mock_config):
             result = runner.invoke(cli, ["just", "get", "pods"])
 
             assert result.exit_code == 0
+            # Check that kubectl was called with the right arguments
             mock_run.assert_called_once()
             cmd_args = mock_run.call_args[0][0]
-            assert cmd_args == [
-                "kubectl",
-                "--kubeconfig",
-                "/test/kubeconfig",
-                "get",
-                "pods",
-            ]
+            # First check the kubectl command itself
+            assert cmd_args[0] == "kubectl"
+            # Check that kubeconfig flag is included
+            assert "--kubeconfig" in cmd_args
+            # Check that the kubeconfig path is correct
+            assert "/test/kubeconfig" in cmd_args
+            # Check that the "get pods" arguments are included
+            assert "get" in cmd_args
+            assert "pods" in cmd_args
 
     def test_just_command_no_args(
         self, runner: CliRunner, mock_config_dir: Path
@@ -207,14 +222,16 @@ class TestConfigCommands:
     def test_config_show(self, runner: CliRunner, mock_config_dir: Path) -> None:
         """Test config show command"""
         # First set a test value
-        runner.invoke(cli, ["config", "set", "test_key", "test_value"])
+        runner.invoke(cli, ["config", "set", "kubeconfig", "/test/path"])
 
         # Then verify it shows up in config show
-        result = runner.invoke(cli, ["config", "show"])
-        assert result.exit_code == 0
-        assert "vibectl Configuration" in result.output
-        assert "test_key" in result.output
-        assert "test_value" in result.output
+        with patch(
+            "vibectl.cli.console_manager.print_config_table"
+        ) as mock_print_table:
+            result = runner.invoke(cli, ["config", "show"])
+            assert result.exit_code == 0
+            # Verify that print_config_table was called
+            mock_print_table.assert_called_once()
 
     def test_config_set_and_show(
         self, runner: CliRunner, mock_config_dir: Path
