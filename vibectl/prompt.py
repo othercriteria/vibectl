@@ -7,6 +7,8 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 
 import datetime
 
+from .config import Config
+
 
 def refresh_datetime() -> str:
     """Refresh and return the current datetime string.
@@ -25,6 +27,18 @@ def get_formatting_instructions() -> str:
         str: Formatting instructions with current datetime
     """
     current_time = refresh_datetime()
+
+    # Get custom instructions if they exist
+    cfg = Config()
+    custom_instructions = cfg.get("custom_instructions")
+    custom_instructions_section = ""
+    if custom_instructions:
+        custom_instructions_section = f"""
+Custom instructions:
+{custom_instructions}
+
+"""
+
     return f"""Format your response using rich.Console() markup syntax
 with matched closing tags:
 - [bold]resource names and key fields[/bold] for emphasis
@@ -34,7 +48,7 @@ with matched closing tags:
 - [blue]namespaces and other Kubernetes concepts[/blue] for k8s terms
 - [italic]timestamps and metadata[/italic] for timing information
 
-Important:
+{custom_instructions_section}Important:
 - Current date and time is {current_time}
 - Timestamps in the future relative to this are not anomalies
 - Do NOT use markdown formatting (e.g., #, ##, *, -)
@@ -439,7 +453,8 @@ Group related events and highlight potential issues.
 Example format:
 [bold]12 events[/bold] in the last [italic]10 minutes[/italic]
 [green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], [bold]nginx-2[/bold]
-[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold] [italic]5 minutes ago[/italic]
+[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold]
+[italic]5 minutes ago[/italic]
 [red]OOMKilled[/red] events for [bold]db-pod[/bold], [italic]happened 3 times[/italic]
 
 Here's the output:

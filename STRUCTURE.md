@@ -103,6 +103,7 @@ The project uses a structured configuration system:
 - Config values with validation and type conversion
 - Configuration persistence with file-based storage
 - Theme configuration with multiple pre-defined themes
+- Custom instructions for vibe prompts
 - CLI commands for configuration management
 
 ## Development Workflow

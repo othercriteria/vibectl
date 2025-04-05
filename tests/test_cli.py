@@ -30,16 +30,8 @@ def mock_kubectl_version() -> Mock:
     """Mock successful kubectl version call with JSON output"""
     mock_result = Mock()
     mock_result.stdout = (
-        "{"
-        '"clientVersion": {'
-        '"major": "1", "minor": "27", "gitVersion": "v1.27.3"'
-        "}, "
-        '"kustomizeVersion": "v5.0.1", '
-        '"serverVersion": {'
-        '"major": "1", "minor": "27", "gitVersion": "v1.27.3", '
-        '"platform": "linux/amd64", "goVersion": "go1.20.3"'
-        "}"
-        "}"
+        '{"clientVersion":{"major":"1","minor":"27"},'
+        '"serverVersion":{"major":"1","minor":"27"}}'
     )
     return mock_result
 
@@ -217,7 +209,7 @@ class TestJustCommand:
 
 
 class TestConfigCommands:
-    """Config command tests"""
+    """Test config commands"""
 
     def test_config_show(self, runner: CliRunner, mock_config_dir: Path) -> None:
         """Test config show command"""
@@ -225,13 +217,10 @@ class TestConfigCommands:
         runner.invoke(cli, ["config", "set", "kubeconfig", "/test/path"])
 
         # Then verify it shows up in config show
-        with patch(
-            "vibectl.cli.console_manager.print_config_table"
-        ) as mock_print_table:
-            result = runner.invoke(cli, ["config", "show"])
-            assert result.exit_code == 0
-            # Verify that print_config_table was called
-            mock_print_table.assert_called_once()
+        result = runner.invoke(cli, ["config", "show"])
+        assert result.exit_code == 0
+        # We now directly print to console rather than using print_config_table
+        assert "vibectl Configuration" in result.output
 
     def test_config_set_and_show(
         self, runner: CliRunner, mock_config_dir: Path
@@ -240,11 +229,12 @@ class TestConfigCommands:
         # Set the config
         result = runner.invoke(cli, ["config", "set", "kubeconfig", "/test/path"])
         assert result.exit_code == 0
-        assert "Set kubeconfig to /test/path" in result.output
+        assert "Configuration kubeconfig set to /test/path" in result.output
 
-        # Verify the config
+        # Verify it was set
         result = runner.invoke(cli, ["config", "show"])
         assert result.exit_code == 0
+        assert "kubeconfig" in result.output
         assert "/test/path" in result.output
 
 
@@ -259,3 +249,52 @@ class TestVibeCommand:
             result = runner.invoke(cli, ["vibe"])
             assert result.exit_code == 0
             assert "Checking cluster vibes" in result.output
+
+
+class TestInstructionsCommands:
+    """Test custom instructions commands"""
+
+    def test_instructions_set(self, runner: CliRunner, mock_config_dir: Path) -> None:
+        """Test instructions set command"""
+        # Set the instructions
+        result = runner.invoke(cli, ["instructions", "set", "Use a ton of emojis! 😁"])
+        assert result.exit_code == 0
+        assert "Custom instructions set successfully" in result.output
+
+        # Verify they were set
+        result = runner.invoke(cli, ["instructions", "show"])
+        assert result.exit_code == 0
+        assert "Use a ton of emojis! 😁" in result.output
+
+    def test_instructions_clear(self, runner: CliRunner, mock_config_dir: Path) -> None:
+        """Test instructions clear command"""
+        # First set some instructions
+        runner.invoke(cli, ["instructions", "set", "Use a ton of emojis! 😁"])
+
+        # Then clear them
+        result = runner.invoke(cli, ["instructions", "clear"])
+        assert result.exit_code == 0
+        assert "Custom instructions cleared" in result.output
+
+        # Verify they were cleared
+        result = runner.invoke(cli, ["instructions", "show"])
+        assert result.exit_code == 0
+        assert "No custom instructions set" in result.output
+
+    def test_instructions_multiline_input(
+        self, runner: CliRunner, mock_config_dir: Path
+    ) -> None:
+        """Test setting multiline instructions via stdin"""
+        # Create multiline input
+        input_text = "Focus on security issues.\nRedact the last 3 octets of IPs."
+
+        # Set instructions with multiline input
+        result = runner.invoke(cli, ["instructions", "set"], input=input_text)
+        assert result.exit_code == 0
+        assert "Custom instructions set successfully" in result.output
+
+        # Verify they were set
+        result = runner.invoke(cli, ["instructions", "show"])
+        assert result.exit_code == 0
+        assert "Focus on security issues." in result.output
+        assert "Redact the last 3 octets of IPs." in result.output

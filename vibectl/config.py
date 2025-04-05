@@ -25,6 +25,7 @@ CONFIG_SCHEMA: Dict[str, ConfigType] = {
     "show_vibe": bool,
     "suppress_output_warning": bool,
     "model": str,
+    "custom_instructions": (str, type(None)),
 }
 
 # Valid values for specific keys

@@ -89,6 +89,32 @@ vibectl config set suppress_output_warning true
 vibectl theme set dark
 ```
 
+### Custom Instructions
+
+You can customize how vibectl generates responses by setting custom instructions
+that will be included in all vibe prompts:
+
+```zsh
+# Set custom instructions
+vibectl instructions set "Use a ton of emojis! 😁"
+
+# Set multiline instructions
+echo "Redact the last 3 octets of IPs.
+Focus on security issues." | vibectl instructions set
+
+# View current instructions
+vibectl instructions show
+
+# Clear instructions
+vibectl instructions clear
+```
+
+Typical use cases for custom instructions:
+- Style preferences: "Use a ton of emojis! 😁"
+- Security requirements: "Redact the last 3 octets of IPs."
+- Focus areas: "Focus on security issues."
+- Output customization: "Be extremely concise."
+
 ### Theme Management
 
 The tool supports multiple visual themes for the console output:

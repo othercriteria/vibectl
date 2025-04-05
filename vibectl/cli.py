@@ -650,37 +650,102 @@ def config() -> None:
 def config_set(key: str, value: str) -> None:
     """Set a configuration value.
 
-    Available keys:
-        kubeconfig: Path to kubeconfig file
-        llm_model: Name of the LLM model to use (default: claude-3.7-sonnet)
-        show_raw_output: Whether to always show raw kubectl output (default: false)
-        show_vibe: Whether to show vibe summaries (default: true)
-        suppress_output_warning: Whether to suppress warning when no output is shown
-                            (default: false)
+    Examples:
+        vibectl config set theme dark
+        vibectl config set kubeconfig ~/.kube/my-config
+        vibectl config set show_raw_output true
     """
-    cfg = Config()
-
-    # Convert string boolean values
-    if key in ["show_raw_output", "show_vibe", "suppress_output_warning"]:
-        value = str(value.lower() == "true").lower()
-
-    # Validate model name
-    if key == "llm_model" and value not in ["claude-3.7-sonnet"]:
-        console_manager.print_error(
-            "Invalid model name. Currently supported models: claude-3.7-sonnet"
-        )
+    try:
+        cfg = Config()
+        cfg.set(key, value)
+        console_manager.print_success(f"Configuration {key} set to {value}")
+    except ValueError as e:
+        console_manager.print_error(str(e))
         sys.exit(1)
-
-    cfg.set(key, value)
-    console_manager.print_success(f"Set {key} to {value}")
 
 
 @config.command()
 def show() -> None:
-    """Show current configuration"""
+    """Show current configuration."""
     cfg = Config()
     config_data = cfg.show()
-    console_manager.print_config_table(config_data)
+    if not config_data:
+        console_manager.print_note("No configuration set")
+        return
+
+    table = Table(title="vibectl Configuration")
+    table.add_column("Key", style="cyan")
+    table.add_column("Value", style="green")
+
+    for key, value in config_data.items():
+        table.add_row(key, str(value))
+
+    console_manager.console.print(table)
+
+
+@cli.group()
+def instructions() -> None:
+    """Manage custom instructions for vibe prompts."""
+    pass
+
+
+@instructions.command(name="set")
+@click.argument("instructions_text", required=False)
+def instructions_set(instructions_text: Optional[str] = None) -> None:
+    """Set custom instructions to include in all vibe prompts.
+
+    If INSTRUCTIONS_TEXT is not provided, reads from standard input.
+    This allows for multiline instructions.
+
+    Examples:
+        vibectl instructions set "Use a ton of emojis! 😁"
+        echo "Redact the last 3 octets of IPs." | vibectl instructions set
+    """
+    try:
+        cfg = Config()
+
+        # If no instructions_text provided, read from stdin
+        if not instructions_text:
+            console_manager.print_note(
+                "Enter your custom instructions (press Ctrl+D when finished):"
+            )
+            instructions_text = sys.stdin.read().strip()
+
+        if not instructions_text:
+            console_manager.print_error("Instructions cannot be empty")
+            sys.exit(1)
+
+        cfg.set("custom_instructions", instructions_text)
+        console_manager.print_success("Custom instructions set successfully")
+    except ValueError as e:
+        console_manager.print_error(str(e))
+        sys.exit(1)
+
+
+@instructions.command(name="show")
+def instructions_show() -> None:
+    """Show current custom instructions."""
+    cfg = Config()
+    instructions = cfg.get("custom_instructions")
+
+    if not instructions:
+        console_manager.print_note("No custom instructions set")
+        return
+
+    console_manager.console.print("[bold cyan]Custom Instructions:[/bold cyan]")
+    console_manager.console.print(instructions)
+
+
+@instructions.command()
+def clear() -> None:
+    """Clear custom instructions."""
+    try:
+        cfg = Config()
+        cfg.set("custom_instructions", "None")
+        console_manager.print_success("Custom instructions cleared")
+    except ValueError as e:
+        console_manager.print_error(str(e))
+        sys.exit(1)
 
 
 @cli.group()
@@ -799,7 +864,7 @@ def events(
         request = " ".join(args[1:])
         handle_vibe_request(
             request=request,
-            command="get",  # "get" because kubectl events is really "kubectl get events"
+            command="get",
             plan_prompt=PLAN_EVENTS_PROMPT,
             summary_prompt=events_prompt(),
             show_raw_output=show_raw_output,

@@ -145,7 +145,7 @@ def test_config_set_show_raw_output(runner: CliRunner, mock_config: Mock) -> Non
         result = runner.invoke(cli, ["config", "set", "show_raw_output", "true"])
         assert result.exit_code == 0
         mock_config.set.assert_called_once_with("show_raw_output", "true")
-        assert "✓ Set show_raw_output to true" in result.output
+        assert "Configuration show_raw_output set to true" in result.output
 
 
 def test_config_set_show_vibe(runner: CliRunner, mock_config: Mock) -> None:
@@ -154,7 +154,7 @@ def test_config_set_show_vibe(runner: CliRunner, mock_config: Mock) -> None:
         result = runner.invoke(cli, ["config", "set", "show_vibe", "false"])
         assert result.exit_code == 0
         mock_config.set.assert_called_once_with("show_vibe", "false")
-        assert "✓ Set show_vibe to false" in result.output
+        assert "Configuration show_vibe set to false" in result.output
 
 
 def test_config_show_display_options(runner: CliRunner) -> None:
@@ -169,12 +169,11 @@ def test_config_show_display_options(runner: CliRunner) -> None:
     }
 
     # Mock theme initialization to prevent errors
-    with patch("vibectl.cli.Config", return_value=mock_config), patch(
-        "vibectl.cli.console_manager.print_config_table"
-    ) as mock_print_table:
+    with patch("vibectl.cli.Config", return_value=mock_config):
         result = runner.invoke(cli, ["config", "show"])
         assert result.exit_code == 0
-        mock_print_table.assert_called_once_with(mock_config.show.return_value)
+        # Verify some expected content in the output
+        assert "vibectl Configuration" in result.output
 
 
 def test_missing_api_key_error(runner: CliRunner, mock_config: Mock) -> None:
