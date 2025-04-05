@@ -3,10 +3,9 @@ description: Python project setup
 globs: ["*.py", "pyproject.toml", "flake.nix"]
 alwaysApply: false
 ---
- # Python Virtual Environment and Dependencies
+# Python Virtual Environment and Dependencies
 
-Prefer Python's native virtual environment and pyproject.toml-based dependency
-management over Flake-managed Python dependencies.
+Use venv and pyproject.toml for Python dependencies, not Flake.
 
 <rule>
 name: python_venv_deps
@@ -29,29 +28,22 @@ actions:
   - type: guide
     message: |
       For Python dependency management:
-      - Use pyproject.toml for declaring all Python dependencies
-      - Keep Flake buildInputs minimal (only virtualenv, pip, setuptools, wheel)
-      - Install all project dependencies via pip within the virtualenv
+      - Use pyproject.toml for all Python dependencies
+      - Keep Flake buildInputs minimal (only virtualenv, pip)
       - Use [project.dependencies] for runtime dependencies
-      - Use [project.optional-dependencies] for development dependencies
-      - Install with `pip install -e ".[dev]"` in the development shell
+      - Use [project.optional-dependencies] for dev dependencies
 
   - type: suggest
     message: |
-      Instead of adding Python packages to Flake buildInputs:
-      - Add runtime dependencies to pyproject.toml [project.dependencies]
-      - Add development dependencies to [project.optional-dependencies]
-      - Let pip manage versions and resolution within the virtualenv
-      - Use Flake only for creating/activating the virtualenv
+      Add dependencies to pyproject.toml, not Flake buildInputs.
+      Use pip install -e ".[dev]" in the development shell.
 
 examples:
   - input: "How do I add a new dependency?"
     output: "Add it to pyproject.toml under [project.dependencies] or [project.optional-dependencies], not to flake.nix buildInputs."
-  - input: "Should I add pytest to buildInputs?"
-    output: "No, add pytest to [project.optional-dependencies] in pyproject.toml and install with pip install -e '.[dev]'"
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
   applies_to: ["*.py", "pyproject.toml", "flake.nix"]
 </rule>

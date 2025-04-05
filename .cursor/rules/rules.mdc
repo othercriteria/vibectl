@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # Cursor Rules Location
 
-Rules for placing and organizing Cursor rule files in the repository.
+Place Cursor rule files in .cursor/rules/ directory. Keep rules generic for reuse.
 
 <rule>
 name: cursor_rules_location
@@ -31,56 +31,16 @@ actions:
 
   - type: suggest
     message: |
-      When creating Cursor rules:
-
-      1. Include required YAML frontmatter:
-         ```yaml
-         ---
-         description: Brief description of the rule's purpose
-         globs: ["pattern/to/match/*.ext"]
-         alwaysApply: true  # or false
-         ---
-         ```
-
-      2. Always place rule files in PROJECT_ROOT/.cursor/rules/:
-         ```
-         .cursor/rules/
-         ├── your-rule-name.mdc
-         ├── another-rule.mdc
-         └── ...
-         ```
-
-      3. Follow the naming convention:
-         - Use kebab-case for filenames
-         - Always use .mdc extension
-         - Make names descriptive of the rule's purpose
-
-      4. Directory structure:
-         ```
-         PROJECT_ROOT/
-         ├── .cursor/
-         │   └── rules/
-         │       ├── your-rule-name.mdc
-         │       └── ...
-         └── ...
-         ```
-
-      5. Never place rule files:
-         - In the project root
-         - In subdirectories outside .cursor/rules
-         - In any other location
+      Rules must have:
+      1. YAML frontmatter (description, globs, alwaysApply)
+      2. Located in .cursor/rules/ directory
+      3. Use kebab-case filenames with .mdc extension
+      4. Avoid project-specific references for reusability
+      5. Use generic patterns that work across different codebases
 
 examples:
   - input: |
-      # Bad: Missing YAML frontmatter
-      # My Rule
-      <rule>...</rule>
-
-      # Bad: Rule file in wrong location
-      rules/my-rule.mdc
-      my-rule.mdc
-      .rules/my-rule.mdc
-
+      # Bad: Missing YAML frontmatter or wrong location
       # Good: Complete rule file in correct location
       ---
       description: My rule description
@@ -93,5 +53,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
 </rule>

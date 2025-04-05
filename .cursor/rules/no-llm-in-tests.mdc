@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # No LLM Calls in Tests
 
-Strictly prohibits unmocked LLM calls in test code to ensure fast, deterministic tests.
+Mock all LLM calls in tests for speed and determinism.
 
 <rule>
 name: no_llm_in_tests
@@ -25,7 +25,7 @@ actions:
       - pattern: "^\\s*import\\s+llm\\s*$"
         message: "Direct LLM imports in test files must be mocked"
       # Direct LLM usage without mocking
-      - pattern: "(?<!mock_)(?<!patch\\(\")(?<!with patch\\(\")(?<!Mock\\()(?<!return_value = )\\b(llm\\.get_model|LLMHandler|handle_vibe_request)\\b"
+      - pattern: "(?<!mock_)(?<!patch\\(\")(?<!with patch\\(\")(?<!Mock\\()(?<!return_value = )\\b(llm\\.get_model|LLMHandler)\\b"
         message: "LLM calls in tests must be mocked"
       # Missing mock for LLM-related functions
       - pattern: "def\\s+test_.*(?!.*@patch.*llm)"
@@ -36,74 +36,16 @@ actions:
 
   - type: suggest
     message: |
-      When writing tests that involve LLM functionality:
-
-      1. Always mock LLM calls with proper error handling:
-         ```python
-         @patch("llm.get_model")
-         def test_something(mock_get_model):
-             mock_model = Mock()
-             # Happy path
-             mock_model.prompt.return_value = Mock(text=lambda: "mocked response")
-             # Or error path
-             mock_model.prompt.side_effect = Exception("LLM error")
-             mock_get_model.return_value = mock_model
-         ```
-
-      2. Mock all LLM-related functions:
-         - llm.get_model
-         - LLMHandler methods
-         - handle_vibe_request
-         - Any other functions that make LLM calls
-
-      3. Use deterministic mock responses:
-         ```python
-         mock_model.prompt.return_value = Mock(
-             text=lambda: "predefined response"
-         )
-         ```
-
-      4. Test error cases including token limits:
-         ```python
-         # Test token limit exceeded
-         @patch("llm.get_model")
-         def test_token_limit(mock_get_model):
-             mock_model = Mock()
-             mock_model.prompt.side_effect = Exception("Token limit exceeded")
-             mock_get_model.return_value = mock_model
-
-             # Generate large output that would exceed token limit
-             large_output = "x" * 10000
-
-             # Test handling of large output
-             result = runner.invoke(cli, ["command", "arg"])
-             assert "Output is too large" in result.output
-         ```
-
-      5. Verify mock calls:
-         ```python
-         mock_model.prompt.assert_called_once_with(expected_prompt)
-         ```
-
-      6. Test fixtures for common mocks:
-         ```python
-         @pytest.fixture
-         def mock_llm():
-             """Fixture for mocked LLM responses."""
-             mock_response = Mock()
-             mock_response.text.return_value = "mocked response"
-             mock_model = Mock()
-             mock_model.prompt.return_value = mock_response
-             return mock_model
-         ```
+      When writing tests with LLM:
+      1. Mock all LLM calls: llm.get_model and LLM client objects
+      2. Test happy path: mock_model.prompt.return_value = Mock(text=lambda: "response")
+      3. Test error path: mock_model.prompt.side_effect = Exception("LLM error")
+      4. Test token limits: mock token limit exceptions
+      5. Verify mock calls: mock_model.prompt.assert_called_once_with(expected_prompt)
+      6. Create fixtures for common mocks
 
 examples:
   - input: |
-      # Bad: Direct LLM usage without error handling
-      def test_get_command():
-          model = llm.get_model("gpt-4")
-          result = model.prompt("test")
-
       # Good: Mocked LLM usage with error handling
       @patch("llm.get_model")
       def test_get_command(mock_get_model):
@@ -111,35 +53,11 @@ examples:
           mock_model.prompt.return_value = Mock(text=lambda: "test response")
           mock_get_model.return_value = mock_model
 
-          # Test happy path
           result = handle_command("test")
           assert result == "test response"
-
-          # Test error handling
-          mock_model.prompt.side_effect = Exception("LLM error")
-          with pytest.raises(Exception):
-              handle_command("test")
     output: "Correctly mocked LLM calls with error handling"
-
-  - input: |
-      # Bad: Missing token limit handling
-      def test_large_output():
-          large_output = "x" * 10000
-          result = process_output(large_output)
-
-      # Good: Proper token limit handling
-      @patch("llm.get_model")
-      def test_large_output(mock_get_model):
-          mock_model = Mock()
-          mock_model.prompt.side_effect = Exception("Token limit exceeded")
-          mock_get_model.return_value = mock_model
-
-          large_output = "x" * 10000
-          result = process_output(large_output)
-          assert "Output too large" in result
-    output: "Correctly handled token limits in tests"
 
 metadata:
   priority: critical  # Upgraded from high due to performance impact
-  version: 1.1  # Version bump for token limit handling
+  version: 1.2  # Updated version for removing project-specific references
 </rule>

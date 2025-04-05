@@ -5,8 +5,7 @@ alwaysApply: true
 ---
 # DRY Test Fixtures
 
-This rule enforces DRY (Don't Repeat Yourself) principles in test fixtures and promotes
-fixture reuse across test files.
+Reuse test fixtures and avoid duplication.
 
 <rule>
 name: dry_test_fixtures
@@ -22,44 +21,18 @@ filters:
 actions:
   - type: suggest
     message: |
-      Before creating new test fixtures:
-
-      1. Check existing fixtures:
-         - Review all conftest.py files in the test hierarchy
-         - Look for similar fixtures in related test files
-         - Consider parameterizing existing fixtures instead of creating new ones
-
-      2. Fixture placement guidelines:
-         - Place shared fixtures in conftest.py
-         - Keep test-specific fixtures in test files
-         - Use nested conftest.py for module-specific shared fixtures
-
-      3. Fixture design principles:
-         - Make fixtures as generic as possible for reuse
-         - Use fixture parameters to handle variations
-         - Document fixture purpose and usage
-         - Consider fixture dependencies carefully
-
-      4. When modifying fixtures:
-         - Check for existing usage across test files
-         - Update fixture documentation
-         - Consider backward compatibility
-         - Add examples of fixture usage
-
-      5. After creating new fixtures:
-         - Review similar test files for potential reuse
-         - Document the fixture in conftest.py or test file
-         - Consider moving specific fixtures to conftest.py if widely useful
+      Before creating new fixtures:
+      1. Check existing fixtures in conftest.py and related test files
+      2. Consider parameterizing existing fixtures
+      3. Place shared fixtures in conftest.py
+      4. Keep test-specific fixtures in test files
+      5. Document fixtures with clear docstrings
 
   - type: reject
     conditions:
       # Detect potential fixture duplication
       - pattern: "@pytest\\.fixture\\s*(?:\\(.*\\))?\\s*def\\s+([a-zA-Z_][a-zA-Z0-9_]*)"
-        message: |
-          Before creating a new fixture, check if similar fixtures exist in:
-          1. conftest.py files
-          2. Related test files
-          3. Parent test directories
+        message: "Check if similar fixtures exist in conftest.py or related test files"
 
       # Detect undocumented fixtures
       - pattern: "@pytest\\.fixture[^\"']*\\s*def\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s*\\([^)]*\\)\\s*:"
@@ -70,60 +43,18 @@ criteria:
     - Check existing conftest.py files before creating new fixtures
     - Document all fixtures with clear docstrings
     - Place shared fixtures in appropriate conftest.py
-    - Review for fixture reuse opportunities
     - Use fixture parametrization when appropriate
-  optional:
-    - Add usage examples in fixture docstrings
-    - Create fixture dependency diagrams
-    - Add performance considerations in documentation
 
 examples:
   - input: |
-      # Bad: Duplicate fixture
-      @pytest.fixture
-      def test_data():
-          return {"key": "value"}
-
       # Good: Reuse existing fixture with parameters
       @pytest.fixture
       def test_data(request):
-          """Provide test data with customizable content.
-
-          Args:
-              request: Fixture request object
-
-          Returns:
-              dict: Test data with specified content
-          """
+          """Provide test data with customizable content."""
           return request.param if hasattr(request, "param") else {"key": "value"}
-
-  - input: |
-      # Bad: Fixture without documentation
-      @pytest.fixture
-      def mock_service():
-          return Mock()
-
-      # Good: Well-documented fixture
-      @pytest.fixture
-      def mock_service():
-          """Create a mock service with common attributes.
-
-          This fixture provides a mock service object with pre-configured
-          common attributes and methods used across multiple tests.
-
-          Returns:
-              Mock: Configured mock service object
-
-          Example:
-              def test_service_call(mock_service):
-                  mock_service.method.return_value = "test"
-                  assert service.call() == "test"
-          """
-          mock = Mock()
-          mock.method.return_value = None
-          return mock
+    output: "Properly reuses fixtures with parametrization"
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
 </rule>

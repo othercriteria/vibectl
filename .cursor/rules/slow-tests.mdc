@@ -6,8 +6,7 @@ alwaysApply: true
 
 # Slow Tests Detection and Resolution
 
-This rule enforces monitoring and addressing of slow tests to maintain a fast and reliable
-test suite.
+Keep tests fast, document when slow.
 
 <rule>
 name: slow_tests
@@ -26,95 +25,30 @@ actions:
       # Detect slow tests without explicit documentation
       - pattern: "def\\s+test_[^\"']*:\\s*(?!\\s*[\"']\\s*Slow\\s+test:)"
         message: |
-          Test appears to be slow (>1s) without documentation explaining why.
-          Please either:
-          1. Add a docstring explaining why this test needs to be slow
-          2. Mock external calls and dependencies to speed up the test
-          3. Split the test into smaller, focused tests
+          Test appears to be slow (>1s) without documentation.
+          Add a docstring explaining why this test needs to be slow,
+          or mock external calls to speed it up.
 
   - type: suggest
     message: |
-      When running tests:
-
-      1. Always run with duration information:
-         ```bash
-         # For pytest
-         pytest --durations=0  # Shows all test durations
-
-         # For unittest
-         python -m unittest -v  # Shows test run times
-         ```
-
-      2. For slow tests (>1s), document the reason:
-         ```python
-         def test_complex_integration():
-             """Slow test: Integration test requiring database setup and teardown.
-
-             This test takes ~2s due to:
-             - Database schema creation
-             - Multiple table population
-             - Complex query validation
-             """
-             # test code
-         ```
-
-      3. Common causes of slow tests to check:
-         - Unmocked external service calls
-         - Unmocked database operations
-         - Large file I/O operations
-         - Complex computation without need
-         - Missing test isolation
-         - Redundant setup/teardown
-
-      4. Strategies for speeding up tests:
-         - Mock external dependencies
-         - Use in-memory databases
-         - Cache expensive setup operations
-         - Parallelize independent tests
-         - Profile test execution
-
-      5. When slow tests are necessary:
-         - Document the reason in the test docstring
-         - Consider moving to a separate test suite
-         - Add pytest.mark.slow decorator
-         - Ensure the slowness is intentional
+      For slow tests (>1s):
+      1. Document reason: """Slow test: Integration test requiring database setup..."""
+      2. Check: unmocked external calls, database operations, file I/O
+      3. Fix by: mocking dependencies, using in-memory DBs, caching setup
+      4. When necessary: add @pytest.mark.slow, document reason
 
 examples:
   - input: |
-      # Bad: Slow test without documentation
-      def test_data_processing():
-          time.sleep(2)  # Simulating slow operation
-          result = process_large_dataset()
-          assert result == expected
-
       # Good: Documented slow test
       @pytest.mark.slow
       def test_data_processing():
           """Slow test: Processing of large dataset with actual file I/O.
 
-          This test takes ~2s due to:
-          - Loading 1GB test dataset from disk
-          - Running full data transformation pipeline
-          - Validating output against known patterns
-          """
+          This test takes ~2s due to loading 1GB test dataset."""
           result = process_large_dataset()
           assert result == expected
     output: "Properly documented slow test with explanation"
 
-  - input: |
-      # Bad: Hidden external call making test slow
-      def test_api_integration():
-          response = service.make_request()
-          assert response.status == 200
-
-      # Good: Mocked external call
-      @patch("service.make_request")
-      def test_api_integration(mock_request):
-          mock_request.return_value = Mock(status=200)
-          response = service.make_request()
-          assert response.status == 200
-    output: "Correctly mocked external call to keep test fast"
-
 metadata:
   priority: critical  # Critical due to impact on development velocity
-  version: 1.0
+  version: 1.1  # Updated for conciseness
