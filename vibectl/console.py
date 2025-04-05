@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.theme import Theme
 
+from .output_processor import output_processor
+
 # Default themes
 DEFAULT_THEME = {
     "success": "green",
@@ -249,35 +251,23 @@ class ConsoleManager:
         self, output: str, max_token_limit: int, truncation_ratio: int
     ) -> Tuple[str, bool]:
         """Process output to ensure it stays within token limits for LLM.
-
+        
+        This is a convenience method that delegates to the output_processor.
+        
         Args:
             output: The raw output to process
-            max_token_limit: Maximum token limit
-            truncation_ratio: Ratio for chunking the truncated output
-
+            max_token_limit: Maximum number of tokens for LLM input
+            truncation_ratio: Ratio for truncating output
+            
         Returns:
             Tuple containing (processed_output, was_truncated)
         """
-        # Check token count for LLM
-        output_len = len(output)
-        token_estimate = output_len / 4
-        was_truncated = False
-
-        if token_estimate > max_token_limit:
-            # Take first and last portions, omitting middle
-            chunk_size = int(
-                max_token_limit / truncation_ratio * 4
-            )  # Convert back to chars
-            truncated_output = (
-                f"{output[:chunk_size]}\n"
-                f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
-                f"{output[-chunk_size:]}"
-            )
-            self.print_truncation_warning()
-            was_truncated = True
-            return truncated_output, was_truncated
-
-        return output, was_truncated
+        # Configure the output processor with our token limits
+        output_processor.max_token_limit = max_token_limit
+        output_processor.truncation_ratio = truncation_ratio
+        
+        # Use automatic processing for best results
+        return output_processor.process_auto(output)
 
 
 # Create global instance for easy import

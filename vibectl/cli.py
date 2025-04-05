@@ -14,6 +14,7 @@ from typing import List, NoReturn, Optional, Tuple
 
 import click
 import llm
+from rich.table import Table
 
 from .config import Config
 from .console import console_manager
@@ -688,10 +689,63 @@ def config_set(key: str, value: str) -> None:
 
 @config.command()
 def show() -> None:
-    """Show current configuration."""
+    """Show current configuration"""
     cfg = Config()
     config_data = cfg.show()
     console_manager.print_config_table(config_data)
+
+
+@cli.group()
+def theme() -> None:
+    """Manage vibectl themes"""
+    pass
+
+
+@theme.command(name="list")
+def theme_list() -> None:
+    """List available themes"""
+    cfg = Config()
+    available_themes = cfg.get_available_themes()
+    
+    # Create a table to display available themes
+    table = Table(
+        title="Available Themes",
+        show_header=True,
+        title_justify="center",
+        title_style="table_title",
+    )
+    table.add_column("Theme", style="key")
+    table.add_column("Status", style="value")
+    
+    current_theme = cfg.get("theme", "default")
+    
+    for theme_name in available_themes:
+        status = "[success]Active[/success]" if theme_name == current_theme else ""
+        table.add_row(theme_name, status)
+    
+    console_manager.console.print(table)
+
+
+@theme.command(name="set")
+@click.argument("theme_name")
+def theme_set(theme_name: str) -> None:
+    """Set the current theme
+    
+    THEME_NAME: Name of the theme to use (default, dark, light, accessible)
+    """
+    cfg = Config()
+    
+    try:
+        # Update the config
+        cfg.set("theme", theme_name)
+        
+        # Update the console manager to use the new theme immediately
+        console_manager.set_theme(theme_name)
+        
+        console_manager.print_success(f"Theme set to {theme_name}")
+    except ValueError as e:
+        console_manager.print_error(str(e))
+        sys.exit(1)
 
 
 @cli.command()

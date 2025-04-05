@@ -13,6 +13,7 @@ import llm
 
 from .config import Config
 from .console import console_manager
+from .output_processor import output_processor
 
 
 def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
@@ -146,12 +147,15 @@ def handle_command_output(
         console_manager.print_raw(output)
 
     if show_vibe:
-        # Process the output to stay within token limits
-        llm_output, was_truncated = console_manager.process_output_for_vibe(
-            output, max_token_limit, truncation_ratio
-        )
-
+        # Process the output to stay within token limits using the appropriate processor
         try:
+            # Use the automatic output type detection and processing
+            llm_output, was_truncated = output_processor.process_auto(output)
+            
+            # Show truncation warning if needed
+            if was_truncated:
+                console_manager.print_truncation_warning()
+
             # Get LLM model
             llm_model = llm.get_model(model_name)
 

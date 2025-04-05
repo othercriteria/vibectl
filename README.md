@@ -11,6 +11,8 @@ your cluster management more intuitive and fun!
 - 🔍 Smart context awareness
 - ✨ AI-powered summaries of cluster state
 - 🧠 Natural language resource queries
+- 🎨 Theme support with multiple visual styles
+- 📊 Intelligent output formatting for different resource types
 
 ## Installation
 
@@ -82,7 +84,30 @@ vibectl config set show_vibe true
 
 # Suppress warning when no output is enabled
 vibectl config set suppress_output_warning true
+
+# Set visual theme
+vibectl theme set dark
 ```
+
+### Theme Management
+
+The tool supports multiple visual themes for the console output:
+
+```zsh
+# List available themes
+vibectl theme list
+
+# Set a theme
+vibectl theme set <theme-name>
+```
+
+Available themes:
+- `default` - Standard theme with clean, subtle colors
+- `dark` - Enhanced contrast for dark backgrounds
+- `light` - Enhanced readability for light backgrounds
+- `accessible` - Designed for improved accessibility
+
+Theme changes are persisted in your configuration and apply to all vibectl commands.
 
 ### Output Behavior
 
@@ -119,6 +144,12 @@ Example:
 [bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
 [yellow]Warning: 2 pods have high restart counts[/yellow]
 ```
+
+The tool intelligently processes different output types:
+- Log outputs with special handling for recent entries
+- YAML resources with section-aware formatting
+- JSON with smart object and array truncation
+- Plain text with balanced truncation when needed
 
 ### Natural Language Support
 

@@ -13,15 +13,21 @@ organization.
   - Templates for each command type
   - Formatting instructions
 - `config.py` - Configuration management and settings
+  - Type-safe configuration handling
+  - Validation and type conversion
+  - Theme and output settings management
 - `console.py` - Console output management and formatting
-  - Typed methods for different output types
+  - Typed methods for different output types (errors, warnings, notes, etc.)
   - Theme support and styling configuration
+  - Reusable methods for common output patterns
 - `command_handler.py` - Common command handling patterns
   - Reusable utilities for command execution
-  - Error handling and output processing
+  - Standardized error handling and output processing
+  - Common kubectl interaction patterns
 - `output_processor.py` - Token limits and output preparation
-  - Processing output for LLM input
-  - Token limit management
+  - Specialized processing for different output types (logs, YAML, JSON)
+  - Intelligent output format detection
+  - Token limit management and smart truncation
 - `__init__.py` - Package initialization and version information
 
 ### Testing (`tests/`)
@@ -61,6 +67,43 @@ Custom type definitions and type stubs.
 - `README.md` - Project overview and getting started guide
 - `STRUCTURE.md` - This file, documenting project organization
 - `LICENSE` - Project license information
+
+## Architecture
+
+### Console Management
+The project implements a structured console management system for output:
+
+1. `console.py` provides a `ConsoleManager` class with:
+   - Typed methods for different output types (errors, warnings, notes)
+   - Theme support with multiple pre-defined themes (default, dark, light, accessible)
+   - Formatted messages with consistent styling
+   - Table rendering for structured data
+
+2. `output_processor.py` handles specialized output processing:
+   - Automatic detection of output format (JSON, YAML, logs, plain text)
+   - Format-specific processing for Kubernetes resources
+   - Smart truncation of large outputs for LLM consumption
+   - Token limit management for LLM inputs
+
+3. `command_handler.py` centralizes command execution:
+   - Standardized kubectl interaction code
+   - Common patterns for handling output and errors
+   - Streamlined handling of LLM responses
+   - Unified configuration and flag handling
+
+### Type Safety
+The codebase uses extensive type annotations:
+- Generic type parameters for flexible and type-safe interfaces
+- TypeVar for flexible return type annotation
+- Type casting where appropriate
+- Comprehensive type hints for function parameters and return values
+
+### Configuration System
+The project uses a structured configuration system:
+- Config values with validation and type conversion
+- Configuration persistence with file-based storage
+- Theme configuration with multiple pre-defined themes
+- CLI commands for configuration management
 
 ## Development Workflow
 
