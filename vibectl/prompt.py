@@ -7,9 +7,6 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 
 import datetime
 
-# Current date and time for context in prompts
-CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 
 def refresh_datetime() -> str:
     """Refresh and return the current datetime string.
@@ -45,9 +42,6 @@ Important:
 - Skip any introductory phrases like "This output shows" or "I can see"
 - Be direct and concise"""
 
-
-# For backward compatibility with existing code
-FORMATTING_INSTRUCTIONS = get_formatting_instructions()
 
 # Template for planning kubectl get commands
 PLAN_GET_PROMPT = """Given this natural language request for Kubernetes resources,
@@ -106,10 +100,6 @@ Here's the output:
 {{output}}"""
 
 
-# For backward compatibility
-GET_RESOURCE_PROMPT = get_resource_prompt()
-
-
 # Template for summarizing 'kubectl describe' output
 def describe_resource_prompt() -> str:
     """Get the prompt template for summarizing kubectl describe output.
@@ -133,10 +123,6 @@ Example format:
 Here's the output:
 
 {{output}}"""
-
-
-# For backward compatibility
-DESCRIBE_RESOURCE_PROMPT = describe_resource_prompt()
 
 
 # Template for summarizing 'kubectl logs' output
@@ -164,9 +150,6 @@ Here's the output:
 
 {{output}}"""
 
-
-# For backward compatibility
-LOGS_PROMPT = logs_prompt()
 
 # Template for planning kubectl describe commands
 PLAN_DESCRIBE_PROMPT = """Given this natural language request for Kubernetes
@@ -323,16 +306,6 @@ Here's the output:
 {{output}}"""
 
 
-# For backward compatibility
-CREATE_RESOURCE_PROMPT = create_resource_prompt()
-
-VERSION_PROMPT = """
-Interpret the following JSON response from `kubectl version` and
-provide a human-friendly summary:
-
-{version_info}
-"""
-
 # Template for planning kubectl cluster-info commands
 PLAN_CLUSTER_INFO_PROMPT = """Given this natural language request for Kubernetes
 cluster information, determine the appropriate kubectl cluster-info command arguments.
@@ -391,5 +364,26 @@ Here's the output:
 {{output}}"""
 
 
-# For backward compatibility
-CLUSTER_INFO_PROMPT = cluster_info_prompt()
+# Template for summarizing 'kubectl version' output
+def version_prompt() -> str:
+    """Get the prompt template for summarizing kubectl version output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The version prompt template with current formatting instructions
+    """
+    return f"""Interpret this Kubernetes version information in a human-friendly way.
+Highlight important details like version compatibility, deprecation notices,
+or update recommendations.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]Kubernetes v1.26.3[/bold] client and [bold]v1.25.4[/bold] server
+[green]Compatible versions[/green] with [italic]patch available[/italic]
+[blue]Server components[/blue] all [green]up-to-date[/green]
+[yellow]Client will be deprecated in 3 months[/yellow]
+
+Here's the version information:
+{{version_info}}"""

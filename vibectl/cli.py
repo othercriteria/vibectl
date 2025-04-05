@@ -19,17 +19,17 @@ from rich.table import Table
 
 from .config import Config
 from .prompt import (
-    CLUSTER_INFO_PROMPT,
-    CREATE_RESOURCE_PROMPT,
-    DESCRIBE_RESOURCE_PROMPT,
-    GET_RESOURCE_PROMPT,
-    LOGS_PROMPT,
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
-    refresh_datetime,
+    cluster_info_prompt,
+    create_resource_prompt,
+    describe_resource_prompt,
+    get_resource_prompt,
+    logs_prompt,
+    version_prompt,
 )
 
 console = Console()
@@ -45,37 +45,6 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
 # Current datetime for version command
 CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# Define version prompt function that uses get_formatting_instructions
-def get_version_prompt() -> str:
-    """Get the prompt template for version command with current datetime.
-
-    Returns:
-        str: The version prompt template with current formatting instructions
-    """
-    return f"""Interpret this Kubernetes version information in a human-friendly way.
-Highlight important details like version compatibility, deprecation notices,
-or update recommendations.
-
-Format your response using rich.Console() markup syntax with matched closing tags:
-- [bold]Version numbers and key details[/bold] for emphasis
-- [green]Compatible or up-to-date components[/green] for positive states
-- [yellow]Warnings or deprecation notices[/yellow] for concerning states
-- [red]Critical issues or incompatibilities[/red] for problems
-- [blue]Kubernetes components[/blue] for k8s terms
-- [italic]Build dates and release info[/italic] for timing information
-
-Important:
-- Current date and time is {refresh_datetime()}
-- Timestamps in the future relative to this are not anomalies
-
-Here's the version information:
-{{version_info}}"""
-
-
-# For backward compatibility
-VERSION_PROMPT = get_version_prompt()
 
 
 def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
@@ -215,28 +184,18 @@ def handle_vibe_request(
             try:
                 # Select the right command function to get the latest datetime
                 if command == "get":
-                    from .prompt import get_resource_prompt
-
                     prompt_with_time = get_resource_prompt().format(output=llm_output)
                 elif command == "describe":
-                    from .prompt import describe_resource_prompt
-
                     prompt_with_time = describe_resource_prompt().format(
                         output=llm_output
                     )
                 elif command == "logs":
-                    from .prompt import logs_prompt
-
                     prompt_with_time = logs_prompt().format(output=llm_output)
                 elif command == "create":
-                    from .prompt import create_resource_prompt
-
                     prompt_with_time = create_resource_prompt().format(
                         output=llm_output
                     )
                 elif command == "cluster-info":
-                    from .prompt import cluster_info_prompt
-
                     prompt_with_time = cluster_info_prompt().format(output=llm_output)
                 else:
                     # Fallback to original prompt if command isn't recognized
@@ -320,7 +279,7 @@ def get(
             request=request,
             command="get",
             plan_prompt=PLAN_GET_PROMPT,
-            summary_prompt=GET_RESOURCE_PROMPT,
+            summary_prompt=get_resource_prompt(),
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -367,7 +326,7 @@ def get(
 
             try:
                 llm_model = llm.get_model(model_name)
-                prompt = GET_RESOURCE_PROMPT.format(output=llm_output)
+                prompt = get_resource_prompt().format(output=llm_output)
                 response = llm_model.prompt(prompt)
                 summary = (
                     response.text() if hasattr(response, "text") else str(response)
@@ -444,7 +403,7 @@ def describe(
             request=request,
             command="describe",
             plan_prompt=PLAN_DESCRIBE_PROMPT,
-            summary_prompt=DESCRIBE_RESOURCE_PROMPT,
+            summary_prompt=describe_resource_prompt(),
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -489,7 +448,7 @@ def describe(
 
             try:
                 llm_model = llm.get_model(model_name)
-                prompt = DESCRIBE_RESOURCE_PROMPT.format(output=llm_output)
+                prompt = describe_resource_prompt().format(output=llm_output)
                 response = llm_model.prompt(prompt)
                 summary = (
                     response.text() if hasattr(response, "text") else str(response)
@@ -568,7 +527,7 @@ def logs(
             request=request,
             command="logs",
             plan_prompt=PLAN_LOGS_PROMPT,
-            summary_prompt=LOGS_PROMPT,
+            summary_prompt=logs_prompt(),
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -615,7 +574,7 @@ def logs(
 
             try:
                 llm_model = llm.get_model(model_name)
-                prompt = LOGS_PROMPT.format(output=llm_output)
+                prompt = logs_prompt().format(output=llm_output)
                 response = llm_model.prompt(prompt)
                 summary = (
                     response.text() if hasattr(response, "text") else str(response)
@@ -696,7 +655,7 @@ def create(
             request=request,
             command="create",
             plan_prompt=PLAN_CREATE_PROMPT,
-            summary_prompt=CREATE_RESOURCE_PROMPT,
+            summary_prompt=create_resource_prompt(),
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -745,7 +704,7 @@ def create(
 
             try:
                 llm_model = llm.get_model(model_name)
-                prompt = CREATE_RESOURCE_PROMPT.format(output=llm_output)
+                prompt = create_resource_prompt().format(output=llm_output)
                 response = llm_model.prompt(prompt)
                 summary = (
                     response.text() if hasattr(response, "text") else str(response)
@@ -870,8 +829,8 @@ def version() -> None:
         # Use LLM to interpret the JSON response
         llm_model = llm.get_model(DEFAULT_MODEL)
 
-        # Get fresh version prompt with current datetime
-        prompt = get_version_prompt().format(version_info=version_info)
+        # Use fresh version prompt with current datetime
+        prompt = version_prompt().format(version_info=version_info)
         response = llm_model.prompt(prompt)
         interpretation = response.text() if hasattr(response, "text") else str(response)
         console.print(interpretation, markup=True, highlight=False)
@@ -928,7 +887,7 @@ def cluster_info(
             request=request,
             command="cluster-info",
             plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
-            summary_prompt=CLUSTER_INFO_PROMPT,
+            summary_prompt=cluster_info_prompt(),
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -981,8 +940,6 @@ def cluster_info(
                 llm_model = llm.get_model(model_name)
 
                 # Use fresh cluster info prompt with current datetime
-                from .prompt import cluster_info_prompt
-
                 prompt = cluster_info_prompt().format(output=llm_output)
 
                 response = llm_model.prompt(prompt)
