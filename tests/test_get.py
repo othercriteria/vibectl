@@ -197,9 +197,11 @@ def test_get_command_kubectl_error(runner: CliRunner, mock_config: Mock) -> None
         result = runner.invoke(cli, ["get", "invalid"], catch_exceptions=True)
 
         assert result.exit_code == 1
-        # CLI handler is calling sys.exit(1) in handle_vibe_request when run_kubectl raises
+        # CLI handler is calling sys.exit(1) in handle_vibe_request
+        # when run_kubectl raises
         assert isinstance(result.exception, SystemExit)
-        # Cannot check the CalledProcessError output since it's caught in handle_vibe_request
+        # Cannot check the CalledProcessError output since it's caught
+        # in handle_vibe_request
 
 
 def test_get_command_llm_error(
@@ -362,7 +364,8 @@ def test_get_command_suppress_output_warning(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    # Set both show_raw_output and show_vibe to false, but enable suppress_output_warning
+    # Set both show_raw_output and show_vibe to false, but enable
+    # suppress_output_warning
     mock_config.get.side_effect = lambda key, default=None: (
         True
         if key == "suppress_output_warning"

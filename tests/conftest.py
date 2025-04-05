@@ -1,7 +1,7 @@
 """Shared pytest fixtures."""
 
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -31,14 +31,14 @@ def mock_console_manager() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def mock_theme_setup() -> Generator[None, None, None]:
+def mock_theme_setup() -> Generator[Any, None, None]:
     """Mock theme setup to avoid theme-related errors in tests."""
     with patch("vibectl.cli.console_manager.set_theme") as _:
         yield
 
 
 @pytest.fixture
-def mock_config_dir(tmp_path: Path) -> Path:
+def mock_config_dir(tmp_path: Path) -> Generator[Path, None, None]:
     """Create a mock config directory for testing."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()

@@ -12,13 +12,20 @@ from vibectl.cli import cli
 def mock_kubectl_output() -> str:
     """Mock kubectl output for testing."""
     return (
-        "LAST SEEN   TYPE      REASON              OBJECT                               MESSAGE\n"
-        "5m20s       Normal    Scheduled           pod/nginx-5f7cd9b8c-7sp69            Successfully assigned default/nginx-5f7cd9b8c-7sp69 to minikube\n"
-        '4m56s       Normal    Pulled              pod/nginx-5f7cd9b8c-7sp69            Container image "nginx:1.17.0" already present on machine\n'
-        "4m56s       Normal    Created             pod/nginx-5f7cd9b8c-7sp69            Created container nginx\n"
-        "4m54s       Normal    Started             pod/nginx-5f7cd9b8c-7sp69            Started container nginx\n"
-        "4m32s       Warning   BackOff             pod/webapp-86ddf46c9-ksvd6           Back-off restarting failed container\n"
-        "3m12s       Warning   FailedScheduling    pod/redis-744b94f45d-pwts9           0/1 nodes are available: 1 Insufficient memory"
+        "LAST SEEN   TYPE      REASON              OBJECT                "
+        "MESSAGE\n"
+        "5m20s       Normal    Scheduled           pod/nginx-5f7cd9b8c-7sp69  "
+        "Successfully assigned default/nginx-5f7cd9b8c-7sp69 to minikube\n"
+        "4m56s       Normal    Pulled              pod/nginx-5f7cd9b8c-7sp69  "
+        'Container image "nginx:1.17.0" already present on machine\n'
+        "4m56s       Normal    Created             pod/nginx-5f7cd9b8c-7sp69  "
+        "Created container nginx\n"
+        "4m54s       Normal    Started             pod/nginx-5f7cd9b8c-7sp69  "
+        "Started container nginx\n"
+        "4m32s       Warning   BackOff             pod/webapp-86ddf46c9-ksvd6 "
+        "Back-off restarting failed container\n"
+        "3m12s       Warning   FailedScheduling    pod/redis-744b94f45d-pwts9 "
+        "0/1 nodes are available: 1 Insufficient memory"
     )
 
 
@@ -27,10 +34,14 @@ def mock_llm_response() -> str:
     """Mock LLM response for testing."""
     return (
         "[bold]Event Summary[/bold]\n"
-        "[green]Successfully scheduled[/green] [bold]nginx[/bold] pod [italic]5m20s ago[/italic]\n"
-        "[green]Container started[/green] for [bold]nginx[/bold] pod [italic]4m54s ago[/italic]\n"
-        "[yellow]BackOff[/yellow] warning for [bold]webapp[/bold] pod [italic]4m32s ago[/italic]\n"
-        "[red]FailedScheduling[/red] for [bold]redis[/bold] pod due to [red]Insufficient memory[/red] [italic]3m12s ago[/italic]"
+        "[green]Successfully scheduled[/green] [bold]nginx[/bold] pod "
+        "[italic]5m20s ago[/italic]\n"
+        "[green]Container started[/green] for [bold]nginx[/bold] pod "
+        "[italic]4m54s ago[/italic]\n"
+        "[yellow]BackOff[/yellow] warning for [bold]webapp[/bold] pod "
+        "[italic]4m32s ago[/italic]\n"
+        "[red]FailedScheduling[/red] for [bold]redis[/bold] pod due to "
+        "[red]Insufficient memory[/red] [italic]3m12s ago[/italic]"
     )
 
 

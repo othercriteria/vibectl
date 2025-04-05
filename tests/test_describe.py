@@ -54,7 +54,8 @@ def mock_kubectl_output() -> str:
 def mock_llm_response() -> str:
     """Mock LLM response for testing."""
     return (
-        "[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green] on [blue]worker-1[/blue]\n"
+        "[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green] "
+        "on [blue]worker-1[/blue]\n"
         "Resources: [italic]CPU: 250m-500m, Memory: 256Mi-512Mi[/italic]"
     )
 
