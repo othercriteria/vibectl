@@ -47,45 +47,54 @@ actions:
       fi
 
       # Process commit message parts preserving actual newlines
-      # Create a temporary function to handle multiline variables safely
-      handle_multiline() {
-        local var="$1"
-        if [[ -n "$var" && "$var" != "None" ]]; then
-          local tmpfile=$(mktemp)
-          echo "$var" > "$tmpfile"
-          local processed=$(cat "$tmpfile")
-          rm "$tmpfile"
-          echo "$processed"
-        else
+      # Split multiline inputs into separate -m arguments
+      create_m_args() {
+        local input="$1"
+        local args=""
+
+        # Skip if empty or "None"
+        if [[ -z "$input" || "$input" == "None" ]]; then
           echo ""
+          return
         fi
+
+        # Create a temporary file for line-by-line processing
+        local tmpfile=$(mktemp)
+        echo "$input" > "$tmpfile"
+
+        # Read line by line and create -m arguments
+        while IFS= read -r line; do
+          args="$args -m \"$line\""
+        done < "$tmpfile"
+
+        rm "$tmpfile"
+        echo "$args"
       }
 
-      # Process the main commit message parts
-      DESCRIPTION=$(handle_multiline "{detailed description if needed}")
-      CONCISE="{type}: {concise description}"
+      # Create -m arguments for each section
+      CONCISE_ARG="-m \"{type}: {concise description}\""
+      DESCRIPTION_ARGS=$(create_m_args "{detailed description if needed}")
 
-      # Only add breaking changes section if there are breaking changes
-      if [ -n "{breaking changes if any}" ] && [ "{breaking changes if any}" != "None" ]; then
-        BREAKING_CHANGES_TEXT=$(handle_multiline "{breaking changes if any}")
-        BREAKING_CHANGES="-m \"\" -m \"Breaking Changes:\" -m \"$BREAKING_CHANGES_TEXT\""
+      # Add empty line before breaking changes if they exist
+      if [[ -n "{breaking changes if any}" && "{breaking changes if any}" != "None" ]]; then
+        BREAKING_HEADER="-m \"\" -m \"Breaking Changes:\""
+        BREAKING_ARGS=$(create_m_args "{breaking changes if any}")
       else
-        BREAKING_CHANGES=""
+        BREAKING_HEADER=""
+        BREAKING_ARGS=""
       fi
 
-      # Only add related issues section if there are related issues
-      if [ -n "{related issues/tickets}" ] && [ "{related issues/tickets}" != "None" ]; then
-        RELATED_ISSUES_TEXT=$(handle_multiline "{related issues/tickets}")
-        RELATED_ISSUES="-m \"\" -m \"Related Issues: $RELATED_ISSUES_TEXT\""
+      # Add empty line before related issues if they exist
+      if [[ -n "{related issues/tickets}" && "{related issues/tickets}" != "None" ]]; then
+        ISSUES_HEADER="-m \"\" -m \"Related Issues:\""
+        ISSUES_ARGS=$(create_m_args "{related issues/tickets}")
       else
-        RELATED_ISSUES=""
+        ISSUES_HEADER=""
+        ISSUES_ARGS=""
       fi
 
-      git commit \
-        -m "$CONCISE" \
-        -m "$DESCRIPTION" \
-        $BREAKING_CHANGES \
-        $RELATED_ISSUES
+      # Construct the final git commit command with all arguments
+      eval git commit $CONCISE_ARG $DESCRIPTION_ARGS $BREAKING_HEADER $BREAKING_ARGS $ISSUES_HEADER $ISSUES_ARGS
 
   - type: reject
     conditions:
@@ -156,4 +165,4 @@ Add tests for invalid cases" \
 
 metadata:
   priority: critical  # Upgraded from high to critical
-  version: 1.2  # Version bump for fixing newline handling in commit messages
+  version: 1.3  # Version bump for using direct multiple -m arguments approach
