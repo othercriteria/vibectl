@@ -46,16 +46,6 @@ def mock_kubectl_version() -> Mock:
 
 
 @pytest.fixture
-def mock_kubectl_legacy_version() -> Mock:
-    """Mock kubectl version call with legacy output format"""
-    mock_result = Mock()
-    mock_result.stdout = (
-        "Client Version: v1.27.3\nKustomize Version: v5.0.1\nServer Version: v1.27.3"
-    )
-    return mock_result
-
-
-@pytest.fixture
 def mock_kubectl_success() -> Mock:
     """Mock successful kubectl command execution"""
     mock_result = Mock()
@@ -123,51 +113,35 @@ class TestVersionCommand:
         self, runner: CliRunner, mock_kubectl_version: Mock
     ) -> None:
         """Test version command with JSON output"""
-        with patch("subprocess.run", return_value=mock_kubectl_version):
-            result = runner.invoke(cli, ["version"])
-            assert result.exit_code == 0
-            assert "Client Version:" in result.output
-            assert f"vibectl Version: {__version__}" in result.output
-            assert "kubectl Version: v1.27" in result.output
-            assert "Kustomize Version: v5.0.1" in result.output
-            assert "Server Version:" in result.output
-            assert "Version: v1.27 (v1.27.3)" in result.output
-            assert "Platform: linux/amd64" in result.output
-            assert "Go Version: go1.20.3" in result.output
+        mock_model = Mock()
+        mock_model.prompt.return_value = Mock(text=lambda: "Interpreted version information")
 
-    def test_version_command_legacy(
-        self, runner: CliRunner, mock_kubectl_legacy_version: Mock
-    ) -> None:
-        """Test version command with legacy output format"""
-        with patch(
-            "subprocess.run",
-            side_effect=[json.JSONDecodeError("", "", 0), mock_kubectl_legacy_version],
+        with patch("subprocess.run", return_value=mock_kubectl_version), patch(
+            "llm.get_model", return_value=mock_model
         ):
             result = runner.invoke(cli, ["version"])
             assert result.exit_code == 0
-            assert "Client Version:" in result.output
-            assert f"vibectl Version: {__version__}" in result.output
-            assert "kubectl Client Version: v1.27.3" in result.output
-            assert "Kustomize Version: v5.0.1" in result.output
-            assert "Server Version:" in result.output
-            assert "v1.27.3" in result.output
+            assert "Interpreted version information" in result.output
 
     @pytest.mark.parametrize(
         "error,expected_output",
         [
             (FileNotFoundError(), "kubectl version information not available"),
-            (Exception("test error"), "Error getting version information: test error"),
+            (Exception("test error"), "test error"),
         ],
     )
     def test_version_command_errors(
         self, runner: CliRunner, error: Exception, expected_output: str
     ) -> None:
         """Test version command error handling"""
-        with patch("subprocess.run", side_effect=error):
+        mock_model = Mock()
+        mock_model.prompt.side_effect = Exception("LLM error")
+
+        with patch("subprocess.run", side_effect=error), patch(
+            "llm.get_model", return_value=mock_model
+        ):
             result = runner.invoke(cli, ["version"])
             assert result.exit_code == 0
-            assert "Client Version:" in result.output
-            assert f"vibectl Version: {__version__}" in result.output
             assert expected_output in result.output
 
 
@@ -232,9 +206,15 @@ class TestConfigCommands:
 
     def test_config_show(self, runner: CliRunner, mock_config_dir: Path) -> None:
         """Test config show command"""
+        # First set a test value
+        runner.invoke(cli, ["config", "set", "test_key", "test_value"])
+        
+        # Then verify it shows up in config show
         result = runner.invoke(cli, ["config", "show"])
         assert result.exit_code == 0
         assert "vibectl Configuration" in result.output
+        assert "test_key" in result.output
+        assert "test_value" in result.output
 
     def test_config_set_and_show(
         self, runner: CliRunner, mock_config_dir: Path

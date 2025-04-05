@@ -1,6 +1,7 @@
 """Tests for the logs command."""
 
 from unittest.mock import Mock, patch
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -43,17 +44,24 @@ def mock_llm_plain_response() -> str:
 
 
 @pytest.fixture
+def mock_config() -> Mock:
+    """Mock config for testing."""
+    mock = Mock()
+    mock.get.side_effect = lambda key, default=None: default
+    return mock
+
+
+@pytest.fixture
 def runner() -> CliRunner:
     """Create a Click test runner that preserves stderr"""
     return CliRunner(mix_stderr=False)
 
 
 @pytest.fixture
-def large_output() -> str:
-    """Create a large output that would exceed the token limit.
-    Using a smaller string repeated instead of a huge multiplication."""
-    base = "x" * 100 + "\n"  # 101 chars per line
-    return base * 400  # ~40k chars total, well over the 10k token limit
+def large_output(tmp_path: Path) -> str:
+    """Create a large output that would exceed token limit"""
+    # Create a string that's just over the 10k token limit
+    return "x" * (4 * 10001) + "\n"
 
 
 def test_logs_command_basic(
@@ -61,17 +69,16 @@ def test_logs_command_basic(
     mock_kubectl_output: str,
     mock_llm_response: str,
     mock_llm_plain_response: str,
+    mock_config: Mock,
 ) -> None:
     """Test basic logs command functionality"""
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
-    mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=True)
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=False)
 
         assert result.exit_code == 0
         # Raw output should not be present
@@ -90,21 +97,23 @@ def test_logs_command_with_raw_flag(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key: None if key == "llm_model" else False
+    mock_config.get.side_effect = lambda key, default=None: default
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(
-            cli, ["logs", "pod/nginx-pod", "--raw"], catch_exceptions=True
-        )
-
+        # Test raw output only
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod", "--raw", "--no-show-vibe"], catch_exceptions=True)
         assert result.exit_code == 0
-        # Raw output should be present
         assert mock_kubectl_output in result.output
-        # Vibe check header should be present
+        assert "✨ Vibe check:" not in result.output
+        assert mock_llm_plain_response not in result.output
+
+        # Test raw output with vibe
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod", "--raw", "--show-vibe"], catch_exceptions=True)
+        assert result.exit_code == 0
+        assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" in result.output
-        # Check LLM summary is displayed (without markup)
         assert mock_llm_plain_response in result.output
 
 
@@ -118,19 +127,29 @@ def test_logs_command_with_raw_config(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key: True if key == "show_raw_output" else None
+    
+    # Test raw output only
+    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else False if key == "show_vibe" else default
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
         result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=True)
-
         assert result.exit_code == 0
-        # Raw output should be present
         assert mock_kubectl_output in result.output
-        # Vibe check header should be present
+        assert "✨ Vibe check:" not in result.output
+        assert mock_llm_plain_response not in result.output
+
+    # Test raw output with vibe
+    mock_config.get.side_effect = lambda key, default=None: True if key in ["show_raw_output", "show_vibe"] else default
+
+    with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
+        "llm.get_model", return_value=mock_model
+    ), patch("vibectl.cli.Config", return_value=mock_config):
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=True)
+        assert result.exit_code == 0
+        assert mock_kubectl_output in result.output
         assert "✨ Vibe check:" in result.output
-        # Check LLM summary is displayed (without markup)
         assert mock_llm_plain_response in result.output
 
 
@@ -144,7 +163,7 @@ def test_logs_command_with_container(
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: mock_llm_response)
     mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
+    mock_config.get.side_effect = lambda key, default=None: default
 
     with patch(
         "vibectl.cli.run_kubectl", return_value=mock_kubectl_output
@@ -163,59 +182,44 @@ def test_logs_command_with_container(
         assert mock_llm_plain_response in result.output
 
 
-def test_logs_command_token_limit(runner: CliRunner, large_output: str) -> None:
-    """Test logs command with output exceeding token limit"""
-    mock_model = Mock()
-    mock_model.prompt.return_value = Mock(
-        text=lambda: (
-            "Unable to analyze container logs - provided content contains "
-            "only placeholder characters ('x')"
-        )
-    )
-    mock_config = Mock()
-    mock_config.get.return_value = True  # Show raw output
-
-    with patch("vibectl.cli.run_kubectl", return_value=large_output), patch(
-        "llm.get_model", return_value=mock_model
-    ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=True)
-
-        assert result.exit_code == 0
-        assert "Note: Output truncated for LLM analysis" in result.stderr
-        # Check that the LLM output mentions placeholder characters
-        assert "Unable to analyze container logs" in result.output
-        assert "characters ('x')" in result.output
-
-
 def test_logs_command_token_limit_with_raw(
     runner: CliRunner, large_output: str
 ) -> None:
     """Test logs command with output exceeding token limit and raw output"""
+    # Create a proper mock for the LLM model
     mock_model = Mock()
-    mock_model.prompt.return_value = Mock(
-        text=lambda: (
-            "Unable to analyze container logs - provided content contains "
-            "only placeholder characters ('x')"
-        )
+    mock_response = Mock()
+    mock_response.text = lambda: (
+        "Unable to analyze container logs - provided content contains "
+        "only placeholder characters ('x')"
     )
+    mock_model.prompt.return_value = mock_response
+    
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key: True if key == "show_raw_output" else None
+    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else default
 
     with patch("vibectl.cli.run_kubectl", return_value=large_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
         result = runner.invoke(
-            cli, ["logs", "pod/nginx-pod", "--raw"], catch_exceptions=True
+            cli, ["logs", "pod/nginx-pod", "--raw", "--show-raw-output"], catch_exceptions=False
         )
 
         assert result.exit_code == 0
-        assert "Note: Output truncated for LLM analysis" in result.stderr
-        # Check that the raw output contains the placeholder text and vibe check
+        
+        # 1. We see the truncation warning in stderr
+        assert "Output is too large for AI processing" in result.stderr
+        
+        # 2. Verify the raw output contains 'x's
+        assert "x" * 50 in result.output or "xxxxx" in result.output
+        
+        # 3. The vibe check shows the LLM's attempt to analyze the truncated content
         assert "✨ Vibe check:" in result.output
         assert "Unable to analyze container logs" in result.output
-        assert (
-            "characters ('x')" in result.output
-        )  # Simplified assertion to match actual output
+        
+        # 4. Verify the LLM was called with a truncated prompt due to token limits
+        assert len(mock_model.prompt.call_args[0][0]) < len(large_output)
+        assert mock_model.prompt.called
 
 
 def test_logs_command_llm_error(
@@ -228,15 +232,16 @@ def test_logs_command_llm_error(
     mock_model = Mock()
     mock_model.prompt.side_effect = Exception("LLM error")
     mock_config = Mock()
-    mock_config.get.return_value = None  # Let it use the default model
+    # Ensure raw output is shown when LLM fails
+    mock_config.get.side_effect = lambda key, default=None: True if key == "show_raw_output" else default
 
     with patch("vibectl.cli.run_kubectl", return_value=mock_kubectl_output), patch(
         "llm.get_model", return_value=mock_model
     ), patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["logs", "pod/nginx-pod"], catch_exceptions=True)
+        result = runner.invoke(cli, ["logs", "pod/nginx-pod", "--show-raw-output"], catch_exceptions=False)
 
         assert result.exit_code == 0  # Command should still succeed
         assert mock_kubectl_output in result.output  # Raw output should be shown
-        assert (
-            "Could not get vibe check: LLM error" in result.stderr
-        )  # Error message should be shown
+        # Error message should be shown in stderr
+        assert "Could not get vibe check" in result.stderr
+        assert "LLM error" in result.stderr

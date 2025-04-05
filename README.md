@@ -71,7 +71,32 @@ vibectl config set llm_model your-preferred-model
 
 # Always show raw kubectl output
 vibectl config set show_raw_output true
+
+# Always show vibe output
+vibectl config set show_vibe true
+
+# Suppress warning when no output is enabled
+vibectl config set suppress_output_warning true
 ```
+
+### Output Behavior
+
+By default, vibectl will show:
+- Raw output when `--show-raw-output` or `--raw` flag is used
+- Vibe summaries when `--show-vibe` flag is used (enabled by default)
+
+When neither raw output nor vibe output is enabled, a warning will be displayed
+but no output will be shown. This behavior respects user choices rather than
+guessing intent.
+
+If you wish to suppress the warning for no enabled outputs, you can set:
+```zsh
+vibectl config set suppress_output_warning true
+```
+
+All output settings can be controlled using:
+- Command-line flags: `--show-raw-output` / `--no-show-raw-output` and `--show-vibe` / `--no-show-vibe`
+- Configuration: `vibectl config set show_raw_output true|false` and `vibectl config set show_vibe true|false`
 
 ### Output Formatting
 

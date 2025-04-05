@@ -9,7 +9,6 @@ more intuitive while preserving access to raw kubectl output when needed.
 import json
 import subprocess
 import sys
-import tempfile
 from typing import List, NoReturn, Optional
 
 import click
@@ -17,7 +16,6 @@ import llm
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__
 from .config import Config
 from .prompt import (
     CREATE_RESOURCE_PROMPT,
@@ -33,12 +31,28 @@ from .prompt import (
 console = Console()
 error_console = Console(stderr=True)
 
-# Arbitrary token limit to prevent OOM issues with LLM processing
-# Using a conservative estimate of 4 chars per token
+# Constants
 MAX_TOKEN_LIMIT = 10000
-
-# For logs, we'll show first and last third when output is too large
 LOGS_TRUNCATION_RATIO = 3
+DEFAULT_MODEL = "claude-3.7-sonnet"
+DEFAULT_SHOW_RAW_OUTPUT = False
+DEFAULT_SHOW_VIBE = True
+DEFAULT_SUPPRESS_OUTPUT_WARNING = False
+
+# Prompt for version command
+VERSION_PROMPT = """Interpret this Kubernetes version information in a human-friendly way.
+Highlight important details like version compatibility, deprecation notices, or update recommendations.
+
+Format your response using rich.Console() markup syntax with matched closing tags:
+- [bold]Version numbers and key details[/bold] for emphasis
+- [green]Compatible or up-to-date components[/green] for positive states
+- [yellow]Warnings or deprecation notices[/yellow] for concerning states
+- [red]Critical issues or incompatibilities[/red] for problems
+- [blue]Kubernetes components[/blue] for k8s terms
+- [italic]Build dates and release info[/italic] for timing information
+
+Here's the version information:
+{version_info}"""
 
 
 def run_kubectl(args: List[str], capture: bool = False) -> Optional[str]:
@@ -94,48 +108,70 @@ def handle_vibe_request(
     command: str,
     plan_prompt: str,
     summary_prompt: str,
-    show_raw: bool,
+    show_raw_output: bool,
+    show_vibe: bool,
     model_name: str,
+    suppress_output_warning: bool = False,
 ) -> None:
-    """Handle a vibe-based request for any kubectl command.
-
-    Args:
-        request: The natural language request from the user
-        command: The kubectl command (get, describe, logs)
-        plan_prompt: The prompt template for planning the command
-        summary_prompt: The prompt template for summarizing the output
-        show_raw: Whether to show raw kubectl output
-        model_name: The LLM model to use
-
-    Raises:
-        SystemExit: If the request is invalid or an error occurs
-    """
-    output = None
+    """Handle a vibe request by planning and executing a kubectl command."""
     try:
-        model = llm.get_model(model_name)
-        prompt = plan_prompt.format(request=request)
-        response = model.prompt(prompt)
-        planned_args = response.text().strip().split("\n")
+        # Show warning if no output will be shown and warning is not suppressed
+        if not show_raw_output and not show_vibe and not suppress_output_warning:
+            error_console.print(
+                "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
+                "Use --show-raw-output or --show-vibe to see output."
+            )
 
-        # Check for error response
-        if planned_args[0].startswith("ERROR:"):
-            error_msg = planned_args[0][6:].strip()
-            error_console.print(f"[bold red]Error:[/] {error_msg}")
+        # Get the plan from LLM
+        llm_model = llm.get_model(model_name)
+        prompt = plan_prompt.format(request=request)
+        response = llm_model.prompt(prompt)
+        plan = response.text() if hasattr(response, "text") else str(response)
+
+        # Check for error responses from planner
+        if isinstance(plan, str) and plan.startswith("ERROR:"):
+            error_console.print(f"[bold red]Error:[/bold red] {plan[7:]}")
             sys.exit(1)
 
-        # Run the planned kubectl command
-        cmd = [command, *planned_args]
-        output = run_kubectl(cmd, capture=True)
+        # Extract kubectl command from plan
+        kubectl_args = []
+        for line in plan.split("\n"):
+            if line == "---":
+                break
+            kubectl_args.append(line)
+
+        # Validate plan format
+        if not kubectl_args:
+            error_console.print(
+                "[bold red]Error:[/bold red] Invalid response format from planner"
+            )
+            sys.exit(1)
+
+        # Run kubectl command
+        try:
+            output = run_kubectl([command, *kubectl_args], capture=True)
+        except subprocess.CalledProcessError as e:
+            # If kubectl fails, error is already shown by run_kubectl
+            if show_raw_output:
+                console.print(str(e), markup=False, highlight=False)
+            sys.exit(1)
+
+        # If no output, nothing to do
         if not output:
             return
 
-        # Check token count and handle large outputs
-        output_len = len(output)
-        token_estimate = output_len / 4
-        llm_output = output
+        # Show raw output if requested
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
 
-        if token_estimate > MAX_TOKEN_LIMIT:
-            if command == "logs":
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
                 # For logs, take first and last third
                 chunk_size = int(
                     MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
@@ -146,173 +182,541 @@ def handle_vibe_request(
                     f"{output[-chunk_size:]}"
                 )
                 llm_output = truncated_output
-                if show_raw:
-                    msg = "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
-                    error_console.print(msg)
-                    console.print()  # Add a blank line for readability
-            else:
-                # For other commands, warn and optionally show raw output
                 error_console.print(
                     "[yellow]Warning:[/yellow] Output is too large for AI processing. "
-                    "Please try describing a more specific resource."
+                    "Using truncated output for vibe check."
                 )
-                if show_raw:
-                    console.print(output, markup=False, highlight=False)
-                return
 
-        # Print the raw output if requested
-        if show_raw:
-            console.print(output, markup=False, highlight=False)
-            console.print()  # Add a blank line for readability
+            try:
+                prompt = summary_prompt.format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
 
-        # Use LLM to summarize
-        prompt = summary_prompt.format(output=llm_output)
-        response = model.prompt(prompt)
-        summary = response.text() if hasattr(response, "text") else str(response)
-        if show_raw:
-            console.print("[bold green]✨ Vibe check:[/bold green]")
-        console.print(summary, markup=True, highlight=False)
-    except Exception:
-        error_console.print("[bold red]Could not get vibe check[/bold red]")
-        # Always show raw output when LLM fails
-        if output is not None and not show_raw:
-            console.print(output, markup=False, highlight=False)
-        sys.exit(1)
-
-
-def handle_regular_command(
-    command: str,
-    resource: str,
-    args: tuple,
-    show_raw: bool,
-    model_name: str,
-    summary_prompt: str,
-) -> str:
-    """Handle a regular kubectl command with optional vibe summary.
-
-    Args:
-        command: The kubectl command (e.g. 'get', 'create')
-        resource: The resource type or file
-        args: Additional arguments
-        show_raw: Whether to show raw kubectl output
-        model_name: The LLM model to use
-        summary_prompt: The prompt template for summarizing output
-
-    Returns:
-        The command output as a string
-
-    Raises:
-        subprocess.CalledProcessError: If kubectl returns an error
-    """
-    # Run the kubectl command
-    output = run_kubectl([command, resource, *args], capture=True)
-    if not output:
-        return ""
-
-    # Print raw output if requested
-    if show_raw:
-        console.print(output, markup=False, highlight=False)
-        console.print()  # Add a blank line for readability
-
-    # Check token count and handle large outputs
-    output_len = len(output)
-    token_estimate = output_len / 4
-    llm_output = output
-
-    if token_estimate > MAX_TOKEN_LIMIT:
-        if command == "logs":
-            # For logs, take first and last third
-            chunk_size = int(
-                MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
-            )  # Convert back to chars
-            truncated_output = (
-                f"{output[:chunk_size]}\n"
-                f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
-                f"{output[-chunk_size:]}"
-            )
-            llm_output = truncated_output
-            error_console.print(
-                "\n[yellow]Note:[/yellow] Output truncated for LLM analysis"
-            )
-            console.print()  # Add a blank line for readability
-        else:
-            # For other commands, warn and optionally show raw output
-            error_console.print(
-                "[yellow]Warning:[/yellow] Output is too large for AI processing. "
-                "Please try describing a more specific resource."
-            )
-            return output
-
-    # Use LLM to summarize
-    try:
-        model = llm.get_model(model_name)
-        prompt = summary_prompt.format(output=llm_output)
-        response = model.prompt(prompt)
-        summary = response.text() if hasattr(response, "text") else str(response)
-
-        if show_raw:
-            console.print("[bold green]✨ Vibe check:[/bold green]")
-        console.print(summary, markup=True, highlight=False)
     except Exception as e:
-        # Always show raw output when LLM fails
-        if not show_raw:
-            console.print(output, markup=False, highlight=False)
-        error_console.print(
-            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
-        )
-
-    return output
-
-
-@cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("resource")
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--raw", is_flag=True, help="Show raw kubectl output")
-def get(resource: str, args: tuple, raw: bool) -> None:
-    """Get Kubernetes resources with a vibe-based summary.
-
-    Runs 'kubectl get' and uses AI to generate a human-friendly summary of the
-    resources. Supports all standard kubectl get arguments and options.
-
-    Examples:
-        vibectl get pods
-        vibectl get deployments -n kube-system
-        vibectl get pods --raw
-        vibectl get vibe i know i have some pods that belong to the nginx app
-    """
-    # Get the configured model
-    cfg = Config()
-    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
-    show_raw = raw or cfg.get("show_raw_output")
-
-    # Handle vibe subcommand
-    if resource == "vibe":
-        # Join args into a single request string
-        request = " ".join(args)
-        if not request:
+        if "No key found" in str(e):
             error_console.print(
-                "[bold red]Error:[/] Please provide a request after 'vibe'"
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
             )
             sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+
+
+@cli.command()
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option("--namespace", "-n", default=None, help="Namespace")
+def get(
+    resource: str,
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+    namespace: Optional[str],
+) -> None:
+    """Get information about Kubernetes resources."""
+    config = Config()
+    model_name = model or config.get("model", DEFAULT_MODEL)
+
+    # Handle raw flag for backward compatibility
+    if raw is not None:
+        show_raw_output = raw
+
+    # Use config values if flags are not provided
+    if show_raw_output is None:
+        show_raw_output = config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+    if show_vibe is None:
+        show_vibe = config.get("show_vibe", DEFAULT_SHOW_VIBE)
+    suppress_output_warning = config.get(
+        "suppress_output_warning", DEFAULT_SUPPRESS_OUTPUT_WARNING
+    )
+
+    # Show warning if no output will be shown, but continue execution
+    if not show_raw_output and not show_vibe and not suppress_output_warning:
+        error_console.print(
+            "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
+            "Use --show-raw-output or --show-vibe to see output."
+        )
+
+    if resource == "vibe":
+        if not args:
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing request after 'vibe'"
+            )
+            sys.exit(1)
+        request = " ".join(args)
         handle_vibe_request(
             request=request,
             command="get",
             plan_prompt=PLAN_GET_PROMPT,
             summary_prompt=GET_RESOURCE_PROMPT,
-            show_raw=show_raw,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
             model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
         )
         return
 
-    # Regular get command
-    handle_regular_command(
-        command="get",
-        resource=resource,
-        args=args,
-        show_raw=show_raw,
-        model_name=model_name,
-        summary_prompt=GET_RESOURCE_PROMPT,
+    cmd = ["get", resource]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    cmd.extend(args)
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
+                # For logs, take first and last third
+                chunk_size = int(
+                    MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+                )  # Convert back to chars
+                truncated_output = (
+                    f"{output[:chunk_size]}\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
+                    f"{output[-chunk_size:]}"
+                )
+                llm_output = truncated_output
+                error_console.print(
+                    "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                    "Using truncated output for vibe check."
+                )
+
+            try:
+                llm_model = llm.get_model(model_name)
+                prompt = GET_RESOURCE_PROMPT.format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
+
+    except Exception as e:
+        if "No key found" in str(e):
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
+            )
+            sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+
+
+@cli.command()
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+def describe(
+    resource: str,
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+) -> None:
+    """Show details of a specific resource."""
+    config = Config()
+    model_name = model or config.get("model", DEFAULT_MODEL)
+
+    # Handle raw flag for backward compatibility
+    if raw is not None:
+        show_raw_output = raw
+
+    # Use config values if flags are not provided
+    if show_raw_output is None:
+        show_raw_output = config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+    if show_vibe is None:
+        show_vibe = config.get("show_vibe", DEFAULT_SHOW_VIBE)
+    suppress_output_warning = config.get(
+        "suppress_output_warning", DEFAULT_SUPPRESS_OUTPUT_WARNING
     )
+
+    # Show warning if no output will be shown, but continue execution
+    if not show_raw_output and not show_vibe and not suppress_output_warning:
+        error_console.print(
+            "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
+            "Use --show-raw-output or --show-vibe to see output."
+        )
+
+    if resource == "vibe":
+        if not args:
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing request after 'vibe'"
+            )
+            sys.exit(1)
+        request = " ".join(args)
+        handle_vibe_request(
+            request=request,
+            command="describe",
+            plan_prompt=PLAN_DESCRIBE_PROMPT,
+            summary_prompt=DESCRIBE_RESOURCE_PROMPT,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
+        )
+        return
+
+    cmd = ["describe", resource]
+    cmd.extend(args)
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
+                # For logs, take first and last third
+                chunk_size = int(
+                    MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+                )  # Convert back to chars
+                truncated_output = (
+                    f"{output[:chunk_size]}\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
+                    f"{output[-chunk_size:]}"
+                )
+                llm_output = truncated_output
+                error_console.print(
+                    "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                    "Using truncated output for vibe check."
+                )
+
+            try:
+                llm_model = llm.get_model(model_name)
+                prompt = DESCRIBE_RESOURCE_PROMPT.format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
+
+    except Exception as e:
+        if "No key found" in str(e):
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
+            )
+            sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+
+
+@cli.command()
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option("--container", "-c", default=None, help="Container name")
+def logs(
+    resource: str,
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+    container: Optional[str],
+) -> None:
+    """Show logs from containers."""
+    config = Config()
+    model_name = model or config.get("model", DEFAULT_MODEL)
+
+    # Handle raw flag for backward compatibility
+    if raw is not None:
+        show_raw_output = raw
+
+    # Use config values if flags are not provided
+    if show_raw_output is None:
+        show_raw_output = config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+    if show_vibe is None:
+        show_vibe = config.get("show_vibe", DEFAULT_SHOW_VIBE)
+    suppress_output_warning = config.get(
+        "suppress_output_warning", DEFAULT_SUPPRESS_OUTPUT_WARNING
+    )
+
+    # Show warning if no output will be shown, but continue execution
+    if not show_raw_output and not show_vibe and not suppress_output_warning:
+        error_console.print(
+            "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
+            "Use --show-raw-output or --show-vibe to see output."
+        )
+
+    if resource == "vibe":
+        if not args:
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing request after 'vibe'"
+            )
+            sys.exit(1)
+        request = " ".join(args)
+        handle_vibe_request(
+            request=request,
+            command="logs",
+            plan_prompt=PLAN_LOGS_PROMPT,
+            summary_prompt=LOGS_PROMPT,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
+        )
+        return
+
+    cmd = ["logs", resource]
+    if container:
+        cmd.extend(["-c", container])
+    cmd.extend(args)
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
+                # For logs, take first and last third
+                chunk_size = int(
+                    MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+                )  # Convert back to chars
+                truncated_output = (
+                    f"{output[:chunk_size]}\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
+                    f"{output[-chunk_size:]}"
+                )
+                llm_output = truncated_output
+                error_console.print(
+                    "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                    "Using truncated output for vibe check."
+                )
+
+            try:
+                llm_model = llm.get_model(model_name)
+                prompt = LOGS_PROMPT.format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
+
+    except Exception as e:
+        if "No key found" in str(e):
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
+            )
+            sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+
+
+@cli.command()
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--raw/--no-raw", "raw", is_flag=True, default=None)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option("--image", default=None, help="Container image")
+@click.option("--namespace", "-n", default=None, help="Namespace")
+def create(
+    resource: str,
+    args: tuple,
+    raw: Optional[bool],
+    show_raw_output: Optional[bool],
+    show_vibe: Optional[bool],
+    model: Optional[str],
+    image: Optional[str],
+    namespace: Optional[str],
+) -> None:
+    """Create a resource."""
+    config = Config()
+    model_name = model or config.get("model", DEFAULT_MODEL)
+
+    # Handle raw flag for backward compatibility
+    if raw is not None:
+        show_raw_output = raw
+
+    # Use config values if flags are not provided
+    if show_raw_output is None:
+        show_raw_output = config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+    if show_vibe is None:
+        show_vibe = config.get("show_vibe", DEFAULT_SHOW_VIBE)
+    suppress_output_warning = config.get(
+        "suppress_output_warning", DEFAULT_SUPPRESS_OUTPUT_WARNING
+    )
+
+    # Show warning if no output will be shown, but continue execution
+    if not show_raw_output and not show_vibe and not suppress_output_warning:
+        error_console.print(
+            "[yellow]Warning:[/yellow] Neither raw output nor vibe output is enabled. "
+            "Use --show-raw-output or --show-vibe to see output."
+        )
+
+    if resource == "vibe":
+        if not args:
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing request after 'vibe'"
+            )
+            sys.exit(1)
+        request = " ".join(args)
+        handle_vibe_request(
+            request=request,
+            command="create",
+            plan_prompt=PLAN_CREATE_PROMPT,
+            summary_prompt=CREATE_RESOURCE_PROMPT,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            suppress_output_warning=suppress_output_warning,
+        )
+        return
+
+    cmd = ["create", resource]
+    if image:
+        cmd.extend(["--image", image])
+    if namespace:
+        cmd.extend(["-n", namespace])
+    cmd.extend(args)
+
+    try:
+        output = run_kubectl(cmd, capture=True)
+        if not output:
+            return
+
+        # Show raw output if requested (before any potential LLM errors)
+        if show_raw_output:
+            console.print(output, markup=False, highlight=False, end="")
+
+        # Only proceed with vibe check if requested
+        if show_vibe:
+            # Check token count for LLM
+            output_len = len(output)
+            token_estimate = output_len / 4
+            llm_output = output
+
+            if token_estimate > MAX_TOKEN_LIMIT:
+                # For logs, take first and last third
+                chunk_size = int(
+                    MAX_TOKEN_LIMIT / LOGS_TRUNCATION_RATIO * 4
+                )  # Convert back to chars
+                truncated_output = (
+                    f"{output[:chunk_size]}\n"
+                    f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
+                    f"{output[-chunk_size:]}"
+                )
+                llm_output = truncated_output
+                error_console.print(
+                    "[yellow]Warning:[/yellow] Output is too large for AI processing. "
+                    "Using truncated output for vibe check."
+                )
+
+            try:
+                llm_model = llm.get_model(model_name)
+                prompt = CREATE_RESOURCE_PROMPT.format(output=llm_output)
+                response = llm_model.prompt(prompt)
+                summary = (
+                    response.text() if hasattr(response, "text") else str(response)
+                )
+                if show_raw_output:
+                    console.print()  # Add newline between raw output and vibe check
+                console.print("[bold green]✨ Vibe check:[/bold green]")
+                console.print(summary, markup=True, highlight=False)
+            except Exception as e:
+                error_console.print(
+                    f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
+                )
+
+    except Exception as e:
+        if "No key found" in str(e):
+            error_console.print(
+                "[bold red]Error:[/bold red] Missing API key. "
+                "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
+                "or configure it using 'llm keys set anthropic'"
+            )
+            sys.exit(1)
+        else:
+            error_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
 
 
 @cli.command()
@@ -335,7 +739,7 @@ def just(args: tuple) -> None:
 
 @cli.group()
 def config() -> None:
-    """Manage vibectl configuration"""
+    """Manage vibectl configuration."""
     pass
 
 
@@ -347,54 +751,59 @@ def config_set(key: str, value: str) -> None:
 
     Available keys:
         kubeconfig: Path to kubeconfig file
-        llm_model: Name of the LLM model to use
-        show_raw_output: Whether to always show raw kubectl output
+        llm_model: Name of the LLM model to use (default: claude-3.7-sonnet)
+        show_raw_output: Whether to always show raw kubectl output (default: false)
+        show_vibe: Whether to show vibe summaries by default (default: true)
+        suppress_output_warning: Whether to suppress warning when no output is shown (default: false)
     """
     cfg = Config()
+
+    # Convert string boolean values
+    if key in ["show_raw_output", "show_vibe", "suppress_output_warning"]:
+        value = str(value.lower() == "true").lower()
+
+    # Validate model name
+    if key == "llm_model" and value not in ["claude-3.7-sonnet"]:
+        error_console.print(
+            "[bold red]Error:[/bold red] Invalid model name. "
+            "Currently supported models: claude-3.7-sonnet"
+        )
+        sys.exit(1)
+
     cfg.set(key, value)
     console.print(f"[green]✓[/] Set {key} to {value}")
 
 
-@config.command(name="show")
-def config_show() -> None:
-    """Show current configuration.
-
-    Displays all configured values in a table format.
-    """
+@config.command()
+def show() -> None:
+    """Show current configuration."""
     cfg = Config()
+    config_data = cfg.show()
 
-    table = Table(title="vibectl Configuration")
-    table.add_column("Key", style="cyan")
-    table.add_column("Value", style="green")
+    # Create table with title
+    table = Table(
+        title="vibectl Configuration", show_header=True, title_justify="center"
+    )
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
 
-    for key, value in cfg.show().items():
-        table.add_row(key, str(value))
+    # Add rows for each config item
+    for key, value in config_data.items():
+        table.add_row(str(key), str(value))
 
     console.print(table)
 
 
 @cli.command()
 def vibe() -> None:
-    """Check the current vibe of your cluster"""
+    """Check the current vibe of your cluster."""
     console.print("✨ [bold green]Checking cluster vibes...[/]")
     # TODO: Implement cluster vibe checking
 
 
 @cli.command()
 def version() -> None:
-    """Display version information for client and server components.
-
-    Shows version information for:
-    - vibectl client version
-    - kubectl client version
-    - Kubernetes server version (if available)
-    - Additional components like Kustomize
-    """
-    # Show vibectl client version
-    console.print("Client Version:")
-    console.print(f"  vibectl Version: [bold green]{__version__}[/]")
-
-    # Get kubectl version info
+    """Display version information for server components using LLM interpretation."""
     try:
         result = subprocess.run(
             ["kubectl", "version", "--output=json"],
@@ -404,53 +813,12 @@ def version() -> None:
         )
         version_info = json.loads(result.stdout)
 
-        # Print kubectl client version
-        if "clientVersion" in version_info:
-            client = version_info["clientVersion"]
-            major = client.get("major", "0")
-            minor = client.get("minor", "0")
-            version_str = f"v{major}.{minor}"
-            console.print(f"  kubectl Version: {version_str}")
-            if "kustomizeVersion" in version_info:
-                kustomize_ver = version_info["kustomizeVersion"]
-                console.print(f"  Kustomize Version: {kustomize_ver}")
-
-        # Print server version if available
-        if "serverVersion" in version_info:
-            console.print("\nServer Version:")
-            server = version_info["serverVersion"]
-            git_version = server.get("gitVersion", "unknown")
-            major = server.get("major", "0")
-            minor = server.get("minor", "0")
-            version_str = f"v{major}.{minor} ({git_version})"
-            console.print(f"  Version: {version_str}")
-            platform = server.get("platform", "unknown")
-            go_version = server.get("goVersion", "unknown")
-            console.print(f"  Platform: {platform}")
-            console.print(f"  Go Version: {go_version}")
-
-    except json.JSONDecodeError:
-        # Handle older kubectl versions that don't support JSON output
-        try:
-            result = subprocess.run(
-                ["kubectl", "version"],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            # Split output into client and server sections
-            lines = result.stdout.splitlines()
-            for line in lines:
-                if line.startswith("Client Version:"):
-                    console.print(f"  kubectl {line}")
-                elif line.startswith("Kustomize Version:"):
-                    console.print(f"  {line}")
-                elif line.startswith("Server Version:"):
-                    console.print("\nServer Version:")
-                    server_ver = line.replace("Server Version: ", "")
-                    console.print(f"  {server_ver}")
-        except subprocess.CalledProcessError:
-            pass
+        # Use LLM to interpret the JSON response
+        llm_model = llm.get_model(DEFAULT_MODEL)
+        prompt = VERSION_PROMPT.format(version_info=version_info)
+        response = llm_model.prompt(prompt)
+        interpretation = response.text() if hasattr(response, "text") else str(response)
+        console.print(interpretation, markup=True, highlight=False)
 
     except (subprocess.CalledProcessError, FileNotFoundError):
         msg = "\n[yellow]Note:[/yellow] kubectl version information not available"
@@ -461,223 +829,6 @@ def version() -> None:
             f"[red]{e}[/red]"
         )
         error_console.print(msg)
-
-
-@cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("resource")
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--raw", is_flag=True, help="Show raw kubectl output")
-def describe(resource: str, args: tuple, raw: bool) -> None:
-    """Describe Kubernetes resources with a vibe-based summary.
-
-    Runs 'kubectl describe' and uses AI to generate a concise, human-friendly
-    summary focusing on the most important details and any issues that need
-    attention. Supports all standard kubectl describe arguments and options.
-
-    Examples:
-        vibectl describe pod my-pod
-        vibectl describe deployment my-deployment -n kube-system
-        vibectl describe pod my-pod --raw
-        vibectl describe vibe tell me about the nginx pod
-    """
-    # Get the configured model
-    cfg = Config()
-    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
-    show_raw = raw or cfg.get("show_raw_output")
-
-    # Handle vibe subcommand
-    if resource == "vibe":
-        # Join args into a single request string
-        request = " ".join(args)
-        if not request:
-            error_console.print(
-                "[bold red]Error:[/] Please provide a request after 'vibe'"
-            )
-            sys.exit(1)
-        handle_vibe_request(
-            request=request,
-            command="describe",
-            plan_prompt=PLAN_DESCRIBE_PROMPT,
-            summary_prompt=DESCRIBE_RESOURCE_PROMPT,
-            show_raw=show_raw,
-            model_name=model_name,
-        )
-        return
-
-    # Regular describe command
-    handle_regular_command(
-        command="describe",
-        resource=resource,
-        args=args,
-        show_raw=show_raw,
-        model_name=model_name,
-        summary_prompt=DESCRIBE_RESOURCE_PROMPT,
-    )
-
-
-@cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("resource")
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--raw", is_flag=True, help="Show raw kubectl output")
-def logs(resource: str, args: tuple, raw: bool) -> None:
-    """Get container logs with a vibe-based summary.
-
-    Runs 'kubectl logs' and uses AI to generate a concise, human-friendly
-    summary focusing on key events, patterns, errors, and notable state changes.
-    Supports all standard kubectl logs arguments and options.
-
-    Examples:
-        vibectl logs pod/my-pod
-        vibectl logs deployment/my-deployment -n kube-system
-        vibectl logs pod/my-pod -c my-container --raw
-        vibectl logs vibe show me logs from the nginx pod
-    """
-    # Get the configured model
-    cfg = Config()
-    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
-    show_raw = raw or cfg.get("show_raw_output")
-
-    # Handle vibe subcommand
-    if resource == "vibe":
-        # Join args into a single request string
-        request = " ".join(args)
-        if not request:
-            error_console.print(
-                "[bold red]Error:[/] Please provide a request after 'vibe'"
-            )
-            sys.exit(1)
-        handle_vibe_request(
-            request=request,
-            command="logs",
-            plan_prompt=PLAN_LOGS_PROMPT,
-            summary_prompt=LOGS_PROMPT,
-            show_raw=show_raw,
-            model_name=model_name,
-        )
-        return
-
-    # Regular logs command
-    handle_regular_command(
-        command="logs",
-        resource=resource,
-        args=args,
-        show_raw=show_raw,
-        model_name=model_name,
-        summary_prompt=LOGS_PROMPT,
-    )
-
-
-@cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("resource")
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--raw", is_flag=True, help="Show raw kubectl output")
-def create(resource: str, args: tuple, raw: bool) -> None:
-    """Create Kubernetes resources with a vibe-based summary.
-
-    Runs 'kubectl create' and uses AI to generate a concise, human-friendly
-    summary of what was created. Supports all standard kubectl create arguments
-    and options.
-
-    Examples:
-        vibectl create -f manifest.yaml
-        vibectl create deployment nginx --image=nginx
-        vibectl create -f manifest.yaml --raw
-        vibectl create vibe an nginx hello world pod
-    """
-    # Get the configured model
-    cfg = Config()
-    model_name = cfg.get("llm_model") or "claude-3.7-sonnet"
-    show_raw = raw or cfg.get("show_raw_output")
-
-    # Handle vibe subcommand
-    if resource == "vibe":
-        # Join args into a single request string
-        request = " ".join(args)
-        if not request:
-            error_console.print(
-                "[bold red]Error:[/] Please provide a request after 'vibe'"
-            )
-            sys.exit(1)
-
-        try:
-            model = llm.get_model(model_name)
-            prompt = PLAN_CREATE_PROMPT.format(request=request)
-            response = model.prompt(prompt)
-            planned_output = response.text().strip()
-
-            # Check for error response
-            if planned_output.startswith("ERROR:"):
-                error_msg = planned_output[6:].strip()
-                error_console.print(f"[bold red]Error:[/] {error_msg}")
-                sys.exit(1)
-
-            # Split into args and manifest
-            parts = planned_output.split("---", 1)
-            if len(parts) != 2:
-                error_msg = "Invalid response format from planner"
-                error_console.print(f"[bold red]Error:[/] {error_msg}")
-                sys.exit(1)
-
-            args_str, manifest = parts
-            args_list = args_str.strip().split("\n") if args_str.strip() else []
-
-            # Create a temporary file for the manifest
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as tmp:
-                tmp.write(manifest)
-                tmp.flush()
-
-                # Run kubectl create with the manifest
-                cmd = ["create", "-f", tmp.name, *args_list]
-                output = run_kubectl(cmd, capture=True)
-                if not output:
-                    return
-
-            # Print the raw output if requested
-            if show_raw:
-                console.print(output, markup=False, highlight=False)
-                console.print()  # Add a blank line for readability
-
-            # Use LLM to summarize
-            prompt = CREATE_RESOURCE_PROMPT.format(output=output)
-            response = model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
-            if show_raw:
-                console.print("[bold green]✨ Vibe check:[/bold green]")
-            console.print(summary, markup=True, highlight=False)
-
-        except Exception as e:
-            error_console.print(
-                f"[yellow]Note:[/yellow] Could not process request: [red]{e}[/red]"
-            )
-            if not show_raw:
-                # Show raw output when LLM fails
-                output = run_kubectl(["create", resource, *args], capture=True)
-                if output:
-                    console.print(output, markup=False, highlight=False)
-            sys.exit(0)  # Still consider it a success if kubectl worked
-        return
-
-    # Regular create command
-    try:
-        output = handle_regular_command(
-            command="create",
-            resource=resource,
-            args=args,
-            show_raw=show_raw,
-            model_name=model_name,
-            summary_prompt=CREATE_RESOURCE_PROMPT,
-        )
-        if output and show_raw:  # Only show raw output if requested
-            console.print(output, markup=False, highlight=False)
-    except Exception as e:
-        error_console.print(
-            f"[yellow]Note:[/yellow] Could not get vibe check: [red]{e}[/red]"
-        )
-        # Show raw output when LLM fails
-        output = run_kubectl(["create", resource, *args], capture=True)
-        if output:
-            console.print(output, markup=False, highlight=False)
-        sys.exit(0)  # Still consider it a success if kubectl worked
 
 
 def main() -> NoReturn:

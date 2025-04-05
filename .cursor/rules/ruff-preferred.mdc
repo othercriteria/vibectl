@@ -1,6 +1,6 @@
 ---
 description: Python project setup
-globs:
+globs: ["**/*.py", "**/pyproject.toml", "**/setup.cfg", "**/.flake8"]
 alwaysApply: false
 ---
  # Ruff Preferred
