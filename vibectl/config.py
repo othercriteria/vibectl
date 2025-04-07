@@ -2,13 +2,17 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Dict, List, Tuple, Type, TypeVar, Union, cast, Optional
 
 import yaml
 
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
-    "theme": "default",  # Default theme for console output
+    "theme": "dark",  # Default theme for console output
+    "show_raw_output": False,  # Whether to show raw command output
+    "show_vibe": True,  # Whether to show vibe output
+    "suppress_warning": False,  # Whether to suppress output warnings
+    "model": "claude-3.7-sonnet",  # Default LLM model to use
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -23,7 +27,7 @@ CONFIG_SCHEMA: Dict[str, ConfigType] = {
     "theme": str,
     "show_raw_output": bool,
     "show_vibe": bool,
-    "suppress_output_warning": bool,
+    "suppress_warning": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
 }
@@ -31,54 +35,61 @@ CONFIG_SCHEMA: Dict[str, ConfigType] = {
 # Valid values for specific keys
 CONFIG_VALID_VALUES: Dict[str, List[Any]] = {
     "theme": ["default", "dark", "light", "accessible"],
+    "model": ["gpt-4", "gpt-3.5-turbo", "claude-3.7-sonnet", "claude-3.7-opus"],
 }
 
 
 class Config:
     """Manages vibectl configuration"""
 
-    def __init__(self) -> None:
-        """Initialize configuration."""
-        self.config_dir = (
-            Path(os.getenv("XDG_CONFIG_HOME", "~/.config")).expanduser() / "vibectl"
-        )
+    def __init__(self, base_dir: Optional[Path] = None) -> None:
+        """Initialize configuration.
+        
+        Args:
+            base_dir: Optional base directory for configuration (used in testing)
+        """
+        # Use provided base directory or default to user's home
+        self.config_dir = (base_dir or Path.home()) / ".vibectl"
         self.config_file = self.config_dir / "config.yaml"
         self._config: Dict[str, Any] = {}
-        self._load_config()
+        
+        # Create config directory if it doesn't exist
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load or create default config
+        if self.config_file.exists():
+            self._load_config()
+        else:
+            self._config = DEFAULT_CONFIG.copy()
+            self._save_config()
 
     def _load_config(self) -> None:
         """Load configuration from file."""
         try:
-            if not self.config_dir.exists():
-                self.config_dir.mkdir(parents=True)
-            if self.config_file.exists():
-                with open(self.config_file) as f:
-                    loaded_config = yaml.safe_load(f)
-                    self._config = loaded_config if loaded_config else {}
-        except (yaml.YAMLError, OSError):
-            self._config = {}
+            with open(self.config_file, "r", encoding="utf-8") as f:
+                loaded_config = yaml.safe_load(f) or {}
+                # Merge with defaults to ensure all keys exist
+                self._config = DEFAULT_CONFIG.copy()
+                self._config.update(loaded_config)
+                
+                # Handle legacy llm_model key
+                if "llm_model" in loaded_config and "model" not in loaded_config:
+                    self._config["model"] = loaded_config["llm_model"]
+                    del self._config["llm_model"]
+                    self._save_config()  # Save to remove the legacy key
+        except (yaml.YAMLError, OSError) as e:
+            raise ValueError(f"Failed to load config: {e}") from e
 
-    def save(self) -> None:
-        """Save current configuration to file"""
+    def _save_config(self) -> None:
+        """Save configuration to file."""
         try:
-            self.config_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.config_file, "w") as f:
+            with open(self.config_file, "w", encoding="utf-8") as f:
                 yaml.dump(self._config, f)
-        except OSError:
-            # Log error or handle it appropriately
-            # For now, we'll just let it propagate since this is a write operation
-            raise
+        except (yaml.YAMLError, OSError) as e:
+            raise ValueError(f"Failed to save config: {e}") from e
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get a configuration value.
-
-        Args:
-            key: The configuration key
-            default: Default value if key is not found
-
-        Returns:
-            The configuration value or default if not found
-        """
+        """Get configuration value."""
         return self._config.get(key, default)
 
     def _validate_key(self, key: str) -> None:
@@ -92,7 +103,7 @@ class Config:
         """
         if key not in CONFIG_SCHEMA:
             valid_keys = ", ".join(CONFIG_SCHEMA.keys())
-            raise ValueError(f"Invalid config key: {key}. Valid keys are: {valid_keys}")
+            raise ValueError(f"Unknown configuration key: {key}. Valid keys are: {valid_keys}")
 
     def _convert_to_type(self, key: str, value: str) -> Any:
         """Convert a string value to the correct type based on the schema.
@@ -116,9 +127,7 @@ class Config:
             raise ValueError(f"None is not a valid value for {key}")
 
         # Handle boolean conversion
-        if isinstance(expected_type, bool) or (
-            isinstance(expected_type, tuple) and bool in expected_type
-        ):
+        if expected_type == bool or (isinstance(expected_type, tuple) and bool in expected_type):
             return self._convert_to_bool(key, value)
 
         # Handle other types
@@ -172,36 +181,36 @@ class Config:
             valid_values = CONFIG_VALID_VALUES[key]
             if value not in valid_values:
                 valid_values_str = ", ".join(str(v) for v in valid_values)
-                err_msg = f"Invalid value for {key}: {value}. "
-                err_msg += f"Valid values: {valid_values_str}"
-                raise ValueError(err_msg)
+                raise ValueError(
+                    f"Invalid value for {key}: {value}. Valid values: {valid_values_str}"
+                )
 
-    def set(self, key: str, value: str) -> None:
-        """Set a configuration value.
-
+    def set(self, key: str, value: Any) -> None:
+        """Set configuration value.
+        
         Args:
-            key: The configuration key
+            key: The configuration key to set
             value: The value to set
 
         Raises:
             ValueError: If the key or value is invalid
         """
-        # Validate key
+        # Validate key exists in schema
         self._validate_key(key)
 
-        # Convert value to correct type
-        typed_value = self._convert_to_type(key, value)
+        # Convert string values to appropriate type
+        if isinstance(value, str):
+            value = self._convert_to_type(key, value)
 
-        # Validate against allowed values if applicable
-        self._validate_allowed_values(key, typed_value)
+        # Validate value is allowed for this key
+        self._validate_allowed_values(key, value)
 
-        # Set the typed value
-        self._config[key] = typed_value
-        # Save to file
-        self.save()
+        # Set the value
+        self._config[key] = value
+        self._save_config()
 
     def get_typed(self, key: str, default: T) -> T:
-        """Get a configuration value with type safety.
+        """Get configuration value with type safety.
 
         Args:
             key: The configuration key
@@ -210,22 +219,58 @@ class Config:
         Returns:
             The configuration value with the same type as the default value
         """
-        value = self._config.get(key, default)
+        value = self.get(key, default)
         # Cast to the same type as the default to help type checking
-        return cast("T", value)
+        return cast(T, value)
 
     def get_available_themes(self) -> List[str]:
-        """Get a list of available themes.
-
-        Returns:
-            List of available theme names
-        """
-        return CONFIG_VALID_VALUES.get("theme", [])
+        """Return list of available themes."""
+        return CONFIG_VALID_VALUES["theme"]
 
     def show(self) -> Dict[str, Any]:
-        """Show all configuration values.
+        """Return current configuration."""
+        return dict(self._config)
+
+    def save(self) -> None:
+        """Save configuration to file."""
+        self._save_config()
+
+    def get_all(self) -> Dict[str, Any]:
+        """Get all configuration values.
 
         Returns:
-            Dictionary of all configuration values
+            Dict[str, Any]: Dictionary of all configuration values
         """
-        return dict(self._config)
+        return self._config.copy()
+
+    def unset(self, key: str) -> None:
+        """Unset a configuration value, resetting it to the default.
+
+        If the key is in DEFAULT_CONFIG, it will be reset to its default value.
+        If not, it will be removed from the configuration.
+        If the key is not in CONFIG_SCHEMA, a warning will be printed.
+
+        Args:
+            key: The configuration key to unset
+
+        Raises:
+            ValueError: If the key does not exist in the configuration
+        """
+        # Check if key exists in configuration
+        if key not in self._config:
+            valid_keys = ", ".join(self._config.keys())
+            raise ValueError(f"Key not found in configuration: {key}. Existing keys are: {valid_keys}")
+
+        # Warn if key is not in schema (likely deprecated)
+        if key not in CONFIG_SCHEMA:
+            from .console import console_manager
+            console_manager.print_warning(f"Note: '{key}' is not in the current configuration schema (may be deprecated)")
+
+        # Reset to default value if one exists
+        if key in DEFAULT_CONFIG:
+            self._config[key] = DEFAULT_CONFIG[key]
+        else:
+            # For keys not in DEFAULT_CONFIG, remove them
+            self._config.pop(key, None)
+        
+        self._save_config()

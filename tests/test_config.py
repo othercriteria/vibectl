@@ -1,272 +1,434 @@
-"""Tests for vibectl configuration"""
+"""Tests for the configuration module."""
 
-import os
 from pathlib import Path
-from unittest.mock import Mock, patch
+from tempfile import TemporaryDirectory
 
 import pytest
 import yaml
+from unittest.mock import patch, Mock
 from click.testing import CliRunner
-from pytest import MonkeyPatch
 
-from vibectl.cli import cli
 from vibectl.config import Config
+from vibectl.cli import cli
 
 
 @pytest.fixture
-def temp_config(tmp_path: Path, monkeypatch: MonkeyPatch) -> Config:
-    """Create a temporary config directory"""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    return Config()
+def test_config(tmp_path: Path) -> Config:
+    """Create a test configuration instance."""
+    return Config(base_dir=tmp_path)
 
 
-def test_config_dir_creation(temp_config: Config) -> None:
-    """Test that config directory is created"""
-    assert temp_config.config_dir.exists()
-    assert temp_config.config_dir.is_dir()
+def test_config_initialization(test_config: Config) -> None:
+    """Test Config initialization creates directory and empty config."""
+    assert test_config.config_dir.exists()
+    assert test_config.config_file.exists()
+    assert isinstance(test_config.show(), dict)
 
 
-def test_default_config(temp_config: Config) -> None:
-    """Test default configuration"""
-    assert temp_config.get("kubeconfig") is None
+def test_config_load_existing(test_config: Config) -> None:
+    """Test loading existing configuration."""
+    test_config.set("theme", "dark")
+    
+    # Create new instance pointing to same directory
+    new_config = Config(base_dir=test_config.config_dir.parent)
+    assert new_config.get("theme") == "dark"
 
 
-def test_set_and_get_config(temp_config: Config) -> None:
-    """Test setting and getting configuration values"""
-    test_path = "/path/to/kubeconfig"
-    temp_config.set("kubeconfig", test_path)
-    assert temp_config.get("kubeconfig") == test_path
+def test_config_save(test_config: Config) -> None:
+    """Test saving configuration."""
+    test_config.set("theme", "light")
+    
+    # Read file directly to verify
+    with open(test_config.config_file, "r", encoding="utf-8") as f:
+        saved_config = yaml.safe_load(f)
+    assert saved_config["theme"] == "light"
 
 
-def test_config_persistence(temp_config: Config) -> None:
-    """Test that configuration persists to file"""
-    test_path = "/path/to/kubeconfig"
-    temp_config.set("kubeconfig", test_path)
-
-    # Create new config instance to test loading from file
-    new_config = Config()
-    assert new_config.get("kubeconfig") == test_path
+def test_config_get_with_default(test_config: Config) -> None:
+    """Test getting configuration values with defaults."""
+    assert test_config.get("nonexistent", "default") == "default"
+    assert test_config.get("theme", "default") == "dark"  # Default from initialization
 
 
-def test_show_config(temp_config: Config) -> None:
-    """Test showing full configuration"""
-    test_path = "/path/to/kubeconfig"
-    temp_config.set("kubeconfig", test_path)
-
-    config = temp_config.show()
-    assert isinstance(config, dict)
-    assert config["kubeconfig"] == test_path
-
-
-def test_load_config(temp_config: Config) -> None:
-    """Test loading configuration from file"""
-    test_config = {"kubeconfig": "/test/path"}
-    with open(temp_config.config_file, "w") as f:
-        yaml.dump(test_config, f)
-
-    loaded_config = Config()
-    assert loaded_config.get("kubeconfig") == "/test/path"
-
-
-def test_load_config_with_env_vars(
-    temp_config: Config,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    """Test loading configuration with environment variables"""
-    test_path = "/env/var/path"
-    monkeypatch.setenv("KUBECONFIG", test_path)
-    # Set the config value to match the env var
-    temp_config.set("kubeconfig", test_path)
-    # Create a new config instance - it should load from the saved file
-    config = Config()
-    assert config.get("kubeconfig") == test_path
-
-
-def test_load_config_with_missing_file(temp_config: Config) -> None:
-    """Test loading configuration with missing file"""
-    # Create the config directory first
-    temp_config.config_dir.mkdir(parents=True, exist_ok=True)
-    # Create and then remove the file to ensure it exists before removal
-    temp_config.config_file.touch()
-    os.remove(temp_config.config_file)
-    config = Config()
-    assert config.get("kubeconfig") is None
-
-
-def test_load_config_with_invalid_yaml(temp_config: Config) -> None:
-    """Test loading configuration with invalid YAML"""
-    # Create the config directory first
-    temp_config.config_dir.mkdir(parents=True, exist_ok=True)
-    with open(temp_config.config_file, "w") as f:
-        f.write("{")  # Simpler invalid YAML
-    # Create new config - should fall back to default
-    config = Config()
-    assert config.get("kubeconfig") is None  # Test the public interface instead
-
-
-def test_load_config_with_invalid_schema(temp_config: Config) -> None:
-    """Test loading configuration with invalid schema"""
-    invalid_config = {"invalid_key": "value"}
-    with open(temp_config.config_file, "w") as f:
-        yaml.dump(invalid_config, f)
-
-    config = Config()
-    assert config.get("kubeconfig") is None
-
-
-def test_load_config_with_custom_path(temp_config: Config) -> None:
-    """Test loading configuration with custom path"""
-    custom_path = "/custom/config/path"
-    test_config = {"kubeconfig": custom_path}
-    with open(temp_config.config_file, "w") as f:
-        yaml.dump(test_config, f)
-
-    config = Config()
-    assert config.get("kubeconfig") == custom_path
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    """Create a Click test runner that preserves stderr"""
-    return CliRunner(mix_stderr=False)
-
-
-@pytest.fixture
-def mock_config() -> Mock:
-    """Mock config for testing."""
-    mock = Mock()
-    mock.get.side_effect = lambda key, default=None: default
-    return mock
-
-
-def test_config_set_show_raw_output(runner: CliRunner, mock_config: Mock) -> None:
-    """Test setting show_raw_output config"""
-    with patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["config", "set", "show_raw_output", "true"])
-        assert result.exit_code == 0
-        mock_config.set.assert_called_once_with("show_raw_output", "true")
-        assert "Configuration show_raw_output set to true" in result.output
-
-
-def test_config_set_show_vibe(runner: CliRunner, mock_config: Mock) -> None:
-    """Test setting show_vibe config"""
-    with patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["config", "set", "show_vibe", "false"])
-        assert result.exit_code == 0
-        mock_config.set.assert_called_once_with("show_vibe", "false")
-        assert "Configuration show_vibe set to false" in result.output
-
-
-def test_config_show_display_options(runner: CliRunner) -> None:
-    """Test showing config with display options"""
-    mock_config = Mock()
-    mock_config.show.return_value = {
-        "show_raw_output": False,
-        "show_vibe": True,
-        "model": "claude-3.7-sonnet",
-        "kubeconfig": "/path/to/kubeconfig",
-        "theme": "default",  # Add default theme to avoid errors
-    }
-
-    # Mock theme initialization to prevent errors
-    with patch("vibectl.cli.Config", return_value=mock_config):
-        result = runner.invoke(cli, ["config", "show"])
-        assert result.exit_code == 0
-        # Verify some expected content in the output
-        assert "vibectl Configuration" in result.output
-
-
-def test_missing_api_key_error(runner: CliRunner, mock_config: Mock) -> None:
-    """Test error handling when API key is missing"""
-    mock_model = Mock()
-    mock_model.prompt.side_effect = Exception("No key found")
-
-    with patch("llm.get_model", return_value=mock_model), patch(
-        "vibectl.cli.Config", return_value=mock_config
-    ):
-        # Test any command that uses LLM
-        result = runner.invoke(cli, ["create", "vibe", "test"], catch_exceptions=False)
-
-        assert result.exit_code == 1
-        assert "Missing API key" in result.stderr
-
-
-@pytest.fixture
-def mock_plan_response() -> str:
-    """Mock LLM plan response for testing."""
-    return (
-        "-n\ndefault\n---\n"
-        "apiVersion: v1\n"
-        "kind: Pod\n"
-        "metadata:\n"
-        "  name: test-pod\n"
-        "spec:\n"
-        "  containers:\n"
-        "  - name: test\n"
-        "    image: nginx:latest"
-    )
-
-
-@pytest.fixture
-def mock_llm_response() -> str:
-    """Mock LLM response for testing."""
-    return "Created test-pod in default namespace"
-
-
-def test_api_key_from_env(
-    runner: CliRunner,
-    monkeypatch: MonkeyPatch,
-    mock_plan_response: str,
-    mock_llm_response: str,
-) -> None:
-    """Test using API key from environment variable"""
-    # Set the API key via environment variable
-    test_key = "test-api-key"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", test_key)
-    mock_model = Mock()
-    mock_model.prompt.side_effect = [
-        Mock(text=lambda: mock_plan_response),  # First call for planning
-        Mock(text=lambda: mock_llm_response),  # Second call for summarizing
+def test_config_set_boolean_values(test_config: Config) -> None:
+    """Test setting boolean configuration values."""
+    # Test various boolean string representations
+    test_cases = [
+        ("true", True),
+        ("yes", True),
+        ("1", True),
+        ("on", True),
+        ("false", False),
+        ("no", False),
+        ("0", False),
+        ("off", False),
     ]
+
+    for input_str, expected in test_cases:
+        test_config.set("show_raw_output", input_str)
+        assert test_config.get("show_raw_output") == expected
+
+
+def test_config_set_invalid_boolean(test_config: Config) -> None:
+    """Test setting invalid boolean value."""
+    with pytest.raises(ValueError, match="Invalid boolean value"):
+        test_config.set("show_raw_output", "invalid")
+
+
+def test_config_get_typed(test_config: Config) -> None:
+    """Test getting typed configuration values."""
+    test_config.set("show_raw_output", True)
+    assert test_config.get_typed("show_raw_output", False) is True
+
+
+def test_config_get_available_themes(test_config: Config) -> None:
+    """Test getting available themes."""
+    themes = test_config.get_available_themes()
+    assert isinstance(themes, list)
+    assert "light" in themes
+    assert "dark" in themes
+
+
+def test_config_show() -> None:
+    """Test showing configuration."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        cfg.set("theme", "dark")
+        config_data = cfg.show()
+        assert "theme" in config_data
+        assert config_data["theme"] == "dark"
+
+
+def test_config_none_values(test_config: Config) -> None:
+    """Test handling of None values."""
+    test_config.set("kubeconfig", None)
+    assert test_config.get("kubeconfig") is None
+
+
+def test_config_unset_default_key() -> None:
+    """Test unsetting a configuration key that has a default value."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        # Set a non-default value
+        cfg.set("theme", "light")
+        assert cfg.get("theme") == "light"
+        # Unset should reset to default
+        cfg.unset("theme")
+        assert cfg.get("theme") == "dark"  # dark is the default theme
+
+
+def test_config_unset_custom_key() -> None:
+    """Test unsetting a configuration key that has no default value."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        # Set a custom value
+        cfg.set("custom_instructions", "test instructions")
+        assert cfg.get("custom_instructions") == "test instructions"
+        # Unset should remove the key
+        cfg.unset("custom_instructions")
+        assert cfg.get("custom_instructions") is None
+
+
+def test_config_unset_invalid_key() -> None:
+    """Test unsetting an invalid configuration key."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        with pytest.raises(ValueError, match="Key not found in configuration"):
+            cfg.unset("invalid_key")  # Key that doesn't exist in config at all
+
+
+def test_config_unset_nonexistent_key() -> None:
+    """Test unsetting a key that doesn't exist in the configuration."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        with pytest.raises(ValueError, match="Key not found in configuration"):
+            cfg.unset("nonexistent_key")
+
+
+@patch("vibectl.console.console_manager")
+def test_config_unset_deprecated_key(mock_console: Mock) -> None:
+    """Test unsetting a deprecated configuration key."""
+    with TemporaryDirectory() as temp_dir:
+        cfg = Config(Path(temp_dir))
+        # First set a deprecated key directly in the config
+        cfg._config["llm_model"] = "old-model"
+        assert cfg.get("llm_model") == "old-model"
+        
+        # Unset should work and show a warning
+        cfg.unset("llm_model")
+        mock_console.print_warning.assert_called_once_with(
+            "Note: 'llm_model' is not in the current configuration schema (may be deprecated)"
+        )
+        assert cfg.get("llm_model") is None
+
+
+def test_config_load_invalid_yaml(test_config: Config) -> None:
+    """Test loading invalid YAML configuration."""
+    # Write invalid YAML to config file
+    with open(test_config.config_file, "w", encoding="utf-8") as f:
+        f.write("invalid: yaml: :")
+
+    # Loading should raise ValueError
+    with pytest.raises(ValueError, match="Failed to load config"):
+        test_config._load_config()
+
+
+@patch("builtins.open")
+def test_config_load_file_error(mock_open: Mock, test_config: Config) -> None:
+    """Test loading configuration with file error."""
+    mock_open.side_effect = OSError("File error")
+    
+    with pytest.raises(ValueError, match="Failed to load config"):
+        test_config._load_config()
+
+
+@patch("builtins.open")
+def test_config_save_file_error(mock_open: Mock, test_config: Config) -> None:
+    """Test saving configuration with file error."""
+    mock_open.side_effect = OSError("File error")
+    
+    with pytest.raises(ValueError, match="Failed to save config"):
+        test_config._save_config()
+
+
+def test_config_invalid_key(test_config: Config) -> None:
+    """Test setting invalid configuration key."""
+    with pytest.raises(ValueError, match="Unknown configuration key"):
+        test_config.set("invalid_key", "value")
+
+
+def test_config_invalid_type_conversion(test_config: Config) -> None:
+    """Test invalid type conversion."""
+    # Test invalid boolean
+    with pytest.raises(ValueError, match="Invalid boolean value"):
+        test_config.set("show_raw_output", "not_a_bool")
+
+    # Test invalid string for None-allowed field
+    with pytest.raises(ValueError, match="None is not a valid value"):
+        test_config.set("theme", "none")
+
+    # Test invalid type for string field
+    with pytest.raises(ValueError, match="Invalid value for"):
+        test_config.set("theme", "123")  # Theme must be a valid theme name
+
+
+def test_config_invalid_allowed_values(test_config: Config) -> None:
+    """Test invalid allowed values."""
+    # Test invalid theme
+    with pytest.raises(ValueError, match="Invalid value for theme"):
+        test_config.set("theme", "invalid_theme")
+
+    # Test invalid model
+    with pytest.raises(ValueError, match="Invalid value for model"):
+        test_config.set("model", "invalid_model")
+
+
+def test_config_legacy_model_key(test_config: Config) -> None:
+    """Test handling of legacy llm_model key."""
+    # Write config with legacy key
+    config_data = {"llm_model": "claude-3.7-sonnet"}
+    with open(test_config.config_file, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f)
+
+    # Load config and verify migration
+    test_config._load_config()
+    assert test_config.get("model") == "claude-3.7-sonnet"
+    assert "llm_model" not in test_config._config
+
+    # Verify file was updated
+    with open(test_config.config_file, "r", encoding="utf-8") as f:
+        saved_config = yaml.safe_load(f)
+        assert "model" in saved_config
+        assert "llm_model" not in saved_config
+
+
+def test_config_empty_file(test_config: Config) -> None:
+    """Test loading empty configuration file."""
+    # Write empty file
+    with open(test_config.config_file, "w", encoding="utf-8") as f:
+        f.write("")
+
+    # Load config and verify defaults
+    test_config._load_config()
+    assert test_config.get("theme") == "dark"  # Default value
+    assert test_config.get("model") == "claude-3.7-sonnet"  # Default value
+
+
+def test_config_get_all(test_config: Config) -> None:
+    """Test getting all configuration values."""
+    # Set some values
+    test_config.set("theme", "light")
+    test_config.set("model", "claude-3.7-sonnet")
+
+    # Get all values
+    config = test_config.get_all()
+    assert isinstance(config, dict)
+    assert config["theme"] == "light"
+    assert config["model"] == "claude-3.7-sonnet"
+
+
+def test_config_save_explicit(test_config: Config) -> None:
+    """Test explicit save call."""
+    # Set a value
+    test_config.set("theme", "light")
+
+    # Save explicitly
+    test_config.save()
+
+    # Verify file
+    with open(test_config.config_file, "r", encoding="utf-8") as f:
+        saved_config = yaml.safe_load(f)
+        assert saved_config["theme"] == "light"
+
+
+# CLI Config Command Tests
+
+@pytest.fixture
+def cli_runner() -> CliRunner:
+    """Fixture providing a Click CLI test runner."""
+    return CliRunner()
+
+
+@patch("vibectl.cli.Config")
+def test_cli_config_set_save_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+    """Test config set command handles save error."""
     mock_config = Mock()
-    mock_config.get.side_effect = lambda key, default=None: default
+    mock_config_class.return_value = mock_config
+    mock_config.save.side_effect = ValueError("Failed to save config")
 
-    with patch("llm.get_model", return_value=mock_model), patch(
-        "vibectl.cli.Config", return_value=mock_config
-    ), patch("vibectl.cli.run_kubectl", return_value="test output"):
-        # Test any command that uses LLM
-        result = runner.invoke(cli, ["create", "vibe", "test"], catch_exceptions=False)
-
-        # Should not raise API key error
-        assert result.exit_code == 0
-        assert "Error: Missing API key" not in result.stderr
-        assert "✨ Vibe check:" in result.output
-        assert mock_llm_response in result.output
+    result = cli_runner.invoke(cli, ["config", "set", "theme", "dark"])
+    assert result.exit_code == 1
+    assert "Failed to save config" in result.output
 
 
-def test_api_key_error_handling(
-    runner: CliRunner,
-    mock_config: Mock,
-    mock_plan_response: str,
-    mock_llm_response: str,
-) -> None:
-    """Test that API key errors are gracefully handled"""
-    # First test the "No key found" error case
-    mock_model = Mock()
-    mock_model.prompt.side_effect = Exception("No key found")
+@patch("vibectl.cli.Config")
+def test_cli_config_show_get_all_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+    """Test config show command handles get_all error."""
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.get_all.side_effect = Exception("Failed to get config")
 
-    with patch("llm.get_model", return_value=mock_model), patch(
-        "vibectl.cli.Config", return_value=mock_config
-    ), patch("vibectl.cli.console_manager.print_error") as mock_print_error:
-        # Use the vibe command which requires API key
-        result = runner.invoke(
-            cli, ["create", "vibe", "test pod"], catch_exceptions=False
-        )
+    result = cli_runner.invoke(cli, ["config", "show"])
+    assert result.exit_code == 1
+    assert "Failed to get config" in result.output
 
-        assert result.exit_code == 1
-        # Check that the error message was printed via the mocked console manager
-        mock_print_error.assert_called_with(
-            "Missing API key. "
-            "Please set the API key using 'export ANTHROPIC_API_KEY=your-api-key' "
-            "or configure it using 'llm keys set anthropic'"
-        )
+
+@patch("vibectl.cli.Config")
+def test_cli_config_unset_invalid_key_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+    """Test config unset command handles invalid key error."""
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.unset.side_effect = ValueError("Invalid key")
+
+    result = cli_runner.invoke(cli, ["config", "unset", "invalid_key"])
+    assert result.exit_code == 1
+    assert "Invalid key" in result.output
+
+
+@patch("vibectl.cli.Config")
+def test_cli_config_show_basic(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+    """Test basic config show command."""
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.get_all.return_value = {"key": "value"}
+    
+    result = cli_runner.invoke(cli, ["config", "show"])
+    
+    assert result.exit_code == 0
+    mock_config.get_all.assert_called_once()
+
+
+def test_config_handle_none_value(test_config: Config) -> None:
+    """Test handling of 'none' string as None value when it's allowed."""
+    # The kubeconfig config field allows None values
+    test_config.set("kubeconfig", "none")
+    assert test_config.get("kubeconfig") is None
+
+    # Setting 'none' value for a field that doesn't allow None should raise ValueError
+    with pytest.raises(ValueError, match="None is not a valid value for theme"):
+        test_config.set("theme", "none")
+
+
+def test_config_convert_type_first_non_none(test_config: Config) -> None:
+    """Test type conversion using first non-None type in a tuple of expected types."""
+    # This is a bit of an implementation detail, but we need to test the branch
+    # for multiple types where we choose the first non-None type
+    
+    # Temporary schema modification for testing
+    import vibectl.config
+    original_schema = vibectl.config.CONFIG_SCHEMA.copy()
+    try:
+        # Monkey patch the schema temporarily to test this case
+        vibectl.config.CONFIG_SCHEMA = {
+            **vibectl.config.CONFIG_SCHEMA,
+            "test_multi_type": (type(None), str, int),  # Use a tuple with None first
+        }
+        
+        # Now try to convert a value using this schema
+        # This should use str as the first non-None type
+        test_config.set("test_multi_type", "test_value")
+        assert test_config.get("test_multi_type") == "test_value"
+    finally:
+        # Restore the original schema
+        vibectl.config.CONFIG_SCHEMA = original_schema
+
+
+def test_config_convert_type_fallback(test_config: Config) -> None:
+    """Test type conversion fallback for unusual cases."""
+    # This tests the fallback code path where none of the types in a tuple work
+    # or where there's only None types (which should never happen in practice)
+    
+    # Mock the schema and create a controlled test environment
+    import vibectl.config
+    
+    # Create a mock schema with only None type
+    test_schema = {**vibectl.config.CONFIG_SCHEMA, "test_bad_schema": (type(None),)}
+    original_schema = vibectl.config.CONFIG_SCHEMA
+    
+    try:
+        # Apply the test schema
+        vibectl.config.CONFIG_SCHEMA = test_schema
+        
+        # Add our test key to valid values
+        if "test_bad_schema" not in vibectl.config.CONFIG_VALID_VALUES:
+            vibectl.config.CONFIG_VALID_VALUES["test_bad_schema"] = ["test_value"]
+        
+        # This should reach the fallback code path and return the string as-is
+        # We need to use a new Config instance to ensure it gets our patched schema
+        with TemporaryDirectory() as temp_dir:
+            test_cfg = Config(Path(temp_dir))
+            # Use internal method directly since it's not expected to be called normally
+            # when all types in a tuple are None
+            result = test_cfg._convert_to_type("test_bad_schema", "test_value")
+            assert result == "test_value"
+    finally:
+        # Restore the original schema
+        vibectl.config.CONFIG_SCHEMA = original_schema
+
+
+def test_config_convert_type_exception_handling(test_config: Config) -> None:
+    """Test exception handling in the _convert_to_type method."""
+    import vibectl.config
+    
+    # Create a test schema with a type that will fail conversion
+    class FailingType:
+        def __init__(self, value: str) -> None:
+            raise ValueError("Conversion always fails")
+    
+    original_schema = vibectl.config.CONFIG_SCHEMA.copy()
+    try:
+        # Apply our test schema
+        vibectl.config.CONFIG_SCHEMA = {**original_schema, "failing_type": FailingType}
+        
+        # Add our test key to valid values
+        if "failing_type" not in vibectl.config.CONFIG_VALID_VALUES:
+            vibectl.config.CONFIG_VALID_VALUES["failing_type"] = ["any_value"]
+        
+        # Attempt to convert a value that will trigger the exception
+        with TemporaryDirectory() as temp_dir:
+            test_cfg = Config(Path(temp_dir))
+            with pytest.raises(ValueError, match="Invalid value for failing_type"):
+                test_cfg._convert_to_type("failing_type", "any_value")
+    finally:
+        # Restore the original schema
+        vibectl.config.CONFIG_SCHEMA = original_schema 

@@ -39,6 +39,31 @@ actions:
         exit 1
       fi
 
+      # Check for Python files and run coverage test if needed
+      if echo "$CHANGED_FILES" | grep -qE '\.py$'; then
+        if command -v pytest &> /dev/null && python -c "import pytest_cov" &> /dev/null; then
+          echo "Checking test coverage..."
+          # Run coverage check using pytest-cov
+          if ! python -m pytest --cov; then
+            echo "Error: Test coverage check failed."
+            echo "Please ensure coverage meets requirements or document exceptions."
+            exit 1
+          fi
+          
+          # Verify all coverage exclusions are documented
+          UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
+          if [ -n "$UNDOCUMENTED" ]; then
+            echo "Error: Undocumented coverage exclusions found:"
+            echo "$UNDOCUMENTED"
+            echo "Add explanation: # pragma: no cover - [reason for exclusion]"
+            exit 1
+          fi
+        else
+          echo "Warning: pytest-cov not found. Skipping coverage check."
+          echo "Install with: pip install pytest-cov"
+        fi
+      fi
+
       # Process commit message parts preserving actual newlines
       # Split multiline inputs into separate -m arguments
       create_m_args() {
@@ -104,6 +129,8 @@ criteria:
     - All .mdc files tracked in git
     - No debug code remains
     - All linting issues resolved
+    - Test coverage meets target (100%) or exclusions documented
+    - No undocumented "pragma: no cover" directives
 
 commit_message_format: |
   {type}: {concise description}
@@ -139,4 +166,4 @@ Add tests for invalid cases" \
 
 metadata:
   priority: critical
-  version: 1.4
+  version: 1.5

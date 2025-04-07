@@ -1,0 +1,108 @@
+---
+description: Enforces high test coverage standards with documented exceptions
+globs: ["**/*.py", "pyproject.toml", "Makefile"]
+alwaysApply: true
+---
+# Test Coverage Requirements
+
+Maintain high test coverage with documented exceptions.
+
+<rule>
+name: test_coverage
+description: Enforces high test coverage with documented exceptions
+filters:
+  # Match test files and coverage configuration
+  - type: file_pattern
+    pattern: "^(tests?/.*|.*test_.*\\.py|pyproject\\.toml|\\.coveragerc)$"
+  # Match test and coverage related content
+  - type: content
+    pattern: "(?i)\\b(test|coverage|pytest|pragma:\\s*no\\s+cover)\\b"
+  # Match commit intents
+  - type: intent
+    pattern: "code_change_complete"
+
+actions:
+  - type: suggest
+    message: |
+      Test coverage requirements:
+      1. Target 100% test coverage for all code
+      2. Use pytest-cov for measuring coverage
+      3. Add to pyproject.toml:
+         ```
+         [tool.pytest.ini_options]
+         addopts = "--cov=your_package --cov-report=term --cov-report=xml"
+         ```
+      4. Create .coveragerc to configure specific exclusions
+      5. Document all coverage exclusions with explanatory comments
+
+  - type: reject
+    conditions:
+      # Detect undocumented coverage exclusions
+      - pattern: "\\s*#\\s*pragma:\\s*no\\s+cover(?!\\s+-\\s+\\w+)"
+        message: |
+          Undocumented coverage exclusion found.
+          Add explanation: # pragma: no cover - [reason for exclusion]
+
+      # Prohibit blanket exclusions of files
+      - pattern: "omit\\s*=\\s*[\\[\\(].*\\*.*[\\]\\)]"
+        message: |
+          Blanket file exclusions not allowed in coverage config.
+          Use precise file paths and document each exclusion.
+
+  - type: commit
+    command: |
+      # Check coverage before committing
+      if [[ "$(git diff --cached --name-only)" =~ \\.py$ ]]; then
+        echo "Checking test coverage..."
+        
+        # Run coverage check using pytest-cov
+        if ! python -m pytest --cov; then
+          echo "Error: Test coverage check failed."
+          echo "Please ensure coverage meets requirements or document exceptions."
+          exit 1
+        fi
+        
+        # Verify all coverage exclusions are documented
+        UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
+        if [ -n "$UNDOCUMENTED" ]; then
+          echo "Error: Undocumented coverage exclusions found:"
+          echo "$UNDOCUMENTED"
+          echo "Add explanation: # pragma: no cover - [reason for exclusion]"
+          exit 1
+        fi
+      fi
+      
+      # Continue with regular commit if checks pass
+      git commit "$@"
+
+criteria:
+  required:
+    - Coverage measured with pytest-cov for all Python code
+    - All non-covered code has documented reasons
+    - Coverage reports generated on each test run
+    - Coverage exclusions reviewed during code review
+    - No blanket exclusions without specific justification
+
+examples:
+  - input: |
+      # Bad: Undocumented coverage exclusion
+      if debug_mode:  # pragma: no cover
+          log_debug_info()
+      
+      # Good: Documented coverage exclusion
+      if os.name == "nt":  # pragma: no cover - Windows-specific code tested separately
+          use_windows_path()
+    output: "Properly documented coverage exclusion with explanation"
+
+  - input: |
+      # Good: Coverage configuration in pyproject.toml
+      [tool.pytest.ini_options]
+      testpaths = ["tests"]
+      python_files = ["test_*.py"]
+      addopts = "-n auto --dist loadfile --cov=vibectl --cov-report=term --cov-report=xml"
+    output: "Correctly configured test coverage measurement"
+
+metadata:
+  priority: high
+  version: 1.0
+</rule> 

@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test check clean install install-dev install-pre-commit
+.PHONY: help format lint typecheck test test-coverage check clean install install-dev install-pre-commit
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -32,6 +32,9 @@ typecheck:  ## Run static type checking using mypy
 test:  ## Run tests using pytest
 	pytest
 
+test-coverage:  ## Run tests with coverage report
+	pytest --cov=vibectl --cov-report=term --cov-report=html --cov-report=xml
+
 check: install format lint typecheck test  ## Run all code quality checks and tests
 
 clean:  ## Clean up python cache files
@@ -45,3 +48,5 @@ clean:  ## Clean up python cache files
 	find . -type d -name ".pytest_cache" -exec rm -rf {} +
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +
 	find . -type d -name ".mypy_cache" -exec rm -rf {} +
+	rm -rf htmlcov/
+	rm -f coverage.xml

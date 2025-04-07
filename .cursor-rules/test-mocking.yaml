@@ -1,0 +1,56 @@
+name: test-mocking
+description: |
+  Defines requirements for mocking in test code to prevent slow tests and real
+  external calls.
+
+globs:
+  - tests/**/*.py
+
+rules:
+  - name: mock-external-calls
+    description: |
+      All tests must properly mock external calls to prevent slow tests and real
+      interactions with external services.
+    
+    requirements:
+      - All tests that interact with the CLI must use appropriate mocks:
+        - mock_run_kubectl for kubectl commands
+        - mock_handle_command_output for output processing
+        - mock_handle_vibe_request for LLM/vibe requests
+        - Use cli_test_mocks fixture when multiple mocks are needed
+      
+      - All tests that make LLM calls must use mock_llm
+      
+      - All tests that access Kubernetes must use:
+        - mock_k8s_config for configuration
+        - mock_k8s_client for API calls
+      
+      - All tests should complete in under 1 second
+        - If a test is slow, check for missing mocks
+        - If mocks are present, profile the test to identify slowdown
+    
+    examples:
+      good: |
+        def test_get_pods(cli_test_mocks):
+            mock_run_kubectl, mock_handle_output, _ = cli_test_mocks
+            result = cli_runner.invoke(cli, ["get", "pods"])
+            assert result.exit_code == 0
+            mock_run_kubectl.assert_called_once()
+      
+      bad: |
+        def test_get_pods():  # Missing mocks!
+            result = cli_runner.invoke(cli, ["get", "pods"])
+            assert result.exit_code == 0
+    
+    rationale: |
+      Tests that make real external calls are:
+      1. Slow - External calls add significant overhead
+      2. Flaky - External services may be unavailable
+      3. Resource intensive - Real calls consume API quotas/resources
+      4. Hard to verify - Real calls make assertions difficult
+      
+      By properly mocking all external calls, we ensure tests are:
+      1. Fast - Most tests complete in milliseconds
+      2. Reliable - No external dependencies
+      3. Resource efficient - No real resource usage
+      4. Easy to verify - Mock assertions verify behavior 

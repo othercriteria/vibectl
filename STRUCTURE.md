@@ -33,6 +33,12 @@ organization.
 ### Testing (`tests/`)
 Contains test files and test resources for the project.
 
+- Coverage tracking with pytest-cov
+- Target of 100% test coverage for all code
+- `.coveragerc` - Configuration for coverage measurement and reporting
+- Exclusions must be documented with inline comments
+- Coverage reports generated in XML and terminal formats
+
 ### Type Information (`typings/`)
 Custom type definitions and type stubs.
 
@@ -112,6 +118,9 @@ The project uses several tools for development:
 1. Nix/direnv for reproducible development environments
 2. pre-commit hooks for code quality
 3. pytest for testing
+   - pytest-cov for coverage measurement
+   - Coverage requirements enforced at commit time
+   - Documented exclusions with `# pragma: no cover - reason`
 4. MyPy for type checking
 5. Ruff for linting
 6. VS Code/Cursor as recommended IDEs

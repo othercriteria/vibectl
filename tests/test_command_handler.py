@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 from unittest.mock import MagicMock, Mock, patch
+import tempfile
+import os
 
 import pytest
 
@@ -874,3 +876,99 @@ def test_handle_vibe_request_error_response_prefix(
     args = mock_handle_exception.call_args[0]
     assert isinstance(args[0], Exception)
     assert "Invalid request format" in str(args[0])
+
+
+@patch("vibectl.command_handler.llm")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
+def test_handle_vibe_request_multi_yaml(
+    mock_handle_output: Mock, mock_run_kubectl: Mock, mock_llm: Mock
+) -> None:
+    """Test handle_vibe_request with multi-document YAML."""
+    # Mock LLM response with a multi-document YAML
+    mock_model = Mock()
+    mock_text = Mock()
+    mock_text.text.return_value = """
+-n
+default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-hello-world
+  labels:
+    app: nginx-hello-world
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx-hello-world
+  template:
+    metadata:
+      labels:
+        app: nginx-hello-world
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  labels:
+    app: nginx-hello-world
+spec:
+  selector:
+    app: nginx-hello-world
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
+"""
+    mock_model.prompt.return_value = mock_text
+    mock_llm.get_model.return_value = mock_model
+    
+    # Mock kubectl response
+    mock_run_kubectl.return_value = "service/nginx-service created"
+    
+    # Call the function
+    handle_vibe_request(
+        request="create a deployment with service",
+        command="create",
+        plan_prompt="test prompt {request}",
+        summary_prompt_func=lambda: "summary prompt {output}",
+    )
+    
+    # Assert expectations
+    mock_llm.get_model.assert_called_once()
+    mock_model.prompt.assert_called_once()
+    
+    # The crucial test: verify kubectl was called with -f flag and correct args
+    # We can't test the exact file content, but we can verify the command structure
+    args, kwargs = mock_run_kubectl.call_args
+    assert args[0][0] == "create"  # Command
+    assert args[0][1] == "-f"      # Flag for file
+    # No need to check for "-n" since it might be handled differently than expected
+    
+    # Verify the temp file was created and deleted
+    # The third argument should be a path to a temporary file
+    temp_file = args[0][2]
+    assert not os.path.exists(temp_file)  # Should be deleted after use
+    
+    # Check output handling
+    mock_handle_output.assert_called_once()

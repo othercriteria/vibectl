@@ -1,0 +1,25 @@
+[run]
+branch = True
+source = vibectl
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    raise AssertionError
+    raise NotImplementedError
+    if False:
+    if typing.TYPE_CHECKING:
+    class .*Protocol:
+    @(abc\.)?abstractmethod
+
+omit =
+    tests/*
+    __pycache__/*
+    setup.py
+
+[html]
+directory = htmlcov 
