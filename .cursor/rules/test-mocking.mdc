@@ -1,0 +1,83 @@
+---
+description: Defines requirements for mocking in test code
+globs: ["tests/**/*.py"]
+alwaysApply: true
+---
+# Test Mocking Requirements
+
+Mock all external dependencies in tests for speed and reliability.
+
+<rule>
+name: test_mocking
+description: Defines requirements for proper mocking in test code
+filters:
+  # Match test files
+  - type: file_pattern
+    pattern: "^tests?/.*\\.(py|test\\.py|spec\\.py)$"
+  # Match test-related code
+  - type: content
+    pattern: "(?i)\\b(test|spec|fixture|mock|patch)\\b"
+
+actions:
+  - type: reject
+    conditions:
+      # Detect CLI interactions without mocking
+      - pattern: "cli_runner\\.invoke(?!.*mock)"
+        message: "CLI tests must use appropriate mocks (mock_run_kubectl, mock_handle_command_output, etc.)"
+      # Detect K8s API calls without mocking
+      - pattern: "kubernetes\\.client(?!.*mock)"
+        message: "Kubernetes client must be mocked in tests"
+      # Detect K8s config without mocking
+      - pattern: "kubernetes\\.config(?!.*mock)"
+        message: "Kubernetes config must be mocked in tests"
+
+  - type: suggest
+    message: |
+      When writing tests with external dependencies:
+      1. Mock all CLI interactions with:
+         - mock_run_kubectl for kubectl commands
+         - mock_handle_command_output for output processing
+         - mock_handle_vibe_request for LLM/vibe requests
+         - cli_test_mocks fixture for multiple mocks
+
+      2. Mock all Kubernetes interactions:
+         - mock_k8s_config for configuration
+         - mock_k8s_client for API calls
+
+      3. Verify tests complete under 1 second
+         - Check for missing mocks if tests are slow
+         - Profile slow tests with mocks to identify bottlenecks
+
+examples:
+  - input: |
+      # Good: Mocked CLI test
+      def test_get_pods(cli_test_mocks):
+          mock_run_kubectl, mock_handle_output, _ = cli_test_mocks
+          result = cli_runner.invoke(cli, ["get", "pods"])
+          assert result.exit_code == 0
+          mock_run_kubectl.assert_called_once()
+
+      # Good: Mocked Kubernetes test
+      @patch("kubernetes.client.CoreV1Api")
+      @patch("kubernetes.config.load_kube_config")
+      def test_k8s_operation(mock_load_config, mock_core_api):
+          mock_api = Mock()
+          mock_core_api.return_value = mock_api
+          mock_api.list_namespaced_pod.return_value = Mock(items=[])
+
+          result = k8s_operation("default")
+          mock_load_config.assert_called_once()
+          mock_api.list_namespaced_pod.assert_called_once()
+    output: "Properly mocked external dependencies in tests"
+
+  - input: |
+      # Bad: Unmocked CLI test
+      def test_get_pods():
+          result = cli_runner.invoke(cli, ["get", "pods"])
+          assert result.exit_code == 0
+    output: "CLI tests must use appropriate mocks"
+
+metadata:
+  priority: critical  # Critical due to impact on test reliability and speed
+  version: 1.0
+</rule>
