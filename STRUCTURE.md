@@ -46,6 +46,7 @@ Custom type definitions and type stubs.
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
   - `rules/` - Project-specific Cursor rules
+    - `feature-worktrees.mdc` - Guidelines for using Git worktrees for feature development
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
 - `Makefile` - Build and development automation
@@ -115,15 +116,19 @@ The project uses a structured configuration system:
 ## Development Workflow
 
 The project uses several tools for development:
-1. Nix/direnv for reproducible development environments
-2. pre-commit hooks for code quality
-3. pytest for testing
+1. Git worktrees for parallel feature development
+   - Feature branches created from main
+   - Worktrees placed in `../worktrees/` directory
+   - One feature per worktree for isolated development
+2. Nix/direnv for reproducible development environments
+3. pre-commit hooks for code quality
+4. pytest for testing
    - pytest-cov for coverage measurement
    - Coverage requirements enforced at commit time
    - Documented exclusions with `# pragma: no cover - reason`
-4. MyPy for type checking
-5. Ruff for linting
-6. VS Code/Cursor as recommended IDEs
+5. MyPy for type checking
+6. Ruff for linting
+7. VS Code/Cursor as recommended IDEs
 
 ## Build and Deployment
 
