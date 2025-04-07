@@ -1,0 +1,96 @@
+---
+description: Guidelines for managing feature development using Git worktrees
+globs: ["**/*"]
+alwaysApply: true
+---
+# Feature Development with Git Worktrees
+
+Use Git worktrees for managing multiple features simultaneously.
+
+<rule>
+name: feature_worktrees
+description: Encourages feature development using Git worktrees
+filters:
+  # Match feature development queries
+  - type: content
+    pattern: "(?i)\\b(new feature|worktree|branch to work on|feature branch|develop feature)\\b"
+  # Match Git branch commands
+  - type: content
+    pattern: "(?i)\\b(git (checkout|branch|switch)|new branch)\\b"
+  # Match development workflow discussions
+  - type: intent
+    pattern: "development_workflow"
+
+actions:
+  - type: suggest
+    message: |
+      For feature development:
+      1. Create a feature branch from main:
+         ```
+         git checkout -b feature/name-of-feature main
+         ```
+      2. Add a worktree for parallel development:
+         ```
+         mkdir -p ../worktrees/
+         git worktree add ../worktrees/feature-name feature/name-of-feature
+         cd ../worktrees/feature-name
+         ```
+      3. Work in the worktree directory
+      4. When complete, commit changes:
+         ```
+         git add .
+         git commit -m "feat: implement feature-name"
+         git push -u origin feature/name-of-feature
+         ```
+      5. Create PR from feature branch to main
+      6. Clean up worktree after merge:
+         ```
+         git worktree remove ../worktrees/feature-name
+         git branch -d feature/name-of-feature
+         ```
+
+  - type: reject
+    conditions:
+      # Discourage direct work on main
+      - pattern: "(?i)\\b(work|develop|implement)\\s+.*\\s+(on|in)\\s+main\\b"
+        message: "Avoid developing features directly on main. Use feature branches with worktrees instead."
+
+criteria:
+  required:
+    - Create feature branches with descriptive names (feature/name-of-feature)
+    - Use worktrees for parallel development
+    - Keep feature branches focused on single features
+    - Clean up worktrees after feature completion
+    - Follow branching conventions consistently
+
+examples:
+  - input: "I need to start developing a new feature"
+    output: |
+      Create a feature branch and worktree:
+      ```
+      git checkout -b feature/my-new-feature main
+      git worktree add ../worktrees/my-new-feature feature/my-new-feature
+      cd ../worktrees/my-new-feature
+      ```
+
+  - input: "How do I manage multiple features at once?"
+    output: |
+      Use separate worktrees for each feature:
+      ```
+      # For feature 1
+      git checkout -b feature/feature-one main
+      git worktree add ../worktrees/feature-one feature/feature-one
+
+      # For feature 2
+      git checkout -b feature/feature-two main
+      git worktree add ../worktrees/feature-two feature/feature-two
+
+      # Switch between features by changing directories
+      cd ../worktrees/feature-one  # Work on feature 1
+      cd ../worktrees/feature-two  # Work on feature 2
+      ```
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

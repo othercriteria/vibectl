@@ -65,3 +65,16 @@ This document provides an overview of the project's structure and organization.
 5. MyPy for type checking
 6. Ruff for linting
 7. VS Code/Cursor as recommended IDEs
+
+## Build and Deployment
+
+The project is structured as a Python package with:
+- Source code in `vibectl/`
+- Development tools configured in project root
+- Tests separated in `tests/` directory
+- Type information in `typings/`
+
+Dependencies are managed through:
+1. `pyproject.toml` for Python dependencies
+2. `flake.nix` for development environment
+3. Virtual environment in `.venv/`
