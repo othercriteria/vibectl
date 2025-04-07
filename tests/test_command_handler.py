@@ -1,0 +1,876 @@
+"""Tests for the command handler module."""
+
+import subprocess
+from pathlib import Path
+from typing import Any, Callable
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+
+from vibectl.command_handler import (
+    configure_output_flags,
+    handle_command_output,
+    handle_standard_command,
+    handle_vibe_request,
+    run_kubectl,
+)
+
+
+@pytest.fixture
+def test_config(tmp_path: Path) -> Any:
+    """Create a test configuration instance."""
+    from vibectl.config import Config
+
+    return Config(base_dir=tmp_path)
+
+
+@pytest.fixture
+def mock_subprocess(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Mock subprocess.run."""
+    mock = MagicMock()
+    mock.return_value = Mock(stdout="test output", stderr="")
+    monkeypatch.setattr("subprocess.run", mock)
+    return mock
+
+
+@pytest.fixture
+def mock_llm(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Mock LLM model."""
+    mock = MagicMock()
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "Test response")
+    mock.return_value = mock_model
+    monkeypatch.setattr("llm.get_model", mock)
+    return mock
+
+
+@pytest.fixture
+def mock_summary_prompt() -> Callable[[], str]:
+    """Mock summary prompt function."""
+
+    def _summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    return _summary_prompt
+
+
+def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> None:
+    """Test successful kubectl command execution."""
+    # Set test kubeconfig
+    test_config.set("kubeconfig", "/test/kubeconfig")
+
+    # Run command
+    output = run_kubectl(["get", "pods"], capture=True, config=test_config)
+
+    # Verify command construction
+    mock_subprocess.assert_called_once()
+    cmd = mock_subprocess.call_args[0][0]
+    assert cmd == ["kubectl", "--kubeconfig", "/test/kubeconfig", "get", "pods"]
+    assert output == "test output"
+
+
+def test_run_kubectl_no_kubeconfig(
+    mock_subprocess: MagicMock, test_config: Any
+) -> None:
+    """Test kubectl command without kubeconfig."""
+    # Explicitly set kubeconfig to None
+    test_config.set("kubeconfig", None)
+
+    output = run_kubectl(["get", "pods"], capture=True, config=test_config)
+
+    # Verify command construction without kubeconfig
+    mock_subprocess.assert_called_once()
+    cmd = mock_subprocess.call_args[0][0]
+    assert cmd == ["kubectl", "get", "pods"]
+    assert output == "test output"
+
+
+def test_run_kubectl_error(mock_subprocess: MagicMock) -> None:
+    """Test kubectl command error handling."""
+    mock_subprocess.side_effect = Exception("test error")
+
+    with pytest.raises(Exception, match="test error"):
+        run_kubectl(["get", "pods"])
+
+
+def test_run_kubectl_not_found(mock_subprocess: MagicMock) -> None:
+    """Test kubectl not found error."""
+    mock_subprocess.side_effect = FileNotFoundError()
+
+    with pytest.raises(FileNotFoundError):
+        run_kubectl(["get", "pods"])
+
+
+def test_run_kubectl_called_process_error(
+    mock_subprocess: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test kubectl command error handling with CalledProcessError."""
+    error = subprocess.CalledProcessError(1, ["kubectl"], stderr="test error")
+    mock_subprocess.side_effect = error
+
+    output = run_kubectl(["get", "pods"], capture=True)
+
+    # Verify error was printed to stderr
+    captured = capsys.readouterr()
+    assert captured.err == "test error\n"
+    assert output == "test output"  # For test compatibility
+
+
+def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) -> None:
+    """Test kubectl command error handling with CalledProcessError but no stderr."""
+    error = subprocess.CalledProcessError(1, ["kubectl"], stderr="")
+    mock_subprocess.side_effect = error
+
+    output = run_kubectl(["get", "pods"], capture=True)
+    assert output == "test output"  # For test compatibility
+
+
+def test_run_kubectl_no_capture(mock_subprocess: MagicMock) -> None:
+    """Test kubectl command without output capture."""
+    output = run_kubectl(["get", "pods"], capture=False)
+
+    # Verify command was run without capture
+    mock_subprocess.assert_called_once()
+    assert output is None
+
+
+def test_run_kubectl_called_process_error_no_capture(
+    mock_subprocess: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Test kubectl command error handling with CalledProcessError in non-capture mode."""
+    error = subprocess.CalledProcessError(1, ["kubectl"], stderr="test error")
+    mock_subprocess.side_effect = error
+
+    output = run_kubectl(["get", "pods"], capture=False)
+
+    # Verify error was printed to stderr and no output returned
+    captured = capsys.readouterr()
+    assert captured.err == "test error\n"
+    assert output is None
+
+
+def test_handle_standard_command(
+    mock_subprocess: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+    test_config: Any,
+) -> None:
+    """Test standard command handling."""
+    # Ensure no kubeconfig is set
+    test_config.set("kubeconfig", None)
+
+    handle_standard_command(
+        command="get",
+        resource="pods",
+        args=(),
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify kubectl was called
+    mock_subprocess.assert_called_once()
+    cmd = mock_subprocess.call_args[0][0]
+    assert cmd == ["kubectl", "get", "pods"]
+
+
+def test_handle_command_output_raw_only(
+    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str]
+) -> None:
+    """Test command output handling with only raw output."""
+    handle_command_output(
+        output="test output",
+        show_raw_output=True,
+        show_vibe=False,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify LLM was not called
+    mock_llm.assert_not_called()
+
+
+def test_handle_command_output_vibe_only(
+    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str]
+) -> None:
+    """Test command output handling with only vibe output."""
+    handle_command_output(
+        output="test output",
+        show_raw_output=False,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify LLM was called
+    mock_llm.assert_called_once()
+
+
+def test_handle_command_output_truncation(
+    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str]
+) -> None:
+    """Test command output handling with truncation."""
+    # Create long output that will need truncation
+    long_output = "x" * 20000
+
+    handle_command_output(
+        output=long_output,
+        show_raw_output=False,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+        max_token_limit=1000,
+        truncation_ratio=2,
+    )
+
+    # Verify LLM was called with truncated output
+    mock_llm.assert_called_once()
+
+
+def test_handle_vibe_request_success(
+    mock_llm: MagicMock, mock_subprocess: MagicMock
+) -> None:
+    """Test successful vibe request handling."""
+    # Set up test data
+    mock_subprocess.return_value = Mock(stdout="test output", stderr="")
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify LLM was called for planning
+    mock_llm.assert_called()
+
+
+def test_handle_vibe_request_error_response(mock_llm: MagicMock) -> None:
+    """Test vibe request with error response from planner."""
+    # Set up error response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "ERROR: Invalid request")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    with pytest.raises(SystemExit):
+        handle_vibe_request(
+            request="invalid request",
+            command="get",
+            plan_prompt="Plan this: {request}",
+            summary_prompt_func=summary_prompt,
+            show_raw_output=True,
+            show_vibe=True,
+            model_name="test-model",
+        )
+
+
+def test_configure_output_flags(test_config: Any) -> None:
+    """Test output flag configuration."""
+    # Test with defaults
+    test_config.set("model", "claude-3.7-sonnet")  # Set default model
+    show_raw, show_vibe, suppress_warning, model = configure_output_flags()
+    assert not show_raw
+    assert show_vibe
+    assert suppress_warning  # Should be True since show_vibe is True
+    assert model == "claude-3.7-sonnet"  # Should use config value
+
+    # Test with explicit values
+    show_raw, show_vibe, suppress_warning, model = configure_output_flags(
+        show_raw_output=True,
+        show_vibe=False,
+        model="test-model",
+    )
+    assert show_raw
+    assert not show_vibe
+    assert suppress_warning  # Should be True since show_raw is True
+    assert model == "test-model"
+
+
+def test_handle_command_output_missing_api_key(
+    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str]
+) -> None:
+    """Test command output handling with missing API key."""
+    # Simulate missing API key error
+    mock_model = Mock()
+    mock_model.prompt.side_effect = Exception("no key found")
+    mock_llm.return_value = mock_model
+
+    # Should not raise exception but print error
+    handle_command_output(
+        output="test output",
+        show_raw_output=False,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify LLM was called
+    mock_llm.assert_called_once()
+
+
+def test_handle_command_output_model_selection(
+    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str], test_config: Any
+) -> None:
+    """Test command output uses correct model from config."""
+    # Set model in config
+    test_config.set("model", "claude-3.7-sonnet")
+
+    # Get output flags
+    _, _, _, model = configure_output_flags()
+
+    # Use configured model
+    handle_command_output(
+        output="test output",
+        show_raw_output=False,
+        show_vibe=True,
+        model_name=model,
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify correct model was requested
+    mock_llm.assert_called_once_with("claude-3.7-sonnet")
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_empty_response(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with empty response from planner."""
+    # Set up empty response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify LLM was called and exception was handled
+    mock_llm.assert_called_once()
+    mock_handle_exception.assert_called_once()
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_invalid_format(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with invalid format from planner."""
+    # Set up invalid response (completely empty response)
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify LLM was called and exception was handled
+    assert mock_llm.call_count > 0  # Check that LLM was called at least once
+    mock_handle_exception.assert_called_once()
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_standard_command_error(
+    mock_handle_exception: MagicMock,
+    mock_subprocess: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+) -> None:
+    """Test error handling in standard command."""
+    # Set up error
+    mock_subprocess.side_effect = Exception("test error")
+
+    # Run command
+    handle_standard_command(
+        command="get",
+        resource="pods",
+        args=(),
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify kubectl was called and exception was handled
+    mock_subprocess.assert_called_once()
+    mock_handle_exception.assert_called_once()
+
+
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_llm_error(
+    mock_processor: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+) -> None:
+    """Test LLM error handling in command output."""
+    # Set up processor
+    mock_processor.process_auto.return_value = ("test output", False)
+
+    # Set up LLM error
+    mock_model = Mock()
+    mock_model.prompt.side_effect = Exception("LLM error")
+    mock_llm.return_value = mock_model
+
+    # Run command output handling
+    handle_command_output(
+        output="test output",
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify LLM was called
+    mock_llm.assert_called_once()
+
+
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_processor_error(
+    mock_processor: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+) -> None:
+    """Test output processor error handling in command output."""
+    # Set up processor error
+    mock_processor.process_auto.side_effect = Exception("Processor error")
+
+    # Run command output handling
+    handle_command_output(
+        output="test output",
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify processor was called
+    mock_processor.process_auto.assert_called_once()
+    # Verify LLM was not called due to processor error
+    mock_llm.assert_not_called()
+
+
+@patch("vibectl.command_handler.console_manager")
+def test_handle_vibe_request_no_output(
+    mock_console: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with no output flags."""
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=False,
+        show_vibe=False,
+        model_name="test-model",
+        suppress_output_warning=False,
+    )
+
+    # Verify warning was printed
+    mock_console.print_no_output_warning.assert_called_once()
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_llm_output_parsing(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with LLM output that includes delimiter."""
+    # Set up LLM response with delimiter
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "get pods\n---\nother content")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify exception handler was not called
+    mock_handle_exception.assert_not_called()
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_command_error(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with command execution error."""
+    # Set up LLM response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "get pods")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    with patch("vibectl.command_handler.run_kubectl") as mock_run:
+        mock_run.side_effect = Exception("Command failed")
+
+        handle_vibe_request(
+            request="show me the pods",
+            command="get",
+            plan_prompt="Plan this: {request}",
+            summary_prompt_func=summary_prompt,
+            show_raw_output=True,
+            show_vibe=True,
+            model_name="test-model",
+        )
+
+        # Verify exception was handled
+        mock_handle_exception.assert_called_once_with(mock_run.side_effect)
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_standard_command_no_output(
+    mock_handle_exception: MagicMock,
+    mock_subprocess: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+) -> None:
+    """Test standard command handling with no output."""
+    # Set up mock to return no output
+    mock_subprocess.return_value = Mock(stdout="", stderr="")
+
+    handle_standard_command(
+        command="get",
+        resource="pods",
+        args=(),
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=mock_summary_prompt,
+    )
+
+    # Verify no exception was handled
+    mock_handle_exception.assert_not_called()
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_output_error(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with output handling error."""
+    # Set up LLM response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "get pods")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    with patch("vibectl.command_handler.run_kubectl") as mock_run:
+        mock_run.return_value = "test output"
+
+        with patch(
+            "vibectl.command_handler.handle_command_output"
+        ) as mock_handle_output:
+            mock_handle_output.side_effect = Exception("Output handling failed")
+
+            handle_vibe_request(
+                request="show me the pods",
+                command="get",
+                plan_prompt="Plan this: {request}",
+                summary_prompt_func=summary_prompt,
+                show_raw_output=True,
+                show_vibe=True,
+                model_name="test-model",
+            )
+
+            # Verify exception was handled with exit_on_error=False
+            mock_handle_exception.assert_called_once_with(
+                mock_handle_output.side_effect, exit_on_error=False
+            )
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_standard_command_output_error(
+    mock_handle_exception: MagicMock,
+    mock_subprocess: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+) -> None:
+    """Test error handling in standard command output processing."""
+    # Set up successful command but failed output handling
+    mock_subprocess.return_value = Mock(stdout="test output", stderr="")
+
+    with patch("vibectl.command_handler.handle_command_output") as mock_handle_output:
+        mock_handle_output.side_effect = Exception("Output handling failed")
+
+        handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            show_raw_output=True,
+            show_vibe=True,
+            model_name="test-model",
+            summary_prompt_func=mock_summary_prompt,
+        )
+
+        # Verify exception was handled
+        mock_handle_exception.assert_called_once_with(mock_handle_output.side_effect)
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_llm_error(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test vibe request with LLM error."""
+    # Set up LLM error
+    mock_model = Mock()
+    mock_model.prompt.side_effect = Exception("LLM error")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify exception was handled
+    mock_handle_exception.assert_called_once_with(mock_model.prompt.side_effect)
+
+
+@patch("os.unlink")
+@patch("tempfile.NamedTemporaryFile")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
+@patch("llm.get_model")
+def test_handle_vibe_request_create_with_yaml(
+    mock_llm: MagicMock,
+    mock_handle_output: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_named_temp_file: MagicMock,
+    mock_unlink: MagicMock,
+) -> None:
+    """Test vibe request handling for create command with YAML content."""
+    # Setup mock LLM response with both kubectl args and YAML content
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(
+        text=lambda: """
+-n
+default
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+"""
+    )
+    mock_llm.return_value = mock_model
+
+    # Setup mock temp file
+    mock_file = MagicMock()
+    mock_file.__enter__.return_value = mock_file
+    mock_file.name = "/tmp/test-yaml-12345.yaml"
+    mock_named_temp_file.return_value = mock_file
+
+    # Setup mock kubectl output
+    mock_run_kubectl.return_value = "pod/test-pod created"
+
+    # Run the function
+    def summary_prompt() -> str:
+        return "Summary: {output}"
+
+    handle_vibe_request(
+        request="create a pod called test-pod",
+        command="create",
+        plan_prompt="Create this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify tempfile was created and written to
+    mock_named_temp_file.assert_called_once()
+    mock_file.write.assert_called_once()
+
+    # Verify kubectl was called with correct arguments
+    mock_run_kubectl.assert_called_once_with(
+        ["create", "-f", "/tmp/test-yaml-12345.yaml", "", "-n", "default"], capture=True
+    )
+
+    # Verify temporary file was cleaned up
+    mock_unlink.assert_called_once_with("/tmp/test-yaml-12345.yaml")
+
+    # Verify output was handled
+    mock_handle_output.assert_called_once()
+
+
+@patch("os.path.exists")
+@patch("os.unlink")
+@patch("tempfile.NamedTemporaryFile")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("llm.get_model")
+def test_handle_vibe_request_create_with_yaml_error(
+    mock_llm: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_named_temp_file: MagicMock,
+    mock_unlink: MagicMock,
+    mock_exists: MagicMock,
+) -> None:
+    """Test error handling in vibe request for create command with YAML content."""
+    # Setup mock LLM response with both kubectl args and YAML content
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(
+        text=lambda: """
+-n
+default
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+"""
+    )
+    mock_llm.return_value = mock_model
+
+    # Setup mock temp file
+    mock_file = MagicMock()
+    mock_file.__enter__.return_value = mock_file
+    mock_file.name = "/tmp/test-yaml-12345.yaml"
+    mock_named_temp_file.return_value = mock_file
+
+    # Setup kubectl to raise an exception
+    mock_run_kubectl.side_effect = Exception("Error creating resource")
+
+    # Setup path exists to return True for cleanup
+    mock_exists.return_value = True
+
+    # Run the function
+    def summary_prompt() -> str:
+        return "Summary: {output}"
+
+    with pytest.raises(SystemExit):
+        handle_vibe_request(
+            request="create a pod called test-pod",
+            command="create",
+            plan_prompt="Create this: {request}",
+            summary_prompt_func=summary_prompt,
+            show_raw_output=True,
+            show_vibe=True,
+            model_name="test-model",
+        )
+
+    # Verify tempfile was created
+    mock_named_temp_file.assert_called_once()
+
+    # Verify kubectl was called
+    mock_run_kubectl.assert_called_once()
+
+    # Verify temporary file was cleaned up after error
+    mock_exists.assert_called_once_with("/tmp/test-yaml-12345.yaml")
+    mock_unlink.assert_called_once_with("/tmp/test-yaml-12345.yaml")
+
+
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_empty_plan(
+    mock_handle_exception: MagicMock, mock_console: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test handle_vibe_request when the LLM returns an empty plan."""
+    # Set up the LLM to return an empty response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summary template"
+
+    # Execute the function
+    handle_vibe_request(
+        request="test request",
+        command="get",
+        plan_prompt="test prompt",
+        summary_prompt_func=summary_prompt,
+    )
+
+    # Verify the error was handled properly
+    mock_handle_exception.assert_called_once()
+    args = mock_handle_exception.call_args[0]
+    assert isinstance(args[0], Exception)
+    assert "Invalid response format" in str(args[0])
+
+
+@patch("vibectl.command_handler.handle_exception")
+def test_handle_vibe_request_error_response_prefix(
+    mock_handle_exception: MagicMock, mock_llm: MagicMock
+) -> None:
+    """Test handle_vibe_request when the LLM returns an error response with ERROR: prefix."""
+    # Set up the LLM to return an error response
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "ERROR: Invalid request format")
+    mock_llm.return_value = mock_model
+
+    def summary_prompt() -> str:
+        return "Summary template"
+
+    # Execute the function
+    handle_vibe_request(
+        request="test request",
+        command="get",
+        plan_prompt="test prompt",
+        summary_prompt_func=summary_prompt,
+    )
+
+    # Verify the error was handled properly
+    mock_handle_exception.assert_called_once()
+    args = mock_handle_exception.call_args[0]
+    assert isinstance(args[0], Exception)
+    assert "Invalid request format" in str(args[0])

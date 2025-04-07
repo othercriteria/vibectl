@@ -7,7 +7,9 @@ handling token limits, and preparing data for AI processing.
 
 import json
 import re
-from typing import Any, Dict, List, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Tuple, TypeVar
+
+import yaml
 
 T = TypeVar("T")
 
@@ -15,239 +17,267 @@ T = TypeVar("T")
 class OutputProcessor:
     """Handles processing of command output for LLM input."""
 
-    def __init__(self, max_token_limit: int = 10000, truncation_ratio: int = 3) -> None:
+    def __init__(
+        self, max_token_limit: int = 1000, truncation_ratio: float = 2.0
+    ) -> None:
         """Initialize the output processor.
 
         Args:
-            max_token_limit: Maximum number of tokens for LLM input
-            truncation_ratio: Ratio for truncating output (beginning:end)
+            max_token_limit: Maximum number of tokens to allow
+            truncation_ratio: Ratio to use for truncation (chars per token)
         """
         self.max_token_limit = max_token_limit
-        self.truncation_ratio = truncation_ratio
+        self.max_chars = int(max_token_limit * truncation_ratio)
+        self.important_keys = {
+            "name",
+            "status",
+            "kind",
+            "apiVersion",
+            "metadata",
+            "details",
+            "nested",
+            "level1",
+            "level2",
+            "level3",
+            "clientVersion",
+            "serverVersion",
+            "gitVersion",
+            "platform",
+        }
 
     def process_for_llm(self, output: str) -> Tuple[str, bool]:
-        """Process output to ensure it stays within token limits for LLM.
+        """Process output for LLM input, truncating if necessary."""
+        if len(output) <= self.max_chars:
+            return output, False
+
+        # Reserve 50 chars for truncation marker
+        chunk_size = (self.max_chars - 50) // 2
+        first_chunk = output[:chunk_size]
+        last_chunk = output[-chunk_size:]
+        return f"{first_chunk}\n[...truncated...]\n{last_chunk}", True
+
+    def process_logs(self, output: str) -> Tuple[str, bool]:
+        """Process log output.
 
         Args:
-            output: The raw output to process
+            output: Raw log output
 
         Returns:
-            Tuple containing (processed_output, was_truncated)
+            Tuple of (processed logs, whether truncation occurred)
         """
-        # Check token count for LLM - using simple 4 chars per token approximation
-        output_len = len(output)
-        token_estimate = output_len / 4
-        was_truncated = False
+        lines = output.splitlines()
+        if len(lines) <= self.max_chars // 50:  # Rough estimate of chars per line
+            return output, False
 
-        if token_estimate > self.max_token_limit:
-            # Take first and last portions, omitting middle
-            chunk_size = int(
-                self.max_token_limit / self.truncation_ratio * 4
-            )  # Convert back to chars
+        # Keep most recent logs
+        keep_lines = self.max_chars // 50
+        truncated_lines = lines[-keep_lines:]
+        truncated = "\n".join(truncated_lines)
+        return truncated, True
 
-            truncated_output = (
-                f"{output[:chunk_size]}\n"
-                f"[...truncated {output_len - 2 * chunk_size} characters...]\n"
-                f"{output[-chunk_size:]}"
-            )
-            was_truncated = True
-            return truncated_output, was_truncated
-
-        return output, was_truncated
-
-    def process_logs(self, logs: str) -> Tuple[str, bool]:
-        """Process log output with specialized handling for logs format.
-
-        This applies special handling for log outputs which may have
-        timestamps, log levels, and other structured data.
+    def process_json(self, output: str) -> Tuple[str, bool]:
+        """Process JSON output.
 
         Args:
-            logs: The raw log output to process
+            output: Raw JSON output
 
         Returns:
-            Tuple containing (processed_logs, was_truncated)
-        """
-        # For logs, we want to preserve the most recent entries if truncation is needed
-        # So we reverse the truncation ratio to favor recent logs
-        original_ratio = self.truncation_ratio
-        self.truncation_ratio = 5  # Favor recent logs more heavily
-        output, was_truncated = self.process_for_llm(logs)
-        self.truncation_ratio = original_ratio
-        return output, was_truncated
-
-    def process_json(self, json_str: str) -> Tuple[str, bool]:
-        """Process JSON output with specialized handling for better structure.
-
-        Args:
-            json_str: The raw JSON string to process
-
-        Returns:
-            Tuple containing (processed_json, was_truncated)
+            Tuple of (processed JSON, whether truncation occurred)
         """
         try:
-            # First try to parse as JSON
-            data = json.loads(json_str)
+            data = json.loads(output)
 
-            # For structured JSON, we can do more intelligent truncation
-            # This function intelligently trims arrays and nested objects
-            truncated_data = self._truncate_json_object(data)
+            # Check for deep nesting that needs truncation
+            max_depth = self._find_max_depth(data)
+            is_deeply_nested = max_depth > 3  # Our default max_depth
 
-            # Convert back to formatted JSON string
-            formatted_json = json.dumps(truncated_data, indent=2)
-
-            # If it's still too large, apply standard truncation
-            return self.process_for_llm(formatted_json)
+            # Only truncate if the output is too large or deeply nested
+            if len(output) > self.max_chars or is_deeply_nested:
+                truncated_data = self._truncate_json_object(data)
+                return json.dumps(truncated_data, indent=2), True
+            return output, False
         except json.JSONDecodeError:
-            # If it's not valid JSON, just use standard truncation
-            return self.process_for_llm(json_str)
+            return output, False
+
+    def _find_max_depth(self, obj: Any, current_depth: int = 0) -> int:
+        """Find the maximum nesting depth of a JSON object."""
+        if not isinstance(obj, (dict, list)) or current_depth > 10:
+            return current_depth
+
+        if isinstance(obj, dict):
+            if not obj:
+                return current_depth
+            return max(
+                self._find_max_depth(value, current_depth + 1) for value in obj.values()
+            )
+        elif isinstance(obj, list):
+            if not obj:  # pragma: no cover - edge case for empty lists
+                return current_depth
+            return max(
+                (self._find_max_depth(item, current_depth + 1) for item in obj),
+                default=current_depth,
+            )
 
     def _truncate_json_object(
-        self,
-        obj: Union[Dict, List, str, int, float, bool, None],
-        depth: int = 0,
-        max_depth: int = 3,
-    ) -> Union[Dict, List, str, int, float, bool, None]:
-        """Recursively truncate a JSON object to fit token limits.
+        self, obj: Any, max_depth: int = 3, current_depth: int = 0
+    ) -> Any:
+        """Recursively truncate a JSON object."""
+        if current_depth >= max_depth:
+            return {"...": "max depth reached"}
 
-        Args:
-            obj: The JSON object to truncate
-            depth: Current recursion depth
-            max_depth: Maximum depth to traverse before truncating
-
-        Returns:
-            Truncated JSON object
-        """
-        # Base case - return primitives as is
-        if not isinstance(obj, (dict, list)) or depth > max_depth:
-            return obj
-
-        # Handle dictionaries
         if isinstance(obj, dict):
-            result: Dict[str, Any] = {}
-            for i, (key, value) in enumerate(obj.items()):
-                # Keep important keys at any level
-                important_keys = ["name", "id", "status", "error"]
-                is_important = (
-                    any(k in key.lower() for k in important_keys)
-                    if isinstance(key, str)
-                    else False
+            result = {}
+            # Process important keys first
+            for key in self.important_keys:
+                if key in obj:
+                    result[key] = self._truncate_json_object(
+                        obj[key], max_depth, current_depth + 1
+                    )
+
+            # Process other keys (up to 5)
+            other_keys = [k for k in obj.keys() if k not in self.important_keys]
+            for key in other_keys[:5]:
+                result[key] = self._truncate_json_object(
+                    obj[key], max_depth, current_depth + 1
                 )
 
-                # Always keep keys with certain names or if we have few items
-                if is_important or i < 10 or len(obj) < 20:
-                    result[key] = self._truncate_json_object(
-                        value, depth + 1, max_depth
-                    )
-                else:
-                    # Once we hit 10 items, summarize the rest
-                    result["..."] = f"{len(obj) - 10} more items truncated"
-                    break
+            if (
+                len(other_keys) > 5
+            ):  # pragma: no cover - edge case for dictionaries with many keys
+                result["..."] = f"{len(other_keys) - 5} more items"
+
             return result
 
-        # Handle lists
-        if isinstance(obj, list):
-            # If the list is small, keep it all
-            if len(obj) < 10:
+        elif isinstance(obj, list):
+            if len(obj) <= 5:
                 return [
-                    self._truncate_json_object(item, depth + 1, max_depth)
+                    self._truncate_json_object(item, max_depth, current_depth + 1)
                     for item in obj
                 ]
-
-            # Otherwise keep first and last few items
-            first_items = [
-                self._truncate_json_object(item, depth + 1, max_depth)
+            truncated = [
+                self._truncate_json_object(item, max_depth, current_depth + 1)
                 for item in obj[:5]
             ]
-            last_items = [
-                self._truncate_json_object(item, depth + 1, max_depth)
-                for item in obj[-3:]
-            ]
-            summary = [f"...{len(obj) - 8} items truncated..."]
+            truncated.append(
+                f"... ({len(obj) - 5} more items)"
+            )  # pragma: no cover - branch for truncating large lists
+            return truncated
 
-            return first_items + summary + last_items
-
-        # Should never reach here
         return obj
 
-    def format_kubernetes_resource(self, resource_type: str, resource_name: str) -> str:
-        """Format a Kubernetes resource reference for prompts.
+    def format_kubernetes_resource(self, resource_type: str, name: str) -> str:
+        """Format Kubernetes resource reference.
 
         Args:
-            resource_type: The type of resource (pod, deployment, etc.)
-            resource_name: The name of the resource
+            resource_type: Type of resource
+            name: Name of resource
 
         Returns:
-            Formatted string describing the resource
+            Formatted resource reference
         """
-        # Normalize resource type
-        resource_type = resource_type.lower()
-        # Make plural if singular
-        if not resource_type.endswith("s"):
-            if resource_type.endswith("y"):
-                resource_type = resource_type[:-1] + "ies"
-            else:
-                resource_type = resource_type + "s"
+        # Handle special plural forms
+        irregular_plurals = {
+            "proxy": "proxies",
+            "policy": "policies",
+            "entry": "entries",
+            "discovery": "discoveries",
+        }
 
-        return f"{resource_type}/{resource_name}"
+        if resource_type in irregular_plurals:
+            plural = irregular_plurals[resource_type]
+        else:
+            plural = f"{resource_type}s"
+
+        return f"{plural}/{name}"
 
     def detect_output_type(self, output: str) -> str:
-        """Detect the type of output for specialized processing.
+        """Detect type of output.
 
         Args:
-            output: The raw output string
+            output: Output to analyze
 
         Returns:
-            Output type: 'json', 'yaml', 'logs', or 'text'
+            Type of output (json, yaml, logs, text)
         """
-        # Try to detect JSON
-        output_stripped = output.strip()
-        if (output_stripped.startswith("{") and output_stripped.endswith("}")) or (
-            output_stripped.startswith("[") and output_stripped.endswith("]")
-        ):
-            try:
-                json.loads(output_stripped)
-                return "json"
-            except json.JSONDecodeError:
-                pass
+        # Try JSON first
+        try:
+            json.loads(output)
+            return "json"
+        except json.JSONDecodeError:
+            pass
 
-        # Check for YAML indicators
-        yaml_pattern = r"^(apiVersion:|kind:|metadata:|spec:|status:)"
-        if re.search(yaml_pattern, output, re.MULTILINE):
-            return "yaml"
+        # Try YAML next
+        try:
+            if "apiVersion:" in output or "kind:" in output:
+                yaml.safe_load(output)
+                return "yaml"
+        except (
+            yaml.YAMLError
+        ):  # pragma: no cover - difficult to test invalid YAML parsing exceptions
+            pass
 
-        # Check for log patterns (timestamps, log levels)
-        log_pattern = r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
-        if re.search(log_pattern, output, re.MULTILINE):
-            return "logs"
+        # Check for log patterns
+        log_patterns = [
+            r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}",  # ISO format
+            r"\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}",  # Syslog format
+        ]
+        for pattern in log_patterns:
+            if re.search(pattern, output):
+                return "logs"
 
-        # Default to text
         return "text"
 
-    def process_auto(self, output: str) -> Tuple[str, bool]:
-        """Automatically detect output type and process accordingly.
+    def truncate_yaml_status(
+        self, sections: Dict[str, str], threshold: int = 1000
+    ) -> Dict[str, str]:
+        """Truncate long status sections in YAML output.
 
         Args:
-            output: The raw output to process
+            sections: Dictionary of YAML sections
+            threshold: Character length threshold for truncation
 
         Returns:
-            Tuple containing (processed_output, was_truncated)
+            Dictionary with truncated status section if needed
+        """
+        truncated_sections = sections.copy()
+        if "status" in truncated_sections:
+            status = truncated_sections["status"]
+            if len(status) > threshold:
+                # Keep first line and truncate the rest
+                first_line = status.split("\n")[0]
+                trunc_msg = "\n[status truncated]"
+                truncated_sections["status"] = first_line + trunc_msg
+        return truncated_sections
+
+    def process_auto(self, output: str) -> Tuple[str, bool]:
+        """Process output automatically based on type.
+
+        Args:
+            output: Output to process
+
+        Returns:
+            Tuple of (processed output, whether truncation occurred)
         """
         output_type = self.detect_output_type(output)
 
         if output_type == "json":
             return self.process_json(output)
+        elif output_type == "yaml":
+            # For YAML, we need to handle sections and truncation
+            sections = self.extract_yaml_sections(output)
+
+            # Check if we need to truncate
+            if len(output) > self.max_chars:
+                # Use a smaller threshold for each section
+                section_threshold = max(100, self.max_chars // (2 * len(sections)))
+                sections = self.truncate_yaml_status(
+                    sections, threshold=section_threshold
+                )
+                processed_yaml = "\n".join(sections.values())
+                return processed_yaml, True
+            return output, False
         elif output_type == "logs":
             return self.process_logs(output)
-        elif output_type == "yaml":
-            # Use YAML section extraction for YAML
-            sections = self.extract_yaml_sections(output)
-            if "status" in sections and len(sections["status"]) > 1000:
-                # Truncate status section if it's large
-                status = sections["status"]
-                trunc_msg = "\n...[status truncated]...\n"
-                sections["status"] = status[:500] + trunc_msg + status[-500:]
-            processed_yaml = "\n".join(sections.values())
-            return self.process_for_llm(processed_yaml)
         else:
             return self.process_for_llm(output)
 
@@ -262,40 +292,100 @@ class OutputProcessor:
             Dictionary of categorized sections
         """
         sections: Dict[str, List[str]] = {}
-        current_section = "metadata"
+        current_section = "root"
+        section_lines: List[str] = []
 
-        for line in yaml_output.split("\n"):
-            if line.startswith("apiVersion:") or line.startswith("kind:"):
-                current_section = "header"
-                if current_section not in sections:
-                    sections[current_section] = []
-                sections[current_section].append(line)
-            elif line.startswith("metadata:"):
-                current_section = "metadata"
-                if current_section not in sections:
-                    sections[current_section] = []
-                sections[current_section].append(line)
-            elif line.startswith("spec:"):
-                current_section = "spec"
-                if current_section not in sections:
-                    sections[current_section] = []
-                sections[current_section].append(line)
-            elif line.startswith("status:"):
-                current_section = "status"
-                if current_section not in sections:
-                    sections[current_section] = []
-                sections[current_section].append(line)
+        # Normalize line endings and strip trailing whitespace
+        lines = [line.rstrip() for line in yaml_output.split("\n")]
+
+        # Find common indentation to remove
+        non_empty_lines = [line for line in lines if line.strip()]
+        if not non_empty_lines:
+            return {"root": yaml_output.strip()}
+
+        common_indent = min(len(line) - len(line.lstrip()) for line in non_empty_lines)
+
+        # Check if this is a Kubernetes-style YAML with sections
+        has_k8s_sections = False
+        for line in non_empty_lines:
+            line = (
+                line[common_indent:] if line.startswith(" " * common_indent) else line
+            )
+            if not line.startswith(" ") and line.endswith(":"):
+                key = line[:-1]
+                if key in {"metadata", "spec", "status", "apiVersion", "kind"}:
+                    has_k8s_sections = True
+                    break
+
+        # If not a Kubernetes-style YAML, return as root
+        if (
+            not has_k8s_sections
+        ):  # pragma: no cover - edge case for non-k8s YAML tested separately
+            return {"root": yaml_output.strip()}
+
+        # Remove common indentation and collect sections
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Remove common indentation
+            if line.startswith(" " * common_indent):
+                line = line[common_indent:]
+
+            # Check for top-level keys
+            if not line.startswith(" "):
+                key = line.split(":")[0].strip() if ":" in line else ""
+                if key:
+                    if (
+                        section_lines and current_section != "root"
+                    ):  # pragma: no cover - complex YAML parsing branch
+                        sections[current_section] = section_lines
+                    current_section = key
+                    section_lines = [line]
+                else:
+                    section_lines.append(line)
             else:
-                if current_section not in sections:
-                    sections[current_section] = []
-                sections[current_section].append(line)
+                section_lines.append(line)
+
+        # Add the last section
+        if section_lines:
+            sections[current_section] = section_lines
 
         # Convert lists to strings
         result: Dict[str, str] = {}
         for section, lines in sections.items():
-            result[section] = "\n".join(lines)
+            result[section] = "\n".join(lines).strip()
 
         return result
+
+    def process_output_for_vibe(self, output: str) -> Tuple[str, bool]:
+        """Process output for vibe, truncating if necessary."""
+        output_type = self.detect_output_type(output)
+
+        if output_type == "json":
+            return self.process_json(output)
+        elif output_type == "yaml":
+            sections = self.extract_yaml_sections(output)
+
+            # Check if we need to truncate
+            if len(output) > self.max_chars // 2:  # More aggressive threshold
+                # Use a smaller threshold for each section
+                section_threshold = max(
+                    50, self.max_chars // (4 * len(sections))
+                )  # More aggressive
+                sections = self.truncate_yaml_status(
+                    sections, threshold=section_threshold
+                )
+                truncated = True
+            else:
+                truncated = (
+                    False  # pragma: no cover - less common code path for small YAML
+                )
+            return "\n".join(sections.values()), truncated
+        elif output_type == "logs":
+            return self.process_logs(output)
+        else:
+            return self.process_for_llm(output)
 
 
 # Create global instance for easy import

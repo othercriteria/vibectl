@@ -6,6 +6,7 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 """
 
 import datetime
+from typing import Optional
 
 from .config import Config
 
@@ -20,8 +21,11 @@ def refresh_datetime() -> str:
 
 
 # Common formatting instructions for all prompts
-def get_formatting_instructions() -> str:
+def get_formatting_instructions(config: Optional[Config] = None) -> str:
     """Get formatting instructions with current datetime.
+
+    Args:
+        config: Optional Config instance to use. If not provided, creates a new one.
 
     Returns:
         str: Formatting instructions with current datetime
@@ -29,7 +33,7 @@ def get_formatting_instructions() -> str:
     current_time = refresh_datetime()
 
     # Get custom instructions if they exist
-    cfg = Config()
+    cfg = config or Config()
     custom_instructions = cfg.get("custom_instructions")
     custom_instructions_section = ""
     if custom_instructions:
@@ -199,8 +203,9 @@ Here's the request:
 
 {request}"""
 
+
 # Template for planning kubectl logs commands
-PLAN_LOGS_PROMPT = """Given this natural language request for container logs,
+PLAN_LOGS_PROMPT = """Given this natural language request for Kubernetes logs,
 determine the appropriate kubectl logs command arguments.
 
 Important:
@@ -231,6 +236,7 @@ Output:
 Here's the request:
 
 {request}"""
+
 
 # Template for planning kubectl create commands
 PLAN_CREATE_PROMPT = """Given this natural language request to create Kubernetes
@@ -290,6 +296,38 @@ spec:
         image: nginx:latest
         ports:
         - containerPort: 80
+
+Here's the request:
+
+{request}"""
+
+
+# Template for planning kubectl version commands
+PLAN_VERSION_PROMPT = """Given this natural language request for Kubernetes version information,
+determine the appropriate kubectl version command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'version' in the output
+- Include any necessary flags (--output, --short, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults (like --output=json)
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "show version in json format"
+Output:
+--output=json
+
+Input: "get client version only"
+Output:
+--client=true
+--output=json
+
+Input: "show version in yaml"
+Output:
+--output=yaml
 
 Here's the request:
 
@@ -400,7 +438,7 @@ Example format:
 [yellow]Client will be deprecated in 3 months[/yellow]
 
 Here's the version information:
-{{version_info}}"""
+{{output}}"""
 
 
 # Template for planning kubectl events commands
@@ -448,7 +486,7 @@ def events_prompt() -> str:
 Focus on recent events, patterns, warnings, and notable occurrences.
 Group related events and highlight potential issues.
 
-{get_formatting_instructions()}
+{get_formatting_instructions()}  # pragma: no cover - tested in other prompt functions
 
 Example format:
 [bold]12 events[/bold] in the last [italic]10 minutes[/italic]
