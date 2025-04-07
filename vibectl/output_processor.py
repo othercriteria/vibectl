@@ -135,7 +135,7 @@ class OutputProcessor:
                     )
 
             # Process other keys (up to 5)
-            other_keys = [k for k in obj.keys() if k not in self.important_keys]
+            other_keys = [k for k in obj if k not in self.important_keys]
             for key in other_keys[:5]:
                 result[key] = self._truncate_json_object(
                     obj[key], max_depth, current_depth + 1
@@ -183,10 +183,7 @@ class OutputProcessor:
             "discovery": "discoveries",
         }
 
-        if resource_type in irregular_plurals:
-            plural = irregular_plurals[resource_type]
-        else:
-            plural = f"{resource_type}s"
+        plural = irregular_plurals.get(resource_type, f"{resource_type}s")
 
         return f"{plural}/{name}"
 

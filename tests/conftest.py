@@ -5,27 +5,15 @@ This module contains shared fixtures used across multiple test files.
 
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Tuple
+from typing import Any, Dict, Generator, List
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from rich.console import Console
 
+# Import all fixtures from fixtures.py
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
-
-# Import all fixtures from fixtures.py
-from tests.fixtures import (
-    mock_run_kubectl,
-    mock_console,
-    mock_handle_command_output,
-    mock_handle_vibe_request,
-    mock_configure_output_flags,
-    mock_handle_exception,
-    cli_test_mocks,
-    mock_subprocess_run,
-    sample_kubernetes_resources,
-)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -65,10 +53,12 @@ def protect_user_config() -> Generator[None, None, None]:
                 user_config_file.unlink()
 
             # Clean up directory if it didn't exist originally
-            if not had_original_dir and user_config_dir.exists():
-                # Only remove if empty
-                if not any(user_config_dir.iterdir()):
-                    user_config_dir.rmdir()
+            if (
+                not had_original_dir
+                and user_config_dir.exists()
+                and not any(user_config_dir.iterdir())
+            ):
+                user_config_dir.rmdir()
 
         except Exception as e:
             # Log error but don't fail the test
@@ -237,27 +227,3 @@ def sample_deployment_list() -> List[Dict[str, Any]]:
             },
         }
     ]
-
-
-@pytest.fixture
-def cli_test_mocks() -> Generator[Tuple[Mock, Mock, Mock], None, None]:
-    """Provide common mocks required for CLI tests to prevent unmocked calls.
-
-    This fixture combines the most commonly needed mocks for CLI tests:
-    - mock_run_kubectl: Prevents real kubectl commands from being executed
-    - mock_handle_command_output: Prevents real output processing
-    - mock_handle_vibe_request: Prevents real LLM calls
-
-    Using this fixture helps ensure that tests don't accidentally make real calls
-    to external services or commands.
-
-    Returns:
-        Tuple containing (mock_run_kubectl, mock_handle_command_output, mock_handle_vibe_request)
-    """
-    with patch("vibectl.cli.run_kubectl") as mock_run_kubectl, patch(
-        "vibectl.cli.handle_command_output"
-    ) as mock_handle_output, patch(
-        "vibectl.cli.handle_vibe_request"
-    ) as mock_handle_vibe:
-        mock_run_kubectl.return_value = "test output"
-        yield mock_run_kubectl, mock_handle_output, mock_handle_vibe

@@ -21,6 +21,7 @@
             python.pkgs.virtualenv
             python.pkgs.setuptools
             python.pkgs.wheel
+            gh  # GitHub CLI for interacting with GitHub
           ];
 
           shellHook = ''

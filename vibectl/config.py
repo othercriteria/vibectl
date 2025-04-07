@@ -1,8 +1,7 @@
 """Configuration management for vibectl"""
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Type, TypeVar, Union, cast, Optional
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union, cast
 
 import yaml
 
@@ -44,7 +43,7 @@ class Config:
 
     def __init__(self, base_dir: Optional[Path] = None) -> None:
         """Initialize configuration.
-        
+
         Args:
             base_dir: Optional base directory for configuration (used in testing)
         """
@@ -52,10 +51,10 @@ class Config:
         self.config_dir = (base_dir or Path.home()) / ".vibectl"
         self.config_file = self.config_dir / "config.yaml"
         self._config: Dict[str, Any] = {}
-        
+
         # Create config directory if it doesn't exist
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Load or create default config
         if self.config_file.exists():
             self._load_config()
@@ -66,12 +65,12 @@ class Config:
     def _load_config(self) -> None:
         """Load configuration from file."""
         try:
-            with open(self.config_file, "r", encoding="utf-8") as f:
+            with open(self.config_file, encoding="utf-8") as f:
                 loaded_config = yaml.safe_load(f) or {}
                 # Merge with defaults to ensure all keys exist
                 self._config = DEFAULT_CONFIG.copy()
                 self._config.update(loaded_config)
-                
+
                 # Handle legacy llm_model key
                 if "llm_model" in loaded_config and "model" not in loaded_config:
                     self._config["model"] = loaded_config["llm_model"]
@@ -103,7 +102,9 @@ class Config:
         """
         if key not in CONFIG_SCHEMA:
             valid_keys = ", ".join(CONFIG_SCHEMA.keys())
-            raise ValueError(f"Unknown configuration key: {key}. Valid keys are: {valid_keys}")
+            raise ValueError(
+                f"Unknown configuration key: {key}. Valid keys are: {valid_keys}"
+            )
 
     def _convert_to_type(self, key: str, value: str) -> Any:
         """Convert a string value to the correct type based on the schema.
@@ -127,7 +128,9 @@ class Config:
             raise ValueError(f"None is not a valid value for {key}")
 
         # Handle boolean conversion
-        if expected_type == bool or (isinstance(expected_type, tuple) and bool in expected_type):
+        if (isinstance(expected_type, type) and expected_type is bool) or (
+            isinstance(expected_type, tuple) and bool in expected_type
+        ):
             return self._convert_to_bool(key, value)
 
         # Handle other types
@@ -182,12 +185,13 @@ class Config:
             if value not in valid_values:
                 valid_values_str = ", ".join(str(v) for v in valid_values)
                 raise ValueError(
-                    f"Invalid value for {key}: {value}. Valid values: {valid_values_str}"
+                    f"Invalid value for {key}: {value}. "
+                    f"Valid values: {valid_values_str}"
                 )
 
     def set(self, key: str, value: Any) -> None:
         """Set configuration value.
-        
+
         Args:
             key: The configuration key to set
             value: The value to set
@@ -221,7 +225,7 @@ class Config:
         """
         value = self.get(key, default)
         # Cast to the same type as the default to help type checking
-        return cast(T, value)
+        return cast("T", value)
 
     def get_available_themes(self) -> List[str]:
         """Return list of available themes."""
@@ -259,12 +263,19 @@ class Config:
         # Check if key exists in configuration
         if key not in self._config:
             valid_keys = ", ".join(self._config.keys())
-            raise ValueError(f"Key not found in configuration: {key}. Existing keys are: {valid_keys}")
+            raise ValueError(
+                f"Key not found in configuration: {key}. "
+                f"Existing keys are: {valid_keys}"
+            )
 
         # Warn if key is not in schema (likely deprecated)
         if key not in CONFIG_SCHEMA:
             from .console import console_manager
-            console_manager.print_warning(f"Note: '{key}' is not in the current configuration schema (may be deprecated)")
+
+            console_manager.print_warning(
+                f"Note: '{key}' is not in the current configuration schema "
+                f"(may be deprecated)"
+            )
 
         # Reset to default value if one exists
         if key in DEFAULT_CONFIG:
@@ -272,5 +283,5 @@ class Config:
         else:
             # For keys not in DEFAULT_CONFIG, remove them
             self._config.pop(key, None)
-        
+
         self._save_config()

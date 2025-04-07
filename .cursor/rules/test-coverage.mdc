@@ -54,14 +54,14 @@ actions:
       # Check coverage before committing
       if [[ "$(git diff --cached --name-only)" =~ \\.py$ ]]; then
         echo "Checking test coverage..."
-        
+
         # Run coverage check using pytest-cov
         if ! python -m pytest --cov; then
           echo "Error: Test coverage check failed."
           echo "Please ensure coverage meets requirements or document exceptions."
           exit 1
         fi
-        
+
         # Verify all coverage exclusions are documented
         UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
         if [ -n "$UNDOCUMENTED" ]; then
@@ -71,7 +71,7 @@ actions:
           exit 1
         fi
       fi
-      
+
       # Continue with regular commit if checks pass
       git commit "$@"
 
@@ -88,7 +88,7 @@ examples:
       # Bad: Undocumented coverage exclusion
       if debug_mode:  # pragma: no cover
           log_debug_info()
-      
+
       # Good: Documented coverage exclusion
       if os.name == "nt":  # pragma: no cover - Windows-specific code tested separately
           use_windows_path()
@@ -105,4 +105,4 @@ examples:
 metadata:
   priority: high
   version: 1.0
-</rule> 
+</rule>

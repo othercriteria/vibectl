@@ -3,17 +3,16 @@
 This module contains reusable fixtures to reduce duplication across test files.
 """
 
-import pytest
-from unittest.mock import patch, Mock
 from typing import Generator, Tuple
+from unittest.mock import Mock, patch
 
-from vibectl.console import console_manager
+import pytest
 
 
 @pytest.fixture
 def mock_run_kubectl() -> Generator[Mock, None, None]:
     """Mock the run_kubectl function to prevent actual kubectl calls.
-    
+
     Returns:
         Mock: Mocked run_kubectl function that returns "test output" by default.
     """
@@ -25,7 +24,7 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_console() -> Generator[Mock, None, None]:
     """Mock the console_manager to prevent terminal output during tests.
-    
+
     Returns:
         Mock: Mocked console_manager instance.
     """
@@ -36,7 +35,7 @@ def mock_console() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_handle_command_output() -> Generator[Mock, None, None]:
     """Mock the handle_command_output function to prevent actual output processing.
-    
+
     Returns:
         Mock: Mocked handle_command_output function.
     """
@@ -47,7 +46,7 @@ def mock_handle_command_output() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_handle_vibe_request() -> Generator[Mock, None, None]:
     """Mock the handle_vibe_request function to prevent actual LLM calls.
-    
+
     Returns:
         Mock: Mocked handle_vibe_request function.
     """
@@ -58,7 +57,7 @@ def mock_handle_vibe_request() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_configure_output_flags() -> Generator[Mock, None, None]:
     """Mock the configure_output_flags function for control over flags.
-    
+
     Returns:
         Mock: Mocked configure_output_flags function that returns default values.
     """
@@ -70,7 +69,7 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_handle_exception() -> Generator[Mock, None, None]:
     """Mock the handle_exception function to prevent sys.exit during tests.
-    
+
     Returns:
         Mock: Mocked handle_exception function.
     """
@@ -81,18 +80,21 @@ def mock_handle_exception() -> Generator[Mock, None, None]:
 @pytest.fixture
 def cli_test_mocks() -> Generator[Tuple[Mock, Mock, Mock], None, None]:
     """Provide common mocks required for CLI tests to prevent unmocked calls.
-    
+
     This fixture combines the most commonly needed mocks for CLI tests:
     - mock_run_kubectl: Prevents real kubectl commands from being executed
     - mock_handle_command_output: Prevents real output processing
     - mock_handle_vibe_request: Prevents real LLM calls
-    
+
     Returns:
-        Tuple containing (mock_run_kubectl, mock_handle_command_output, mock_handle_vibe_request)
+        Tuple containing (mock_run_kubectl, mock_handle_command_output,
+        mock_handle_vibe_request)
     """
-    with patch("vibectl.cli.run_kubectl") as mock_run_kubectl, \
-         patch("vibectl.cli.handle_command_output") as mock_handle_output, \
-         patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe:
+    with patch("vibectl.cli.run_kubectl") as mock_run_kubectl, patch(
+        "vibectl.cli.handle_command_output"
+    ) as mock_handle_output, patch(
+        "vibectl.cli.handle_vibe_request"
+    ) as mock_handle_vibe:
         mock_run_kubectl.return_value = "test output"
         yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
 
@@ -100,7 +102,7 @@ def cli_test_mocks() -> Generator[Tuple[Mock, Mock, Mock], None, None]:
 @pytest.fixture
 def mock_subprocess_run() -> Generator[Mock, None, None]:
     """Mock subprocess.run to prevent execution of actual commands.
-    
+
     Returns:
         Mock: Mocked subprocess.run function.
     """
@@ -108,7 +110,7 @@ def mock_subprocess_run() -> Generator[Mock, None, None]:
     mock_process.stdout = "mocked stdout"
     mock_process.stderr = ""
     mock_process.returncode = 0
-    
+
     with patch("subprocess.run", return_value=mock_process) as mock_run:
         yield mock_run
 
@@ -116,7 +118,7 @@ def mock_subprocess_run() -> Generator[Mock, None, None]:
 @pytest.fixture
 def sample_kubernetes_resources() -> dict:
     """Provide sample Kubernetes resource data for tests.
-    
+
     Returns:
         dict: Sample resource data including pods, deployments, and services.
     """
@@ -171,7 +173,7 @@ def sample_kubernetes_resources() -> dict:
                         }
                     ],
                 },
-            }
+            },
         ],
         "deployments": [
             {
@@ -200,8 +202,8 @@ def sample_kubernetes_resources() -> dict:
                                     "image": "nginx:1.14.2",
                                 }
                             ],
-                        }
-                    }
+                        },
+                    },
                 },
                 "status": {
                     "availableReplicas": 3,
@@ -234,5 +236,5 @@ def sample_kubernetes_resources() -> dict:
                     "loadBalancer": {},
                 },
             }
-        ]
-    } 
+        ],
+    }

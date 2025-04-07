@@ -112,7 +112,7 @@ def test_truncate_json_object_dict(processor: OutputProcessor) -> None:
     data["name"] = "important"  # Important key
     data["status"] = "active"  # Important key
 
-    truncated = cast(Dict[str, Any], processor._truncate_json_object(data))
+    truncated = cast("Dict[str, Any]", processor._truncate_json_object(data))
 
     # Important keys should be preserved
     assert "name" in truncated
@@ -128,7 +128,7 @@ def test_truncate_json_object_list(processor: OutputProcessor) -> None:
     # Create a large list
     data = list(range(20))
 
-    truncated = cast(List[Any], processor._truncate_json_object(data))
+    truncated = cast("List[Any]", processor._truncate_json_object(data))
 
     # Should keep first and last few items with summary
     assert len(truncated) < len(data)
@@ -142,7 +142,9 @@ def test_truncate_json_object_nested(processor: OutputProcessor) -> None:
     """Test truncating nested objects."""
     data = {"level1": {"level2": {"level3": {"level4": "too deep"}}}}
 
-    truncated = cast(Dict[str, Any], processor._truncate_json_object(data, max_depth=2))
+    truncated = cast(
+        "Dict[str, Any]", processor._truncate_json_object(data, max_depth=2)
+    )
 
     # Should truncate at max_depth
     assert isinstance(truncated["level1"]["level2"], dict)

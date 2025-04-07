@@ -188,7 +188,8 @@ def handle_vibe_request(
         has_yaml_section = False
         found_delimiter = False
 
-        # Parse the output from the LLM, handling both arguments and YAML manifest if present
+        # Parse the output from the LLM, handling both arguments and YAML manifest
+        # if present
         for line in plan.split("\n"):
             if line == "---":
                 found_delimiter = True
@@ -240,7 +241,8 @@ def handle_vibe_request(
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
                 )
-            except Exception as e:  # pragma: no cover - complex error handling path for temporary file management
+            except Exception as e:  # pragma: no cover - complex error handling path
+                # for temporary file management
                 # Clean up temp file if an error occurs
                 if os.path.exists(
                     temp_file_path

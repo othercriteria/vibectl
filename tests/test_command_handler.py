@@ -1,11 +1,10 @@
 """Tests for the command handler module."""
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
 from unittest.mock import MagicMock, Mock, patch
-import tempfile
-import os
 
 import pytest
 
@@ -139,7 +138,10 @@ def test_run_kubectl_no_capture(mock_subprocess: MagicMock) -> None:
 def test_run_kubectl_called_process_error_no_capture(
     mock_subprocess: MagicMock, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Test kubectl command error handling with CalledProcessError in non-capture mode."""
+    """Test kubectl command error handling with CalledProcessError in non-capture mode.
+
+    Verifies proper error handling when subprocess raises a CalledProcessError.
+    """
     error = subprocess.CalledProcessError(1, ["kubectl"], stderr="test error")
     mock_subprocess.side_effect = error
 
@@ -854,7 +856,11 @@ def test_handle_vibe_request_empty_plan(
 def test_handle_vibe_request_error_response_prefix(
     mock_handle_exception: MagicMock, mock_llm: MagicMock
 ) -> None:
-    """Test handle_vibe_request when the LLM returns an error response with ERROR: prefix."""
+    """Test handle_vibe_request when the LLM returns an error response with
+    ERROR: prefix.
+
+    Verifies that error responses are properly handled and exception is raised.
+    """
     # Set up the LLM to return an error response
     mock_model = Mock()
     mock_model.prompt.return_value = Mock(text=lambda: "ERROR: Invalid request format")
@@ -942,10 +948,10 @@ spec:
 """
     mock_model.prompt.return_value = mock_text
     mock_llm.get_model.return_value = mock_model
-    
+
     # Mock kubectl response
     mock_run_kubectl.return_value = "service/nginx-service created"
-    
+
     # Call the function
     handle_vibe_request(
         request="create a deployment with service",
@@ -953,22 +959,22 @@ spec:
         plan_prompt="test prompt {request}",
         summary_prompt_func=lambda: "summary prompt {output}",
     )
-    
+
     # Assert expectations
     mock_llm.get_model.assert_called_once()
     mock_model.prompt.assert_called_once()
-    
+
     # The crucial test: verify kubectl was called with -f flag and correct args
     # We can't test the exact file content, but we can verify the command structure
     args, kwargs = mock_run_kubectl.call_args
     assert args[0][0] == "create"  # Command
-    assert args[0][1] == "-f"      # Flag for file
+    assert args[0][1] == "-f"  # Flag for file
     # No need to check for "-n" since it might be handled differently than expected
-    
+
     # Verify the temp file was created and deleted
     # The third argument should be a path to a temporary file
     temp_file = args[0][2]
     assert not os.path.exists(temp_file)  # Should be deleted after use
-    
+
     # Check output handling
     mock_handle_output.assert_called_once()

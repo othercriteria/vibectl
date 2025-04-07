@@ -2,14 +2,14 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
-from unittest.mock import patch, Mock
 from click.testing import CliRunner
 
-from vibectl.config import Config
 from vibectl.cli import cli
+from vibectl.config import Config
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def test_config_initialization(test_config: Config) -> None:
 def test_config_load_existing(test_config: Config) -> None:
     """Test loading existing configuration."""
     test_config.set("theme", "dark")
-    
+
     # Create new instance pointing to same directory
     new_config = Config(base_dir=test_config.config_dir.parent)
     assert new_config.get("theme") == "dark"
@@ -37,9 +37,9 @@ def test_config_load_existing(test_config: Config) -> None:
 def test_config_save(test_config: Config) -> None:
     """Test saving configuration."""
     test_config.set("theme", "light")
-    
+
     # Read file directly to verify
-    with open(test_config.config_file, "r", encoding="utf-8") as f:
+    with open(test_config.config_file, encoding="utf-8") as f:
         saved_config = yaml.safe_load(f)
     assert saved_config["theme"] == "light"
 
@@ -153,11 +153,12 @@ def test_config_unset_deprecated_key(mock_console: Mock) -> None:
         # First set a deprecated key directly in the config
         cfg._config["llm_model"] = "old-model"
         assert cfg.get("llm_model") == "old-model"
-        
+
         # Unset should work and show a warning
         cfg.unset("llm_model")
         mock_console.print_warning.assert_called_once_with(
-            "Note: 'llm_model' is not in the current configuration schema (may be deprecated)"
+            "Note: 'llm_model' is not in the current configuration schema "
+            "(may be deprecated)"
         )
         assert cfg.get("llm_model") is None
 
@@ -177,7 +178,7 @@ def test_config_load_invalid_yaml(test_config: Config) -> None:
 def test_config_load_file_error(mock_open: Mock, test_config: Config) -> None:
     """Test loading configuration with file error."""
     mock_open.side_effect = OSError("File error")
-    
+
     with pytest.raises(ValueError, match="Failed to load config"):
         test_config._load_config()
 
@@ -186,7 +187,7 @@ def test_config_load_file_error(mock_open: Mock, test_config: Config) -> None:
 def test_config_save_file_error(mock_open: Mock, test_config: Config) -> None:
     """Test saving configuration with file error."""
     mock_open.side_effect = OSError("File error")
-    
+
     with pytest.raises(ValueError, match="Failed to save config"):
         test_config._save_config()
 
@@ -236,7 +237,7 @@ def test_config_legacy_model_key(test_config: Config) -> None:
     assert "llm_model" not in test_config._config
 
     # Verify file was updated
-    with open(test_config.config_file, "r", encoding="utf-8") as f:
+    with open(test_config.config_file, encoding="utf-8") as f:
         saved_config = yaml.safe_load(f)
         assert "model" in saved_config
         assert "llm_model" not in saved_config
@@ -276,12 +277,13 @@ def test_config_save_explicit(test_config: Config) -> None:
     test_config.save()
 
     # Verify file
-    with open(test_config.config_file, "r", encoding="utf-8") as f:
+    with open(test_config.config_file, encoding="utf-8") as f:
         saved_config = yaml.safe_load(f)
         assert saved_config["theme"] == "light"
 
 
 # CLI Config Command Tests
+
 
 @pytest.fixture
 def cli_runner() -> CliRunner:
@@ -290,7 +292,9 @@ def cli_runner() -> CliRunner:
 
 
 @patch("vibectl.cli.Config")
-def test_cli_config_set_save_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_cli_config_set_save_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test config set command handles save error."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
@@ -302,7 +306,9 @@ def test_cli_config_set_save_error(mock_config_class: Mock, cli_runner: CliRunne
 
 
 @patch("vibectl.cli.Config")
-def test_cli_config_show_get_all_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_cli_config_show_get_all_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test config show command handles get_all error."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
@@ -314,7 +320,9 @@ def test_cli_config_show_get_all_error(mock_config_class: Mock, cli_runner: CliR
 
 
 @patch("vibectl.cli.Config")
-def test_cli_config_unset_invalid_key_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_cli_config_unset_invalid_key_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test config unset command handles invalid key error."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
@@ -331,9 +339,9 @@ def test_cli_config_show_basic(mock_config_class: Mock, cli_runner: CliRunner) -
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get_all.return_value = {"key": "value"}
-    
+
     result = cli_runner.invoke(cli, ["config", "show"])
-    
+
     assert result.exit_code == 0
     mock_config.get_all.assert_called_once()
 
@@ -353,9 +361,10 @@ def test_config_convert_type_first_non_none(test_config: Config) -> None:
     """Test type conversion using first non-None type in a tuple of expected types."""
     # This is a bit of an implementation detail, but we need to test the branch
     # for multiple types where we choose the first non-None type
-    
+
     # Temporary schema modification for testing
     import vibectl.config
+
     original_schema = vibectl.config.CONFIG_SCHEMA.copy()
     try:
         # Monkey patch the schema temporarily to test this case
@@ -363,7 +372,7 @@ def test_config_convert_type_first_non_none(test_config: Config) -> None:
             **vibectl.config.CONFIG_SCHEMA,
             "test_multi_type": (type(None), str, int),  # Use a tuple with None first
         }
-        
+
         # Now try to convert a value using this schema
         # This should use str as the first non-None type
         test_config.set("test_multi_type", "test_value")
@@ -377,22 +386,22 @@ def test_config_convert_type_fallback(test_config: Config) -> None:
     """Test type conversion fallback for unusual cases."""
     # This tests the fallback code path where none of the types in a tuple work
     # or where there's only None types (which should never happen in practice)
-    
+
     # Mock the schema and create a controlled test environment
     import vibectl.config
-    
+
     # Create a mock schema with only None type
     test_schema = {**vibectl.config.CONFIG_SCHEMA, "test_bad_schema": (type(None),)}
     original_schema = vibectl.config.CONFIG_SCHEMA
-    
+
     try:
         # Apply the test schema
         vibectl.config.CONFIG_SCHEMA = test_schema
-        
+
         # Add our test key to valid values
         if "test_bad_schema" not in vibectl.config.CONFIG_VALID_VALUES:
             vibectl.config.CONFIG_VALID_VALUES["test_bad_schema"] = ["test_value"]
-        
+
         # This should reach the fallback code path and return the string as-is
         # We need to use a new Config instance to ensure it gets our patched schema
         with TemporaryDirectory() as temp_dir:
@@ -409,21 +418,21 @@ def test_config_convert_type_fallback(test_config: Config) -> None:
 def test_config_convert_type_exception_handling(test_config: Config) -> None:
     """Test exception handling in the _convert_to_type method."""
     import vibectl.config
-    
+
     # Create a test schema with a type that will fail conversion
     class FailingType:
         def __init__(self, value: str) -> None:
             raise ValueError("Conversion always fails")
-    
+
     original_schema = vibectl.config.CONFIG_SCHEMA.copy()
     try:
         # Apply our test schema
         vibectl.config.CONFIG_SCHEMA = {**original_schema, "failing_type": FailingType}
-        
+
         # Add our test key to valid values
         if "failing_type" not in vibectl.config.CONFIG_VALID_VALUES:
             vibectl.config.CONFIG_VALID_VALUES["failing_type"] = ["any_value"]
-        
+
         # Attempt to convert a value that will trigger the exception
         with TemporaryDirectory() as temp_dir:
             test_cfg = Config(Path(temp_dir))
@@ -431,4 +440,4 @@ def test_config_convert_type_exception_handling(test_config: Config) -> None:
                 test_cfg._convert_to_type("failing_type", "any_value")
     finally:
         # Restore the original schema
-        vibectl.config.CONFIG_SCHEMA = original_schema 
+        vibectl.config.CONFIG_SCHEMA = original_schema

@@ -3,13 +3,13 @@
 This module tests the instructions management functionality of vibectl.
 """
 
+from typing import Generator
+from unittest.mock import Mock, patch
+
 import pytest
 from click.testing import CliRunner
-from unittest.mock import patch, Mock
-from typing import Generator
 
-from vibectl.cli import instructions, instructions_set, instructions_show, clear
-from tests.fixtures import mock_console
+from vibectl.cli import clear, instructions_set, instructions_show
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def mock_config() -> Generator[Mock, None, None]:
 def test_instructions_set_basic(mock_config: Mock, cli_runner: CliRunner) -> None:
     """Test setting instructions with direct text input."""
     result = cli_runner.invoke(instructions_set, ["Test instructions"])
-    
+
     assert result.exit_code == 0
     mock_config.set.assert_called_once_with("custom_instructions", "Test instructions")
     mock_config.save.assert_called_once()
@@ -49,15 +49,17 @@ def test_instructions_set_with_editor(
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = "Existing instructions"
     mock_edit.return_value = "Edited instructions"
-    
+
     # Execute
     result = cli_runner.invoke(instructions_set, ["--edit"])
-    
+
     # Assert
     assert result.exit_code == 0
     mock_config.get.assert_called_once_with("custom_instructions", "")
     mock_edit.assert_called_once_with("Existing instructions")
-    mock_config.set.assert_called_once_with("custom_instructions", "Edited instructions")
+    mock_config.set.assert_called_once_with(
+        "custom_instructions", "Edited instructions"
+    )
     mock_config.save.assert_called_once()
 
 
@@ -74,10 +76,10 @@ def test_instructions_set_editor_cancelled(
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = "Existing instructions"
     mock_edit.return_value = None  # Editor was closed without saving
-    
+
     # Execute
     result = cli_runner.invoke(instructions_set, ["--edit"])
-    
+
     # Assert
     assert result.exit_code == 0
     mock_config.set.assert_not_called()
@@ -85,44 +87,50 @@ def test_instructions_set_editor_cancelled(
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_set_no_text(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_set_no_text(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test handling when no instructions text is provided."""
     # Execute
     result = cli_runner.invoke(instructions_set, [])
-    
+
     # Assert
     assert result.exit_code == 1
     mock_config_class.return_value.set.assert_not_called()
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_set_config_save_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_set_config_save_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test handling when config save fails."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.save.side_effect = Exception("Save error")
-    
+
     # Execute
     result = cli_runner.invoke(instructions_set, ["Test instructions"])
-    
+
     # Assert
     assert result.exit_code == 1
     mock_config.set.assert_called_once()
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_show_basic(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_show_basic(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test showing instructions when they are set."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = "Test instructions"
-    
+
     with patch("vibectl.cli.console_manager") as mock_console:
         # Execute
         result = cli_runner.invoke(instructions_show)
-        
+
         # Assert
         assert result.exit_code == 0
         mock_config.get.assert_called_once_with("custom_instructions", "")
@@ -131,17 +139,19 @@ def test_instructions_show_basic(mock_config_class: Mock, cli_runner: CliRunner)
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_show_empty(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_show_empty(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test showing instructions when none are set."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = ""
-    
+
     with patch("vibectl.cli.console_manager") as mock_console:
         # Execute
         result = cli_runner.invoke(instructions_show)
-        
+
         # Assert
         assert result.exit_code == 0
         mock_config.get.assert_called_once_with("custom_instructions", "")
@@ -150,30 +160,34 @@ def test_instructions_show_empty(mock_config_class: Mock, cli_runner: CliRunner)
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_show_get_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_show_get_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test handling when config get fails."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get.side_effect = Exception("Get error")
-    
+
     # Execute
     result = cli_runner.invoke(instructions_show)
-    
+
     # Assert
     assert result.exit_code == 1
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_clear_basic(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_clear_basic(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test clearing instructions."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    
+
     # Execute
     result = cli_runner.invoke(clear)
-    
+
     # Assert
     assert result.exit_code == 0
     mock_config.set.assert_called_once_with("custom_instructions", "")
@@ -181,15 +195,17 @@ def test_instructions_clear_basic(mock_config_class: Mock, cli_runner: CliRunner
 
 
 @patch("vibectl.cli.Config")
-def test_instructions_clear_unset_error(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+def test_instructions_clear_unset_error(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
     """Test handling when config unset fails."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.set.side_effect = Exception("Unset error")
-    
+
     # Execute
     result = cli_runner.invoke(clear)
-    
+
     # Assert
-    assert result.exit_code == 1 
+    assert result.exit_code == 1

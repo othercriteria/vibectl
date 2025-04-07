@@ -6,8 +6,9 @@ This module tests the utility functions used across the application.
 import json
 import subprocess
 from typing import Any, Generator
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch
 
 from vibectl.utils import handle_exception
 
@@ -39,11 +40,11 @@ def test_handle_exception_kubectl_error(test_console: Any) -> None:
     # Create mock CalledProcessError with stderr
     error = subprocess.CalledProcessError(1, "kubectl")
     error.stderr = b"kubectl error message"
-    
+
     with pytest.raises(SystemExit):
         handle_exception(error)
     assert "kubectl error message" in test_console.error_console.export_text()
-    
+
     # Test without stderr
     test_console.error_console.clear()
     error.stderr = None
@@ -57,11 +58,11 @@ def test_handle_exception_file_not_found(test_console: Any) -> None:
     # Test kubectl not found
     error = FileNotFoundError()
     error.filename = "kubectl"
-    
+
     with pytest.raises(SystemExit):
         handle_exception(error)
     assert "kubectl not found in PATH" in test_console.error_console.export_text()
-    
+
     # Test other file not found
     test_console.error_console.clear()
     error.filename = "other_file"
@@ -73,10 +74,13 @@ def test_handle_exception_file_not_found(test_console: Any) -> None:
 def test_handle_exception_json_error(test_console: Any) -> None:
     """Test handling of JSON parsing errors."""
     error = json.JSONDecodeError("Invalid JSON", "{", 0)
-    
+
     with pytest.raises(SystemExit):
         handle_exception(error)
-    assert "kubectl version information not available" in test_console.error_console.export_text()
+    assert (
+        "kubectl version information not available"
+        in test_console.error_console.export_text()
+    )
 
 
 def test_handle_exception_missing_request(test_console: Any) -> None:
@@ -127,4 +131,4 @@ def test_handle_exception_no_exit(test_console: Any) -> None:
     """Test handling exceptions without exiting."""
     result = handle_exception(Exception("test error"), exit_on_error=False)
     assert result is None
-    assert "test error" in test_console.error_console.export_text() 
+    assert "test error" in test_console.error_console.export_text()

@@ -526,7 +526,8 @@ def theme_set(theme_name: str) -> None:
         available_themes = console_manager.get_available_themes()
         if theme_name not in available_themes:  # pragma: no cover - tested separately
             console_manager.print_error(
-                f"Invalid theme '{theme_name}'. Available themes: {', '.join(available_themes)}"
+                f"Invalid theme '{theme_name}'. Available themes: "
+                f"{', '.join(available_themes)}"
             )
             sys.exit(1)
 
@@ -636,8 +637,9 @@ def version(
 ) -> None:
     """Show Kubernetes version information.
 
-    Provides human-friendly interpretation of kubectl version details, highlighting compatibility status,
-    potential upgrade recommendations, and significant version differences.
+    Provides human-friendly interpretation of kubectl version details, highlighting
+    compatibility status, potential upgrade recommendations, and significant version
+    differences.
     """
     try:
         # Configure output flags
@@ -693,6 +695,9 @@ def version(
             handle_exception(e)
     except Exception as e:
         handle_exception(e)
+        # This is unreachable due to sys.exit in handle_exception, but makes the type
+        # checker happy
+        return None
 
 
 @cli.command()
@@ -761,7 +766,8 @@ def main() -> None:
         sys.exit(1)
     except Exception as e:
         handle_exception(e)
-        # This is unreachable due to sys.exit in handle_exception, but makes the type checker happy
+        # This is unreachable due to sys.exit in handle_exception, but makes the type
+        # checker happy
         return None
 
 

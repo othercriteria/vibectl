@@ -303,8 +303,8 @@ Here's the request:
 
 
 # Template for planning kubectl version commands
-PLAN_VERSION_PROMPT = """Given this natural language request for Kubernetes version information,
-determine the appropriate kubectl version command arguments.
+PLAN_VERSION_PROMPT = """Given this natural language request for Kubernetes
+version information, determine the appropriate kubectl version command arguments.
 
 Important:
 - Return ONLY the list of arguments, one per line

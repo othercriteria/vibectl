@@ -49,7 +49,7 @@ actions:
             echo "Please ensure coverage meets requirements or document exceptions."
             exit 1
           fi
-          
+
           # Verify all coverage exclusions are documented
           UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
           if [ -n "$UNDOCUMENTED" ]; then

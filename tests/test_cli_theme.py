@@ -1,8 +1,9 @@
 """Tests for the theme command in the CLI interface."""
 
+from unittest.mock import Mock, call, patch
+
 import pytest
 from click.testing import CliRunner
-from unittest.mock import Mock, patch, call
 
 from vibectl.cli import cli
 
@@ -22,11 +23,9 @@ def test_theme_list_basic(mock_console: Mock, cli_runner: CliRunner) -> None:
 
     assert result.exit_code == 0
     mock_console.print_note.assert_called_once_with("Available themes:")
-    mock_console.print.assert_has_calls([
-        call("  - light"),
-        call("  - dark"),
-        call("  - custom")
-    ])
+    mock_console.print.assert_has_calls(
+        [call("  - light"), call("  - dark"), call("  - custom")]
+    )
 
 
 @patch("vibectl.cli.console_manager")
@@ -53,7 +52,9 @@ def test_theme_set_invalid_theme(mock_console: Mock, cli_runner: CliRunner) -> N
 
 @patch("vibectl.cli.console_manager")
 @patch("vibectl.cli.Config")
-def test_theme_set_save_error(mock_config_class: Mock, mock_console: Mock, cli_runner: CliRunner) -> None:
+def test_theme_set_save_error(
+    mock_config_class: Mock, mock_console: Mock, cli_runner: CliRunner
+) -> None:
     """Test theme set command handles save error."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
@@ -62,4 +63,4 @@ def test_theme_set_save_error(mock_config_class: Mock, mock_console: Mock, cli_r
 
     result = cli_runner.invoke(cli, ["theme", "set", "dark"])
     assert result.exit_code == 1
-    assert "Failed to save theme" in result.output 
+    assert "Failed to save theme" in result.output

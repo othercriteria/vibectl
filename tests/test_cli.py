@@ -1,7 +1,7 @@
 """Tests for the CLI interface.
 
-This module tests the CLI interface of vibectl. All tests in this module should use appropriate
-mocking to prevent real calls to:
+This module tests the CLI interface of vibectl. All tests in this module
+should use appropriate mocking to prevent real calls to:
 1. kubectl (use mock_run_kubectl)
 2. Command output processing (use mock_handle_command_output)
 3. LLM/vibe requests (use mock_handle_vibe_request)

@@ -1,6 +1,7 @@
 """Tests for prompt module.
 
-This module tests the prompt templates and formatting functions used for LLM interactions.
+This module tests the prompt templates and formatting functions used for LLM
+interactions.
 
 Test Policy:
 1. Structural Tests:
@@ -18,27 +19,29 @@ Test Policy:
 
 import datetime
 from typing import Callable
-from unittest.mock import patch, Mock
+from unittest.mock import patch
+
 import pytest
+
+from vibectl.config import Config
 from vibectl.prompt import (
-    refresh_datetime,
+    PLAN_CLUSTER_INFO_PROMPT,
+    PLAN_CREATE_PROMPT,
+    PLAN_DESCRIBE_PROMPT,
+    PLAN_EVENTS_PROMPT,
+    PLAN_GET_PROMPT,
+    PLAN_LOGS_PROMPT,
+    PLAN_VERSION_PROMPT,
+    cluster_info_prompt,
+    create_resource_prompt,
+    describe_resource_prompt,
+    events_prompt,
     get_formatting_instructions,
     get_resource_prompt,
-    describe_resource_prompt,
     logs_prompt,
-    PLAN_GET_PROMPT,
-    PLAN_DESCRIBE_PROMPT,
-    PLAN_LOGS_PROMPT,
-    PLAN_CREATE_PROMPT,
-    PLAN_CLUSTER_INFO_PROMPT,
-    PLAN_VERSION_PROMPT,
-    PLAN_EVENTS_PROMPT,
-    create_resource_prompt,
-    cluster_info_prompt,
+    refresh_datetime,
     version_prompt,
-    events_prompt,
 )
-from vibectl.config import Config
 
 
 def test_refresh_datetime() -> None:
@@ -55,11 +58,11 @@ def test_get_formatting_instructions_no_custom(test_config: Config) -> None:
     """Test get_formatting_instructions without custom instructions."""
     mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
     test_config.set("custom_instructions", None)  # Clear any custom instructions
-    
+
     with patch("datetime.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_now
         result = get_formatting_instructions(test_config)
-        
+
         # Check basic structure
         assert len(result) > 100  # Should be reasonably sized
         assert "rich.Console() markup syntax" in result  # Core requirement
@@ -71,165 +74,197 @@ def test_get_formatting_instructions_with_custom(test_config: Config) -> None:
     """Test get_formatting_instructions with custom instructions."""
     mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
     test_config.set("custom_instructions", "Test custom instruction")
-    
+
     with patch("datetime.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_now
         result = get_formatting_instructions(test_config)
-        
+
         # Check custom instructions section exists
         assert "Custom instructions:" in result
         assert "Test custom instruction" in result
 
 
 # Semantic requirements that all prompts must meet
-@pytest.mark.parametrize("prompt_func", [
-    get_resource_prompt,
-    describe_resource_prompt,
-    logs_prompt,
-    create_resource_prompt,
-    cluster_info_prompt,
-    version_prompt,
-    events_prompt,
-])
+@pytest.mark.parametrize(
+    "prompt_func",
+    [
+        get_resource_prompt,
+        describe_resource_prompt,
+        logs_prompt,
+        create_resource_prompt,
+        cluster_info_prompt,
+        version_prompt,
+        events_prompt,
+    ],
+)
 def test_prompt_semantic_requirements(prompt_func: Callable[[], str]) -> None:
     """Test semantic requirements that all prompts must meet.
-    
+
     Requirements:
     1. Must include rich.Console() markup syntax instructions
     2. Must include current datetime for timestamp context
     3. Must have reasonable length (not too short/long)
-    
+
     TODO: Add more semantic requirements as needed, but keep them minimal
     and focused on critical elements that must be present.
     """
     with patch("datetime.datetime") as mock_datetime:
         mock_datetime.now.return_value = datetime.datetime(2024, 3, 20, 10, 30, 45)
         result = prompt_func()
-        
+
         # Core requirements
         assert "rich.Console() markup syntax" in result
         assert "Current date and time is" in result
         assert 100 < len(result) < 2000  # Reasonable size limits
 
 
-@pytest.mark.parametrize("prompt_func,required_placeholder", [
-    (get_resource_prompt, "{output}"),
-    (describe_resource_prompt, "{output}"),
-    (logs_prompt, "{output}"),
-    (create_resource_prompt, "{output}"),
-    (cluster_info_prompt, "{output}"),
-    (version_prompt, "{output}"),
-    (events_prompt, "{output}"),
-])
-def test_prompt_structure(prompt_func: Callable[[], str], required_placeholder: str) -> None:
+@pytest.mark.parametrize(
+    "prompt_func,required_placeholder",
+    [
+        (get_resource_prompt, "{output}"),
+        (describe_resource_prompt, "{output}"),
+        (logs_prompt, "{output}"),
+        (create_resource_prompt, "{output}"),
+        (cluster_info_prompt, "{output}"),
+        (version_prompt, "{output}"),
+        (events_prompt, "{output}"),
+    ],
+)
+def test_prompt_structure(
+    prompt_func: Callable[[], str], required_placeholder: str
+) -> None:
     """Test basic structure of prompts."""
     result = prompt_func()
-    
+
     # Check basic structure
     assert len(result) > 100  # Should be reasonably sized
     assert required_placeholder in result  # Required placeholder
 
 
-@pytest.mark.parametrize("prompt,required_elements", [
-    (PLAN_GET_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'get'",
-        ],
-        "examples": [
-            "show me pods in kube-system",
-            "get pods with app=nginx label",
-        ],
-    }),
-    (PLAN_DESCRIBE_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'describe'",
-        ],
-        "examples": [
-            "tell me about the nginx pod",
-            "describe the deployment in kube-system namespace",
-        ],
-    }),
-    (PLAN_LOGS_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'logs'",
-        ],
-        "examples": [
-            "show me logs from the nginx pod",
-            "get logs from the api container in my-app pod",
-        ],
-    }),
-    (PLAN_CREATE_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return the list of arguments",
-            "Do not include 'kubectl' or 'create'",
-        ],
-        "examples": [
-            "create an nginx hello world pod",
-            "create a deployment with 3 nginx replicas in prod namespace",
-        ],
-    }),
-    (PLAN_CLUSTER_INFO_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'cluster-info'",
-        ],
-        "examples": [
-            "show cluster info",
-            "show basic cluster info",
-        ],
-    }),
-    (PLAN_VERSION_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'version'",
-        ],
-        "examples": [
-            "show version in json format",
-            "get client version only",
-        ],
-    }),
-    (PLAN_EVENTS_PROMPT, {
-        "placeholder": "{request}",
-        "required_phrases": [
-            "Given this natural language request",
-            "Return ONLY the list of arguments",
-            "Do not include 'kubectl' or 'get events'",
-        ],
-        "examples": [
-            "show events in default namespace",
-            "get events for pod nginx",
-        ],
-    }),
-])
+@pytest.mark.parametrize(
+    "prompt,required_elements",
+    [
+        (
+            PLAN_GET_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'get'",
+                ],
+                "examples": [
+                    "show me pods in kube-system",
+                    "get pods with app=nginx label",
+                ],
+            },
+        ),
+        (
+            PLAN_DESCRIBE_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'describe'",
+                ],
+                "examples": [
+                    "tell me about the nginx pod",
+                    "describe the deployment in kube-system namespace",
+                ],
+            },
+        ),
+        (
+            PLAN_LOGS_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'logs'",
+                ],
+                "examples": [
+                    "show me logs from the nginx pod",
+                    "get logs from the api container in my-app pod",
+                ],
+            },
+        ),
+        (
+            PLAN_CREATE_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return the list of arguments",
+                    "Do not include 'kubectl' or 'create'",
+                ],
+                "examples": [
+                    "create an nginx hello world pod",
+                    "create a deployment with 3 nginx replicas in prod namespace",
+                ],
+            },
+        ),
+        (
+            PLAN_CLUSTER_INFO_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'cluster-info'",
+                ],
+                "examples": [
+                    "show cluster info",
+                    "show basic cluster info",
+                ],
+            },
+        ),
+        (
+            PLAN_VERSION_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'version'",
+                ],
+                "examples": [
+                    "show version in json format",
+                    "get client version only",
+                ],
+            },
+        ),
+        (
+            PLAN_EVENTS_PROMPT,
+            {
+                "placeholder": "{request}",
+                "required_phrases": [
+                    "Given this natural language request",
+                    "Return ONLY the list of arguments",
+                    "Do not include 'kubectl' or 'get events'",
+                ],
+                "examples": [
+                    "show events in default namespace",
+                    "get events for pod nginx",
+                ],
+            },
+        ),
+    ],
+)
 def test_plan_prompts(prompt: str, required_elements: dict) -> None:
     """Test plan prompt templates.
-    
+
     Tests both structural requirements and critical semantic elements that
     must be present in plan prompts.
     """
     # Check basic structure
     assert len(prompt) > 100  # Should be reasonably sized
     assert required_elements["placeholder"] in prompt
-    
+
     # Check required semantic elements
     for phrase in required_elements["required_phrases"]:
         assert phrase in prompt
-    
+
     # Check examples
     for example in required_elements["examples"]:
-        assert example in prompt 
+        assert example in prompt
