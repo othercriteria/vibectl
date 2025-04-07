@@ -221,19 +221,26 @@ pytest
 
 The project uses pre-commit hooks for code quality, configured in
 `.pre-commit-config.yaml`. These run automatically on commit and include:
-- Black for code formatting
-- isort for import sorting
-- Flake8 for style guide enforcement
+- Ruff format for code formatting (replaces Black)
+- Ruff check for linting and error detection (replaces Flake8)
+- Ruff check --fix for import sorting (replaces isort)
 - MyPy for type checking
+
+Configuration for Ruff is managed in the `pyproject.toml` file under the
+`[tool.ruff]` section.
 
 ### Cursor Rules
 
 The project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain
-consistent development practices. These include:
-- `python-venv.mdc`: Python virtual environment usage
-- `rules.mdc`: Rule file organization standards
-- `no-bazel.mdc`: Build system standards
-- `autonomous-commits.mdc`: Commit automation
+consistent development practices. For details on these rules, including their
+purpose and implementation, see [RULES.md](RULES.md).
+
+Our rules system covers:
+- Code quality and style enforcement
+- Test organization and coverage requirements
+- Documentation standards
+- Build system conventions
+- Commit automation
 
 ## License
 
