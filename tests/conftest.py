@@ -4,8 +4,9 @@ This module contains shared fixtures used across multiple test files.
 """
 
 import shutil
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, List
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -159,71 +160,70 @@ def test_console() -> Generator[ConsoleManager, None, None]:
 
 
 @pytest.fixture
-def sample_pod_list() -> List[Dict[str, Any]]:
-    """Create a sample list of pod resources for testing.
-
-    Returns:
-        List[Dict[str, Any]]: Sample pod list data.
-    """
+def sample_pod_list() -> list[dict[str, Any]]:
+    """Create a sample list of pod resources for testing."""
     return [
         {
+            "kind": "Pod",
+            "apiVersion": "v1",
             "metadata": {
-                "name": "test-pod-1",
+                "name": f"test-pod-{i}",
                 "namespace": "default",
-                "uid": "123",
+                "labels": {"app": "test"},
+            },
+            "spec": {
+                "containers": [{"name": "nginx", "image": "nginx:latest"}],
             },
             "status": {
-                "phase": "Running",
-                "containerStatuses": [
+                "phase": "Running" if i % 2 == 0 else "Pending",
+                "conditions": [
                     {
-                        "name": "main",
-                        "ready": True,
-                        "restartCount": 0,
+                        "type": "Ready",
+                        "status": "True" if i % 2 == 0 else "False",
                     }
                 ],
             },
-        },
-        {
-            "metadata": {
-                "name": "test-pod-2",
-                "namespace": "default",
-                "uid": "456",
-            },
-            "status": {
-                "phase": "Failed",
-                "containerStatuses": [
-                    {
-                        "name": "main",
-                        "ready": False,
-                        "restartCount": 5,
-                    }
-                ],
-            },
-        },
+        }
+        for i in range(5)
     ]
 
 
 @pytest.fixture
-def sample_deployment_list() -> List[Dict[str, Any]]:
-    """Create a sample list of deployment resources for testing.
-
-    Returns:
-        List[Dict[str, Any]]: Sample deployment list data.
-    """
+def sample_deployment_list() -> list[dict[str, Any]]:
+    """Create a sample list of deployment resources for testing."""
     return [
         {
+            "kind": "Deployment",
+            "apiVersion": "apps/v1",
             "metadata": {
-                "name": "test-deployment-1",
+                "name": f"test-deployment-{i}",
                 "namespace": "default",
-                "uid": "789",
             },
             "spec": {
-                "replicas": 3,
+                "replicas": i + 1,
+                "selector": {
+                    "matchLabels": {"app": f"test-{i}"},
+                },
+                "template": {
+                    "metadata": {
+                        "labels": {"app": f"test-{i}"},
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "nginx",
+                                "image": "nginx:latest",
+                            }
+                        ],
+                    },
+                },
             },
             "status": {
-                "availableReplicas": 3,
-                "readyReplicas": 3,
-                "replicas": 3,
+                "availableReplicas": i if i < 3 else 3,
+                "readyReplicas": i if i < 3 else 3,
+                "replicas": i + 1,
+                "updatedReplicas": i + 1,
             },
         }
+        for i in range(5)
     ]

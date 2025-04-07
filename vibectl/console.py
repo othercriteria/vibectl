@@ -1,11 +1,10 @@
 """
-Console management for vibectl.
+Console UI for vibectl.
 
-Provides utility functions and classes for managing console output,
-error handling, and formatting for vibectl commands.
+This module provides console UI functionality for vibectl.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from rich.console import Console
 from rich.table import Table
@@ -78,7 +77,7 @@ class ConsoleManager:
         self.console = Console(theme=self._theme)
         self.error_console = Console(stderr=True, theme=self._theme)
 
-    def get_available_themes(self) -> List[str]:
+    def get_available_themes(self) -> list[str]:
         """Get list of available theme names.
 
         Returns:
@@ -165,7 +164,7 @@ class ConsoleManager:
             "Use 'vibe' commands to get AI-powered insights about your cluster"
         )
 
-    def print_config_table(self, config_data: Dict[str, Any]) -> None:
+    def print_config_table(self, config_data: dict[str, Any]) -> None:
         """Print configuration data in a table.
 
         Args:
@@ -201,7 +200,7 @@ class ConsoleManager:
         if show_vibe and vibe_output:
             self.print_vibe(vibe_output)
 
-    def process_output_for_vibe(self, output: str) -> Tuple[str, bool]:
+    def process_output_for_vibe(self, output: str) -> tuple[str, bool]:
         """Process output for vibe, truncating if necessary."""
         if len(output) <= 1000:
             return output, False

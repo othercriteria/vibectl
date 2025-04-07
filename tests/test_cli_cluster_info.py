@@ -3,7 +3,7 @@
 This module tests the cluster-info command functionality of vibectl.
 """
 
-from typing import Generator
+from collections.abc import Generator
 from unittest.mock import Mock, patch
 
 import pytest

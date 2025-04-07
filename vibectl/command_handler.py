@@ -5,9 +5,10 @@ Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
 """
 
+import os
 import subprocess
 import sys
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional
 
 import llm
 
@@ -24,7 +25,7 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
 
 def run_kubectl(
-    cmd: List[str], capture: bool = False, config: Optional[Config] = None
+    cmd: list[str], capture: bool = False, config: Optional[Config] = None
 ) -> Optional[str]:
     """Run kubectl command with configured kubeconfig.
 
@@ -208,7 +209,6 @@ def handle_vibe_request(
 
         # Special handling for 'create' command with YAML content
         if command == "create" and has_yaml_section:
-            import os
             import tempfile
 
             # Create a temporary file for the YAML content
@@ -281,13 +281,19 @@ def handle_vibe_request(
 
 def configure_output_flags(
     show_raw_output: Optional[bool] = None,
+    yaml: Optional[bool] = None,
+    json: Optional[bool] = None,
+    vibe: Optional[bool] = None,
     show_vibe: Optional[bool] = None,
     model: Optional[str] = None,
-) -> Tuple[bool, bool, bool, str]:
+) -> tuple[bool, bool, bool, str]:
     """Configure output flags based on config.
 
     Args:
         show_raw_output: Optional override for showing raw output
+        yaml: Optional override for showing YAML output
+        json: Optional override for showing JSON output
+        vibe: Optional override for showing vibe output
         show_vibe: Optional override for showing vibe output
         model: Optional override for LLM model
 
@@ -302,14 +308,19 @@ def configure_output_flags(
         if show_raw_output is not None
         else config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
     )
+
     show_vibe_output = (
         show_vibe
         if show_vibe is not None
+        else vibe
+        if vibe is not None
         else config.get("show_vibe", DEFAULT_SHOW_VIBE)
     )
+
     suppress_warning = (
         show_raw or show_vibe_output
     )  # Suppress warning if showing either output
+
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
     return show_raw, show_vibe_output, suppress_warning, model_name

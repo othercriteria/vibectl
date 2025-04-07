@@ -10,7 +10,7 @@ For most CLI tests, use the cli_test_mocks fixture which provides all three.
 """
 
 import subprocess
-from typing import Generator
+from collections.abc import Generator
 from unittest.mock import Mock, call, patch
 
 import pytest

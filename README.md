@@ -246,7 +246,3 @@ Our rules system covers:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 for details.
-
-## Author
-
-vibectl was developed in 2025 by Daniel Klein (othercriteria@gmail.com).

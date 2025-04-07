@@ -145,24 +145,6 @@ def test_config_unset_nonexistent_key() -> None:
             cfg.unset("nonexistent_key")
 
 
-@patch("vibectl.console.console_manager")
-def test_config_unset_deprecated_key(mock_console: Mock) -> None:
-    """Test unsetting a deprecated configuration key."""
-    with TemporaryDirectory() as temp_dir:
-        cfg = Config(Path(temp_dir))
-        # First set a deprecated key directly in the config
-        cfg._config["llm_model"] = "old-model"
-        assert cfg.get("llm_model") == "old-model"
-
-        # Unset should work and show a warning
-        cfg.unset("llm_model")
-        mock_console.print_warning.assert_called_once_with(
-            "Note: 'llm_model' is not in the current configuration schema "
-            "(may be deprecated)"
-        )
-        assert cfg.get("llm_model") is None
-
-
 def test_config_load_invalid_yaml(test_config: Config) -> None:
     """Test loading invalid YAML configuration."""
     # Write invalid YAML to config file

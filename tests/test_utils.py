@@ -5,7 +5,8 @@ This module tests the utility functions used across the application.
 
 import json
 import subprocess
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import patch
 
 import pytest

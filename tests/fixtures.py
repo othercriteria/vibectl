@@ -3,7 +3,7 @@
 This module contains reusable fixtures to reduce duplication across test files.
 """
 
-from typing import Generator, Tuple
+from collections.abc import Generator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -78,23 +78,76 @@ def mock_handle_exception() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def cli_test_mocks() -> Generator[Tuple[Mock, Mock, Mock], None, None]:
-    """Provide common mocks required for CLI tests to prevent unmocked calls.
+def mock_kubectl_output() -> str:
+    """Provide sample kubectl output for tests."""
+    return """
+NAME                    READY   STATUS    RESTARTS   AGE
+test-pod-1              1/1     Running   0          24h
+test-pod-2              0/1     Error     5          12h
+"""
 
-    This fixture combines the most commonly needed mocks for CLI tests:
-    - mock_run_kubectl: Prevents real kubectl commands from being executed
-    - mock_handle_command_output: Prevents real output processing
-    - mock_handle_vibe_request: Prevents real LLM calls
 
-    Returns:
-        Tuple containing (mock_run_kubectl, mock_handle_command_output,
-        mock_handle_vibe_request)
-    """
-    with patch("vibectl.cli.run_kubectl") as mock_run_kubectl, patch(
-        "vibectl.cli.handle_command_output"
-    ) as mock_handle_output, patch(
-        "vibectl.cli.handle_vibe_request"
-    ) as mock_handle_vibe:
+@pytest.fixture
+def mock_yaml_output() -> str:
+    """Provide sample YAML output for tests."""
+    return """
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+  namespace: default
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+status:
+  phase: Running
+  conditions:
+  - type: Ready
+    status: "True"
+"""
+
+
+@pytest.fixture
+def mock_json_output() -> str:
+    """Provide sample JSON output for tests."""
+    return """
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "test-pod",
+    "namespace": "default"
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "nginx",
+        "image": "nginx:latest"
+      }
+    ]
+  },
+  "status": {
+    "phase": "Running",
+    "conditions": [
+      {
+        "type": "Ready",
+        "status": "True"
+      }
+    ]
+  }
+}
+"""
+
+
+@pytest.fixture
+def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
+    """Provide common mocks required for CLI tests to prevent unmocked calls."""
+    with (
+        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
+        patch("vibectl.cli.handle_command_output") as mock_handle_output,
+        patch("vibectl.cli.handle_vibe_command") as mock_handle_vibe,
+    ):
         mock_run_kubectl.return_value = "test output"
         yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
 
