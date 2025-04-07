@@ -3,7 +3,7 @@ name = "vibectl"
 version = "0.1.0"
 description = "A vibes-based alternative to kubectl"
 authors = [
-    { name = "vibectl Contributors" }
+    { name = "Daniel Klein", email = "othercriteria@gmail.com" }
 ]
 dependencies = [
     "click>=8.1.0",
