@@ -4,7 +4,7 @@ Console UI for vibectl.
 This module provides console UI functionality for vibectl.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -95,7 +95,7 @@ class ConsoleManager:
         self.console = Console(theme=self._theme)
         self.error_console = Console(stderr=True, theme=self._theme)
 
-    def print(self, message: str, style: Optional[str] = None) -> None:
+    def print(self, message: str, style: str | None = None) -> None:
         """Print a message with optional style."""
         self.console.print(message, style=style)
 
@@ -111,7 +111,7 @@ class ConsoleManager:
         """Print a warning message."""
         self.error_console.print(f"Warning: {message}", style="warning")
 
-    def print_note(self, message: str, error: Optional[Exception] = None) -> None:
+    def print_note(self, message: str, error: Exception | None = None) -> None:
         """Print a note message with optional error."""
         if error:
             self.error_console.print(f"Note: {message} ({error!s})", style="info")
@@ -184,7 +184,7 @@ class ConsoleManager:
         output: str,
         show_raw_output: bool,
         show_vibe: bool,
-        vibe_output: Optional[str] = None,
+        vibe_output: str | None = None,
     ) -> None:
         """Handle displaying command output in both raw and vibe formats.
 

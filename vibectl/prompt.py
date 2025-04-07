@@ -6,7 +6,6 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 """
 
 import datetime
-from typing import Optional
 
 from .config import Config
 
@@ -21,7 +20,7 @@ def refresh_datetime() -> str:
 
 
 # Common formatting instructions for all prompts
-def get_formatting_instructions(config: Optional[Config] = None) -> str:
+def get_formatting_instructions(config: Config | None = None) -> str:
     """Get formatting instructions with current datetime.
 
     Args:

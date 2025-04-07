@@ -7,28 +7,31 @@ Contains reusable helper functions used across the application.
 import json
 import subprocess
 import sys
-from typing import NoReturn, Optional
+
+from rich.console import Console
 
 from .console import console_manager
 
+error_console = Console(stderr=True)
 
-def handle_exception(e: Exception, exit_on_error: bool = True) -> Optional[NoReturn]:
-    """Handle common exceptions consistently.
+
+def handle_exception(e: Exception, exit_on_error: bool = True) -> None:
+    """Handle exceptions with nice error messages.
 
     Args:
-        e: The exception to handle
-        exit_on_error: Whether to exit the program on error
+        e: Exception to handle
+        exit_on_error: Whether to exit the process
 
     Returns:
-        None if exit_on_error is False, otherwise does not return
+        None if exit_on_error is False, otherwise this function never returns
     """
-    error_msg = str(e).lower()
+    error_console.print(f"[bold red]Error:[/] {e!s}")
 
     # Handle API key related errors
     if (
-        "no key found" in error_msg
-        or "api key" in error_msg
-        or "missing api key" in error_msg
+        "no key found" in str(e).lower()
+        or "api key" in str(e).lower()
+        or "missing api key" in str(e).lower()
     ):
         console_manager.print_missing_api_key_error()
 
@@ -45,7 +48,7 @@ def handle_exception(e: Exception, exit_on_error: bool = True) -> Optional[NoRet
 
     # Handle file not found errors (typically kubectl not in PATH)
     elif isinstance(e, FileNotFoundError):
-        if "kubectl" in error_msg or getattr(e, "filename", "") == "kubectl":
+        if "kubectl" in str(e).lower() or getattr(e, "filename", "") == "kubectl":
             console_manager.print_error("kubectl not found in PATH")
         else:
             console_manager.print_error(
@@ -53,28 +56,28 @@ def handle_exception(e: Exception, exit_on_error: bool = True) -> Optional[NoRet
             )
 
     # Handle JSON parsing errors
-    elif isinstance(e, (json.JSONDecodeError, ValueError)) and "json" in error_msg:
+    elif isinstance(e, json.JSONDecodeError | ValueError) and "json" in str(e).lower():
         console_manager.print_note("kubectl version information not available")
 
     # Handle 'Missing request after vibe' errors
-    elif "missing request after 'vibe'" in error_msg:
+    elif "missing request after 'vibe'" in str(e).lower():
         console_manager.print_missing_request_error()
 
     # Handle LLM errors
-    elif "llm error" in error_msg:
+    elif "llm error" in str(e).lower():
         console_manager.print_error(str(e))
         console_manager.print_note("Could not get vibe check")
 
     # Handle invalid response format errors
-    elif "invalid response format" in error_msg:
+    elif "invalid response format" in str(e).lower():
         console_manager.print_error(str(e))
 
     # Handle truncation warnings specially
-    elif "truncated" in error_msg and "output" in error_msg:
+    elif "truncated" in str(e).lower() and "output" in str(e).lower():
         console_manager.print_truncation_warning()
 
     # Handle empty output cases
-    elif "no output" in error_msg or "empty output" in error_msg:
+    elif "no output" in str(e).lower() or "empty output" in str(e).lower():
         console_manager.print_empty_output_message()
 
     # Handle general errors
@@ -83,6 +86,4 @@ def handle_exception(e: Exception, exit_on_error: bool = True) -> Optional[NoRet
 
     if exit_on_error:
         sys.exit(1)
-
-    # Return None when exit_on_error is False
     return None

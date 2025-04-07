@@ -59,6 +59,7 @@ This document provides an overview of the project's structure and organization.
 ### Type Safety
 - Extensive type annotations throughout codebase
 - Generic type parameters and TypeVar for flexible interfaces
+- Requires Python 3.10+, uses Python 3.10 features like match statements and union operators
 
 ### Configuration System
 - Type-safe configuration with validation

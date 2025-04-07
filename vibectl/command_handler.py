@@ -8,7 +8,7 @@ to reduce duplication across CLI commands.
 import os
 import subprocess
 import sys
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import llm
 
@@ -25,8 +25,8 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
 
 def run_kubectl(
-    cmd: list[str], capture: bool = False, config: Optional[Config] = None
-) -> Optional[str]:
+    cmd: list[str], capture: bool = False, config: Config | None = None
+) -> str | None:
     """Run kubectl command with configured kubeconfig.
 
     Args:
@@ -280,12 +280,12 @@ def handle_vibe_request(
 
 
 def configure_output_flags(
-    show_raw_output: Optional[bool] = None,
-    yaml: Optional[bool] = None,
-    json: Optional[bool] = None,
-    vibe: Optional[bool] = None,
-    show_vibe: Optional[bool] = None,
-    model: Optional[str] = None,
+    show_raw_output: bool | None = None,
+    yaml: bool | None = None,
+    json: bool | None = None,
+    vibe: bool | None = None,
+    show_vibe: bool | None = None,
+    model: str | None = None,
 ) -> tuple[bool, bool, bool, str]:
     """Configure output flags based on config.
 
@@ -324,3 +324,43 @@ def configure_output_flags(
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
     return show_raw, show_vibe_output, suppress_warning, model_name
+
+
+def handle_command_with_options(
+    cmd: list[str],
+    show_raw_output: bool | None = None,
+    yaml: bool | None = None,
+    json: bool | None = None,
+    vibe: bool | None = None,
+    show_vibe: bool | None = None,
+    model: str | None = None,
+    config: Config | None = None,
+) -> tuple[str, bool]:
+    """Handle command with output options.
+
+    Args:
+        cmd: Command to run
+        show_raw_output: Whether to show raw output
+        yaml: Whether to use yaml output
+        json: Whether to use json output
+        vibe: Whether to vibe the output
+        show_vibe: Whether to show vibe output
+        model: Model to use for vibe
+        config: Config object
+
+    Returns:
+        Tuple of output and vibe status
+    """
+    # Configure output flags
+    show_raw, show_vibe_output, suppress_warning, model_name = configure_output_flags(
+        show_raw_output, yaml, json, vibe, show_vibe, model
+    )
+
+    # Run the command
+    output = run_kubectl(cmd, capture=True, config=config)
+
+    # Ensure we have a string
+    if output is None:
+        output = ""
+
+    return output, show_vibe_output

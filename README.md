@@ -14,6 +14,12 @@ your cluster management more intuitive and fun!
 - 🎨 Theme support with multiple visual styles
 - 📊 Intelligent output formatting for different resource types
 
+## Requirements
+
+- Python 3.10+
+- [Flake](https://flake.build)
+- Anthropic API key (for Claude models)
+
 ## Installation
 
 1. Install [Flake](https://flake.build)

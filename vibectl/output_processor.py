@@ -41,7 +41,7 @@ class OutputProcessor:
 
     def _truncate_json_object(self, obj: Any, max_depth: int = 3) -> Any:
         """Recursively truncate a JSON object to a maximum depth."""
-        if not isinstance(obj, (dict, list)) or max_depth <= 0:
+        if not isinstance(obj, dict | list) or max_depth <= 0:
             return obj
 
         if isinstance(obj, dict):
@@ -218,7 +218,7 @@ class OutputProcessor:
         return sections
 
     def process_auto(self, output: str) -> tuple[str, bool]:
-        """Process output automatically based on type.
+        """Process output based on auto-detection of type.
 
         Args:
             output: Output to process
@@ -226,55 +226,19 @@ class OutputProcessor:
         Returns:
             Tuple of (processed output, whether truncation occurred)
         """
+        # Detect output type
         output_type = self.detect_output_type(output)
 
-        if output_type == "json":
-            return self.process_json(output)
-        elif output_type == "yaml":
-            # For YAML, we need to handle sections and truncation
-            sections = self.extract_yaml_sections(output)
-
-            # Check if we need to truncate
-            if len(output) > self.max_chars:
-                # Use a smaller threshold for each section
-                section_count = max(1, len(sections))  # Ensure we don't divide by zero
-                section_threshold = max(100, self.max_chars // (2 * section_count))
-
-                # Truncate status section first
-                sections = self.truncate_yaml_status(sections)
-
-                # If there are still too many sections, truncate more
-                truncated = False
-                result_yaml = ""
-                for key, value in sections.items():
-                    if len(value) > section_threshold:
-                        truncated = True
-                        if key == "status":
-                            # Status sections can be heavily truncated
-                            lines = value.split("\n")
-                            if len(lines) > 10:
-                                value = (
-                                    "\n".join(lines[:5])
-                                    + "\n...\n"
-                                    + "\n".join(lines[-5:])
-                                )
-                        else:
-                            # Other sections use standard truncation
-                            value = self.truncate_string(value, section_threshold)
-
-                    result_yaml += f"{key}:\n{textwrap.indent(value, '  ')}\n\n"
-
-                return result_yaml.strip(), truncated
-
-            # No truncation needed
-            result_yaml = ""
-            for key, value in sections.items():
-                result_yaml += f"{key}:\n{textwrap.indent(value, '  ')}\n\n"
-
-            return result_yaml.strip(), False
-
-        # Fallback to basic processing
-        return self.process_logs(output)
+        # Use match statement to handle different output types (Python 3.10+)
+        match output_type:
+            case "json":
+                return self.process_json(output)
+            case "yaml":
+                return self.process_yaml(output)
+            case "logs":
+                return self.process_logs(output)
+            case _:  # Default case
+                return self.process_for_llm(output)
 
     def process_output_for_vibe(self, output: str) -> tuple[str, bool]:
         """Process output for vibe, truncating if necessary."""
@@ -352,6 +316,55 @@ class OutputProcessor:
             )
         else:
             return current_depth
+
+    def process_yaml(self, output: str) -> tuple[str, bool]:
+        """Process YAML output.
+
+        Args:
+            output: YAML output to process
+
+        Returns:
+            Tuple of (processed output, whether truncation occurred)
+        """
+        # For YAML, we need to handle sections and truncation
+        sections = self.extract_yaml_sections(output)
+
+        # Check if we need to truncate
+        if len(output) > self.max_chars:
+            # Use a smaller threshold for each section
+            section_count = max(1, len(sections))  # Ensure we don't divide by zero
+            section_threshold = max(100, self.max_chars // (2 * section_count))
+
+            # Truncate status section first
+            sections = self.truncate_yaml_status(sections)
+
+            # If there are still too many sections, truncate more
+            truncated = False
+            result_yaml = ""
+            for key, value in sections.items():
+                if len(value) > section_threshold:
+                    truncated = True
+                    if key == "status":
+                        # Status sections can be heavily truncated
+                        lines = value.split("\n")
+                        if len(lines) > 10:
+                            value = (
+                                "\n".join(lines[:5]) + "\n...\n" + "\n".join(lines[-5:])
+                            )
+                    else:
+                        # Other sections use standard truncation
+                        value = self.truncate_string(value, section_threshold)
+
+                result_yaml += f"{key}:\n{textwrap.indent(value, '  ')}\n\n"
+
+            return result_yaml.strip(), truncated
+
+        # No truncation needed
+        result_yaml = ""
+        for key, value in sections.items():
+            result_yaml += f"{key}:\n{textwrap.indent(value, '  ')}\n\n"
+
+        return result_yaml.strip(), False
 
 
 # Create global instance for easy import
