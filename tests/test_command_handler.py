@@ -2,8 +2,9 @@
 
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest

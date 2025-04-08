@@ -1,7 +1,7 @@
 """Configuration management for vibectl"""
 
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union, cast
+from typing import Any, TypeVar, cast
 
 import yaml
 
@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
 }
 
 # Define type for expected types that can be a single type or a tuple of types
-ConfigType = Union[type, tuple[type, ...]]
+ConfigType = type | tuple[type, ...]
 
 # T is a generic type variable for return type annotation
 T = TypeVar("T")
@@ -41,7 +41,7 @@ CONFIG_VALID_VALUES: dict[str, list[Any]] = {
 class Config:
     """Manages vibectl configuration"""
 
-    def __init__(self, base_dir: Optional[Path] = None) -> None:
+    def __init__(self, base_dir: Path | None = None) -> None:
         """Initialize configuration.
 
         Args:

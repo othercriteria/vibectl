@@ -9,7 +9,6 @@ more intuitive while preserving access to raw kubectl output when needed.
 import datetime
 import subprocess
 import sys
-from typing import Optional
 
 import click
 from rich.table import Table
@@ -76,9 +75,9 @@ def cli() -> None:
 def get(
     resource: str,
     args: tuple,
-    show_raw_output: Optional[bool],
-    show_vibe: Optional[bool],
-    model: Optional[str],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
 ) -> None:
     """Display one or many resources."""
     try:
@@ -135,9 +134,9 @@ def get(
 def describe(
     resource: str,
     args: tuple,
-    show_raw_output: Optional[bool] = None,
-    show_vibe: Optional[bool] = None,
-    model: Optional[str] = None,
+    show_raw_output: bool | None = None,
+    show_vibe: bool | None = None,
+    model: str | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     try:
@@ -190,9 +189,9 @@ def describe(
 def logs(
     resource: str,
     args: tuple,
-    show_raw_output: Optional[bool],
-    show_vibe: Optional[bool],
-    model: Optional[str],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
 ) -> None:
     """Show logs for a container in a pod."""
     try:
@@ -256,9 +255,9 @@ def logs(
 def create(
     resource: str,
     args: tuple,
-    show_raw_output: Optional[bool],
-    show_vibe: Optional[bool],
-    model: Optional[str],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
 ) -> None:
     """Create a resource."""
     try:
@@ -437,9 +436,7 @@ def instructions() -> None:
 @instructions.command(name="set")
 @click.argument("instructions_text", required=False)
 @click.option("--edit", is_flag=True, help="Open an editor to write instructions")
-def instructions_set(
-    instructions_text: Optional[str] = None, edit: bool = False
-) -> None:
+def instructions_set(instructions_text: str | None = None, edit: bool = False) -> None:
     """Set custom instructions for LLM responses."""
     try:
         cfg = Config()
@@ -558,9 +555,9 @@ def vibe() -> None:
 @click.option("--model", default=None, help="The LLM model to use")
 def events(
     args: tuple,
-    show_raw_output: Optional[bool],
-    show_vibe: Optional[bool],
-    model: Optional[str],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
 ) -> None:
     """List events in the cluster."""
     try:
@@ -631,9 +628,9 @@ def events(
 @click.option("--model", default=None, help="The LLM model to use")
 def version(
     args: tuple,
-    show_raw_output: Optional[bool],
-    show_vibe: Optional[bool],
-    model: Optional[str],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
 ) -> None:
     """Show Kubernetes version information.
 
@@ -707,9 +704,9 @@ def version(
 @click.option("--model", default=None, help="The LLM model to use")
 def cluster_info(
     args: tuple,
-    show_raw_output: Optional[bool] = None,
-    show_vibe: Optional[bool] = None,
-    model: Optional[str] = None,
+    show_raw_output: bool | None = None,
+    show_vibe: bool | None = None,
+    model: str | None = None,
 ) -> None:
     """Display cluster info."""
     try:

@@ -11,6 +11,17 @@ of tests, test coverage goals, and best practices.
 - Ensure error handling is robust and tested
 - Isolate tests from actual system resources (kubectl, LLM APIs)
 
+## Requirements
+
+### Python Versions
+
+Vibectl supports and is tested on:
+- Python 3.10
+- Python 3.11
+- Python 3.12
+
+These versions are tested in our CI/CD pipeline using GitHub Actions.
+
 ## Test Types
 
 ### Unit Tests
@@ -82,12 +93,19 @@ make test-coverage # Run tests with coverage report
 
 ### CI/CD Integration
 
-Tests run automatically on:
+Tests run automatically on GitHub Actions:
 - Pull requests
 - Pushes to main branch
 - Release creation
 
-Coverage reports are generated and published to track progress.
+The workflow includes:
+1. Testing on all supported Python versions (3.10, 3.11, 3.12)
+2. Running linters (ruff)
+3. Type checking (mypy)
+4. Running tests with coverage
+5. Publishing coverage reports
+
+The GitHub Actions workflow is defined in `.github/workflows/tests.yml`.
 
 ## Test Naming Conventions
 
