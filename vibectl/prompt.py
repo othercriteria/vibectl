@@ -8,6 +8,7 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 import datetime
 
 from .config import Config
+from .memory import get_memory, is_memory_enabled
 
 
 def refresh_datetime() -> str:
@@ -30,15 +31,26 @@ def get_formatting_instructions(config: Config | None = None) -> str:
         str: Formatting instructions with current datetime
     """
     current_time = refresh_datetime()
+    cfg = config or Config()
 
     # Get custom instructions if they exist
-    cfg = config or Config()
     custom_instructions = cfg.get("custom_instructions")
     custom_instructions_section = ""
     if custom_instructions:
         custom_instructions_section = f"""
 Custom instructions:
 {custom_instructions}
+
+"""
+
+    # Get memory if it's enabled and exists
+    memory_section = ""
+    if is_memory_enabled(cfg):
+        memory = get_memory(cfg)
+        if memory:
+            memory_section = f"""
+Memory context:
+{memory}
 
 """
 
@@ -51,7 +63,7 @@ with matched closing tags:
 - [blue]namespaces and other Kubernetes concepts[/blue] for k8s terms
 - [italic]timestamps and metadata[/italic] for timing information
 
-{custom_instructions_section}Important:
+{custom_instructions_section}{memory_section}Important:
 - Current date and time is {current_time}
 - Timestamps in the future relative to this are not anomalies
 - Do NOT use markdown formatting (e.g., #, ##, *, -)

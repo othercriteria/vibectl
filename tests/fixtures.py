@@ -16,7 +16,7 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
     Returns:
         Mock: Mocked run_kubectl function that returns "test output" by default.
     """
-    with patch("vibectl.command_handler.run_kubectl") as mock:
+    with patch("vibectl.cli.run_kubectl") as mock:
         mock.return_value = "test output"
         yield mock
 
@@ -146,7 +146,7 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
     with (
         patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
         patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.handle_vibe_command") as mock_handle_vibe,
+        patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe,
     ):
         mock_run_kubectl.return_value = "test output"
         yield mock_run_kubectl, mock_handle_output, mock_handle_vibe

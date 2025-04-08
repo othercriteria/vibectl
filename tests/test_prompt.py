@@ -115,7 +115,7 @@ def test_prompt_semantic_requirements(prompt_func: Callable[[], str]) -> None:
         # Core requirements
         assert "rich.Console() markup syntax" in result
         assert "Current date and time is" in result
-        assert 100 < len(result) < 2000  # Reasonable size limits
+        assert 100 < len(result) < 3000  # Reasonable size limits
 
 
 @pytest.mark.parametrize(

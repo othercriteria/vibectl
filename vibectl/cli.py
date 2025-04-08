@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 import click
+from rich.panel import Panel
 from rich.table import Table
 
 from .command_handler import (
@@ -22,6 +23,7 @@ from .command_handler import (
 )
 from .config import Config
 from .console import console_manager
+from .memory import clear_memory, disable_memory, enable_memory, get_memory, set_memory
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
@@ -72,14 +74,22 @@ def cli() -> None:
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
 def get(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
 ) -> None:
-    """Display one or many resources."""
+    """Get resources in a concise format."""
     try:
         # Configure output flags
         show_raw_output, show_vibe, suppress_warning, model_name = (
@@ -88,34 +98,40 @@ def get(
             )
         )
 
-        # Handle vibe command
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Show warning if no output will be shown, but continue execution
+        if not show_raw_output and not show_vibe and not suppress_warning:
+            console_manager.print_no_output_warning()
+
+        # Special case for vibe command
         if resource == "vibe":
-            if not args:
+            if len(args) < 1:
                 console_manager.print_error("Missing request after 'vibe'")
                 sys.exit(1)
+
             request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="get",
-                plan_prompt=PLAN_GET_PROMPT,
-                summary_prompt_func=get_resource_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                suppress_output_warning=suppress_warning,
-            )
+            try:
+                handle_vibe_request(
+                    request=request,
+                    command="get",
+                    plan_prompt=PLAN_GET_PROMPT,
+                    summary_prompt_func=get_resource_prompt,
+                    show_raw_output=show_raw_output,
+                    show_vibe=show_vibe,
+                    model_name=model_name,
+                    suppress_output_warning=suppress_warning,
+                )
+            except Exception as e:
+                handle_exception(e)
             return
 
-        # Regular get command
-        cmd = ["get", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
+        # Handle standard command
+        handle_standard_command(
+            command="get",
+            resource=resource,
+            args=args,
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model_name=model_name,
@@ -131,12 +147,20 @@ def get(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
 def describe(
     resource: str,
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     try:
@@ -147,11 +171,14 @@ def describe(
             )
         )
 
-        # Handle vibe requests
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle vibe case
         if resource == "vibe":
             if not args:
-                console_manager.print_missing_request_error()
-                sys.exit(0)
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
 
             request = " ".join(args)
             handle_vibe_request(
@@ -166,7 +193,7 @@ def describe(
             )
             return
 
-        # Regular describe command
+        # Handle standard command
         handle_standard_command(
             command="describe",
             resource=resource,
@@ -186,12 +213,20 @@ def describe(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
 def logs(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> None:
     """Show logs for a container in a pod."""
     try:
@@ -202,11 +237,15 @@ def logs(
             )
         )
 
-        # Handle vibe request
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle vibe case
         if resource == "vibe":
             if not args:
-                console_manager.print_missing_request_error()
+                console_manager.print_error("Missing request after 'vibe'")
                 sys.exit(1)
+
             request = " ".join(args)
             handle_vibe_request(
                 request=request,
@@ -252,12 +291,20 @@ def logs(
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
 def create(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> None:
     """Create a resource."""
     try:
@@ -267,6 +314,9 @@ def create(
                 show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
             )
         )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
 
         # Handle vibe command
         if resource == "vibe":
@@ -553,11 +603,19 @@ def vibe() -> None:
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
 @click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
 def events(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> None:
     """List events in the cluster."""
     try:
@@ -567,6 +625,9 @@ def events(
                 show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
             )
         )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
 
         # Show warning if no output will be shown, but continue execution
         if not show_raw_output and not show_vibe and not suppress_warning:
@@ -751,6 +812,124 @@ def cluster_info(
         )
     except Exception as e:
         handle_exception(e)
+
+
+@cli.group(name="memory", help="Memory management commands")
+def memory_group() -> None:
+    """Group for memory-related commands."""
+    pass
+
+
+@memory_group.command(name="show", help="Show current memory content")
+def memory_show() -> None:
+    """Display the current memory content."""
+    memory_content = get_memory()
+    if memory_content:
+        console_manager.console.print(
+            Panel(
+                memory_content,
+                title="Memory Content",
+                border_style="blue",
+                expand=False,
+            )
+        )
+    else:
+        console_manager.print_warning(
+            "Memory is empty. Use 'vibectl memory set' to add content."
+        )
+
+
+@memory_group.command(name="set", help="Set memory content")
+@click.argument("text", required=False)
+@click.option(
+    "--edit",
+    "-e",
+    is_flag=True,
+    help="Open editor to write memory content",
+)
+def memory_set(text: str | None = None, edit: bool = False) -> None:
+    """Set memory content.
+
+    TEXT argument is optional and can be used to directly set content.
+    Use --edit flag to open an editor instead.
+    """
+    if edit:
+        initial_text = get_memory() or "# Enter memory content here\n"
+        edited_text = click.edit(initial_text)
+        if edited_text is not None:
+            set_memory(edited_text)
+            console_manager.print_success("Memory updated from editor")
+        else:
+            console_manager.print_warning("Memory update cancelled")
+    elif text:
+        set_memory(text)
+        console_manager.print_success("Memory set")
+    else:
+        console_manager.print_error(
+            "No text provided. Use TEXT argument or --edit flag"
+        )
+
+
+@memory_group.command(name="clear")
+def memory_clear() -> None:
+    """Clear memory content."""
+    try:
+        clear_memory()
+        console_manager.print_success("Memory content cleared")
+    except Exception as e:
+        handle_exception(e)
+
+
+@memory_group.command()
+def freeze() -> None:
+    """Disable automatic memory updates."""
+    try:
+        disable_memory()
+        console_manager.print_success("Memory updates frozen (disabled)")
+    except Exception as e:
+        handle_exception(e)
+
+
+@memory_group.command()
+def unfreeze() -> None:
+    """Enable automatic memory updates."""
+    try:
+        enable_memory()
+        console_manager.print_success("Memory updates unfrozen (enabled)")
+    except Exception as e:
+        handle_exception(e)
+
+
+@memory_group.command()
+def wipe() -> None:
+    """Clear memory content and disable updates."""
+    try:
+        clear_memory()
+        disable_memory()
+        console_manager.print_success("Memory wiped and updates disabled")
+    except Exception as e:
+        handle_exception(e)
+
+
+def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
+    """Configure memory behavior based on flags.
+
+    Args:
+        freeze: Whether to disable memory updates for this command
+        unfreeze: Whether to enable memory updates for this command
+
+    Raises:
+        ValueError: If both freeze and unfreeze are specified
+    """
+    if freeze and unfreeze:
+        raise ValueError("Cannot specify both --freeze-memory and --unfreeze-memory")
+
+    cfg = Config()
+
+    if freeze:
+        disable_memory(cfg)
+    elif unfreeze:
+        enable_memory(cfg)
 
 
 def main() -> None:

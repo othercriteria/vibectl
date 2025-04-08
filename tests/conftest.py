@@ -1,229 +1,76 @@
-"""Common test fixtures for vibectl tests.
+"""
+Fixtures for pytest.
 
-This module contains shared fixtures used across multiple test files.
+This file contains fixtures that can be used across all tests.
 """
 
-import shutil
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from rich.console import Console
 
-# Import all fixtures from fixtures.py
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
 
 
-@pytest.fixture(scope="session", autouse=True)
-def protect_user_config() -> Generator[None, None, None]:
-    """Protect user's live config by backing it up and restoring after tests.
+@pytest.fixture
+def mock_run_kubectl() -> Generator[Mock, None, None]:
+    """Fixture providing patched run_kubectl function for all tests."""
+    # We need to patch BOTH the CLI import AND the command_handler module
+    # The CLI imports from command_handler, and most tests call the CLI module directly
+    with (
+        patch("vibectl.cli.run_kubectl") as cli_mock,
+        patch("vibectl.command_handler.run_kubectl") as handler_mock,
+    ):
+        # Keep both mocks in sync
+        handler_mock.return_value = "test output"
+        cli_mock.return_value = "test output"
 
-    This fixture runs automatically for all tests and ensures that the user's
-    live configuration is never modified during testing.
-    """
-    # Get user's home directory config path
-    user_config_dir = Path.home() / ".vibectl"
-    user_config_file = user_config_dir / "config.yaml"
-    backup_file = user_config_dir / "config.yaml.bak"
+        # Make the CLI mock delegate to the handler mock to ensure consistent behavior
+        cli_mock.side_effect = handler_mock.side_effect
 
-    # Track whether we had an original config
-    had_original = user_config_file.exists()
-    had_original_dir = user_config_dir.exists()
-
-    try:
-        # Create config directory if it doesn't exist
-        user_config_dir.mkdir(parents=True, exist_ok=True)
-
-        # Backup existing config if it exists
-        if had_original:
-            shutil.copy2(user_config_file, backup_file)
-
-        yield
-
-    finally:
-        try:
-            # Restore from backup if we had an original
-            if had_original and backup_file.exists():
-                shutil.copy2(backup_file, user_config_file)
-                backup_file.unlink()
-            # Remove test config if we didn't have an original
-            elif not had_original and user_config_file.exists():
-                user_config_file.unlink()
-
-            # Clean up directory if it didn't exist originally
-            if (
-                not had_original_dir
-                and user_config_dir.exists()
-                and not any(user_config_dir.iterdir())
-            ):
-                user_config_dir.rmdir()
-
-        except Exception as e:
-            # Log error but don't fail the test
-            print(f"Warning: Error during config cleanup: {e}")
+        # Return the handler mock since that's the one that gets used by the CLI code
+        yield handler_mock
 
 
 @pytest.fixture
-def mock_k8s_config() -> Generator[MagicMock, None, None]:
-    """Mock kubernetes.config to prevent actual cluster access.
-
-    Returns:
-        MagicMock: Mocked kubernetes config object.
-    """
-    with patch("kubernetes.config") as mock_config:
-        yield mock_config
-
-
-@pytest.fixture
-def mock_k8s_client() -> Generator[MagicMock, None, None]:
-    """Mock kubernetes.client to prevent actual API calls.
-
-    Returns:
-        MagicMock: Mocked kubernetes client object.
-    """
-    with patch("kubernetes.client") as mock_client:
-        yield mock_client
+def mock_handle_command_output() -> Generator[Mock, None, None]:
+    """Fixture providing patched handle_command_output function for all tests."""
+    # Again patch both paths for consistency
+    with (
+        patch("vibectl.cli.handle_command_output") as cli_mock,
+        patch("vibectl.command_handler.handle_command_output") as handler_mock,
+    ):
+        # Keep calls in sync - this fixture returns the handler_mock since that's
+        # the implementation that actually gets used
+        cli_mock.side_effect = handler_mock
+        yield handler_mock
 
 
 @pytest.fixture
-def mock_llm() -> Generator[MagicMock, None, None]:
-    """Mock LLM client to prevent actual API calls.
+def test_console() -> ConsoleManager:
+    """Fixture providing a ConsoleManager instance for testing.
 
-    Returns:
-        MagicMock: Mocked LLM client object.
-    """
-    with patch("llm.get_model") as mock_get_model:
-        mock_model = Mock()
-        mock_model.prompt.return_value = Mock(text=lambda: "Test response")
-        mock_get_model.return_value = mock_model
-        yield mock_get_model
-
-
-@pytest.fixture
-def test_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Generator[Config, None, None]:
-    """Create a test configuration with temporary paths.
-
-    Args:
-        tmp_path: pytest fixture providing temporary directory
-        monkeypatch: pytest fixture for patching
-
-    Returns:
-        Config: Test configuration object.
-    """
-    # Create an isolated test config directory
-    test_config_dir = tmp_path / "test_config"
-    test_config_dir.mkdir(parents=True, exist_ok=True)
-
-    # Patch HOME environment variable to isolate config location
-    monkeypatch.setenv("HOME", str(test_config_dir))
-
-    config = Config(base_dir=test_config_dir)
-
-    # Set test values using set() method
-    config.set("kubeconfig", str(tmp_path / "kubeconfig"))
-    config.set(
-        "model", "claude-3.7-sonnet"
-    )  # Use a valid model from CONFIG_VALID_VALUES
-    config.set("show_raw_output", "true")
-    config.set("show_vibe", "true")
-    config.set("suppress_warning", "false")
-    config.set("theme", "default")
-
-    yield config
-
-    # Clean up test config directory after test
-    shutil.rmtree(test_config_dir, ignore_errors=True)
-
-
-@pytest.fixture
-def test_console() -> Generator[ConsoleManager, None, None]:
-    """Create a test console manager with a string buffer.
-
-    Returns:
-        ConsoleManager: Test console manager object.
+    This instance has the console and error_console properties set to record
+    output for verification in tests.
     """
     console_manager = ConsoleManager()
-    theme = console_manager.themes["default"]  # Get the default theme
-
-    # Create consoles with string buffers
+    # Get theme and create new Console instances that record output
+    theme = console_manager.themes["default"]
     console_manager.console = Console(record=True, theme=theme)
-    console_manager.error_console = Console(
-        record=True, theme=theme
-    )  # Remove stderr=True to capture output
-
-    yield console_manager
+    console_manager.error_console = Console(stderr=True, record=True, theme=theme)
+    return console_manager
 
 
 @pytest.fixture
-def sample_pod_list() -> list[dict[str, Any]]:
-    """Create a sample list of pod resources for testing."""
-    return [
-        {
-            "kind": "Pod",
-            "apiVersion": "v1",
-            "metadata": {
-                "name": f"test-pod-{i}",
-                "namespace": "default",
-                "labels": {"app": "test"},
-            },
-            "spec": {
-                "containers": [{"name": "nginx", "image": "nginx:latest"}],
-            },
-            "status": {
-                "phase": "Running" if i % 2 == 0 else "Pending",
-                "conditions": [
-                    {
-                        "type": "Ready",
-                        "status": "True" if i % 2 == 0 else "False",
-                    }
-                ],
-            },
-        }
-        for i in range(5)
-    ]
+def test_config() -> Config:
+    """Fixture providing a Config instance for testing.
 
-
-@pytest.fixture
-def sample_deployment_list() -> list[dict[str, Any]]:
-    """Create a sample list of deployment resources for testing."""
-    return [
-        {
-            "kind": "Deployment",
-            "apiVersion": "apps/v1",
-            "metadata": {
-                "name": f"test-deployment-{i}",
-                "namespace": "default",
-            },
-            "spec": {
-                "replicas": i + 1,
-                "selector": {
-                    "matchLabels": {"app": f"test-{i}"},
-                },
-                "template": {
-                    "metadata": {
-                        "labels": {"app": f"test-{i}"},
-                    },
-                    "spec": {
-                        "containers": [
-                            {
-                                "name": "nginx",
-                                "image": "nginx:latest",
-                            }
-                        ],
-                    },
-                },
-            },
-            "status": {
-                "availableReplicas": i if i < 3 else 3,
-                "readyReplicas": i if i < 3 else 3,
-                "replicas": i + 1,
-                "updatedReplicas": i + 1,
-            },
-        }
-        for i in range(5)
-    ]
+    This creates a temporary config file that doesn't affect the real user config.
+    """
+    # Use tmp_path_factory but we don't need it as a parameter since we're
+    # using default Path for isolation
+    config = Config(base_dir=Path("/tmp/vibectl-test-config"))
+    return config

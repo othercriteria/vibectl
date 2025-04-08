@@ -12,6 +12,9 @@ DEFAULT_CONFIG = {
     "show_vibe": True,  # Whether to show vibe output
     "suppress_warning": False,  # Whether to suppress output warnings
     "model": "claude-3.7-sonnet",  # Default LLM model to use
+    "memory": "",  # Memory content for context between commands
+    "memory_enabled": True,  # Whether memory is enabled
+    "memory_max_chars": 300,  # Maximum memory size in characters
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -29,6 +32,9 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "suppress_warning": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
+    "memory": (str, type(None)),
+    "memory_enabled": bool,
+    "memory_max_chars": int,
 }
 
 # Valid values for specific keys

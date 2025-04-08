@@ -14,7 +14,8 @@ import llm
 
 from .config import Config
 from .console import console_manager
-from .output_processor import output_processor
+from .memory import update_memory
+from .output_processor import OutputProcessor
 from .utils import handle_exception
 
 # Constants for output flags
@@ -22,6 +23,9 @@ DEFAULT_MODEL = "claude-3.7-sonnet"
 DEFAULT_SHOW_RAW_OUTPUT = False
 DEFAULT_SHOW_VIBE = True
 DEFAULT_SUPPRESS_OUTPUT_WARNING = False
+
+# Initialize output processor
+output_processor = OutputProcessor()
 
 
 def run_kubectl(
@@ -90,6 +94,7 @@ def handle_standard_command(
             show_vibe=show_vibe,
             model_name=model_name,
             summary_prompt_func=summary_prompt_func,
+            command=f"{command} {resource} {' '.join(args)}",
         )
     except Exception as e:
         # Use centralized error handling
@@ -104,6 +109,7 @@ def handle_command_output(
     summary_prompt_func: Callable[[], str],
     max_token_limit: int = 10000,
     truncation_ratio: int = 3,
+    command: str | None = None,
 ) -> None:
     """Handle displaying command output in both raw and vibe formats."""
     # Show raw output if requested
@@ -111,6 +117,7 @@ def handle_command_output(
         console_manager.print_raw(output)
 
     # Show vibe output if requested
+    vibe_output = ""
     if show_vibe:
         try:
             # Process output to avoid token limits
@@ -126,13 +133,18 @@ def handle_command_output(
             prompt = summary_prompt.format(output=processed_output)
             response = llm_model.prompt(prompt)
             summary = response.text() if hasattr(response, "text") else str(response)
+            vibe_output = summary
 
             # If raw output was also shown, add a newline to separate
             if show_raw_output:
                 console_manager.console.print()
 
             # Display the summary
-            console_manager.print_vibe(summary)
+            console_manager.print_vibe(vibe_output)
+
+            # Update memory if we have a command and vibe output
+            if command and vibe_output:
+                update_memory(command, output, vibe_output, model_name)
         except Exception as e:
             handle_exception(e, exit_on_error=False)
 
@@ -240,6 +252,7 @@ def handle_vibe_request(
                     show_vibe=show_vibe,
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
+                    command=f"{command} {' '.join(kubectl_args)}",
                 )
             except Exception as e:  # pragma: no cover - complex error handling path
                 # for temporary file management
@@ -270,6 +283,7 @@ def handle_vibe_request(
                     show_vibe=show_vibe,
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
+                    command=f"{command} {' '.join(kubectl_args)}",
                 )
             except (
                 Exception
