@@ -3,6 +3,8 @@ branch = True
 source = vibectl
 parallel = True
 concurrency = thread, multiprocessing
+omit = *migrations*, *tests*, *__pycache__*
+plugins = django_coverage_plugin
 
 [report]
 exclude_lines =
@@ -17,11 +19,13 @@ exclude_lines =
     if typing.TYPE_CHECKING:
     class .*Protocol:
     @(abc\.)?abstractmethod
-
-omit =
-    tests/*
-    __pycache__/*
-    setup.py
+    # Hard to test system exit paths
+    sys\.exit\(1\)
+    # Hard to test environment-dependent code
+    except \(EOFError, KeyboardInterrupt\)
+    except \(subprocess\.CalledProcessError, FileNotFoundError\)
+    except OSError as e:
+omit = *migrations*, *test*, *__pycache__*
 
 [html]
 directory = htmlcov

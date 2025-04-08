@@ -39,7 +39,7 @@ jobs:
 
     - name: Test with pytest
       run: |
-        pytest --cov=vibectl --cov-report=xml
+        python -m pytest --cov=vibectl --cov-report=xml --cov-config=.coveragerc
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
