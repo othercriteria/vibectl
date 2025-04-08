@@ -64,11 +64,17 @@ This document provides an overview of the project's structure and organization.
    - Get command with standard and vibe-based resource retrieval
    - Describe command for detailed resource information
    - Delete command with confirmation safety and vibe-based deletion
+   - Scale command for scaling resource replicas
+   - Rollout command group for managing deployment rollouts
    - Memory management commands
    - Configuration and theme commands
 2. `prompt.py` - Command-specific prompt templates
    - `PLAN_DELETE_PROMPT` for planning deletions safely
    - `delete_resource_prompt()` for summarizing deletion results
+   - `PLAN_SCALE_PROMPT` for planning scaling operations
+   - `scale_resource_prompt()` for summarizing scaling results
+   - `PLAN_ROLLOUT_PROMPT` for planning rollout operations
+   - `rollout_status_prompt()`, `rollout_history_prompt()`, and `rollout_general_prompt()` for summarizing rollout operations
 3. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
    - Execute kubectl commands safely

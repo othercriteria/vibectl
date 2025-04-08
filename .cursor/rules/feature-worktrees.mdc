@@ -47,7 +47,7 @@ actions:
          direnv allow
 
          # Install pre-commit hooks in the worktree using Makefile target
-         nix develop --quiet -c make install-pre-commit
+         nix develop --quiet -c make install-pre-commit 2>/dev/null
          ```
       4. Create a minimal PR for visibility early in development:
          ```
@@ -59,7 +59,7 @@ actions:
          git push -u origin feature/name-of-feature
 
          # Create the PR using GitHub CLI in the dev shell - suppress Nix output
-         nix develop --quiet -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft
+         nix develop --quiet -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft 2>/dev/null
          ```
       5. Always do your work in the worktree directory, not the main workspace:
          ```
@@ -69,7 +69,7 @@ actions:
       6. When complete, commit final changes from the worktree:
          ```
          # Run pre-commit checks before committing
-         nix develop --quiet -c make lint
+         nix develop --quiet -c make lint 2>/dev/null
 
          # Make necessary fixes and commit
          git add .
@@ -77,7 +77,7 @@ actions:
          git push
 
          # Update PR from draft to ready for review - suppress Nix output
-         nix develop --quiet -c gh pr ready
+         nix develop --quiet -c gh pr ready 2>/dev/null
          ```
       7. Clean up after PR merge completion:
          ```
@@ -123,7 +123,7 @@ criteria:
     - Keep feature branches focused on single features
     - Clean up worktrees after feature completion
     - Delete both local and remote branches after PR merge
-    - Suppress Nix output verbosity with --quiet or redirect to /dev/null
+    - Suppress Nix output verbosity with --quiet and redirect stderr to /dev/null
 
 examples:
   - input: "I need to start developing a new feature"
@@ -140,7 +140,7 @@ examples:
 
       # Setup development environment
       direnv allow
-      nix develop --quiet -c make install-pre-commit
+      nix develop --quiet -c make install-pre-commit 2>/dev/null
 
       # Create initial PR
       touch PLANNED_CHANGES.md
@@ -148,7 +148,7 @@ examples:
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for my-new-feature"
       git push -u origin feature/my-new-feature
-      nix develop --quiet -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft 2>/dev/null
       ```
 
   - input: "How do I manage multiple features at once?"
@@ -163,7 +163,7 @@ examples:
       git worktree add ../worktrees/${PROJECT_NAME}-feature-one feature/feature-one
       cd ../worktrees/${PROJECT_NAME}-feature-one
       direnv allow
-      nix develop --quiet -c make install-pre-commit
+      nix develop --quiet -c make install-pre-commit 2>/dev/null
 
       # Create initial PR for feature 1
       touch PLANNED_CHANGES.md
@@ -171,7 +171,7 @@ examples:
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for feature-one"
       git push -u origin feature/feature-one
-      nix develop --quiet -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft 2>/dev/null
 
       # For feature 2 (from main workspace)
       cd ~/workspace/${PROJECT_NAME}
@@ -179,7 +179,7 @@ examples:
       git worktree add ../worktrees/${PROJECT_NAME}-feature-two feature/feature-two
       cd ../worktrees/${PROJECT_NAME}-feature-two
       direnv allow
-      nix develop --quiet -c make install-pre-commit
+      nix develop --quiet -c make install-pre-commit 2>/dev/null
 
       # Create initial PR for feature 2
       touch PLANNED_CHANGES.md
@@ -187,7 +187,7 @@ examples:
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for feature-two"
       git push -u origin feature/feature-two
-      nix develop --quiet -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft 2>/dev/null
 
       # Switch between features by changing directories
       cd ../worktrees/${PROJECT_NAME}-feature-one  # Work on feature 1
