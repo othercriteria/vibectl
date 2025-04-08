@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
     "model": "claude-3.7-sonnet",
     "memory_enabled": True,
     "memory_max_chars": 500,
-    "suppress_warnings": False,
+    "warn_no_output": True,
     "colored_output": True,
 }
 
@@ -35,7 +35,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "use_emoji": bool,
     "show_raw_output": bool,
     "show_vibe": bool,
-    "suppress_warnings": bool,
+    "warn_no_output": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
     "memory": (str, type(None)),
@@ -280,11 +280,24 @@ class Config:
         if key in ["invalid_key", "nonexistent_key"]:
             raise ValueError(f"Key not found in configuration: {key}")
 
-        self._validate_key(key)
+        # Check if the key exists in the actual config
         if key in self._config:
-            # Restore default value
+            # Key exists in config, remove or reset it
             if key in DEFAULT_CONFIG:
+                # Reset to default value if key is in defaults
                 self._config[key] = DEFAULT_CONFIG[key]
             else:
+                # Remove the key if it's not in defaults
                 del self._config[key]
             self._save_config()
+            return
+
+        # If we get here, the key doesn't exist in the config
+        # Now check if it's a valid key that just doesn't have a value yet
+        if key not in CONFIG_SCHEMA:
+            valid_keys = ", ".join(CONFIG_SCHEMA.keys())
+            raise ValueError(
+                f"Unknown configuration key: {key}. Valid keys are: {valid_keys}"
+            )
+
+        # If it's a valid key but not in the config, nothing to do

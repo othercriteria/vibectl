@@ -44,4 +44,4 @@ All memory functionality is fully tested:
 - Memory export/import for sharing context
 - Memory search capabilities
 - Long-term memory persistence across different terminals/sessions
-- Memory organization by clusters and contexts 
+- Memory organization by clusters and contexts

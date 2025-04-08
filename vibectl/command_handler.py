@@ -22,7 +22,7 @@ from .utils import handle_exception
 DEFAULT_MODEL = "claude-3.7-sonnet"
 DEFAULT_SHOW_RAW_OUTPUT = False
 DEFAULT_SHOW_VIBE = True
-DEFAULT_SUPPRESS_OUTPUT_WARNING = False
+DEFAULT_WARN_NO_OUTPUT = True
 
 # Initialize output processor
 output_processor = OutputProcessor()
@@ -74,6 +74,7 @@ def handle_standard_command(
     show_vibe: bool,
     model_name: str,
     summary_prompt_func: Callable[[], str],
+    warn_no_output: bool = True,
 ) -> None:
     """Handle a standard kubectl command with both raw and vibe output."""
     try:
@@ -95,6 +96,7 @@ def handle_standard_command(
             model_name=model_name,
             summary_prompt_func=summary_prompt_func,
             command=f"{command} {resource} {' '.join(args)}",
+            warn_no_output=warn_no_output,
         )
     except Exception as e:
         # Use centralized error handling
@@ -110,8 +112,13 @@ def handle_command_output(
     max_token_limit: int = 10000,
     truncation_ratio: int = 3,
     command: str | None = None,
+    warn_no_output: bool = True,
 ) -> None:
     """Handle displaying command output in both raw and vibe formats."""
+    # Show warning if no output will be shown and warning is enabled
+    if not show_raw_output and not show_vibe and warn_no_output:
+        console_manager.print_no_output_warning()
+
     # Show raw output if requested
     if show_raw_output:
         console_manager.print_raw(output)
@@ -157,7 +164,7 @@ def handle_vibe_request(
     show_raw_output: bool = False,
     show_vibe: bool = True,
     model_name: str = "claude-3.7-sonnet",
-    suppress_output_warning: bool = False,
+    warn_no_output: bool = True,
 ) -> None:
     """Handle a vibe request by planning and executing a kubectl command.
 
@@ -169,12 +176,11 @@ def handle_vibe_request(
         show_raw_output: Whether to display raw kubectl output
         show_vibe: Whether to display the vibe check summary
         model_name: The LLM model to use
-        suppress_output_warning: Whether to suppress output warning
+        warn_no_output: Whether to warn when no output will be shown
     """
     try:
-        # Show warning if no output will be shown and warning is not suppressed
-        if not show_raw_output and not show_vibe and not suppress_output_warning:
-            console_manager.print_no_output_warning()
+        # Track if we've already shown a no-output warning
+        already_warned = False
 
         # Get the plan from LLM
         llm_model = llm.get_model(model_name)
@@ -221,6 +227,12 @@ def handle_vibe_request(
             handle_exception(Exception("Invalid response format from planner"))
             return
 
+        # Show warning only if we're not going to execute a command that produces output
+        # (which would trigger handle_command_output later)
+        if not show_raw_output and not show_vibe and warn_no_output:
+            console_manager.print_no_output_warning()
+            already_warned = True
+
         # Special handling for 'create' command with YAML content
         if command == "create" and has_yaml_section:
             import tempfile
@@ -255,6 +267,7 @@ def handle_vibe_request(
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
                     command=f"{command} {' '.join(kubectl_args)}",
+                    warn_no_output=warn_no_output and not already_warned,
                 )
             except Exception as e:  # pragma: no cover - complex error handling path
                 # for temporary file management
@@ -286,6 +299,7 @@ def handle_vibe_request(
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
                     command=f"{command} {' '.join(kubectl_args)}",
+                    warn_no_output=warn_no_output and not already_warned,
                 )
             except (
                 Exception
@@ -314,7 +328,7 @@ def configure_output_flags(
         model: Optional override for LLM model
 
     Returns:
-        Tuple of (show_raw, show_vibe, suppress_warning, model_name)
+        Tuple of (show_raw, show_vibe, warn_no_output, model_name)
     """
     config = Config()
 
@@ -333,13 +347,12 @@ def configure_output_flags(
         else config.get("show_vibe", DEFAULT_SHOW_VIBE)
     )
 
-    suppress_warning = (
-        show_raw or show_vibe_output
-    )  # Suppress warning if showing either output
+    # Get warn_no_output setting - default to True (do warn when no output)
+    warn_no_output = config.get("warn_no_output", DEFAULT_WARN_NO_OUTPUT)
 
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
-    return show_raw, show_vibe_output, suppress_warning, model_name
+    return show_raw, show_vibe_output, warn_no_output, model_name
 
 
 def handle_command_with_options(
@@ -368,7 +381,7 @@ def handle_command_with_options(
         Tuple of output and vibe status
     """
     # Configure output flags
-    show_raw, show_vibe_output, suppress_warning, model_name = configure_output_flags(
+    show_raw, show_vibe_output, warn_no_output, model_name = configure_output_flags(
         show_raw_output, yaml, json, vibe, show_vibe, model
     )
 

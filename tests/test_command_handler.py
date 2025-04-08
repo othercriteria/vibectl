@@ -172,6 +172,7 @@ def test_handle_standard_command(
         show_vibe=True,
         model_name="test-model",
         summary_prompt_func=mock_summary_prompt,
+        warn_no_output=True,
     )
 
     # Verify kubectl was called
@@ -284,21 +285,25 @@ def test_configure_output_flags(test_config: Any) -> None:
     """Test output flag configuration."""
     # Test with defaults
     test_config.set("model", "claude-3.7-sonnet")  # Set default model
-    show_raw, show_vibe, suppress_warning, model = configure_output_flags()
+    test_config.set("warn_no_output", True)  # Set default warning behavior
+
+    show_raw, show_vibe, warn_no_output, model = configure_output_flags()
     assert not show_raw
     assert show_vibe
-    assert suppress_warning  # Should be True since show_vibe is True
+    assert warn_no_output  # Should use config value (True)
     assert model == "claude-3.7-sonnet"  # Should use config value
 
-    # Test with explicit values
-    show_raw, show_vibe, suppress_warning, model = configure_output_flags(
+    # Test with explicit values and config overrides
+    test_config.set("warn_no_output", False)  # Override to False in config
+
+    show_raw, show_vibe, warn_no_output, model = configure_output_flags(
         show_raw_output=True,
         show_vibe=False,
         model="test-model",
     )
     assert show_raw
     assert not show_vibe
-    assert suppress_warning  # Should be True since show_raw is True
+    assert not warn_no_output  # Should be False from config
     assert model == "test-model"
 
 
@@ -425,6 +430,7 @@ def test_handle_standard_command_error(
         show_vibe=True,
         model_name="test-model",
         summary_prompt_func=mock_summary_prompt,
+        warn_no_output=True,
     )
 
     # Verify kubectl was called and exception was handled
@@ -502,11 +508,13 @@ def test_handle_vibe_request_no_output(
         show_raw_output=False,
         show_vibe=False,
         model_name="test-model",
-        suppress_output_warning=False,
+        warn_no_output=True,
     )
 
     # Verify warning was printed
-    mock_console.print_no_output_warning.assert_called_once()
+    assert (
+        mock_console.print_no_output_warning.called
+    ), "Warning should be printed when no output flags are enabled"
 
 
 @patch("vibectl.command_handler.handle_exception")
@@ -585,6 +593,7 @@ def test_handle_standard_command_no_output(
         show_vibe=True,
         model_name="test-model",
         summary_prompt_func=mock_summary_prompt,
+        warn_no_output=True,
     )
 
     # Verify no exception was handled
@@ -650,6 +659,7 @@ def test_handle_standard_command_output_error(
             show_vibe=True,
             model_name="test-model",
             summary_prompt_func=mock_summary_prompt,
+            warn_no_output=True,
         )
 
         # Verify exception was handled

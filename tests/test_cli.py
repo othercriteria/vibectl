@@ -309,6 +309,7 @@ def test_describe_basic(
         show_vibe=True,
         model_name="claude-3.7-sonnet",
         summary_prompt_func=describe_resource_prompt,
+        warn_no_output=False,
     )
 
 
@@ -336,6 +337,7 @@ def test_describe_with_args(
         show_vibe=True,
         model_name="claude-3.7-sonnet",
         summary_prompt_func=describe_resource_prompt,
+        warn_no_output=False,
     )
 
 
@@ -371,6 +373,7 @@ def test_describe_with_flags(
         show_vibe=False,
         model_name="test-model",
         summary_prompt_func=describe_resource_prompt,
+        warn_no_output=False,
     )
 
 
