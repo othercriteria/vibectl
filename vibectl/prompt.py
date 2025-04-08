@@ -718,7 +718,7 @@ def scale_resource_prompt() -> str:
     Includes current datetime information for timestamp context.
 
     Returns:
-        str: The scale resource prompt template with current formatting instructions
+        str: The scale resource prompt template with formatting instructions
     """
     return f"""Summarize this kubectl scale output focusing on what changed
 and the current state after scaling. Highlight any issues or noteworthy details.
@@ -742,7 +742,8 @@ rollouts, determine the appropriate kubectl rollout command arguments.
 Important:
 - Return ONLY the list of arguments, one per line
 - Do not include 'kubectl' or 'rollout' in the output
-- The first argument should be the subcommand (status, history, undo, restart, pause, resume)
+- The first argument should be the subcommand (status, history, undo,
+  restart, pause, resume)
 - Include any necessary flags (-n, --revision, etc.)
 - Use standard kubectl syntax and conventions
 - If the request is unclear, use reasonable defaults
@@ -792,11 +793,10 @@ def rollout_status_prompt() -> str:
     Includes current datetime information for timestamp context.
 
     Returns:
-        str: The rollout status prompt template with current formatting 
-            instructions
+        str: The rollout status prompt template with formatting instructions
     """
-    return f"""Summarize this kubectl rollout status output, focusing on current progress,
-completion status, and any issues or delays.
+    return f"""Summarize this kubectl rollout status output, focusing on current
+progress, completion status, and any issues or delays.
 
 {get_formatting_instructions()}
 
@@ -817,11 +817,10 @@ def rollout_history_prompt() -> str:
     Includes current datetime information for timestamp context.
 
     Returns:
-        str: The rollout history prompt template with current formatting 
-            instructions
+        str: The rollout history prompt template with formatting instructions
     """
-    return f"""Summarize this kubectl rollout history output, highlighting key revisions,
-important changes, and patterns across revisions.
+    return f"""Summarize this kubectl rollout history output, highlighting key
+revisions, important changes, and patterns across revisions.
 
 {get_formatting_instructions()}
 
@@ -837,17 +836,16 @@ Here's the output:
 
 # Template for summarizing other rollout command outputs
 def rollout_general_prompt() -> str:
-    """Get the prompt template for summarizing other kubectl rollout command outputs.
+    """Get the prompt template for summarizing other kubectl rollout commands.
 
     Includes current datetime information for timestamp context. Used for commands
     like undo, restart, pause, and resume.
 
     Returns:
-        str: The rollout general prompt template with current formatting 
-            instructions
+        str: The rollout general prompt template with formatting instructions
     """
-    return f"""Summarize this kubectl rollout command output. Focus on what action was taken,
-the affected resources, and any important details or warnings.
+    return f"""Summarize this kubectl rollout command output. Focus on what
+action was taken, the affected resources, and any important details or warnings.
 
 {get_formatting_instructions()}
 
