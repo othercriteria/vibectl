@@ -1,4 +1,7 @@
-"""Tests for the configuration module."""
+"""Tests for configuration management.
+
+This module tests the configuration management functionality of vibectl.
+"""
 
 import os
 from pathlib import Path
@@ -11,7 +14,10 @@ import yaml
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-from vibectl.config import DEFAULT_CONFIG, Config
+from vibectl.config import (
+    DEFAULT_CONFIG,
+    Config,
+)
 
 
 class MockConfig(Config):

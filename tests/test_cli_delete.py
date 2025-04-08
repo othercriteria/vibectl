@@ -83,3 +83,22 @@ def test_delete_yes_flag_bypasses_confirmation(
     assert result.exit_code == 0
     mock_confirm.assert_not_called()
     mock_handle_standard_command.assert_called_once()
+
+
+@patch("vibectl.cli.handle_standard_command")
+@patch("vibectl.cli.handle_exception")
+def test_delete_handles_exception(
+    mock_handle_exception: MagicMock,
+    mock_handle_standard_command: MagicMock,
+    cli_runner: CliRunner,
+) -> None:
+    """Test error handling in delete command."""
+    # Setup mock to raise an exception
+    mock_error = ValueError("Test error")
+    mock_handle_standard_command.side_effect = mock_error
+
+    # Execute delete command with --yes to bypass confirmation
+    cli_runner.invoke(delete, ["pod", "nginx-pod", "--yes"])
+
+    # Assert exception handling was called
+    mock_handle_exception.assert_called_once_with(mock_error)

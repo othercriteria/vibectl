@@ -12,6 +12,7 @@ import pytest
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
+    handle_command_with_options,
     handle_standard_command,
     handle_vibe_request,
     run_kubectl,
@@ -1046,3 +1047,24 @@ def test_handle_vibe_request_with_memory(
         ["get", "pods", "-n", "kube-system"],
         capture=True,
     )
+
+
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.configure_output_flags")
+def test_handle_command_with_options_none_output(
+    mock_configure_output_flags: MagicMock,
+    mock_run_kubectl: MagicMock,
+) -> None:
+    """Test handling command with options when output is None."""
+    # Set up mocks
+    mock_run_kubectl.return_value = None  # Simulate None output
+    mock_configure_output_flags.return_value = (True, False, False, "claude-3-opus")
+
+    # Test function
+    cmd = ["kubectl", "get", "pods"]
+    output, show_vibe = handle_command_with_options(cmd)
+
+    # Assertions
+    assert output == ""  # Output should be empty string when None is returned
+    assert show_vibe is False
+    mock_run_kubectl.assert_called_once_with(cmd, capture=True, config=None)
