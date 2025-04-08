@@ -6,17 +6,12 @@ error handling.
 
 from unittest.mock import patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import create
 from vibectl.prompt import PLAN_CREATE_PROMPT
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Click CLI test runner."""
-    return CliRunner()
+# The cli_runner fixture is now provided by conftest.py
 
 
 def test_create_vibe_request(cli_runner: CliRunner) -> None:

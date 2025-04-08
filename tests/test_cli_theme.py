@@ -2,16 +2,11 @@
 
 from unittest.mock import Mock, call, patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Click CLI test runner."""
-    return CliRunner()
+# The cli_runner fixture is now provided by conftest.py
 
 
 @patch("vibectl.cli.console_manager")

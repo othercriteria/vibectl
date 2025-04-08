@@ -71,7 +71,25 @@ Added flags for one-time control:
 - `--freeze-memory` - Prevent memory updates for current command
 - `--unfreeze-memory` - Allow memory updates for current command
 
-### Stage 4: Planning Integration ⏳
+### Stage 4: CLI Improvements ✅
+
+#### Enhanced Memory Set Command ✅
+
+Improved the memory set command interface:
+- Better handling of multi-word inputs via tuple argument
+- Proper error handling with clear user feedback
+- Return codes for programmatic usage
+- More robust input validation
+
+#### Improved Error Handling ✅
+
+Enhanced error handling for memory commands:
+- Consistent error messages with appropriate styling
+- Proper exit codes for CLI operations
+- Exception handling with user-friendly messages
+- Click abort mechanism for clean error termination
+
+### Stage 5: Planning Integration ⏳
 
 This stage is not yet implemented. The plan is to:
 
@@ -109,6 +127,9 @@ The memory feature is implemented across several files:
   - Memory injection into prompts
 - **`config.py`**: Added memory configuration options
 - **`cli.py`**: Memory management commands and flags
+  - Improved error handling
+  - Support for multi-word memory setting
+  - Clean exit codes for programmatic usage
 - **`prompt.py`**: Memory inclusion in LLM prompts
 - **`command_handler.py`**: Memory updates after command execution
 
@@ -118,6 +139,10 @@ All tests for the memory module have been implemented and are passing:
 
 - Unit tests for memory module functionality (`test_memory.py`)
 - Tests for memory CLI commands
+  - Single word input tests
+  - Multi-word input tests via tuple args
+  - Empty input handling
+  - Editor interaction tests
 - Tests for memory integration with prompt templates
 - Tests for memory size limits and truncation
 - Tests for memory flags (enable/disable) behavior

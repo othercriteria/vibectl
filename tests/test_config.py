@@ -266,11 +266,7 @@ def test_config_save_explicit(test_config: Config) -> None:
 
 # CLI Config Command Tests
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Click CLI test runner."""
-    return CliRunner()
+# The cli_runner fixture is now provided by conftest.py
 
 
 @patch("vibectl.cli.Config")

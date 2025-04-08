@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from click.testing import CliRunner
 from rich.console import Console
 
 from vibectl.config import Config
@@ -65,12 +66,26 @@ def test_console() -> ConsoleManager:
 
 
 @pytest.fixture
-def test_config() -> Config:
+def test_config(tmp_path: Path) -> Config:
     """Fixture providing a Config instance for testing.
 
     This creates a temporary config file that doesn't affect the real user config.
     """
-    # Use tmp_path_factory but we don't need it as a parameter since we're
-    # using default Path for isolation
-    config = Config(base_dir=Path("/tmp/vibectl-test-config"))
+    # Use a unique temporary directory for each test
+    config = Config(base_dir=tmp_path / "vibectl-test-config")
     return config
+
+
+@pytest.fixture
+def cli_runner(tmp_path: Path) -> CliRunner:
+    """Fixture providing a Click CLI test runner with isolation.
+
+    This ensures CLI tests don't modify the user's actual configuration.
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory path
+
+    Returns:
+        CliRunner: A Click test runner with an isolated environment
+    """
+    return CliRunner(env={"VIBECTL_CONFIG_DIR": str(tmp_path / "vibectl-config")})

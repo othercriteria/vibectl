@@ -11,11 +11,7 @@ from click.testing import CliRunner
 
 from vibectl.cli import clear, instructions_set, instructions_show
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Click CLI test runner."""
-    return CliRunner()
+# The cli_runner fixture is now provided by conftest.py
 
 
 @pytest.fixture

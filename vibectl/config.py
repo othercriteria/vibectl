@@ -1,5 +1,6 @@
 """Configuration management for vibectl"""
 
+import os
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -53,8 +54,13 @@ class Config:
         Args:
             base_dir: Optional base directory for configuration (used in testing)
         """
-        # Use provided base directory or default to user's home
-        self.config_dir = (base_dir or Path.home()) / ".vibectl"
+        # Use environment variable, provided base directory, or default to user's home
+        env_config_dir = os.environ.get("VIBECTL_CONFIG_DIR")
+        if env_config_dir:
+            self.config_dir = Path(env_config_dir)
+        else:
+            self.config_dir = (base_dir or Path.home()) / ".vibectl"
+
         self.config_file = self.config_dir / "config.yaml"
         self._config: dict[str, Any] = {}
 

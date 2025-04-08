@@ -10,27 +10,67 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Click CLI test runner.
-
-    Returns:
-        CliRunner: A Click test runner instance
-    """
-    return CliRunner()
+# The cli_runner fixture is now provided by conftest.py
 
 
 @patch("vibectl.cli.set_memory")
 def test_memory_set_basic(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
     """Test the basic memory set command with direct text input."""
     # Execute
-    result = cli_runner.invoke(cli, ["memory", "set", "Test memory content"])
+    result = cli_runner.invoke(cli, ["memory", "set", "Test", "memory", "content"])
 
     # Assert
     assert result.exit_code == 0
     mock_set_memory.assert_called_once_with("Test memory content")
     assert "Memory set" in result.output
+
+    # Reset mock to test again with different input
+    mock_set_memory.reset_mock()
+
+    # Test with a single word
+    result = cli_runner.invoke(cli, ["memory", "set", "SingleWord"])
+
+    # Assert
+    assert result.exit_code == 0
+    mock_set_memory.assert_called_once_with("SingleWord")
+    assert "Memory set" in result.output
+
+
+@patch("vibectl.cli.set_memory")
+def test_memory_set_with_tuple_arg(
+    mock_set_memory: Mock, cli_runner: CliRunner
+) -> None:
+    """Test setting memory with a tuple argument directly to the function."""
+    # Create a tuple of strings that will be passed to memory_set via Click
+    result = cli_runner.invoke(cli, ["memory", "set", "Hello", "World"])
+    
+    # Assert
+    assert result.exit_code == 0
+    mock_set_memory.assert_called_once_with("Hello World")
+
+
+@patch("vibectl.cli.set_memory")
+def test_memory_set_empty_tuple(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
+    """Test memory set behavior with an empty tuple from CLI."""
+    # Execute with no text arguments (results in empty tuple)
+    result = cli_runner.invoke(cli, ["memory", "set"])
+    
+    # Assert - should show error for missing text
+    assert "No text provided" in result.output
+    mock_set_memory.assert_not_called()
+
+
+@patch("vibectl.cli.set_memory")
+def test_memory_set_with_cli_tuple(
+    mock_set_memory: Mock, cli_runner: CliRunner
+) -> None:
+    """Test memory set with multiple arguments from CLI (forms a tuple)."""
+    # Execute with multiple text arguments that will form a tuple via Click
+    result = cli_runner.invoke(cli, ["memory", "set", "Hello", "World"])
+
+    # Assert the tuple was correctly joined and passed to set_memory
+    assert result.exit_code == 0
+    mock_set_memory.assert_called_once_with("Hello World")
 
 
 @patch("vibectl.cli.click.edit")
@@ -79,14 +119,14 @@ def test_memory_set_edit_cancelled(
 
 @patch("vibectl.cli.set_memory")
 def test_memory_set_no_text(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory set with no text or edit flag."""
+    """Test memory set with no text, which should show an error."""
     # Execute
     result = cli_runner.invoke(cli, ["memory", "set"])
 
     # Assert
-    assert result.exit_code == 0
-    mock_set_memory.assert_not_called()
     assert "No text provided" in result.output
+    assert "Error" in result.output
+    mock_set_memory.assert_not_called()
 
 
 @patch("vibectl.cli.get_memory")

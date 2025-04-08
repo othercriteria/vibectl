@@ -616,7 +616,7 @@ def events(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-) -> None:
+) -> int | None:
     """List events in the cluster."""
     try:
         # Configure output flags
@@ -637,8 +637,7 @@ def events(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
+                return 1
             request = " ".join(args[1:])
             try:
                 handle_vibe_request(
@@ -653,7 +652,7 @@ def events(
                 )
             except Exception as e:
                 handle_exception(e)
-            return
+            return 1
 
         # For standard commands, run kubectl events
         try:
@@ -663,7 +662,7 @@ def events(
 
             if not output:
                 console_manager.print_empty_output_message()
-                return
+                return 0
 
             # Handle output display based on flags
             try:
@@ -674,12 +673,16 @@ def events(
                     model_name=model_name,
                     summary_prompt_func=events_prompt,
                 )
+                return 0
             except Exception as e:
                 handle_exception(e)
+                return 1
         except Exception as e:
             handle_exception(e)
+            return 1
     except Exception as e:
         handle_exception(e)
+        return 1
 
 
 @cli.command()
@@ -768,7 +771,7 @@ def cluster_info(
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
-) -> None:
+) -> int | None:
     """Display cluster info."""
     try:
         # Configure output flags
@@ -782,7 +785,7 @@ def cluster_info(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
+                return 1
             request = " ".join(args[1:])
             handle_vibe_request(
                 request=request,
@@ -794,13 +797,13 @@ def cluster_info(
                 model_name=model_name,
                 suppress_output_warning=suppress_warning,
             )
-            return
+            return 0
 
         # Run the command
         output = run_kubectl(["cluster-info", *args], capture=True)
 
         if not output:
-            return
+            return 0
 
         # Handle output display based on flags
         handle_command_output(
@@ -810,8 +813,10 @@ def cluster_info(
             model_name=model_name,
             summary_prompt_func=cluster_info_prompt,
         )
+        return 0
     except Exception as e:
         handle_exception(e)
+        return 1
 
 
 @cli.group(name="memory", help="Memory management commands")
@@ -840,34 +845,45 @@ def memory_show() -> None:
 
 
 @memory_group.command(name="set", help="Set memory content")
-@click.argument("text", required=False)
+@click.argument("text", nargs=-1, required=False)
 @click.option(
     "--edit",
     "-e",
     is_flag=True,
     help="Open editor to write memory content",
 )
-def memory_set(text: str | None = None, edit: bool = False) -> None:
+def memory_set(text: tuple | None = None, edit: bool = False) -> None:
     """Set memory content.
 
     TEXT argument is optional and can be used to directly set content.
     Use --edit flag to open an editor instead.
     """
     if edit:
-        initial_text = get_memory() or "# Enter memory content here\n"
-        edited_text = click.edit(initial_text)
-        if edited_text is not None:
-            set_memory(edited_text)
-            console_manager.print_success("Memory updated from editor")
-        else:
-            console_manager.print_warning("Memory update cancelled")
+        try:
+            initial_text = get_memory() or "# Enter memory content here\n"
+            edited_text = click.edit(initial_text)
+            if edited_text is not None:
+                set_memory(edited_text)
+                console_manager.print_success("Memory updated from editor")
+            else:
+                console_manager.print_warning("Memory update cancelled")
+        except Exception as e:
+            console_manager.print_error(str(e))
+            raise click.Abort() from e
     elif text:
-        set_memory(text)
-        console_manager.print_success("Memory set")
+        try:
+            # Join the text parts to handle multi-word input
+            memory_text = " ".join(text)
+            set_memory(memory_text)
+            console_manager.print_success("Memory set")
+        except Exception as e:
+            console_manager.print_error(str(e))
+            raise click.Abort() from e
     else:
         console_manager.print_error(
             "No text provided. Use TEXT argument or --edit flag"
         )
+        raise click.Abort()
 
 
 @memory_group.command(name="clear")
