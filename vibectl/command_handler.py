@@ -165,6 +165,7 @@ def handle_vibe_request(
     show_vibe: bool = True,
     model_name: str = "claude-3.7-sonnet",
     warn_no_output: bool = True,
+    yes: bool = False,  # Add parameter to control confirmation bypass
 ) -> None:
     """Handle a vibe request by planning and executing a kubectl command.
 
@@ -177,6 +178,7 @@ def handle_vibe_request(
         show_vibe: Whether to display the vibe check summary
         model_name: The LLM model to use
         warn_no_output: Whether to warn when no output will be shown
+        yes: Whether to skip confirmation prompt (for non-interactive use)
     """
     try:
         # Track if we've already shown a no-output warning
@@ -232,6 +234,39 @@ def handle_vibe_request(
         if not show_raw_output and not show_vibe and warn_no_output:
             console_manager.print_no_output_warning()
             already_warned = True
+
+        # For delete commands, ask for confirmation unless yes flag is provided
+        if command == "delete" and not yes:
+            import click
+
+            # Show what will be executed
+            cmd_str = f"kubectl {command} {' '.join(kubectl_args)}"
+            console_manager.print("[bold yellow]About to execute:[/bold yellow]")
+            console_manager.print(f"[bold]{cmd_str}[/bold]")
+
+            # NOTE: We use a separate styled warning message before the plain text
+            # confirmation prompt because click.confirm() displays formatting tags
+            # as raw text when trying to use Rich formatting directly. A better
+            # solution would be to use the Rich library's prompt features or to
+            # integrate colorama properly, but this approach avoids adding dependencies
+            # while still providing clear visual feedback to the user.
+            # TODO: Implement a more elegant solution for styled confirmation prompts
+            # that properly integrates with both Rich and click.
+            console_manager.print(
+                "[bold red]Warning:[/bold red] This will delete resources."
+            )
+
+            # Ask for confirmation with a plain text prompt
+            confirmation = click.confirm(
+                "Do you want to proceed with deletion?",
+                default=False,
+            )
+
+            if not confirmation:
+                console_manager.print("[yellow]Deletion cancelled.[/yellow]")
+                return
+
+            console_manager.print("[green]Proceeding with deletion...[/green]")
 
         # Special handling for 'create' command with YAML content
         if command == "create" and has_yaml_section:

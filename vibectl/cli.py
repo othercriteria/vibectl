@@ -401,29 +401,11 @@ def delete(
                 show_vibe=show_vibe,
                 model_name=model_name,
                 warn_no_output=warn_no_output,
+                yes=yes,
             )
             return
 
-        # For standard delete, ask for confirmation unless --yes flag is provided
-        if not yes:
-            # Show what will be executed
-            cmd_str = f"kubectl delete {resource} {' '.join(args)}"
-            console_manager.print("[bold yellow]About to execute:[/bold yellow]")
-            console_manager.print(f"[bold]{cmd_str}[/bold]")
-
-            # Ask for confirmation
-            confirmation = click.confirm(
-                "[bold red]Do you want to proceed with deletion?[/bold red]",
-                default=False,
-            )
-
-            if not confirmation:
-                console_manager.print("[yellow]Deletion cancelled.[/yellow]")
-                return
-
-            console_manager.print("[green]Proceeding with deletion...[/green]")
-
-        # Handle standard command
+        # Handle standard command without confirmation
         handle_standard_command(
             command="delete",
             resource=resource,
