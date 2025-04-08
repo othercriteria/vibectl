@@ -156,7 +156,7 @@ def test_cluster_info_vibe_no_request(
 ) -> None:
     """Test cluster-info vibe command without a request."""
     # Execute without catch_exceptions to ensure test completes
-    result = cli_runner.invoke(cli, ["cluster-info", "vibe"])
+    cli_runner.invoke(cli, ["cluster-info", "vibe"])
 
     # In test environment, Click's runner might not capture the real exit code
     # but we can still verify the error message was displayed

@@ -117,21 +117,22 @@ def test_cli_init_with_theme(
         mock_config_class.return_value = mock_config
         mock_config.get.return_value = "dark"
 
-        with patch("vibectl.cli.console_manager") as mock_console:
-            # Use get pods as a command that will trigger the callback
-            with patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl:
-                with patch(
-                    "vibectl.command_handler.handle_command_output"
-                ) as cmd_mock_handle_output:
-                    # Set up mock return value
-                    cmd_mock_run_kubectl.return_value = "test output"
+        with (
+            patch("vibectl.cli.console_manager") as mock_console,
+            patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+            patch(
+                "vibectl.command_handler.handle_command_output"
+            ) as cmd_mock_handle_output,
+        ):
+            # Set up mock return value
+            cmd_mock_run_kubectl.return_value = "test output"
 
-                    result = cli_runner.invoke(cli, ["get", "pods"])
+            result = cli_runner.invoke(cli, ["get", "pods"])
 
-                    assert result.exit_code == 0
-                    mock_config.get.assert_called_once_with("theme", "default")
-                    mock_console.set_theme.assert_called_once_with("dark")
-                    cmd_mock_handle_output.assert_called_once()
+            assert result.exit_code == 0
+            mock_config.get.assert_called_once_with("theme", "default")
+            mock_console.set_theme.assert_called_once_with("dark")
+            cmd_mock_handle_output.assert_called_once()
 
 
 def test_cli_init_theme_error(cli_runner: CliRunner) -> None:
@@ -154,20 +155,22 @@ def test_get_basic(
     # Note: This test mocks vibectl.cli.run_kubectl but in the CLI code,
     # vibectl.command_handler.run_kubectl is actually called.
     # We need to patch both to make this test reliable.
-    with patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl:
-        with patch(
+    with (
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch(
             "vibectl.command_handler.handle_command_output"
-        ) as cmd_mock_handle_output:
-            # Set up mocks appropriately
-            cmd_mock_run_kubectl.return_value = "test output"
+        ) as cmd_mock_handle_output,
+    ):
+        # Set up mocks appropriately
+        cmd_mock_run_kubectl.return_value = "test output"
 
-            # Invoke CLI
-            result = cli_runner.invoke(cli, ["get", "pods"])
+        # Invoke CLI
+        result = cli_runner.invoke(cli, ["get", "pods"])
 
-            # Check results - using command_handler mocks
-            assert result.exit_code == 0
-            cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
-            cmd_mock_handle_output.assert_called_once()
+        # Check results - using command_handler mocks
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+        cmd_mock_handle_output.assert_called_once()
 
 
 def test_get_with_args(
@@ -177,22 +180,24 @@ def test_get_with_args(
 ) -> None:
     """Test get command with additional arguments."""
     # Need to use the correct patching strategy
-    with patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl:
-        with patch(
+    with (
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch(
             "vibectl.command_handler.handle_command_output"
-        ) as cmd_mock_handle_output:
-            # Set up mock return value
-            cmd_mock_run_kubectl.return_value = "test output"
+        ) as cmd_mock_handle_output,
+    ):
+        # Set up mock return value
+        cmd_mock_run_kubectl.return_value = "test output"
 
-            # Pass namespace as a single argument
-            result = cli_runner.invoke(cli, ["get", "pods", "-n", "default"])
+        # Pass namespace as a single argument
+        result = cli_runner.invoke(cli, ["get", "pods", "-n", "default"])
 
-            # Check results - using command_handler mocks
-            assert result.exit_code == 0
-            cmd_mock_run_kubectl.assert_called_once_with(
-                ["get", "pods", "-n", "default"], capture=True
-            )
-            cmd_mock_handle_output.assert_called_once()
+        # Check results - using command_handler mocks
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(
+            ["get", "pods", "-n", "default"], capture=True
+        )
+        cmd_mock_handle_output.assert_called_once()
 
 
 def test_get_no_output(
@@ -202,17 +207,19 @@ def test_get_no_output(
 ) -> None:
     """Test get command when kubectl returns no output."""
     # Need to use the correct patching strategy
-    with patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl:
-        with patch("vibectl.command_handler.handle_command_output"):
-            # Set up mock return value - empty string
-            cmd_mock_run_kubectl.return_value = ""
+    with (
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Set up mock return value - empty string
+        cmd_mock_run_kubectl.return_value = ""
 
-            # Invoke CLI command
-            result = cli_runner.invoke(cli, ["get", "pods"])
+        # Invoke CLI command
+        result = cli_runner.invoke(cli, ["get", "pods"])
 
-            # Check results
-            assert result.exit_code == 0
-            cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+        # Check results
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
 
 
 def test_get_with_flags(
@@ -222,26 +229,28 @@ def test_get_with_flags(
 ) -> None:
     """Test get command with output flags."""
     # Need to use the correct patching strategy
-    with patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl:
-        with patch("vibectl.command_handler.handle_command_output"):
-            # Set up mock return value
-            cmd_mock_run_kubectl.return_value = "test output"
+    with (
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Set up mock return value
+        cmd_mock_run_kubectl.return_value = "test output"
 
-            result = cli_runner.invoke(
-                cli,
-                [
-                    "get",
-                    "pods",
-                    "--show-raw-output",
-                    "--no-show-vibe",
-                    "--model",
-                    "test-model",
-                ],
-            )
+        result = cli_runner.invoke(
+            cli,
+            [
+                "get",
+                "pods",
+                "--show-raw-output",
+                "--no-show-vibe",
+                "--model",
+                "test-model",
+            ],
+        )
 
-            # Check results
-            assert result.exit_code == 0
-            cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+        # Check results
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
 
 
 @patch("vibectl.cli.handle_vibe_request")
@@ -385,7 +394,7 @@ def test_describe_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> 
     with patch("vibectl.cli.console_manager.print_missing_request_error"):
         result = cli_runner.invoke(cli, ["describe", "vibe"])
 
-        # Verify the command fails - exact exit code might vary depending on implementation
+        # Verify the command fails - exact exit code depends on implementation
         assert result.exit_code != 0 or isinstance(result.exception, SystemExit)
 
 
@@ -537,7 +546,7 @@ def test_logs_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> Non
 
 def test_logs_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
     """Test logs vibe command without a request."""
-    result = cli_runner.invoke(cli, ["logs", "vibe"])
+    cli_runner.invoke(cli, ["logs", "vibe"])
 
     # In test environment, Click's runner might not capture the real exit code
     # but we can still verify the error message was displayed
@@ -943,7 +952,7 @@ def test_version_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> 
 
 def test_version_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
     """Test version vibe command without a request."""
-    result = cli_runner.invoke(cli, ["version", "vibe"])
+    cli_runner.invoke(cli, ["version", "vibe"])
 
     # In test environment, Click's runner might not capture the real exit code
     # but we can still verify the error message was displayed
@@ -1006,7 +1015,7 @@ def test_events_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> N
 
 def test_events_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
     """Test events vibe command without a request."""
-    result = cli_runner.invoke(cli, ["events", "vibe"])
+    cli_runner.invoke(cli, ["events", "vibe"])
 
     # In test environment, Click's runner might not capture the real exit code
     # but we can still verify the error message was displayed
