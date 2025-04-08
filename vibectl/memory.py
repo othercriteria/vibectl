@@ -10,6 +10,7 @@ from typing import cast
 import llm
 
 from .config import Config
+from .prompt import memory_update_prompt
 
 
 def get_memory(config: Config | None = None) -> str:
@@ -46,7 +47,7 @@ def set_memory(memory_text: str, config: Config | None = None) -> None:
         config: Optional Config instance. If not provided, creates a new one.
     """
     cfg = config or Config()
-    max_chars = cfg.get("memory_max_chars", 300)
+    max_chars = cfg.get("memory_max_chars", 500)
 
     # Truncate if needed
     if memory_text and len(memory_text) > max_chars:
@@ -112,42 +113,9 @@ def update_memory(
         return
 
     cfg = config or Config()
-    current_memory = get_memory(cfg)
 
     model = llm.get_model(model_name)
-    prompt = f"""You are an AI assistant maintaining a memory state for a \
-Kubernetes CLI tool.
-The memory contains essential context to help you better assist with future requests.
-
-Current memory:
-{current_memory}
-
-The user just ran this command:
-```
-{command}
-```
-
-Command output:
-```
-{command_output}
-```
-
-Your interpretation of the output:
-```
-{vibe_output}
-```
-
-Based on this new information, update the memory to maintain the most \
-relevant context.
-Focus on cluster state, conditions, and configurations that will help with \
-future requests.
-Be concise - memory is limited to just a few sentences.
-Only include things actually observed from the output, no speculation or generalization.
-
-IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
-in your response. Just provide the direct memory content itself with \
-no additional labels or headers.
-"""
+    prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
 
     response = model.prompt(prompt)
     updated_memory = response.text()

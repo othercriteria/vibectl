@@ -8,7 +8,8 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 import datetime
 
 from .config import Config
-from .memory import get_memory, is_memory_enabled
+
+# No memory imports at the module level to avoid circular imports
 
 
 def refresh_datetime() -> str:
@@ -30,6 +31,9 @@ def get_formatting_instructions(config: Config | None = None) -> str:
     Returns:
         str: Formatting instructions with current datetime
     """
+    # Import here to avoid circular dependency
+    from .memory import get_memory, is_memory_enabled
+
     current_time = refresh_datetime()
     cfg = config or Config()
 
@@ -509,3 +513,62 @@ Example format:
 Here's the output:
 
 {{output}}"""
+
+
+def memory_update_prompt(
+    command: str,
+    command_output: str,
+    vibe_output: str,
+    config: Config | None = None,
+) -> str:
+    """Get the prompt template for updating memory.
+
+    Args:
+        command: The command that was executed
+        command_output: The raw output from the command
+        vibe_output: The AI's interpretation of the command output
+        config: Optional Config instance to use. If not provided, creates a new one.
+
+    Returns:
+        str: The memory update prompt with current memory and size limit information
+    """
+    # Import here to avoid circular dependency
+    from .memory import get_memory
+
+    cfg = config or Config()
+    current_memory = get_memory(cfg)
+    max_chars = cfg.get("memory_max_chars", 500)
+
+    return f"""You are an AI assistant maintaining a memory state for a \
+Kubernetes CLI tool.
+The memory contains essential context to help you better assist with future requests.
+
+Current memory:
+{current_memory}
+
+The user just ran this command:
+```
+{command}
+```
+
+Command output:
+```
+{command_output}
+```
+
+Your interpretation of the output:
+```
+{vibe_output}
+```
+
+Based on this new information, update the memory to maintain the most \
+relevant context.
+Focus on cluster state, conditions, and configurations that will help with \
+future requests.
+Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
+Only include things actually observed from the output, no speculation or generalization.
+
+IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
+in your response. Just provide the direct memory content itself with \
+no additional labels or headers.
+"""

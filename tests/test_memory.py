@@ -89,14 +89,14 @@ def test_set_memory(mock_config_class: Mock) -> None:
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    mock_config.get.return_value = 300  # max_chars is big enough for the test string
+    mock_config.get.return_value = 500  # max_chars is big enough for the test string
     memory_text = "Test memory content"
 
     # Execute
     set_memory(memory_text)
 
     # Assert
-    mock_config.get.assert_called_once_with("memory_max_chars", 300)
+    mock_config.get.assert_called_once_with("memory_max_chars", 500)
     mock_config.set.assert_called_once_with("memory", memory_text)
     mock_config.save.assert_called_once()
 
@@ -163,6 +163,7 @@ def test_clear_memory(mock_config_class: Mock) -> None:
     mock_config.save.assert_called_once()
 
 
+@patch("vibectl.memory.memory_update_prompt")
 @patch("vibectl.memory.llm.get_model")
 @patch("vibectl.memory.is_memory_enabled")
 @patch("vibectl.memory.get_memory")
@@ -174,12 +175,13 @@ def test_update_memory(
     mock_get_memory: Mock,
     mock_is_enabled: Mock,
     mock_get_model: Mock,
+    mock_memory_update_prompt: Mock,
 ) -> None:
     """Test updating memory based on command output."""
     # Setup
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    mock_config.get.return_value = 300  # max_chars
+    mock_config.get.return_value = 500  # max_chars
 
     mock_is_enabled.return_value = True
     mock_get_memory.return_value = "Previous memory"
@@ -190,13 +192,17 @@ def test_update_memory(
     mock_response.text.return_value = "Updated memory"
     mock_model.prompt.return_value = mock_response
 
+    mock_memory_update_prompt.return_value = "Test prompt"
+
     # Execute
     update_memory("kubectl get pods", "pod1 Running", "1 pod running", "test-model")
 
     # Assert
     mock_is_enabled.assert_called_once()
-    mock_get_memory.assert_called_once()
-    mock_model.prompt.assert_called_once()
+    mock_memory_update_prompt.assert_called_once_with(
+        "kubectl get pods", "pod1 Running", "1 pod running", mock_config
+    )
+    mock_model.prompt.assert_called_once_with("Test prompt")
     mock_set_memory.assert_called_once_with("Updated memory", mock_config)
 
 

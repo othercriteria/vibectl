@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
     "model": "claude-3.7-sonnet",  # Default LLM model to use
     "memory": "",  # Memory content for context between commands
     "memory_enabled": True,  # Whether memory is enabled
-    "memory_max_chars": 300,  # Maximum memory size in characters
+    "memory_max_chars": 500,  # Maximum memory size in characters
 }
 
 # Define type for expected types that can be a single type or a tuple of types

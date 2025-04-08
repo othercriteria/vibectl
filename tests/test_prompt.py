@@ -19,7 +19,7 @@ Test Policy:
 
 import datetime
 from collections.abc import Callable
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -39,6 +39,7 @@ from vibectl.prompt import (
     get_formatting_instructions,
     get_resource_prompt,
     logs_prompt,
+    memory_update_prompt,
     refresh_datetime,
     version_prompt,
 )
@@ -268,3 +269,28 @@ def test_plan_prompts(prompt: str, required_elements: dict) -> None:
     # Check examples
     for example in required_elements["examples"]:
         assert example in prompt
+
+
+def test_memory_update_prompt() -> None:
+    """Test memory update prompt with config-provided max chars limit."""
+    # Setup
+    mock_config = Mock(spec=Config)
+    mock_config.get.return_value = 500
+
+    # Need to patch inside the function with context manager
+    with patch("vibectl.memory.get_memory", return_value="Previous cluster state"):
+        # Execute
+        prompt = memory_update_prompt(
+            command="kubectl get pods",
+            command_output="pod1 Running",
+            vibe_output="1 pod running",
+            config=mock_config,
+        )
+
+    # Assert
+    mock_config.get.assert_called_once_with("memory_max_chars", 500)
+    assert "Previous cluster state" in prompt
+    assert "memory is limited to 500 characters" in prompt
+    assert "kubectl get pods" in prompt
+    assert "pod1 Running" in prompt
+    assert "1 pod running" in prompt
