@@ -60,10 +60,26 @@ This document provides an overview of the project's structure and organization.
 3. `command_handler.py` - Standardized command execution
 
 ### Memory System
-1. `memory.py` - Core memory management and LLM interaction
+1. `memory.py` - Core memory management with functions for:
+   - Getting and setting memory content
+   - Enabling/disabling memory updates
+   - Clearing memory
+   - Updating memory based on command execution
+   - Including memory in LLM prompts
 2. `config.py` - Memory persistence in configuration
-3. `prompt.py` - Memory injection into prompts
+   - Stores memory content as a string
+   - Manages memory settings like max length and enabled state
+3. `prompt.py` - Memory integration in prompts
+   - `memory_update_prompt` for creating memory from command execution
+   - `memory_fuzzy_update_prompt` for manually updating memory
+   - `include_memory_in_prompt` inserts memory context into prompts intelligently
 4. `command_handler.py` - Memory updates after command execution
+   - Updates memory with command context
+   - Tracks command execution flow
+5. `cli.py` - Memory CLI commands
+   - Dedicated memory command group with subcommands
+   - Memory-related flags in all main commands
+   - Configuration for memory behavior
 
 ### Type Safety
 - Extensive type annotations throughout codebase
