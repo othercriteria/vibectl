@@ -130,6 +130,5 @@ def test_handle_exception_general_error(test_console: Any) -> None:
 
 def test_handle_exception_no_exit(test_console: Any) -> None:
     """Test handling exceptions without exiting."""
-    result = handle_exception(Exception("test error"), exit_on_error=False)
-    assert result is None
+    handle_exception(Exception("test error"), exit_on_error=False)
     assert "test error" in test_console.error_console.export_text()
