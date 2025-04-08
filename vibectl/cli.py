@@ -28,13 +28,14 @@ from .memory import clear_memory, disable_memory, enable_memory, get_memory, set
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
+    PLAN_DELETE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
-    PLAN_VERSION_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
+    delete_resource_prompt,
     describe_resource_prompt,
     events_prompt,
     get_resource_prompt,
@@ -352,6 +353,96 @@ def create(
             show_vibe=show_vibe,
             model_name=model_name,
             summary_prompt_func=create_resource_prompt,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@cli.command()
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def delete(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    yes: bool = False,
+) -> None:
+    """Delete a resource.
+
+    Removes resources from the cluster.
+    Use --yes or -y to skip confirmation prompt for non-interactive usage.
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, suppress_warning, model_name = (
+            configure_output_flags(
+                show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            )
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle vibe command
+        if resource == "vibe":
+            if not args:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+            request = " ".join(args)
+            handle_vibe_request(
+                request=request,
+                command="delete",
+                plan_prompt=PLAN_DELETE_PROMPT,
+                summary_prompt_func=delete_resource_prompt,
+                show_raw_output=show_raw_output,
+                show_vibe=show_vibe,
+                model_name=model_name,
+                suppress_output_warning=suppress_warning,
+            )
+            return
+
+        # For standard delete, ask for confirmation unless --yes flag is provided
+        if not yes:
+            # Show what will be executed
+            cmd_str = f"kubectl delete {resource} {' '.join(args)}"
+            console_manager.print("[bold yellow]About to execute:[/bold yellow]")
+            console_manager.print(f"[bold]{cmd_str}[/bold]")
+
+            # Ask for confirmation
+            confirmation = click.confirm(
+                "[bold red]Do you want to proceed with deletion?[/bold red]",
+                default=False,
+            )
+
+            if not confirmation:
+                console_manager.print("[yellow]Deletion cancelled.[/yellow]")
+                return
+
+            console_manager.print("[green]Proceeding with deletion...[/green]")
+
+        # Handle standard command
+        handle_standard_command(
+            command="delete",
+            resource=resource,
+            args=args,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=delete_resource_prompt,
         )
     except Exception as e:
         handle_exception(e)
@@ -727,7 +818,7 @@ def version(
                 handle_vibe_request(
                     request=request,
                     command="version",
-                    plan_prompt=PLAN_VERSION_PROMPT,
+                    plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
                     summary_prompt_func=version_prompt,
                     show_raw_output=show_raw_output,
                     show_vibe=show_vibe,

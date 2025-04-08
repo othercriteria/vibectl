@@ -35,14 +35,28 @@ actions:
          git worktree add ../worktrees/feature-name feature/name-of-feature
          cd ../worktrees/feature-name
          ```
-      3. Work in the worktree directory
-      4. When complete, commit changes:
+      3. Create a minimal PR for visibility early in development:
+         ```
+         # Make initial commit with planned changes
+         touch PLANNED_CHANGES.md
+         echo "# Planned Changes\n\n- Feature 1\n- Feature 2" > PLANNED_CHANGES.md
+         git add PLANNED_CHANGES.md
+         git commit -m "feat: initial commit for feature-name"
+         git push -u origin feature/name-of-feature
+
+         # Create the PR using GitHub CLI in the dev shell
+         nix develop -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft
+         ```
+      4. Work in the worktree directory
+      5. When complete, commit final changes:
          ```
          git add .
          git commit -m "feat: implement feature-name"
-         git push -u origin feature/name-of-feature
+         git push
+
+         # Update PR from draft to ready for review
+         nix develop -c gh pr ready
          ```
-      5. Create PR from feature branch to main
       6. Clean up worktree after merge:
          ```
          git worktree remove ../worktrees/feature-name
@@ -59,6 +73,7 @@ criteria:
   required:
     - Create feature branches with descriptive names (feature/name-of-feature)
     - Use worktrees for parallel development
+    - Create minimal PR at beginning of feature work
     - Keep feature branches focused on single features
     - Clean up worktrees after feature completion
     - Follow branching conventions consistently
@@ -66,11 +81,19 @@ criteria:
 examples:
   - input: "I need to start developing a new feature"
     output: |
-      Create a feature branch and worktree:
+      Create a feature branch, worktree, and initial PR:
       ```
       git checkout -b feature/my-new-feature main
       git worktree add ../worktrees/my-new-feature feature/my-new-feature
       cd ../worktrees/my-new-feature
+
+      # Create initial PR
+      touch PLANNED_CHANGES.md
+      echo "# Planned Changes\n\n- Add new functionality\n- Update documentation" > PLANNED_CHANGES.md
+      git add PLANNED_CHANGES.md
+      git commit -m "feat: initial commit for my-new-feature"
+      git push -u origin feature/my-new-feature
+      nix develop -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft
       ```
 
   - input: "How do I manage multiple features at once?"
@@ -80,10 +103,26 @@ examples:
       # For feature 1
       git checkout -b feature/feature-one main
       git worktree add ../worktrees/feature-one feature/feature-one
+      cd ../worktrees/feature-one
+      # Create initial PR for feature 1
+      touch PLANNED_CHANGES.md
+      echo "# Planned Changes for Feature One" > PLANNED_CHANGES.md
+      git add PLANNED_CHANGES.md
+      git commit -m "feat: initial commit for feature-one"
+      git push -u origin feature/feature-one
+      nix develop -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft
 
       # For feature 2
       git checkout -b feature/feature-two main
       git worktree add ../worktrees/feature-two feature/feature-two
+      cd ../worktrees/feature-two
+      # Create initial PR for feature 2
+      touch PLANNED_CHANGES.md
+      echo "# Planned Changes for Feature Two" > PLANNED_CHANGES.md
+      git add PLANNED_CHANGES.md
+      git commit -m "feat: initial commit for feature-two"
+      git push -u origin feature/feature-two
+      nix develop -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft
 
       # Switch between features by changing directories
       cd ../worktrees/feature-one  # Work on feature 1
@@ -92,5 +131,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
 </rule>

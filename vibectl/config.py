@@ -9,14 +9,16 @@ import yaml
 # Default values
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
-    "theme": "dark",  # Default theme for console output
-    "show_raw_output": False,  # Whether to show raw command output
-    "show_vibe": True,  # Whether to show vibe output
-    "suppress_warning": False,  # Whether to suppress output warnings
-    "model": "claude-3.7-sonnet",  # Default LLM model to use
-    "memory": "",  # Memory content for context between commands
-    "memory_enabled": True,  # Whether memory is enabled
-    "memory_max_chars": 500,  # Maximum memory size in characters
+    "kubectl_command": "kubectl",
+    "theme": "dark",
+    "use_emoji": True,
+    "show_raw_output": False,
+    "show_vibe": True,
+    "model": "claude-3.7-sonnet",
+    "memory_enabled": True,
+    "memory_max_chars": 500,
+    "suppress_warnings": False,
+    "colored_output": True,
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -28,15 +30,18 @@ T = TypeVar("T")
 # Valid configuration keys and their types
 CONFIG_SCHEMA: dict[str, ConfigType] = {
     "kubeconfig": (str, type(None)),
+    "kubectl_command": str,
     "theme": str,
+    "use_emoji": bool,
     "show_raw_output": bool,
     "show_vibe": bool,
-    "suppress_warning": bool,
+    "suppress_warnings": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
     "memory": (str, type(None)),
     "memory_enabled": bool,
     "memory_max_chars": int,
+    "colored_output": bool,
 }
 
 # Valid values for specific keys

@@ -62,6 +62,11 @@ vibectl get vibe show me pods with high restarts   # Natural language query
 vibectl create -f manifest.yaml                     # Create from file
 vibectl create vibe an nginx pod with 3 replicas   # Natural language creation
 
+# Delete resources
+vibectl delete pod nginx                            # Delete with confirmation
+vibectl delete -y deployment my-app                 # Delete without confirmation
+vibectl delete vibe remove all failed pods          # Natural language deletion
+
 # Describe resources
 vibectl describe deployment my-app                  # Get detailed info
 vibectl describe vibe tell me about the nginx pods  # Natural language query

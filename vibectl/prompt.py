@@ -617,3 +617,59 @@ IMPORTANT:
 - Do NOT include any prefixes like "Updated memory:" or headings in your response
 - Just provide the direct memory content itself with no additional labels or headers
 """
+
+
+# Template for planning kubectl delete commands
+PLAN_DELETE_PROMPT = """Given this natural language request to delete Kubernetes
+resources, determine the appropriate kubectl delete command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'delete' in the output
+- Include any necessary flags (-n, --grace-period, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "delete the nginx pod"
+Output:
+pod
+nginx
+
+Input: "remove deployment in kube-system namespace"
+Output:
+deployment
+-n
+kube-system
+
+Input: "delete all pods with app=nginx"
+Output:
+pods
+--selector=app=nginx
+
+Here's the request:
+
+{request}"""
+
+
+# Template for summarizing 'kubectl delete' output
+def delete_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl delete output.
+
+    Returns:
+        str: The delete resource prompt template with current formatting instructions
+    """
+    return f"""Summarize this kubectl delete output focusing on key information,
+which resources were deleted, and any potential issues or warnings.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]3 pods[/bold] successfully deleted from [blue]default namespace[/blue]
+[yellow]Warning: Some resources are still terminating[/yellow]
+
+Here's the output:
+
+{{output}}"""
