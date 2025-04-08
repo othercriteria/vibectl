@@ -4,7 +4,6 @@ source = vibectl
 parallel = True
 concurrency = thread, multiprocessing
 omit = *migrations*, *tests*, *__pycache__*
-plugins = django_coverage_plugin
 
 [report]
 exclude_lines =
