@@ -14,7 +14,7 @@ import llm
 
 from .config import Config
 from .console import console_manager
-from .memory import update_memory
+from .memory import include_memory_in_prompt, update_memory
 from .output_processor import OutputProcessor
 from .utils import handle_exception
 
@@ -179,9 +179,11 @@ def handle_vibe_request(
         # Get the plan from LLM
         llm_model = llm.get_model(model_name)
 
-        # Format prompt with request
-        prompt = plan_prompt.format(request=request)
-        response = llm_model.prompt(prompt)
+        # Format prompt with request, including memory if available
+        prompt_with_memory = include_memory_in_prompt(
+            lambda: plan_prompt.format(request=request)
+        )
+        response = llm_model.prompt(prompt_with_memory)
         plan = response.text() if hasattr(response, "text") else str(response)
 
         # Check for error responses from planner

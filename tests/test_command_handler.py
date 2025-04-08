@@ -979,3 +979,60 @@ spec:
 
     # Check output handling
     mock_handle_output.assert_called_once()
+
+
+@patch("vibectl.command_handler.include_memory_in_prompt")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.run_kubectl")
+def test_handle_vibe_request_with_memory(
+    mock_run_kubectl: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_include_memory: MagicMock,
+    mock_llm: MagicMock,
+) -> None:
+    """Test vibe request with memory integration.
+
+    This test verifies that memory content is properly passed to the planning phase
+    via include_memory_in_prompt when handling a vibe request.
+    """
+    # Set up mocks
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "pods\n-n\nkube-system")
+    mock_llm.return_value = mock_model
+
+    # Mock run_kubectl to return test output
+    mock_run_kubectl.return_value = "test output"
+
+    # Set up a return value for include_memory_in_prompt
+    # that indicates it was called with proper parameters
+    mock_include_memory.return_value = "Prompt with memory included"
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request that references memory
+    handle_vibe_request(
+        request="get pods in the namespace mentioned in memory",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+    )
+
+    # Verify include_memory_in_prompt was called and check it's a callable
+    mock_include_memory.assert_called_once()
+
+    # The first arg of the call should be a callable (lambda)
+    args, _ = mock_include_memory.call_args
+    assert callable(args[0]), "First argument should be a callable"
+
+    # Verify that the LLM was called with the modified prompt
+    mock_model.prompt.assert_any_call("Prompt with memory included")
+
+    # Verify that kubectl was called with the arguments returned by the LLM
+    mock_run_kubectl.assert_called_with(
+        ["get", "pods", "-n", "kube-system"],
+        capture=True,
+    )

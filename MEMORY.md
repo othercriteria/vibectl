@@ -89,14 +89,15 @@ Enhanced error handling for memory commands:
 - Exception handling with user-friendly messages
 - Click abort mechanism for clean error termination
 
-### Stage 5: Planning Integration ⏳
+### Stage 5: Planning Integration ✅
 
-This stage is not yet implemented. The plan is to:
+Improved planning with memory integration:
 
-- Modify the planning prompts to consider memory content
-- Update memory based on planning results, with preference for smaller updates
-- Make memory updates from planning more focused on goals and intentions rather
-  than technical details
+- Modified the planning prompts to consider memory content via `include_memory_in_prompt()`
+- Enhanced `handle_vibe_request` to use memory context when planning commands
+- Enabled natural references like "in the namespace mentioned in memory"
+- Added tests to verify memory is properly included in planning prompts
+- Memory is now used for contextual understanding during command planning
 
 ## Technical Implementation
 
@@ -105,6 +106,7 @@ This stage is not yet implemented. The plan is to:
 1. **Before Command Execution**:
    - Load memory from configuration
    - Include memory in prompts if enabled (via `include_memory_in_prompt()`)
+   - Planning phase now considers memory for contextual understanding
 
 2. **After Command Execution**:
    - If memory is enabled and not frozen:
