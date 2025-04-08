@@ -143,6 +143,10 @@ Focus on cluster state, conditions, and configurations that will help with \
 future requests.
 Be concise - memory is limited to just a few sentences.
 Only include things actually observed from the output, no speculation or generalization.
+
+IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
+in your response. Just provide the direct memory content itself with \
+no additional labels or headers.
 """
 
     response = model.prompt(prompt)

@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 
 import yaml
 
+# Default values
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
     "theme": "dark",  # Default theme for console output
@@ -85,14 +86,11 @@ class Config:
                 with open(self.config_file, encoding="utf-8") as f:
                     loaded_config = yaml.safe_load(f) or {}
 
-            # Merge with defaults using Python 3.9 dict union operator
-            self._config = DEFAULT_CONFIG | loaded_config
-
-            # Handle legacy llm_model key
-            if "llm_model" in loaded_config and "model" not in loaded_config:
-                self._config["model"] = loaded_config["llm_model"]
-                del self._config["llm_model"]
-                self._save_config()  # Save to remove the legacy key
+            # Start with a copy of the default config
+            self._config = DEFAULT_CONFIG.copy()
+            # Update with all loaded values to ensure they take precedence
+            # This preserves unsupported keys
+            self._config.update(loaded_config)
         except (yaml.YAMLError, OSError) as e:
             raise ValueError(f"Failed to load config: {e}") from e
 

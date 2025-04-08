@@ -13,6 +13,7 @@ your cluster management more intuitive and fun!
 - 🧠 Natural language resource queries
 - 🎨 Theme support with multiple visual styles
 - 📊 Intelligent output formatting for different resource types
+- 🧠 Context-aware memory between commands
 
 ## Requirements
 
@@ -72,6 +73,45 @@ vibectl logs vibe show errors from frontend pods   # Natural language query
 # Direct kubectl access
 vibectl just get pods                              # Pass directly to kubectl
 ```
+
+### Memory
+
+vibectl maintains context between command invocations with its memory feature:
+
+```zsh
+# View current memory
+vibectl memory show
+
+# Manually set memory content
+vibectl memory set "Running backend deployment in staging namespace"
+
+# Edit memory in your preferred editor
+vibectl memory set --edit
+
+# Clear memory content
+vibectl memory clear
+
+# Control memory updates
+vibectl memory disable      # Stop updating memory
+vibectl memory enable       # Resume memory updates
+vibectl memory freeze       # Alias for disable
+vibectl memory unfreeze     # Alias for enable
+
+# One-time memory control flags
+vibectl get pods --freeze-memory     # Don't update memory for this command
+vibectl get pods --unfreeze-memory   # Allow memory update for this command
+```
+
+Memory helps vibectl understand context from previous commands, enabling references
+like "the namespace I mentioned earlier" without repeating information.
+
+Future memory enhancements:
+- Selective memory by namespace or context
+- Memory visualization and insights
+- Memory export/import for sharing context
+- Memory search capabilities
+- Persistence of memory across different terminals/sessions
+- Memory organization by clusters and contexts
 
 ### Configuration
 

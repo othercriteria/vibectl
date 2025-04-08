@@ -11,6 +11,8 @@ This document provides an overview of the project's structure and organization.
 - `console.py` - Console output formatting and management
 - `command_handler.py` - Common command handling patterns
 - `output_processor.py` - Token limits and output preparation
+- `memory.py` - Context memory for cross-command awareness
+- `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 
 ### Testing (`tests/`)
@@ -48,6 +50,7 @@ This document provides an overview of the project's structure and organization.
 - `README.md` - Project overview and getting started guide
 - `STRUCTURE.md` - This file, documenting project organization
 - `LICENSE` - Project license information
+- `RULES.md` - Documentation of Cursor rules system
 
 ## Architecture
 
@@ -55,6 +58,12 @@ This document provides an overview of the project's structure and organization.
 1. `console.py` - Typed output methods with theme support
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
+
+### Memory System
+1. `memory.py` - Core memory management and LLM interaction
+2. `config.py` - Memory persistence in configuration
+3. `prompt.py` - Memory injection into prompts
+4. `command_handler.py` - Memory updates after command execution
 
 ### Type Safety
 - Extensive type annotations throughout codebase
@@ -64,6 +73,7 @@ This document provides an overview of the project's structure and organization.
 ### Configuration System
 - Type-safe configuration with validation
 - Theme configuration and custom prompt instructions
+- Memory settings management
 
 ## Development Workflow
 
