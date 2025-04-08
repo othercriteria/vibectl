@@ -47,7 +47,9 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-n auto --dist loadfile --cov=vibectl --cov-report=term --cov-report=xml"
+# Removed "-n auto --dist loadfile" to fix CoverageWarning issues
+# If you need faster tests with xdist, use: pytest -n auto --no-cov
+addopts = "--cov=vibectl --cov-report=term --cov-report=xml"
 
 [tool.coverage.run]
 omit = ["*/__pycache__/*", "*/tests/*"]

@@ -1,6 +1,8 @@
 [run]
 branch = True
 source = vibectl
+parallel = True
+concurrency = thread, multiprocessing
 
 [report]
 exclude_lines =
@@ -23,3 +25,8 @@ omit =
 
 [html]
 directory = htmlcov
+
+[paths]
+source =
+    vibectl/
+    */site-packages/vibectl/
