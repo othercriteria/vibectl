@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 import click
+import llm
 from rich.panel import Panel
 from rich.table import Table
 
@@ -38,6 +39,7 @@ from .prompt import (
     events_prompt,
     get_resource_prompt,
     logs_prompt,
+    memory_fuzzy_update_prompt,
     version_prompt,
 )
 from .utils import handle_exception
@@ -915,6 +917,54 @@ def memory_clear() -> None:
     try:
         clear_memory()
         console_manager.print_success("Memory content cleared")
+    except Exception as e:
+        handle_exception(e)
+
+
+@memory_group.command(name="update")
+@click.argument("update_text", nargs=-1, required=True)
+@click.option("--model", default=None, help="The LLM model to use")
+def memory_update(update_text: tuple, model: str | None = None) -> None:
+    """Update memory with additional information or context.
+
+    Uses LLM to intelligently update memory with new information
+    while preserving important existing context.
+    """
+    try:
+        # Get the current memory
+        current_memory = get_memory()
+
+        # Join the text parts to handle multi-word input
+        update_text_str = " ".join(update_text)
+
+        # Get the model name from config if not specified
+        cfg = Config()
+        model_name = model or cfg.get("model", DEFAULT_MODEL)
+
+        # Get the model
+        model_instance = llm.get_model(model_name)
+
+        # Create a prompt for the fuzzy memory update
+        prompt = memory_fuzzy_update_prompt(current_memory, update_text_str, cfg)
+
+        # Get the response
+        console_manager.print_processing(f"Updating memory using {model_name}...")
+        response = model_instance.prompt(prompt)
+        updated_memory = response.text()
+
+        # Set the updated memory
+        set_memory(updated_memory, cfg)
+        console_manager.print_success("Memory updated")
+
+        # Display the updated memory
+        console_manager.console.print(
+            Panel(
+                updated_memory,
+                title="Updated Memory Content",
+                border_style="blue",
+                expand=False,
+            )
+        )
     except Exception as e:
         handle_exception(e)
 

@@ -39,6 +39,7 @@ from vibectl.prompt import (
     get_formatting_instructions,
     get_resource_prompt,
     logs_prompt,
+    memory_fuzzy_update_prompt,
     memory_update_prompt,
     refresh_datetime,
     version_prompt,
@@ -294,3 +295,26 @@ def test_memory_update_prompt() -> None:
     assert "kubectl get pods" in prompt
     assert "pod1 Running" in prompt
     assert "1 pod running" in prompt
+
+
+def test_memory_fuzzy_update_prompt() -> None:
+    """Test memory fuzzy update prompt with user-provided update text."""
+    # Setup
+    mock_config = Mock(spec=Config)
+    mock_config.get.return_value = 500
+    current_memory = "Previous cluster state with 3 pods running"
+    update_text = "Deployment xyz scaled to 5 replicas"
+
+    # Execute
+    prompt = memory_fuzzy_update_prompt(
+        current_memory=current_memory,
+        update_text=update_text,
+        config=mock_config,
+    )
+
+    # Assert
+    mock_config.get.assert_called_once_with("memory_max_chars", 500)
+    assert "Previous cluster state with 3 pods running" in prompt
+    assert "Deployment xyz scaled to 5 replicas" in prompt
+    assert "memory is limited to 500 characters" in prompt
+    assert "integrate this information" in prompt.lower()

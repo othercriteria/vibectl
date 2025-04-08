@@ -572,3 +572,48 @@ IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
 in your response. Just provide the direct memory content itself with \
 no additional labels or headers.
 """
+
+
+def memory_fuzzy_update_prompt(
+    current_memory: str,
+    update_text: str,
+    config: Config | None = None,
+) -> str:
+    """Get the prompt template for user-initiated memory updates.
+
+    Args:
+        current_memory: The current memory content
+        update_text: The text the user wants to update or add to memory
+        config: Optional Config instance to use. If not provided, creates a new one.
+
+    Returns:
+        str: Prompt for user-initiated memory updates with size limit information
+    """
+    cfg = config or Config()
+    max_chars = cfg.get("memory_max_chars", 500)
+
+    return f"""You are an AI assistant maintaining a memory state for a \
+Kubernetes CLI tool.
+The memory contains essential context to help you better assist with future requests.
+
+Current memory:
+{current_memory}
+
+The user wants to update the memory with this new information:
+```
+{update_text}
+```
+
+Based on this new information, update the memory to integrate this information \
+while preserving other important existing context.
+Focus on cluster state, conditions, and configurations that will help with \
+future requests.
+Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
+
+IMPORTANT:
+- Integrate the new information seamlessly with existing memory
+- Prioritize recent information when space is limited
+- Remove outdated or less important information if needed
+- Do NOT include any prefixes like "Updated memory:" or headings in your response
+- Just provide the direct memory content itself with no additional labels or headers
+"""

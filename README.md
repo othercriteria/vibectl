@@ -88,6 +88,9 @@ vibectl memory set "Running backend deployment in staging namespace"
 # Edit memory in your preferred editor
 vibectl memory set --edit
 
+# Update memory with additional context
+vibectl memory update "New information to integrate with existing memory"
+
 # Clear memory content
 vibectl memory clear
 

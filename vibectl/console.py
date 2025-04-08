@@ -157,6 +157,14 @@ class ConsoleManager:
         """Print keyboard interrupt message."""
         self.print_error("Keyboard interrupt")
 
+    def print_processing(self, message: str) -> None:
+        """Print a processing message.
+
+        Args:
+            message: The message to display indicating processing status.
+        """
+        self.console.print(f"🔄 {message}", style="info")
+
     def print_vibe_welcome(self) -> None:
         """Print vibe welcome message."""
         self.console.print("🔮 Welcome to vibectl - vibes-based kubectl", style="vibe")

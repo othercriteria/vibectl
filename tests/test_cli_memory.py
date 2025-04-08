@@ -181,3 +181,62 @@ def test_memory_integration(
         result = cli_runner.invoke(cli, ["memory", "clear"], catch_exceptions=False)
         assert result.exit_code == 0
         mock_clear.assert_called_once()
+
+
+def test_memory_update(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test the memory update command."""
+    # Setup mocks
+    with (
+        patch("vibectl.cli.get_memory") as mock_get_memory,
+        patch("vibectl.cli.set_memory") as mock_set_memory,
+        patch("vibectl.cli.llm.get_model") as mock_get_model,
+    ):
+        # Configure get_memory to return existing memory
+        mock_get_memory.return_value = "Existing memory content"
+
+        # Mock the model response
+        mock_model = Mock()
+        mock_model.prompt.return_value.text.return_value = "Updated memory content"
+        mock_get_model.return_value = mock_model
+
+        # Execute the command
+        result = cli_runner.invoke(
+            cli,
+            ["memory", "update", "Additional context about deployment"],
+            catch_exceptions=False,
+        )
+
+        # Assert based on exit code and function calls
+        assert result.exit_code == 0
+        mock_get_memory.assert_called_once()
+        mock_get_model.assert_called_once()
+        mock_model.prompt.assert_called_once()
+        mock_set_memory.assert_called_once_with("Updated memory content", mock_config)
+
+
+def test_memory_update_error(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test error handling in the memory update command."""
+    # Setup mocks with error
+    with (
+        patch("vibectl.cli.get_memory") as mock_get_memory,
+        patch("vibectl.cli.llm.get_model") as mock_get_model,
+    ):
+        # Configure get_memory to return existing memory
+        mock_get_memory.return_value = "Existing memory content"
+
+        # Mock the model to raise an exception
+        mock_get_model.side_effect = Exception("Test LLM error")
+
+        # Execute the command
+        result = cli_runner.invoke(
+            cli, ["memory", "update", "Additional context about deployment"]
+        )
+
+        # Assert based on exit code
+        assert result.exit_code != 0
+        mock_get_memory.assert_called_once()
+        mock_get_model.assert_called_once()
