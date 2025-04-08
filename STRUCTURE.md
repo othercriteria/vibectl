@@ -59,6 +59,21 @@ This document provides an overview of the project's structure and organization.
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
 
+### Command Systems
+1. `cli.py` - Core command-line interface implementations
+   - Get command with standard and vibe-based resource retrieval
+   - Describe command for detailed resource information
+   - Delete command with confirmation safety and vibe-based deletion
+   - Memory management commands
+   - Configuration and theme commands
+2. `prompt.py` - Command-specific prompt templates
+   - `PLAN_DELETE_PROMPT` for planning deletions safely
+   - `delete_resource_prompt()` for summarizing deletion results
+3. `command_handler.py` - Generic command execution patterns
+   - Handle confirmation for destructive operations
+   - Execute kubectl commands safely
+   - Process command output for user feedback
+
 ### Memory System
 1. `memory.py` - Core memory management with functions for:
    - Getting and setting memory content

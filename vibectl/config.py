@@ -9,14 +9,16 @@ import yaml
 # Default values
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
-    "theme": "dark",  # Default theme for console output
-    "show_raw_output": False,  # Whether to show raw command output
-    "show_vibe": True,  # Whether to show vibe output
-    "suppress_warning": False,  # Whether to suppress output warnings
-    "model": "claude-3.7-sonnet",  # Default LLM model to use
-    "memory": "",  # Memory content for context between commands
-    "memory_enabled": True,  # Whether memory is enabled
-    "memory_max_chars": 500,  # Maximum memory size in characters
+    "kubectl_command": "kubectl",
+    "theme": "dark",
+    "use_emoji": True,
+    "show_raw_output": False,
+    "show_vibe": True,
+    "model": "claude-3.7-sonnet",
+    "memory_enabled": True,
+    "memory_max_chars": 500,
+    "warn_no_output": True,
+    "colored_output": True,
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -28,15 +30,18 @@ T = TypeVar("T")
 # Valid configuration keys and their types
 CONFIG_SCHEMA: dict[str, ConfigType] = {
     "kubeconfig": (str, type(None)),
+    "kubectl_command": str,
     "theme": str,
+    "use_emoji": bool,
     "show_raw_output": bool,
     "show_vibe": bool,
-    "suppress_warning": bool,
+    "warn_no_output": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
     "memory": (str, type(None)),
     "memory_enabled": bool,
     "memory_max_chars": int,
+    "colored_output": bool,
 }
 
 # Valid values for specific keys
@@ -275,11 +280,24 @@ class Config:
         if key in ["invalid_key", "nonexistent_key"]:
             raise ValueError(f"Key not found in configuration: {key}")
 
-        self._validate_key(key)
+        # Check if the key exists in the actual config
         if key in self._config:
-            # Restore default value
+            # Key exists in config, remove or reset it
             if key in DEFAULT_CONFIG:
+                # Reset to default value if key is in defaults
                 self._config[key] = DEFAULT_CONFIG[key]
             else:
+                # Remove the key if it's not in defaults
                 del self._config[key]
             self._save_config()
+            return
+
+        # If we get here, the key doesn't exist in the config
+        # Now check if it's a valid key that just doesn't have a value yet
+        if key not in CONFIG_SCHEMA:
+            valid_keys = ", ".join(CONFIG_SCHEMA.keys())
+            raise ValueError(
+                f"Unknown configuration key: {key}. Valid keys are: {valid_keys}"
+            )
+
+        # If it's a valid key but not in the config, nothing to do

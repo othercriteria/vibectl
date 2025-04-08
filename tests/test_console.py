@@ -101,14 +101,19 @@ def test_console_print_warnings(test_console: ConsoleManager) -> None:
     """Test warning-related print methods."""
     # No output warning
     test_console.print_no_output_warning()
-    assert "Warning: No output to process" in test_console.error_console.export_text()
+    warning_text = test_console.error_console.export_text()
+    assert "Warning: No output will be displayed" in warning_text
+    assert "--show-raw-output" in warning_text
+    assert "--show-vibe" in warning_text
+
+    # Reset the console output
+    test_console.error_console = Console(
+        stderr=True, record=True, theme=test_console._theme
+    )
 
     # Truncation warning
     test_console.print_truncation_warning()
-    assert (
-        "Warning: Output was truncated for processing"
-        in test_console.error_console.export_text()
-    )
+    assert "Warning: Output was truncated" in test_console.error_console.export_text()
 
 
 def test_console_print_config_table(test_console: ConsoleManager) -> None:

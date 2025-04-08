@@ -1,4 +1,7 @@
-"""Tests for the configuration module."""
+"""Tests for configuration management.
+
+This module tests the configuration management functionality of vibectl.
+"""
 
 import os
 from pathlib import Path
@@ -11,7 +14,10 @@ import yaml
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-from vibectl.config import DEFAULT_CONFIG, Config
+from vibectl.config import (
+    DEFAULT_CONFIG,
+    Config,
+)
 
 
 class MockConfig(Config):
@@ -370,10 +376,12 @@ def test_config_unset_unsupported_key() -> None:
         all_config = test_config.get_all()
         assert "unsupported_key" in all_config
 
-        # Try to unset the unsupported key - should raise ValueError
-        # because the key validation happens before checking if it exists
-        with pytest.raises(ValueError, match="Unknown configuration key"):
-            test_config.unset("unsupported_key")
+        # Unset the unsupported key - should succeed
+        test_config.unset("unsupported_key")
+
+        # Verify the key was removed
+        updated_config = test_config.get_all()
+        assert "unsupported_key" not in updated_config
 
 
 def test_config_load_file_ioerror() -> None:

@@ -133,7 +133,11 @@ class ConsoleManager:
 
     def print_no_output_warning(self) -> None:
         """Print warning about no output."""
-        self.print_warning("No output to process")
+        self.print_warning(
+            "No output will be displayed. "
+            "Use --show-raw-output to see raw kubectl output or "
+            "--show-vibe to see the vibe check summary."
+        )
 
     def print_truncation_warning(self) -> None:
         """Print warning about output truncation."""
