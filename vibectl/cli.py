@@ -1024,7 +1024,7 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
         handle_exception(e)
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
