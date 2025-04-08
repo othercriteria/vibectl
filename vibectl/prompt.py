@@ -673,3 +673,187 @@ Example format:
 Here's the output:
 
 {{output}}"""
+
+
+# Template for planning kubectl scale commands
+PLAN_SCALE_PROMPT = """Given this natural language request for scaling Kubernetes
+resources, determine the appropriate kubectl scale command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'scale' in the output
+- Include any necessary flags (--replicas, -n, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "scale deployment nginx to 3 replicas"
+Output:
+deployment/nginx
+--replicas=3
+
+Input: "increase the redis statefulset to 5 replicas in the cache namespace"
+Output:
+statefulset/redis
+--replicas=5
+-n
+cache
+
+Input: "scale down the api deployment"
+Output:
+deployment/api
+--replicas=1
+
+Here's the request:
+
+{request}"""
+
+
+# Template for summarizing 'kubectl scale' output
+def scale_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl scale output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The scale resource prompt template with formatting instructions
+    """
+    return f"""Summarize this kubectl scale output focusing on what changed
+and the current state after scaling. Highlight any issues or noteworthy details.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]deployment/nginx[/bold] scaled to [green]3 replicas[/green]
+[yellow]Warning: Scale operation might take time to complete[/yellow]
+[blue]Namespace: default[/blue]
+
+Here's the output:
+
+{{output}}"""
+
+
+# Template for planning kubectl rollout commands
+PLAN_ROLLOUT_PROMPT = """Given this natural language request for managing Kubernetes
+rollouts, determine the appropriate kubectl rollout command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'rollout' in the output
+- The first argument should be the subcommand (status, history, undo,
+  restart, pause, resume)
+- Include any necessary flags (-n, --revision, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "check status of deployment nginx"
+Output:
+status
+deployment/nginx
+
+Input: "rollback frontend deployment to revision 2"
+Output:
+undo
+deployment/frontend
+--to-revision=2
+
+Input: "pause the rollout of my-app deployment in production namespace"
+Output:
+pause
+deployment/my-app
+-n
+production
+
+Input: "restart all deployments in default namespace"
+Output:
+restart
+deployment
+-l
+app
+
+Input: "show history of statefulset/redis"
+Output:
+history
+statefulset/redis
+
+Here's the request:
+
+{request}"""
+
+
+# Template for summarizing 'kubectl rollout status' output
+def rollout_status_prompt() -> str:
+    """Get the prompt template for summarizing kubectl rollout status output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The rollout status prompt template with formatting instructions
+    """
+    return f"""Summarize this kubectl rollout status output, focusing on current
+progress, completion status, and any issues or delays.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]deployment/frontend[/bold] rollout [green]successfully completed[/green]
+[yellow]Still waiting for 2/5 replicas[/yellow]
+[italic]Rollout started 5 minutes ago[/italic]
+
+Here's the output:
+
+{{output}}"""
+
+
+# Template for summarizing 'kubectl rollout history' output
+def rollout_history_prompt() -> str:
+    """Get the prompt template for summarizing kubectl rollout history output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The rollout history prompt template with formatting instructions
+    """
+    return f"""Summarize this kubectl rollout history output, highlighting key
+revisions, important changes, and patterns across revisions.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]deployment/app[/bold] has [blue]5 revision history[/blue]
+[green]Current active: revision 5[/green] (deployed 2 hours ago)
+[yellow]Revision 3 had frequent restarts[/yellow]
+
+Here's the output:
+
+{{output}}"""
+
+
+# Template for summarizing other rollout command outputs
+def rollout_general_prompt() -> str:
+    """Get the prompt template for summarizing other kubectl rollout commands.
+
+    Includes current datetime information for timestamp context. Used for commands
+    like undo, restart, pause, and resume.
+
+    Returns:
+        str: The rollout general prompt template with formatting instructions
+    """
+    return f"""Summarize this kubectl rollout command output. Focus on what
+action was taken, the affected resources, and any important details or warnings.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]deployment/api[/bold] rollout [green]successfully restarted[/green]
+[blue]All pods will be replaced[/blue]
+[italic]Check status with 'kubectl rollout status deployment/api'[/italic]
+
+Here's the output:
+
+{{output}}"""

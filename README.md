@@ -75,6 +75,20 @@ vibectl describe vibe tell me about the nginx pods  # Natural language query
 vibectl logs pod/my-pod                            # Get pod logs
 vibectl logs vibe show errors from frontend pods   # Natural language query
 
+# Scale resources
+vibectl scale deployment/nginx --replicas=3        # Scale a deployment
+vibectl scale statefulset redis -n cache --replicas=5  # Scale in namespace
+vibectl scale vibe scale frontend to 3 replicas    # Natural language scaling
+
+# Manage rollouts
+vibectl rollout status deployment/nginx            # Check rollout status
+vibectl rollout history deployment/frontend        # View rollout history
+vibectl rollout undo deployment/api --to-revision=2 # Rollback to previous version
+vibectl rollout restart deployment/backend         # Restart all pods in deployment
+vibectl rollout pause deployment/website           # Pause a rollout
+vibectl rollout resume deployment/website          # Resume a paused rollout
+vibectl rollout vibe check status of frontend      # Natural language rollout query
+
 # Direct kubectl access
 vibectl just get pods                              # Pass directly to kubectl
 ```
@@ -251,6 +265,14 @@ vibectl describe vibe what's wrong with the database
 # View logs
 vibectl logs vibe show me recent errors
 vibectl logs vibe what's happening in the api pods
+
+# Scale resources
+vibectl scale vibe scale the frontend deployment to 5 replicas
+vibectl scale vibe reduce backend instances to 2
+
+# Manage rollouts
+vibectl rollout vibe check if nginx deployment is updated
+vibectl rollout vibe rollback my failed deployment
 ```
 
 ## Project Structure

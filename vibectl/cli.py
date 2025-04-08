@@ -33,6 +33,8 @@ from .prompt import (
     PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
+    PLAN_ROLLOUT_PROMPT,
+    PLAN_SCALE_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     delete_resource_prompt,
@@ -41,6 +43,10 @@ from .prompt import (
     get_resource_prompt,
     logs_prompt,
     memory_fuzzy_update_prompt,
+    rollout_general_prompt,
+    rollout_history_prompt,
+    rollout_status_prompt,
+    scale_resource_prompt,
     version_prompt,
 )
 from .utils import handle_exception
@@ -1018,6 +1024,85 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
         handle_exception(e)
 
 
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def scale(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Scale resources.
+
+    Scales Kubernetes resources like deployments, statefulsets, or replicasets to
+    the specified number of replicas.
+
+    Examples:
+        vibectl scale deployment/nginx --replicas=3
+        vibectl scale statefulset/redis -n cache --replicas=5
+        vibectl scale deployment frontend --replicas=0
+        vibectl scale vibe "scale the frontend deployment to 3 replicas"
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle vibe command
+        if resource == "vibe":
+            if not args:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+            request = " ".join(args)
+            handle_vibe_request(
+                request=request,
+                command="scale",
+                plan_prompt=PLAN_SCALE_PROMPT,
+                summary_prompt_func=scale_resource_prompt,
+                show_raw_output=show_raw_output,
+                show_vibe=show_vibe,
+                model_name=model_name,
+                warn_no_output=warn_no_output,
+            )
+            return
+
+        # Regular scale command
+        cmd = ["scale", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=scale_resource_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
 def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
     """Configure memory behavior based on flags.
 
@@ -1037,6 +1122,434 @@ def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
         disable_memory(cfg)
     elif unfreeze:
         enable_memory(cfg)
+
+
+@cli.group(
+    invoke_without_command=True, context_settings={"ignore_unknown_options": True}
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.pass_context
+def rollout(
+    ctx: click.Context,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Manage rollouts of deployments, statefulsets, and daemonsets.
+
+    Includes subcommands for checking status, viewing history, undoing rollouts,
+    restarting, or pausing/resuming rollouts.
+
+    Examples:
+        vibectl rollout status deployment/nginx
+        vibectl rollout history deployment/frontend
+        vibectl rollout undo deployment/api --to-revision=2
+        vibectl rollout restart deployment/backend
+        vibectl rollout pause deployment/website
+        vibectl rollout resume deployment/website
+        vibectl rollout vibe "check status of the frontend deployment"
+    """
+    if ctx.invoked_subcommand is not None:
+        # If a subcommand is used, we don't need to do anything here
+        return
+
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle vibe command
+        if args and args[0] == "vibe":
+            if len(args) < 2:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+            request = " ".join(args[1:])
+            handle_vibe_request(
+                request=request,
+                command="rollout",
+                plan_prompt=PLAN_ROLLOUT_PROMPT,
+                summary_prompt_func=rollout_general_prompt,
+                show_raw_output=show_raw_output,
+                show_vibe=show_vibe,
+                model_name=model_name,
+                warn_no_output=warn_no_output,
+            )
+            return
+
+        # For direct 'rollout' command with no recognized subcommand
+        console_manager.print_error(
+            "Missing subcommand for rollout. "
+            "Use one of: status, history, undo, restart, pause, resume"
+        )
+        sys.exit(1)
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def status(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Show the status of a rollout.
+
+    Examples:
+        vibectl rollout status deployment/nginx
+        vibectl rollout status deployment frontend -n app
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Run the command
+        cmd = ["rollout", "status", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_status_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def history(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Show the rollout history.
+
+    Examples:
+        vibectl rollout history deployment/nginx
+        vibectl rollout history deployment frontend -n app
+        vibectl rollout history deployment/frontend --revision=2
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Run the command
+        cmd = ["rollout", "history", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_history_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def undo(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    yes: bool = False,
+) -> None:
+    """Undo a rollout.
+
+    Examples:
+        vibectl rollout undo deployment/nginx
+        vibectl rollout undo deployment frontend -n app
+        vibectl rollout undo deployment/frontend --to-revision=2
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Handle confirmation for undo operation
+        if not yes:
+            confirmation_message = (
+                f"Are you sure you want to undo the rollout for {resource}?"
+            )
+            if not click.confirm(confirmation_message):
+                console_manager.print_note("Operation cancelled")
+                return
+
+        # Run the command
+        cmd = ["rollout", "undo", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_general_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def restart(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Restart a resource.
+
+    Examples:
+        vibectl rollout restart deployment/nginx
+        vibectl rollout restart deployment frontend -n app
+        vibectl rollout restart deployment,statefulset -l app=frontend
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Run the command
+        cmd = ["rollout", "restart", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_general_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def pause(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Pause a rollout.
+
+    Examples:
+        vibectl rollout pause deployment/nginx
+        vibectl rollout pause deployment frontend -n app
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Run the command
+        cmd = ["rollout", "pause", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_general_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@rollout.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def resume(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Resume a paused rollout.
+
+    Examples:
+        vibectl rollout resume deployment/nginx
+        vibectl rollout resume deployment frontend -n app
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Run the command
+        cmd = ["rollout", "resume", resource, *args]
+        output = run_kubectl(cmd, capture=True)
+
+        if not output:
+            return
+
+        # Handle the output display based on the configured flags
+        handle_command_output(
+            output=output,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            summary_prompt_func=rollout_general_prompt,
+            warn_no_output=warn_no_output,
+        )
+    except Exception as e:
+        handle_exception(e)
 
 
 def main() -> None:
