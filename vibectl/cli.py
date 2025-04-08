@@ -828,20 +828,23 @@ def memory_group() -> None:
 @memory_group.command(name="show", help="Show current memory content")
 def memory_show() -> None:
     """Display the current memory content."""
-    memory_content = get_memory()
-    if memory_content:
-        console_manager.console.print(
-            Panel(
-                memory_content,
-                title="Memory Content",
-                border_style="blue",
-                expand=False,
+    try:
+        memory_content = get_memory()
+        if memory_content:
+            console_manager.console.print(
+                Panel(
+                    memory_content,
+                    title="Memory Content",
+                    border_style="blue",
+                    expand=False,
+                )
             )
-        )
-    else:
-        console_manager.print_warning(
-            "Memory is empty. Use 'vibectl memory set' to add content."
-        )
+        else:
+            console_manager.print_warning(
+                "Memory is empty. Use 'vibectl memory set' to add content."
+            )
+    except Exception as e:
+        handle_exception(e)
 
 
 @memory_group.command(name="set", help="Set memory content")
@@ -886,16 +889,6 @@ def memory_set(text: tuple | None = None, edit: bool = False) -> None:
         raise click.Abort()
 
 
-@memory_group.command(name="clear")
-def memory_clear() -> None:
-    """Clear memory content."""
-    try:
-        clear_memory()
-        console_manager.print_success("Memory content cleared")
-    except Exception as e:
-        handle_exception(e)
-
-
 @memory_group.command()
 def freeze() -> None:
     """Disable automatic memory updates."""
@@ -916,13 +909,12 @@ def unfreeze() -> None:
         handle_exception(e)
 
 
-@memory_group.command()
-def wipe() -> None:
-    """Clear memory content and disable updates."""
+@memory_group.command(name="clear")
+def memory_clear() -> None:
+    """Clear memory content."""
     try:
         clear_memory()
-        disable_memory()
-        console_manager.print_success("Memory wiped and updates disabled")
+        console_manager.print_success("Memory content cleared")
     except Exception as e:
         handle_exception(e)
 

@@ -77,16 +77,22 @@ class Config:
     def _load_config(self) -> None:
         """Load configuration from file."""
         try:
-            with open(self.config_file, encoding="utf-8") as f:
-                loaded_config = yaml.safe_load(f) or {}
-                # Merge with defaults using Python 3.9 dict union operator
-                self._config = DEFAULT_CONFIG | loaded_config
+            # First check if the file is empty
+            if self.config_file.stat().st_size == 0:
+                # Handle empty file as an empty dictionary
+                loaded_config: dict[str, Any] = {}
+            else:
+                with open(self.config_file, encoding="utf-8") as f:
+                    loaded_config = yaml.safe_load(f) or {}
 
-                # Handle legacy llm_model key
-                if "llm_model" in loaded_config and "model" not in loaded_config:
-                    self._config["model"] = loaded_config["llm_model"]
-                    del self._config["llm_model"]
-                    self._save_config()  # Save to remove the legacy key
+            # Merge with defaults using Python 3.9 dict union operator
+            self._config = DEFAULT_CONFIG | loaded_config
+
+            # Handle legacy llm_model key
+            if "llm_model" in loaded_config and "model" not in loaded_config:
+                self._config["model"] = loaded_config["llm_model"]
+                del self._config["llm_model"]
+                self._save_config()  # Save to remove the legacy key
         except (yaml.YAMLError, OSError) as e:
             raise ValueError(f"Failed to load config: {e}") from e
 

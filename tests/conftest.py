@@ -4,6 +4,7 @@ Fixtures for pytest.
 This file contains fixtures that can be used across all tests.
 """
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -65,6 +66,34 @@ def test_console() -> ConsoleManager:
     return console_manager
 
 
+@pytest.fixture(autouse=True, scope="session")
+def ensure_test_config_env(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[None, None, None]:
+    """Ensure all tests use a separate config directory.
+
+    This prevents tests from interfering with the user's actual configuration.
+    """
+    # Create a dedicated test config directory
+    config_dir = tmp_path_factory.mktemp("vibectl-test-config")
+
+    # Save the original environment
+    old_config_dir = os.environ.get("VIBECTL_CONFIG_DIR")
+
+    # Set the test config directory
+    os.environ["VIBECTL_CONFIG_DIR"] = str(config_dir)
+
+    try:
+        yield
+    finally:
+        # Restore the original environment
+        if old_config_dir:
+            os.environ["VIBECTL_CONFIG_DIR"] = old_config_dir
+        else:
+            if "VIBECTL_CONFIG_DIR" in os.environ:
+                del os.environ["VIBECTL_CONFIG_DIR"]
+
+
 @pytest.fixture
 def test_config(tmp_path: Path) -> Config:
     """Fixture providing a Config instance for testing.
@@ -88,4 +117,5 @@ def cli_runner(tmp_path: Path) -> CliRunner:
     Returns:
         CliRunner: A Click test runner with an isolated environment
     """
-    return CliRunner(env={"VIBECTL_CONFIG_DIR": str(tmp_path / "vibectl-config")})
+    # No need to set VIBECTL_CONFIG_DIR as it's already set by ensure_test_config_env
+    return CliRunner()

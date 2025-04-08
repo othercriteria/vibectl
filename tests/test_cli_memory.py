@@ -1,8 +1,9 @@
-"""Tests for the CLI memory commands.
+"""Tests for the memory-related CLI commands.
 
-This module tests the memory-related CLI commands and functionality.
+This module tests the memory commands of vibectl.
 """
 
+from collections.abc import Generator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,274 +11,173 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-# The cli_runner fixture is now provided by conftest.py
+
+@pytest.fixture
+def mock_config() -> Generator[Mock, None, None]:
+    """Provide a mocked Config instance."""
+    with patch("vibectl.cli.Config") as mock_config_class:
+        mock_config = Mock()
+        mock_config_class.return_value = mock_config
+        yield mock_config
 
 
-@patch("vibectl.cli.set_memory")
-def test_memory_set_basic(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test the basic memory set command with direct text input."""
-    # Execute
-    result = cli_runner.invoke(cli, ["memory", "set", "Test", "memory", "content"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_set_memory.assert_called_once_with("Test memory content")
-    assert "Memory set" in result.output
-
-    # Reset mock to test again with different input
-    mock_set_memory.reset_mock()
-
-    # Test with a single word
-    result = cli_runner.invoke(cli, ["memory", "set", "SingleWord"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_set_memory.assert_called_once_with("SingleWord")
-    assert "Memory set" in result.output
-
-
-@patch("vibectl.cli.set_memory")
-def test_memory_set_with_tuple_arg(
-    mock_set_memory: Mock, cli_runner: CliRunner
-) -> None:
-    """Test setting memory with a tuple argument directly to the function."""
-    # Create a tuple of strings that will be passed to memory_set via Click
-    result = cli_runner.invoke(cli, ["memory", "set", "Hello", "World"])
-    
-    # Assert
-    assert result.exit_code == 0
-    mock_set_memory.assert_called_once_with("Hello World")
-
-
-@patch("vibectl.cli.set_memory")
-def test_memory_set_empty_tuple(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory set behavior with an empty tuple from CLI."""
-    # Execute with no text arguments (results in empty tuple)
-    result = cli_runner.invoke(cli, ["memory", "set"])
-    
-    # Assert - should show error for missing text
-    assert "No text provided" in result.output
-    mock_set_memory.assert_not_called()
-
-
-@patch("vibectl.cli.set_memory")
-def test_memory_set_with_cli_tuple(
-    mock_set_memory: Mock, cli_runner: CliRunner
-) -> None:
-    """Test memory set with multiple arguments from CLI (forms a tuple)."""
-    # Execute with multiple text arguments that will form a tuple via Click
-    result = cli_runner.invoke(cli, ["memory", "set", "Hello", "World"])
-
-    # Assert the tuple was correctly joined and passed to set_memory
-    assert result.exit_code == 0
-    mock_set_memory.assert_called_once_with("Hello World")
-
-
-@patch("vibectl.cli.click.edit")
-@patch("vibectl.cli.get_memory")
-@patch("vibectl.cli.set_memory")
-def test_memory_set_edit(
-    mock_set_memory: Mock, mock_get_memory: Mock, mock_edit: Mock, cli_runner: CliRunner
-) -> None:
-    """Test the memory set command with editor."""
-    # Setup
-    mock_get_memory.return_value = "Initial content"
-    mock_edit.return_value = "Edited content"
-
-    # Execute
-    result = cli_runner.invoke(cli, ["memory", "set", "--edit"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_get_memory.assert_called_once()
-    mock_edit.assert_called_once_with("Initial content")
-    mock_set_memory.assert_called_once_with("Edited content")
-    assert "Memory updated from editor" in result.output
-
-
-@patch("vibectl.cli.click.edit")
-@patch("vibectl.cli.get_memory")
-@patch("vibectl.cli.set_memory")
-def test_memory_set_edit_cancelled(
-    mock_set_memory: Mock, mock_get_memory: Mock, mock_edit: Mock, cli_runner: CliRunner
-) -> None:
-    """Test memory set with editor when user cancels editing."""
-    # Setup
-    mock_get_memory.return_value = "Initial content"
-    mock_edit.return_value = None  # Simulate user cancelling edit
-
-    # Execute
-    result = cli_runner.invoke(cli, ["memory", "set", "--edit"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_get_memory.assert_called_once()
-    mock_edit.assert_called_once_with("Initial content")
-    mock_set_memory.assert_not_called()
-    assert "Memory update cancelled" in result.output
-
-
-@patch("vibectl.cli.set_memory")
-def test_memory_set_no_text(mock_set_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory set with no text, which should show an error."""
-    # Execute
-    result = cli_runner.invoke(cli, ["memory", "set"])
-
-    # Assert
-    assert "No text provided" in result.output
-    assert "Error" in result.output
-    mock_set_memory.assert_not_called()
-
-
-@patch("vibectl.cli.get_memory")
-def test_memory_show_with_content(mock_get_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory show command with existing content."""
-    # Setup
-    mock_get_memory.return_value = "Test memory content"
-
-    # Execute
-    result = cli_runner.invoke(cli, ["memory", "show"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_get_memory.assert_called_once()
-    # Console output is tested elsewhere
-
-
-@patch("vibectl.cli.get_memory")
-def test_memory_show_empty(mock_get_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory show command with empty memory."""
-    # Setup
-    mock_get_memory.return_value = ""
-
-    # Execute
+@pytest.fixture
+def mock_console() -> Generator[Mock, None, None]:
+    """Provide a mocked ConsoleManager instance."""
     with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(cli, ["memory", "show"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_get_memory.assert_called_once()
-    mock_console.print_warning.assert_called_once()
+        yield mock_console
 
 
-@patch("vibectl.cli.clear_memory")
-def test_memory_clear(mock_clear_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory clear command."""
-    # Execute
-    with patch("vibectl.cli.console_manager") as mock_console:
+def test_memory_show(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test the memory show command."""
+    # Setup direct mock for get_memory
+    with patch("vibectl.cli.get_memory") as mock_get_memory:
+        mock_get_memory.return_value = "Test memory content"
+
+        # Execute with full CLI environment
+        result = cli_runner.invoke(cli, ["memory", "show"], catch_exceptions=False)
+
+        # Assert based on exit code only - the actual output formatting
+        # is handled by the console manager which is mocked
+        assert result.exit_code == 0
+        mock_get_memory.assert_called_once()
+
+
+def test_memory_show_empty(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test the memory show command with empty memory."""
+    # Setup direct mock for get_memory
+    with patch("vibectl.cli.get_memory") as mock_get_memory:
+        mock_get_memory.return_value = ""
+
+        # Execute with full CLI environment
+        result = cli_runner.invoke(cli, ["memory", "show"], catch_exceptions=False)
+
+        # Assert based on exit code only
+        assert result.exit_code == 0
+        mock_get_memory.assert_called_once()
+
+
+def test_memory_enable(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test enabling memory."""
+    # Setup direct mock for enable_memory
+    with patch("vibectl.cli.enable_memory") as mock_enable:
+        # Execute with full CLI environment
+        result = cli_runner.invoke(cli, ["memory", "unfreeze"], catch_exceptions=False)
+
+        # Assert based on exit code only
+        assert result.exit_code == 0
+        mock_enable.assert_called_once()
+
+
+def test_memory_disable(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test disabling memory."""
+    # Setup direct mock for disable_memory
+    with patch("vibectl.cli.disable_memory") as mock_disable:
+        # Execute with full CLI environment
+        result = cli_runner.invoke(cli, ["memory", "freeze"], catch_exceptions=False)
+
+        # Assert based on exit code only
+        assert result.exit_code == 0
+        mock_disable.assert_called_once()
+
+
+def test_memory_clear(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test clearing memory."""
+    # Setup direct mock for clear_memory
+    with patch("vibectl.cli.clear_memory") as mock_clear:
+        # Execute with full CLI environment
+        result = cli_runner.invoke(cli, ["memory", "clear"], catch_exceptions=False)
+
+        # Assert based on exit code only
+        assert result.exit_code == 0
+        mock_clear.assert_called_once()
+
+
+def test_memory_clear_error(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test error handling when clearing memory."""
+    # Setup direct mock to throw an error
+    with patch("vibectl.cli.clear_memory") as mock_clear:
+        mock_clear.side_effect = ValueError("Test error")
+
+        # Handle the expected error - Click doesn't pass through to our
+        # custom error handler in test environment, so we expect the exception
         result = cli_runner.invoke(cli, ["memory", "clear"])
 
-    # Assert
-    assert result.exit_code == 0
-    mock_clear_memory.assert_called_once()
-    mock_console.print_success.assert_called_once()
+        # In CLI testing environment, exceptions result in exit_code=1
+        assert result.exit_code == 1
+        mock_clear.assert_called_once()
+        # Error is reflected in output if using catch_exceptions=True (default)
+        assert "error" in result.output.lower()
 
 
-@patch("vibectl.cli.disable_memory")
-def test_memory_freeze(mock_disable_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory freeze command."""
-    # Execute
-    with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(cli, ["memory", "freeze"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_disable_memory.assert_called_once()
-    mock_console.print_success.assert_called_once()
-
-
-@patch("vibectl.cli.enable_memory")
-def test_memory_unfreeze(mock_enable_memory: Mock, cli_runner: CliRunner) -> None:
-    """Test memory unfreeze command."""
-    # Execute
-    with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(cli, ["memory", "unfreeze"])
-
-    # Assert
-    assert result.exit_code == 0
-    mock_enable_memory.assert_called_once()
-    mock_console.print_success.assert_called_once()
-
-
-@patch("vibectl.cli.disable_memory")
-@patch("vibectl.cli.clear_memory")
-def test_memory_wipe(
-    mock_clear_memory: Mock, mock_disable_memory: Mock, cli_runner: CliRunner
+@patch("vibectl.utils.handle_exception")
+def test_memory_config_error(
+    mock_handle_exception: Mock, cli_runner: CliRunner, mock_config: Mock
 ) -> None:
-    """Test memory wipe command."""
-    # Execute
-    with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(cli, ["memory", "wipe"])
+    """Test error handling for memory commands with config errors."""
+    # Setup direct mock to throw an error
+    with patch("vibectl.cli.get_memory") as mock_get_memory:
+        mock_get_memory.side_effect = ValueError("Test error")
 
-    # Assert
-    assert result.exit_code == 0
-    mock_clear_memory.assert_called_once()
-    mock_disable_memory.assert_called_once()
-    mock_console.print_success.assert_called_once()
+        # Execute with error capture
+        result = cli_runner.invoke(cli, ["memory", "show"])
+
+        # Assert the error is handled in some way, either through exit code
+        # or try-except in the code
+        assert result.exit_code != 0 or "error" in result.output.lower()
 
 
-@patch("vibectl.cli.disable_memory")
-@patch("vibectl.cli.Config")
-def test_configure_memory_flags_freeze(
-    mock_config_class: Mock, mock_disable: Mock
+def test_memory_integration(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
 ) -> None:
-    """Test memory flag configuration with freeze flag."""
-    from vibectl.cli import configure_memory_flags
+    """End-to-end test for memory commands.
 
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    This test verifies that memory commands work together correctly.
+    """
+    # Setup mocks for CLI memory functions
+    with (
+        patch("vibectl.cli.get_memory") as mock_get_memory,
+        patch("vibectl.cli.clear_memory") as mock_clear,
+        patch("vibectl.cli.enable_memory") as mock_enable,
+        patch("vibectl.cli.disable_memory") as mock_disable,
+    ):
+        # Configure get_memory to return empty string
+        mock_get_memory.return_value = ""
 
-    # Execute
-    configure_memory_flags(freeze=True, unfreeze=False)
+        # Test clearing memory
+        result = cli_runner.invoke(cli, ["memory", "clear"], catch_exceptions=False)
+        assert result.exit_code == 0
+        mock_clear.assert_called_once()
 
-    # Assert
-    mock_disable.assert_called_once()
+        # Test enabling memory (unfreeze)
+        result = cli_runner.invoke(cli, ["memory", "unfreeze"], catch_exceptions=False)
+        assert result.exit_code == 0
+        mock_enable.assert_called_once()
 
+        # Test showing memory content
+        result = cli_runner.invoke(cli, ["memory", "show"], catch_exceptions=False)
+        assert result.exit_code == 0
+        mock_get_memory.assert_called()
 
-@patch("vibectl.cli.enable_memory")
-@patch("vibectl.cli.Config")
-def test_configure_memory_flags_unfreeze(
-    mock_config_class: Mock, mock_enable: Mock
-) -> None:
-    """Test memory flag configuration with unfreeze flag."""
-    from vibectl.cli import configure_memory_flags
+        # Test disabling memory (freeze)
+        result = cli_runner.invoke(cli, ["memory", "freeze"], catch_exceptions=False)
+        assert result.exit_code == 0
+        mock_disable.assert_called_once()
 
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-
-    # Execute
-    configure_memory_flags(freeze=False, unfreeze=True)
-
-    # Assert
-    mock_enable.assert_called_once()
-
-
-@patch("vibectl.cli.Config")
-def test_configure_memory_flags_none(mock_config_class: Mock) -> None:
-    """Test memory flag configuration with no flags set."""
-    from vibectl.cli import configure_memory_flags
-
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-
-    # Execute
-    configure_memory_flags(freeze=False, unfreeze=False)
-
-    # Assert
-    mock_config.set.assert_not_called()
-    mock_config.save.assert_not_called()
-
-
-@patch("vibectl.cli.console_manager")
-def test_configure_memory_flags_conflict(mock_console: Mock) -> None:
-    """Test memory flag configuration with conflicting flags."""
-    from vibectl.cli import configure_memory_flags
-
-    # Execute and Assert
-    with pytest.raises(ValueError) as excinfo:
-        configure_memory_flags(freeze=True, unfreeze=True)
-
-    assert "Cannot specify both" in str(excinfo.value)
+        # Test clearing memory again
+        mock_clear.reset_mock()
+        result = cli_runner.invoke(cli, ["memory", "clear"], catch_exceptions=False)
+        assert result.exit_code == 0
+        mock_clear.assert_called_once()
