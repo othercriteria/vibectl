@@ -9,7 +9,7 @@ Use Git worktrees for managing multiple features simultaneously.
 
 <rule>
 name: feature_worktrees
-description: Encourages feature development using Git worktrees
+description: Guidelines for managing feature development using Git worktrees
 filters:
   # Match feature development queries
   - type: content
@@ -29,13 +29,27 @@ actions:
          ```
          git checkout -b feature/name-of-feature main
          ```
-      2. Add a worktree for parallel development:
+      2. Add a worktree with project and feature name:
          ```
+         # Create worktrees directory if it doesn't exist
          mkdir -p ../worktrees/
-         git worktree add ../worktrees/feature-name feature/name-of-feature
-         cd ../worktrees/feature-name
+
+         # Get project name from the current directory
+         PROJECT_NAME=$(basename $(pwd))
+
+         # Add worktree with project and feature name to avoid collisions
+         git worktree add ../worktrees/${PROJECT_NAME}-feature-name feature/name-of-feature
+         cd ../worktrees/${PROJECT_NAME}-feature-name
          ```
-      3. Create a minimal PR for visibility early in development:
+      3. Set up development environment in the worktree:
+         ```
+         # Allow direnv in the worktree
+         direnv allow
+
+         # Install pre-commit hooks in the worktree using Makefile target
+         nix develop --quiet -c make install-pre-commit
+         ```
+      4. Create a minimal PR for visibility early in development:
          ```
          # Make initial commit with planned changes
          touch PLANNED_CHANGES.md
@@ -44,23 +58,45 @@ actions:
          git commit -m "feat: initial commit for feature-name"
          git push -u origin feature/name-of-feature
 
-         # Create the PR using GitHub CLI in the dev shell
-         nix develop -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft
+         # Create the PR using GitHub CLI in the dev shell - suppress Nix output
+         nix develop --quiet -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft
          ```
-      4. Work in the worktree directory
-      5. When complete, commit final changes:
+      5. Always do your work in the worktree directory, not the main workspace:
          ```
+         # Check which branch you're on before starting work
+         git status
+         ```
+      6. When complete, commit final changes from the worktree:
+         ```
+         # Run pre-commit checks before committing
+         nix develop --quiet -c make lint
+
+         # Make necessary fixes and commit
          git add .
          git commit -m "feat: implement feature-name"
          git push
 
-         # Update PR from draft to ready for review
-         nix develop -c gh pr ready
+         # Update PR from draft to ready for review - suppress Nix output
+         nix develop --quiet -c gh pr ready
          ```
-      6. Clean up worktree after merge:
+      7. Clean up after PR merge completion:
          ```
-         git worktree remove ../worktrees/feature-name
+         # First, get back to main and pull latest changes
+         cd ~/workspace/${PROJECT_NAME}
+         git checkout main
+         git pull
+
+         # Remove the worktree
+         git worktree remove ../worktrees/${PROJECT_NAME}-feature-name
+
+         # Delete the local branch
          git branch -d feature/name-of-feature
+
+         # Delete the remote branch (once PR is merged and you're done with it)
+         git push origin --delete feature/name-of-feature
+
+         # Clean up references
+         git fetch --prune
          ```
 
   - type: reject
@@ -68,24 +104,43 @@ actions:
       # Discourage direct work on main
       - pattern: "(?i)\\b(work|develop|implement)\\s+.*\\s+(on|in)\\s+main\\b"
         message: "Avoid developing features directly on main. Use feature branches with worktrees instead."
+      # Warn about working in main workspace instead of worktree
+      - pattern: "(?i)git\\s+status.*feature.*main"
+        message: "You appear to be in the main workspace but working on a feature. Use 'cd ../worktrees/${PROJECT_NAME}-feature-name' to work in the worktree."
+      # Warn about not using pre-commit in worktree
+      - pattern: "(?i)git\\s+commit.*(?!.*pre-commit|make lint).*worktree"
+        message: "Make sure to run pre-commit checks before committing in the worktree: nix develop --quiet -c make lint"
 
 criteria:
   required:
     - Create feature branches with descriptive names (feature/name-of-feature)
-    - Use worktrees for parallel development
+    - Use worktrees with project-prefixed directories to avoid collisions
+    - Run direnv allow in the worktree
+    - Install and run pre-commit hooks in the worktree using Makefile targets
     - Create minimal PR at beginning of feature work
+    - Work exclusively in the worktree directory, not the main workspace
+    - Run pre-commit checks before committing
     - Keep feature branches focused on single features
     - Clean up worktrees after feature completion
-    - Follow branching conventions consistently
+    - Delete both local and remote branches after PR merge
+    - Suppress Nix output verbosity with --quiet or redirect to /dev/null
 
 examples:
   - input: "I need to start developing a new feature"
     output: |
       Create a feature branch, worktree, and initial PR:
       ```
+      # Create the feature branch
       git checkout -b feature/my-new-feature main
-      git worktree add ../worktrees/my-new-feature feature/my-new-feature
-      cd ../worktrees/my-new-feature
+
+      # Setup worktree with project name
+      PROJECT_NAME=$(basename $(pwd))
+      git worktree add ../worktrees/${PROJECT_NAME}-my-new-feature feature/my-new-feature
+      cd ../worktrees/${PROJECT_NAME}-my-new-feature
+
+      # Setup development environment
+      direnv allow
+      nix develop --quiet -c make install-pre-commit
 
       # Create initial PR
       touch PLANNED_CHANGES.md
@@ -93,43 +148,78 @@ examples:
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for my-new-feature"
       git push -u origin feature/my-new-feature
-      nix develop -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft
       ```
 
   - input: "How do I manage multiple features at once?"
     output: |
       Use separate worktrees for each feature:
       ```
+      # Get project name for worktree directories
+      PROJECT_NAME=$(basename $(pwd))
+
       # For feature 1
       git checkout -b feature/feature-one main
-      git worktree add ../worktrees/feature-one feature/feature-one
-      cd ../worktrees/feature-one
+      git worktree add ../worktrees/${PROJECT_NAME}-feature-one feature/feature-one
+      cd ../worktrees/${PROJECT_NAME}-feature-one
+      direnv allow
+      nix develop --quiet -c make install-pre-commit
+
       # Create initial PR for feature 1
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature One" > PLANNED_CHANGES.md
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for feature-one"
       git push -u origin feature/feature-one
-      nix develop -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft
 
-      # For feature 2
+      # For feature 2 (from main workspace)
+      cd ~/workspace/${PROJECT_NAME}
       git checkout -b feature/feature-two main
-      git worktree add ../worktrees/feature-two feature/feature-two
-      cd ../worktrees/feature-two
+      git worktree add ../worktrees/${PROJECT_NAME}-feature-two feature/feature-two
+      cd ../worktrees/${PROJECT_NAME}-feature-two
+      direnv allow
+      nix develop --quiet -c make install-pre-commit
+
       # Create initial PR for feature 2
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature Two" > PLANNED_CHANGES.md
       git add PLANNED_CHANGES.md
       git commit -m "feat: initial commit for feature-two"
       git push -u origin feature/feature-two
-      nix develop -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft
+      nix develop --quiet -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft
 
       # Switch between features by changing directories
-      cd ../worktrees/feature-one  # Work on feature 1
-      cd ../worktrees/feature-two  # Work on feature 2
+      cd ../worktrees/${PROJECT_NAME}-feature-one  # Work on feature 1
+      cd ../worktrees/${PROJECT_NAME}-feature-two  # Work on feature 2
+      ```
+
+  - input: "How do I clean up after my PR is merged?"
+    output: |
+      Clean up thoroughly after PR merge:
+      ```
+      # Get project name for paths
+      PROJECT_NAME=$(basename $(cd ~/workspace && ls -d */ | grep -v "worktrees" | head -1 | tr -d '/'))
+
+      # First, get back to main and pull latest changes
+      cd ~/workspace/${PROJECT_NAME}
+      git checkout main
+      git pull
+
+      # Remove the worktree
+      git worktree remove ../worktrees/${PROJECT_NAME}-feature-name
+
+      # Delete local branch
+      git branch -d feature/name-of-feature
+
+      # Delete remote branch
+      git push origin --delete feature/name-of-feature
+
+      # Clean up references
+      git fetch --prune
       ```
 
 metadata:
   priority: high
-  version: 1.1
+  version: 1.5
 </rule>
