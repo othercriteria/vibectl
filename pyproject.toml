@@ -1,6 +1,6 @@
 [project]
 name = "vibectl"
-version = "0.1.0"
+version = "0.2.0"
 description = "A vibes-based alternative to kubectl"
 authors = [
     { name = "Daniel Klein", email = "othercriteria@gmail.com" }
@@ -16,6 +16,18 @@ dependencies = [
 requires-python = ">=3.10"
 readme = "README.md"
 license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
 
 [project.optional-dependencies]
 dev = [

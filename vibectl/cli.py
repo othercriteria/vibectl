@@ -15,6 +15,7 @@ import llm
 from rich.panel import Panel
 from rich.table import Table
 
+from . import __version__
 from .command_handler import (
     configure_output_flags,
     handle_command_output,
@@ -66,7 +67,7 @@ CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 @click.group(invoke_without_command=True)
-@click.version_option()
+@click.version_option(version=__version__)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """vibectl - A vibes-based alternative to kubectl"""

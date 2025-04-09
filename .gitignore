@@ -43,7 +43,7 @@ env.bak/
 result
 result-*
 
-# Testing and Type Checking
+# Testing, Type Checking, Coverage, Profiling
 .coverage
 coverage.xml
 htmlcov/
@@ -51,3 +51,4 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
+prof/

@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test test-coverage check clean update-deps install install-dev install-pre-commit
+.PHONY: help format lint typecheck test test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -50,6 +50,11 @@ test-coverage:  ## Run tests with coverage report
 
 check: install-dev format lint typecheck test  ## Run all code quality checks and tests
 
+pypi-check:  ## Run code quality checks without reinstalling (for CI/release)
+	pre-commit run --all-files
+	mypy $(PYTHON_FILES)
+	pytest -v  # Run tests with verbose output to easily spot failures
+
 ##@ Cleanup
 
 clean:  ## Clean up python cache files and build artifacts
@@ -68,3 +73,71 @@ clean:  ## Clean up python cache files and build artifacts
 	rm -rf htmlcov/
 	rm -f coverage.xml
 	@echo "Cleaned up build artifacts and cache files"
+
+##@ Version Management
+
+bump-patch:  ## Bump patch version (0.0.x)
+	@if command -v bump-version >/dev/null 2>&1; then \
+		bump-version patch; \
+	else \
+		python ./bump_version.py patch; \
+	fi
+
+bump-minor:  ## Bump minor version (0.x.0)
+	@if command -v bump-version >/dev/null 2>&1; then \
+		bump-version minor; \
+	else \
+		python ./bump_version.py minor; \
+	fi
+
+bump-major:  ## Bump major version (x.0.0)
+	@if command -v bump-version >/dev/null 2>&1; then \
+		bump-version major; \
+	else \
+		python ./bump_version.py major; \
+	fi
+
+##@ PyPI Distribution (NixOS)
+
+pypi-build:  ## Build package distributions for PyPI
+	@if command -v pypi-dist >/dev/null 2>&1; then \
+		pypi-dist build; \
+	else \
+		echo "NixOS pypi-dist not found. Running alternate build command..."; \
+		python -m pip install --upgrade build; \
+		python -m build; \
+	fi
+
+pypi-test:  ## Test package in a clean environment
+	@if command -v pypi-dist >/dev/null 2>&1; then \
+		pypi-dist test; \
+	else \
+		echo "NixOS pypi-dist not found. Running alternate test command..."; \
+		python -m pip install --upgrade build virtualenv; \
+		VERSION=$$(grep -Po '^version = "\K[^"]+' pyproject.toml); \
+		python -m virtualenv test_env; \
+		. test_env/bin/activate && \
+		pip install dist/vibectl-$$VERSION-py3-none-any.whl || { pip install llm-anthropic && vibectl --version; }; \
+		rm -rf test_env; \
+	fi
+
+pypi-upload:  ## Upload package to PyPI
+	@if command -v pypi-dist >/dev/null 2>&1; then \
+		pypi-dist pypi; \
+	else \
+		echo "NixOS pypi-dist not found. Running alternate upload command..."; \
+		python -m pip install --upgrade twine; \
+		twine upload dist/*; \
+	fi
+
+pypi-release: clean pypi-check pypi-build pypi-test pypi-upload  ## Run all checks and publish to PyPI
+	@echo "Package successfully published to PyPI"
+	@if command -v pypi-dist >/dev/null 2>&1; then \
+		pypi-dist tag; \
+	else \
+		echo "NixOS pypi-dist not found. Creating tag manually..."; \
+		VERSION=$$(grep -Po '^version = "\K[^"]+' pyproject.toml); \
+		git tag "v$$VERSION"; \
+		git push origin "v$$VERSION"; \
+	fi
+	@echo "Release v$$(grep -Po '^version = "\K[^"]+' pyproject.toml) completed!"

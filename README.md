@@ -18,10 +18,30 @@ your cluster management more intuitive and fun!
 ## Requirements
 
 - Python 3.10+
-- [Flake](https://flake.build)
+- kubectl command-line tool installed and in your PATH
 - Anthropic API key (for Claude models)
 
 ## Installation
+
+### Option 1: Standard Pip Installation (Non-NixOS users)
+
+1. Install using pip:
+   ```zsh
+   pip install vibectl
+   ```
+
+2. Install the LLM Anthropic provider:
+   ```zsh
+   pip install llm-anthropic
+   llm install llm-anthropic
+   ```
+
+3. Configure your Anthropic API key:
+   ```zsh
+   export ANTHROPIC_API_KEY=your-api-key
+   ```
+
+### Option 2: Development Installation with Flake (NixOS users)
 
 1. Install [Flake](https://flake.build)
 2. Clone and set up:

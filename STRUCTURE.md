@@ -133,7 +133,12 @@ The project is structured as a Python package with:
 - Tests separated in `tests/` directory
 - Type information in `typings/`
 
+Installation options:
+1. Standard pip installation for users (`pip install vibectl`)
+2. Development installation with Flake/Nix
+
 Dependencies are managed through:
 1. `pyproject.toml` for Python dependencies
 2. `flake.nix` for development environment
 3. Virtual environment in `.venv/`
+4. Distribution managed via PyPI (see `DISTRIBUTION.md`)
