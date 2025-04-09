@@ -857,3 +857,75 @@ Example format:
 Here's the output:
 
 {{output}}"""
+
+
+# Template for planning autonomous vibe commands
+PLAN_VIBE_PROMPT = """You are an AI assistant managing a Kubernetes cluster.
+Based on the current memory context and request, plan the next kubectl command
+to execute.
+
+Important:
+- Return ONLY the kubectl command to execute, formatted as shown in examples
+- Include the full command with 'kubectl' and all necessary arguments
+- If more information is needed, use discovery commands
+- If the request is unclear but memory has context, use memory to guide your decision
+- If no context exists, start with basic discovery commands like 'kubectl cluster-info'
+- In the absence of any specific instruction or context, focus on gathering information
+  before making changes
+- If the command is potentially destructive, add a note about the impact
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
+'backend' services."
+Input: "check if everything is healthy"
+Output:
+kubectl get pods -n app
+
+Memory: "We need to debug why the database pod keeps crashing."
+Input: "help me troubleshoot"
+Output:
+kubectl describe pod -l app=database
+
+Memory: <empty>
+Input: <empty>
+Output:
+kubectl cluster-info
+
+Memory: "We are working on deploying a three-tier application. We've created a
+frontend deployment."
+Input: "keep working on the application deployment"
+Output:
+kubectl get deployment frontend -o yaml
+NOTE: Will examine frontend configuration to help determine next steps
+
+Here's the current memory context and request:
+
+{memory_context}
+
+Request: {request}"""
+
+
+# Template for summarizing vibe autonomous command output
+def vibe_autonomous_prompt() -> str:
+    """Get the prompt template for summarizing the output of an autonomous vibe command.
+
+    Returns:
+        str: The vibe autonomous prompt template with formatting instructions
+    """
+    return f"""Analyze this kubectl command output and provide a concise summary.
+Focus on the state of the resources, any issues detected, and suggest logical
+next steps.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]3 pods[/bold] running in [blue]app namespace[/blue]
+[green]All deployments healthy[/green] with proper replica counts
+[yellow]Note: database pod has high CPU usage[/yellow]
+Next steps: Consider checking logs for database pod or scaling the deployment
+
+Here's the output:
+
+{{output}}"""

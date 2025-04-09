@@ -161,6 +161,10 @@ class ConsoleManager:
         """Print keyboard interrupt message."""
         self.print_error("Keyboard interrupt")
 
+    def print_cancelled(self) -> None:
+        """Print command cancellation message."""
+        self.print_warning("Command cancelled")
+
     def print_processing(self, message: str) -> None:
         """Print a processing message.
 
