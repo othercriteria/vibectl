@@ -2,7 +2,7 @@
 vibectl - A vibes-based alternative to kubectl
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 # These imports are needed for the tests to run properly
 # by making the modules accessible via vibectl.module_name
