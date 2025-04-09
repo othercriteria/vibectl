@@ -26,12 +26,20 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
         patch("vibectl.cli.run_kubectl") as cli_mock,
         patch("vibectl.command_handler.run_kubectl") as handler_mock,
     ):
-        # Keep both mocks in sync
+        # Set up default mock behavior for successful cases
         handler_mock.return_value = "test output"
         cli_mock.return_value = "test output"
 
+        # Create a special side_effect that intelligently handles different cases
+        def mock_side_effect(
+            cmd: list[str], capture: bool = False, config: object = None
+        ) -> str | None:
+            # Default success case
+            return "test output"
+
         # Make the CLI mock delegate to the handler mock to ensure consistent behavior
-        cli_mock.side_effect = handler_mock.side_effect
+        handler_mock.side_effect = mock_side_effect
+        cli_mock.side_effect = handler_mock
 
         # Return the handler mock since that's the one that gets used by the CLI code
         yield handler_mock

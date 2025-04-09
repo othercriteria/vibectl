@@ -566,10 +566,14 @@ relevant context.
 Focus on cluster state, conditions, and configurations that will help with \
 future requests.
 
-IMPORTANT: If the command output was empty or indicates "No resources found", \
+IMPORTANT:
+1. If the command output was empty or indicates "No resources found", \
 this is still crucial information. Update the memory to include the fact that \
-the specified resources don't exist in the queried context or namespace. This \
-will help guide future operations.
+the specified resources don't exist in the queried context or namespace.
+
+2. If the command output contains an error (starts with "Error:"), this is \
+extremely important information. Always incorporate the exact error into memory \
+to prevent repeating failed commands and to help guide future operations.
 
 Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
 Only include things actually observed from the output, no speculation or generalization.

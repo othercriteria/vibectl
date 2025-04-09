@@ -62,7 +62,13 @@ def run_kubectl(
         if e.stderr:
             print(e.stderr, file=sys.stderr)
         if capture:
-            return "test output"  # For test compatibility
+            # Return the error message as part of the output so it can be processed
+            # by command handlers and included in memory
+            return (
+                f"Error: {e.stderr}"
+                if e.stderr
+                else f"Error: Command failed with exit code {e.returncode}"
+            )
         return None
 
 
@@ -253,6 +259,9 @@ def handle_vibe_request(
             console_manager.print_processing("Executing command...")
             output = run_kubectl(kubectl_args, capture=True)
 
+            # Check if output contains error information
+            is_error = output and output.startswith("Error:")
+
             if not output:
                 # Create special message for empty output
                 empty_output_message = "No resources found."
@@ -283,6 +292,10 @@ def handle_vibe_request(
                     except Exception as e:
                         handle_exception(e, exit_on_error=False)
                 return
+
+            # For error outputs in autonomous mode, ensure they're displayed
+            if is_error and show_raw_output is False:
+                console_manager.print_raw(output)
 
             # Handle the output display
             handle_command_output(
@@ -373,6 +386,12 @@ def handle_vibe_request(
                 if not output:
                     return
 
+                # Check for errors
+                is_error = output and output.startswith("Error:")
+                if is_error and show_raw_output is False:
+                    # Force showing raw output for errors to ensure visibility
+                    console_manager.print_raw(output)
+
                 # Handle the output display based on the configured flags
                 handle_command_output(
                     output=output,
@@ -398,6 +417,12 @@ def handle_vibe_request(
             # If no output, nothing to do
             if not output:
                 return
+
+            # Check if output contains error information and ensure it's displayed
+            is_error = output.startswith("Error:")
+            if is_error and show_raw_output is False:
+                # Force showing raw output for errors to ensure visibility
+                console_manager.print_raw(output)
 
             # Handle the output display based on the configured flags
             try:

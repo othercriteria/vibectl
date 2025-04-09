@@ -62,6 +62,9 @@ def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> No
     # Set test kubeconfig
     test_config.set("kubeconfig", "/test/kubeconfig")
 
+    # Configure mock to return success
+    mock_subprocess.return_value.stdout = "test output"
+
     # Run command
     output = run_kubectl(["get", "pods"], capture=True, config=test_config)
 
@@ -78,6 +81,9 @@ def test_run_kubectl_no_kubeconfig(
     """Test kubectl command without kubeconfig."""
     # Explicitly set kubeconfig to None
     test_config.set("kubeconfig", None)
+
+    # Configure mock to return success
+    mock_subprocess.return_value.stdout = "test output"
 
     output = run_kubectl(["get", "pods"], capture=True, config=test_config)
 
@@ -116,7 +122,8 @@ def test_run_kubectl_called_process_error(
     # Verify error was printed to stderr
     captured = capsys.readouterr()
     assert captured.err == "test error\n"
-    assert output == "test output"  # For test compatibility
+    # Check error message is properly formatted
+    assert output == "Error: test error"
 
 
 def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) -> None:
@@ -125,7 +132,7 @@ def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) 
     mock_subprocess.side_effect = error
 
     output = run_kubectl(["get", "pods"], capture=True)
-    assert output == "test output"  # For test compatibility
+    assert output == "Error: Command failed with exit code 1"
 
 
 def test_run_kubectl_no_capture(mock_subprocess: MagicMock) -> None:

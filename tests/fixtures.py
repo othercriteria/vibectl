@@ -17,7 +17,19 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
         Mock: Mocked run_kubectl function that returns "test output" by default.
     """
     with patch("vibectl.cli.run_kubectl") as mock:
+        # Default to successful output
         mock.return_value = "test output"
+
+        # Helper for setting up error responses when needed in tests
+        def set_error_response(stderr: str = "test error") -> None:
+            """Configure mock to return an error response."""
+            mock.return_value = (
+                f"Error: {stderr}" if stderr else "Error: Command failed"
+            )
+
+        # Add the helper method to the mock
+        mock.set_error_response = set_error_response
+
         yield mock
 
 
@@ -148,7 +160,19 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
         patch("vibectl.cli.handle_command_output") as mock_handle_output,
         patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe,
     ):
+        # Default to successful output
         mock_run_kubectl.return_value = "test output"
+
+        # Helper for setting up error responses
+        def set_error_response(stderr: str = "test error") -> None:
+            """Configure mock to return an error response."""
+            mock_run_kubectl.return_value = (
+                f"Error: {stderr}" if stderr else "Error: Command failed"
+            )
+
+        # Add the helper method to the mock
+        mock_run_kubectl.set_error_response = set_error_response
+
         yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
 
 
