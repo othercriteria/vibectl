@@ -565,13 +565,22 @@ Based on this new information, update the memory to maintain the most \
 relevant context.
 Focus on cluster state, conditions, and configurations that will help with \
 future requests.
+
+IMPORTANT:
+1. If the command output was empty or indicates "No resources found", \
+this is still crucial information. Update the memory to include the fact that \
+the specified resources don't exist in the queried context or namespace.
+
+2. If the command output contains an error (starts with "Error:"), this is \
+extremely important information. Always incorporate the exact error into memory \
+to prevent repeating failed commands and to help guide future operations.
+
 Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
 Only include things actually observed from the output, no speculation or generalization.
 
 IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
 in your response. Just provide the direct memory content itself with \
-no additional labels or headers.
-"""
+no additional labels or headers."""
 
 
 def memory_fuzzy_update_prompt(
@@ -853,6 +862,100 @@ Example format:
 [bold]deployment/api[/bold] rollout [green]successfully restarted[/green]
 [blue]All pods will be replaced[/blue]
 [italic]Check status with 'kubectl rollout status deployment/api'[/italic]
+
+Here's the output:
+
+{{output}}"""
+
+
+# Template for planning autonomous vibe commands
+PLAN_VIBE_PROMPT = """You are an AI assistant managing a Kubernetes cluster.
+Based on the current memory context and request, plan the next kubectl command
+to execute.
+
+Important:
+- Return ONLY the kubectl command to execute, formatted as shown in examples
+- Include the full command with 'kubectl' and all necessary arguments
+- If more information is needed, use discovery commands
+- If the request is unclear but memory has context, use memory to guide your decision
+- If no context exists, start with basic discovery commands like 'kubectl cluster-info'
+- In the absence of any specific instruction or context, focus on gathering information
+  before making changes
+- If the command is potentially destructive, add a note about the impact
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+- If previous commands returned empty results, use that information to intelligently
+  progress to the next logical step (e.g., checking other namespaces, trying different
+  resource types, or suggesting resource creation)
+- After discovering empty namespaces or no pods/resources, progress to create
+  needed resources rather than repeatedly checking empty resources
+
+Example inputs and outputs:
+
+Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
+'backend' services."
+Input: "check if everything is healthy"
+Output:
+kubectl get pods -n app
+
+Memory: "We need to debug why the database pod keeps crashing."
+Input: "help me troubleshoot"
+Output:
+kubectl describe pod -l app=database
+
+Memory: <empty>
+Input: <empty>
+Output:
+kubectl cluster-info
+
+Memory: "We are working on deploying a three-tier application. We've created a
+frontend deployment."
+Input: "keep working on the application deployment"
+Output:
+kubectl get deployment frontend -o yaml
+NOTE: Will examine frontend configuration to help determine next steps
+
+Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
+Checked for pods but found none in the sandbox namespace."
+Input: "keep building the nginx demo"
+Output:
+kubectl create deployment nginx --image=nginx -n sandbox
+NOTE: Creating nginx deployment as first step in building the demo
+
+Here's the current memory context and request:
+
+{memory_context}
+
+Request: {request}"""
+
+
+# Template for summarizing vibe autonomous command output
+def vibe_autonomous_prompt() -> str:
+    """Get the prompt template for summarizing the output of an autonomous vibe command.
+
+    Returns:
+        str: The vibe autonomous prompt template with formatting instructions
+    """
+    return f"""Analyze this kubectl command output and provide a concise summary.
+Focus on the state of the resources, any issues detected, and suggest logical
+next steps.
+
+If the output indicates "Command returned no output" or "No resources found",
+this is still valuable information! It means the requested resources don't exist
+in the specified namespace or context. Include this fact in your interpretation
+and suggest appropriate next steps (e.g., creating resources, checking namespace,
+confirming context, etc.).
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]3 pods[/bold] running in [blue]app namespace[/blue]
+[green]All deployments healthy[/green] with proper replica counts
+[yellow]Note: database pod has high CPU usage[/yellow]
+Next steps: Consider checking logs for database pod or scaling the deployment
+
+For empty output examples:
+[yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
+Next steps: Create the first pod or deployment in this namespace
 
 Here's the output:
 

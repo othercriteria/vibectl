@@ -35,6 +35,7 @@ from .prompt import (
     PLAN_LOGS_PROMPT,
     PLAN_ROLLOUT_PROMPT,
     PLAN_SCALE_PROMPT,
+    PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     delete_resource_prompt,
@@ -48,6 +49,7 @@ from .prompt import (
     rollout_status_prompt,
     scale_resource_prompt,
     version_prompt,
+    vibe_autonomous_prompt,
 )
 from .utils import handle_exception
 
@@ -65,7 +67,8 @@ CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 @click.group(invoke_without_command=True)
 @click.version_option()
-def cli() -> None:
+@click.pass_context
+def cli(ctx: click.Context) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Initialize the console manager with the configured theme
     try:
@@ -75,6 +78,11 @@ def cli() -> None:
     except Exception:
         # Fallback to default in case of any issues (helpful for tests)
         pass
+
+    # Show welcome message if no subcommand is invoked
+    if ctx.invoked_subcommand is None:
+        console_manager.print("Checking cluster vibes...")
+        console_manager.print_vibe_welcome()
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -663,10 +671,76 @@ def theme_set(theme_name: str) -> None:
 
 
 @cli.command()
-def vibe() -> None:
-    """Show information about the vibe command."""
-    console_manager.print("Checking cluster vibes...")
-    console_manager.print_vibe_welcome()
+@click.argument("request", required=False)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def vibe(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    yes: bool = False,
+) -> None:
+    """Execute autonomous Kubernetes operations guided by memory and planning.
+
+    Analyzes cluster state, memory context, and user request to determine and
+    execute appropriate kubectl commands. With no arguments, it will use memory
+    and general Kubernetes knowledge to guide operations.
+
+    Examples:
+        vibectl vibe "create a deployment for nginx with 3 replicas"
+        vibectl vibe "check if all pods are running"
+        vibectl vibe "fix the issues with the frontend service"
+        vibectl vibe
+    """
+    try:
+        # Configure output flags
+        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Get memory
+        memory_context = get_memory() or ""
+
+        # Handle empty request case
+        if not request:
+            request = ""
+            console_manager.print_processing(
+                "Planning next steps based on memory context..."
+            )
+        else:
+            console_manager.print_processing(f"Planning how to: {request}")
+
+        # Handle the autonomous vibe command
+        handle_vibe_request(
+            request=request,
+            command="vibe",
+            plan_prompt=PLAN_VIBE_PROMPT.format(
+                memory_context=memory_context, request=request
+            ),
+            summary_prompt_func=vibe_autonomous_prompt,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model_name=model_name,
+            warn_no_output=warn_no_output,
+            yes=yes,
+            autonomous_mode=True,
+        )
+    except Exception as e:
+        handle_exception(e)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})

@@ -6,6 +6,7 @@ your cluster management more intuitive and fun!
 ## Features
 
 - 🌟 Vibes-based interaction with Kubernetes clusters
+- 🧠 Memory-aware autonomous Kubernetes operations
 - 🚀 Intuitive commands that just feel right
 - 🎯 Simplified cluster management
 - 🔍 Smart context awareness
@@ -13,7 +14,6 @@ your cluster management more intuitive and fun!
 - 🧠 Natural language resource queries
 - 🎨 Theme support with multiple visual styles
 - 📊 Intelligent output formatting for different resource types
-- 🧠 Context-aware memory between commands
 
 ## Requirements
 
@@ -42,55 +42,83 @@ The development environment will automatically:
 
 ## Usage
 
-Basic commands with AI-powered summaries:
+### Autonomous Mode with `vibectl vibe`
+
+The `vibectl vibe` command is a powerful, memory-aware tool that can autonomously
+plan and execute Kubernetes operations:
+
+```zsh
+# Use with a specific request
+vibectl vibe "create a deployment for our frontend app"
+
+# Use without arguments - autonomous mode based on memory context
+vibectl vibe
+
+# Continue working on a previous task
+vibectl vibe "continue setting up the database system"
+```
+
+The `vibe` command works by:
+1. Understanding your cluster context from memory
+2. Planning appropriate actions
+3. Executing kubectl commands with your confirmation
+4. Updating memory with results
+5. Planning next steps
+
+#### Example Flow with Memory
+
+```
+Memory: "We are working in `foo` namespace. We have created deployment `bar`.
+We need to create a service for `bar`."
+
+Command: vibectl vibe "keep working on the bar system"
+
+Planning: Need to create a service for the bar deployment
+Action: kubectl create service clusterip bar-service --tcp=80:8080
+Confirmation: [Y/n]
+
+Updated Memory: "We are working in the `foo` namespace. We have created
+deployment `bar` with service `bar-service`. We don't know if it is alive yet."
+```
+
+#### No-Argument Mode
+
+When run without arguments, `vibectl vibe` uses memory context to determine what
+to do next. If no memory exists, it begins with discovery commands:
+
+```
+Command: vibectl vibe
+
+Planning: Need to understand the cluster context first
+Action: kubectl cluster-info
+Confirmation: [Y/n]
+
+Updated Memory: "We are working with a Kubernetes cluster running version 1.25.4
+with control plane at https://cluster.example.com. Next, we should understand
+what namespaces and workloads are available."
+```
+
+### Other Common Commands
 
 ```zsh
 # Display version and configuration
 vibectl version
 vibectl config show
 
-# Get cluster information
-vibectl cluster-info                              # Show cluster info with insights
-vibectl cluster-info dump                         # Detailed cluster information
-vibectl cluster-info vibe how healthy is my control plane  # Natural language query
+# Basic operations with AI-powered summaries
+vibectl get pods                                  # List pods with summary
+vibectl describe deployment my-app                # Get detailed info
+vibectl logs pod/my-pod                          # Get pod logs
+vibectl scale deployment/nginx --replicas=3      # Scale a deployment
 
-# Get resources
-vibectl get pods                                    # List pods with summary
-vibectl get vibe show me pods with high restarts   # Natural language query
-
-# Create resources
-vibectl create -f manifest.yaml                     # Create from file
-vibectl create vibe an nginx pod with 3 replicas   # Natural language creation
-
-# Delete resources
-vibectl delete pod nginx                            # Delete with confirmation
-vibectl delete -y deployment my-app                 # Delete without confirmation
-vibectl delete vibe remove all failed pods          # Natural language deletion
-
-# Describe resources
-vibectl describe deployment my-app                  # Get detailed info
-vibectl describe vibe tell me about the nginx pods  # Natural language query
-
-# View logs
-vibectl logs pod/my-pod                            # Get pod logs
-vibectl logs vibe show errors from frontend pods   # Natural language query
-
-# Scale resources
-vibectl scale deployment/nginx --replicas=3        # Scale a deployment
-vibectl scale statefulset redis -n cache --replicas=5  # Scale in namespace
-vibectl scale vibe scale frontend to 3 replicas    # Natural language scaling
-
-# Manage rollouts
-vibectl rollout status deployment/nginx            # Check rollout status
-vibectl rollout history deployment/frontend        # View rollout history
-vibectl rollout undo deployment/api --to-revision=2 # Rollback to previous version
-vibectl rollout restart deployment/backend         # Restart all pods in deployment
-vibectl rollout pause deployment/website           # Pause a rollout
-vibectl rollout resume deployment/website          # Resume a paused rollout
-vibectl rollout vibe check status of frontend      # Natural language rollout query
+# Natural language commands
+vibectl get vibe show me pods with high restarts
+vibectl create vibe an nginx pod with 3 replicas
+vibectl delete vibe remove all failed pods
+vibectl describe vibe what's wrong with the database
 
 # Direct kubectl access
-vibectl just get pods                              # Pass directly to kubectl
+vibectl just get pods                            # Pass directly to kubectl
 ```
 
 ### Memory
@@ -107,33 +135,17 @@ vibectl memory set "Running backend deployment in staging namespace"
 # Edit memory in your preferred editor
 vibectl memory set --edit
 
-# Update memory with additional context
-vibectl memory update "New information to integrate with existing memory"
-
 # Clear memory content
 vibectl memory clear
 
 # Control memory updates
 vibectl memory disable      # Stop updating memory
 vibectl memory enable       # Resume memory updates
-vibectl memory freeze       # Alias for disable
-vibectl memory unfreeze     # Alias for enable
-
-# One-time memory control flags
-vibectl get pods --freeze-memory     # Don't update memory for this command
-vibectl get pods --unfreeze-memory   # Allow memory update for this command
 ```
 
 Memory helps vibectl understand context from previous commands, enabling references
-like "the namespace I mentioned earlier" without repeating information.
-
-Future memory enhancements:
-- Selective memory by namespace or context
-- Memory visualization and insights
-- Memory export/import for sharing context
-- Memory search capabilities
-- Persistence of memory across different terminals/sessions
-- Memory organization by clusters and contexts
+like "the namespace I mentioned earlier" without repeating information. This is
+especially powerful with the autonomous `vibectl vibe` command.
 
 ### Configuration
 
@@ -146,12 +158,6 @@ vibectl config set llm_model your-preferred-model
 
 # Always show raw kubectl output
 vibectl config set show_raw_output true
-
-# Always show vibe output
-vibectl config set show_vibe true
-
-# Suppress warning when no output is enabled
-vibectl config set suppress_output_warning true
 
 # Set visual theme
 vibectl theme set dark
@@ -166,10 +172,6 @@ that will be included in all vibe prompts:
 # Set custom instructions
 vibectl instructions set "Use a ton of emojis! 😁"
 
-# Set multiline instructions
-echo "Redact the last 3 octets of IPs.
-Focus on security issues." | vibectl instructions set
-
 # View current instructions
 vibectl instructions show
 
@@ -182,45 +184,6 @@ Typical use cases for custom instructions:
 - Security requirements: "Redact the last 3 octets of IPs."
 - Focus areas: "Focus on security issues."
 - Output customization: "Be extremely concise."
-
-### Theme Management
-
-The tool supports multiple visual themes for the console output:
-
-```zsh
-# List available themes
-vibectl theme list
-
-# Set a theme
-vibectl theme set <theme-name>
-```
-
-Available themes:
-- `default` - Standard theme with clean, subtle colors
-- `dark` - Enhanced contrast for dark backgrounds
-- `light` - Enhanced readability for light backgrounds
-- `accessible` - Designed for improved accessibility
-
-Theme changes are persisted in your configuration and apply to all vibectl commands.
-
-### Output Behavior
-
-By default, vibectl will show:
-- Raw output when `--show-raw-output` or `--raw` flag is used
-- Vibe summaries when `--show-vibe` flag is used (enabled by default)
-
-When neither raw output nor vibe output is enabled, a warning will be displayed
-but no output will be shown. This behavior respects user choices rather than
-guessing intent.
-
-If you wish to suppress the warning for no enabled outputs, you can set:
-```zsh
-vibectl config set suppress_output_warning true
-```
-
-All output settings can be controlled using:
-- Command-line flags: `--show-raw-output` / `--no-show-raw-output` and `--show-vibe` / `--no-show-vibe`
-- Configuration: `vibectl config set show_raw_output true|false` and `vibectl config set show_vibe true|false`
 
 ### Output Formatting
 
@@ -237,42 +200,6 @@ Example:
 [bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]
 [bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
 [yellow]Warning: 2 pods have high restart counts[/yellow]
-```
-
-The tool intelligently processes different output types:
-- Log outputs with special handling for recent entries
-- YAML resources with section-aware formatting
-- JSON with smart object and array truncation
-- Plain text with balanced truncation when needed
-
-### Natural Language Support
-
-The `vibe` subcommand supports natural language for all operations:
-
-```zsh
-# Find resources
-vibectl get vibe show me pods in kube-system
-vibectl get vibe find pods with high restart counts
-
-# Create resources
-vibectl create vibe a redis pod with persistent storage
-vibectl create vibe a deployment with 3 nginx replicas
-
-# Describe resources
-vibectl describe vibe tell me about the nginx pods
-vibectl describe vibe what's wrong with the database
-
-# View logs
-vibectl logs vibe show me recent errors
-vibectl logs vibe what's happening in the api pods
-
-# Scale resources
-vibectl scale vibe scale the frontend deployment to 5 replicas
-vibectl scale vibe reduce backend instances to 2
-
-# Manage rollouts
-vibectl rollout vibe check if nginx deployment is updated
-vibectl rollout vibe rollback my failed deployment
 ```
 
 ## Project Structure
@@ -310,13 +237,6 @@ Configuration for Ruff is managed in the `pyproject.toml` file under the
 The project uses Cursor rules (`.mdc` files in `.cursor/rules/`) to maintain
 consistent development practices. For details on these rules, including their
 purpose and implementation, see [RULES.md](RULES.md).
-
-Our rules system covers:
-- Code quality and style enforcement
-- Test organization and coverage requirements
-- Documentation standards
-- Build system conventions
-- Commit automation
 
 ## License
 

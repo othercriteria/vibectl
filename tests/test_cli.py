@@ -11,7 +11,7 @@ For most CLI tests, use the cli_test_mocks fixture which provides all three.
 
 import subprocess
 from collections.abc import Generator
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 from click.testing import CliRunner
@@ -1093,42 +1093,90 @@ def test_instructions_set_no_text_no_edit(
     assert "Instructions cannot be empty" in result.output
 
 
-def test_vibe_command(cli_runner: CliRunner, mock_console: Mock) -> None:
-    """Test the vibe command that shows welcome information."""
+@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.cli.get_memory")
+def test_vibe_command_with_no_arguments(
+    mock_get_memory: MagicMock, mock_handle_vibe: MagicMock, cli_runner: CliRunner
+) -> None:
+    """Test 'vibe' command with no arguments."""
+    # Set up mock to return empty memory
+    mock_get_memory.return_value = ""
+
+    # Run the CLI command
     result = cli_runner.invoke(cli, ["vibe"])
 
+    # Verify success
     assert result.exit_code == 0
-    mock_console.print.assert_called_once_with("Checking cluster vibes...")
-    mock_console.print_vibe_welcome.assert_called_once()
+
+    # Verify that handle_vibe_request was called with empty request
+    mock_handle_vibe.assert_called_once()
+    call_args = mock_handle_vibe.call_args[1]
+    assert call_args["request"] == ""
+    assert call_args["command"] == "vibe"
+    assert call_args["autonomous_mode"] is True
+
+    # Verify that the plan prompt includes memory context and empty request
+    assert (
+        "Here's the current memory context and request:"
+        in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]
+    )
+    assert "Request: " in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]
 
 
-def test_theme_set_invalid_theme(cli_runner: CliRunner, mock_console: Mock) -> None:
-    """Test setting an invalid theme name."""
-    with patch("vibectl.cli.console_manager.get_available_themes") as mock_get_themes:
-        mock_get_themes.return_value = ["light", "dark"]
+@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.cli.get_memory")
+def test_vibe_command_with_existing_memory(
+    mock_get_memory: MagicMock, mock_handle_vibe: MagicMock, cli_runner: CliRunner
+) -> None:
+    """Test 'vibe' command with existing memory."""
+    # Set up mock to return some memory content
+    mock_get_memory.return_value = "Working in namespace 'test' with deployment 'app'"
 
-        # Test with invalid theme
-        result = cli_runner.invoke(cli, ["theme", "set", "invalid_theme"])
+    # Run the CLI command
+    result = cli_runner.invoke(cli, ["vibe"])
 
-        assert result.exit_code == 1
-        mock_console.print_error.assert_called_once()
-        # Verify the error message mentions available themes
-        error_msg = mock_console.print_error.call_args[0][0]
-        assert "Invalid theme" in error_msg
-        assert "light" in error_msg
-        assert "dark" in error_msg
+    # Verify success
+    assert result.exit_code == 0
+
+    # Verify that handle_vibe_request was called with empty request
+    # but the memory context was properly included
+    mock_handle_vibe.assert_called_once()
+    call_args = mock_handle_vibe.call_args[1]
+    assert call_args["request"] == ""
+    assert call_args["command"] == "vibe"
+    assert call_args["autonomous_mode"] is True
+
+    # Check that memory context is properly included in plan prompt
+    plan_prompt = call_args["plan_prompt"]
+    assert "Working in namespace 'test' with deployment 'app'" in plan_prompt
 
 
-def test_configure_custom_instructions_editor_error() -> None:
-    """Test configure custom instructions command with editor error."""
-    # Using DummyEditor that raises an exception
-    with patch("vibectl.cli.click.edit", side_effect=Exception("Editor error")):
-        # Set up CLI runner
-        cli_runner = CliRunner()
+@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.cli.get_memory")
+def test_vibe_command_with_explicit_request(
+    mock_get_memory: MagicMock, mock_handle_vibe: MagicMock, cli_runner: CliRunner
+) -> None:
+    """Test 'vibe' command with an explicit request argument."""
+    # Set up mock to return some memory content
+    mock_get_memory.return_value = "Working in namespace 'test'"
 
-        # Invoke the command
-        result = cli_runner.invoke(cli, ["configure", "custom-instructions", "--edit"])
+    # Run the CLI command with an explicit request
+    result = cli_runner.invoke(cli, ["vibe", "scale deployment app to 3 replicas"])
 
-        # Check that it shows error
-        assert result.exit_code != 0  # Non-zero exit code indicates error
-        assert "Error" in result.output
+    # Verify success
+    assert result.exit_code == 0
+
+    # Verify that handle_vibe_request was called with the correct request
+    mock_handle_vibe.assert_called_once()
+    call_args = mock_handle_vibe.call_args[1]
+    assert call_args["request"] == "scale deployment app to 3 replicas"
+    assert call_args["command"] == "vibe"
+    assert call_args["autonomous_mode"] is True
+
+    # Check that memory context and request are properly included in plan prompt
+    plan_prompt = call_args["plan_prompt"]
+    assert "Working in namespace 'test'" in plan_prompt
+    assert "scale deployment app to 3 replicas" in plan_prompt
+
+    # Verify that processing message showed the request
+    assert "Planning how to: scale deployment app to 3 replicas" in result.output

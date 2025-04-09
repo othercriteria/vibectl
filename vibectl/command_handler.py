@@ -62,7 +62,13 @@ def run_kubectl(
         if e.stderr:
             print(e.stderr, file=sys.stderr)
         if capture:
-            return "test output"  # For test compatibility
+            # Return the error message as part of the output so it can be processed
+            # by command handlers and included in memory
+            return (
+                f"Error: {e.stderr}"
+                if e.stderr
+                else f"Error: Command failed with exit code {e.returncode}"
+            )
         return None
 
 
@@ -166,6 +172,7 @@ def handle_vibe_request(
     model_name: str = "claude-3.7-sonnet",
     warn_no_output: bool = True,
     yes: bool = False,  # Add parameter to control confirmation bypass
+    autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> None:
     """Handle a vibe request by planning and executing a kubectl command.
 
@@ -179,6 +186,7 @@ def handle_vibe_request(
         model_name: The LLM model to use
         warn_no_output: Whether to warn when no output will be shown
         yes: Whether to skip confirmation prompt (for non-interactive use)
+        autonomous_mode: Whether operating in autonomous vibe mode
     """
     try:
         # Track if we've already shown a no-output warning
@@ -188,9 +196,15 @@ def handle_vibe_request(
         llm_model = llm.get_model(model_name)
 
         # Format prompt with request, including memory if available
-        prompt_with_memory = include_memory_in_prompt(
-            lambda: plan_prompt.format(request=request)
-        )
+        if autonomous_mode:
+            # Plan prompt is already fully formatted for autonomous mode
+            prompt_with_memory = plan_prompt
+        else:
+            # Format prompt with request for standard commands
+            prompt_with_memory = include_memory_in_prompt(
+                lambda: plan_prompt.format(request=request)
+            )
+
         response = llm_model.prompt(prompt_with_memory)
         plan = response.text() if hasattr(response, "text") else str(response)
 
@@ -205,6 +219,97 @@ def handle_vibe_request(
             handle_exception(Exception(error_message))
             return
 
+        # For autonomous mode, handle direct kubectl commands
+        if autonomous_mode:
+            lines = plan.split("\n")
+            kubectl_cmd = lines[0].strip()
+
+            # Check if it starts with kubectl
+            if not kubectl_cmd.startswith("kubectl "):
+                handle_exception(
+                    Exception("Invalid command format, expected kubectl command")
+                )
+                return
+
+            # Extract note if provided
+            note = None
+            if len(lines) > 1 and lines[1].strip().startswith("NOTE:"):
+                note = lines[1].strip()[5:].strip()  # Remove "NOTE: " prefix
+
+            # Remove "kubectl" from the command
+            kubectl_args = kubectl_cmd.split()[1:]
+
+            # Show the plan and note if available
+            console_manager.print("[bold blue]Planned action:[/bold blue]")
+            console_manager.print(f"[bold]{kubectl_cmd}[/bold]")
+            if note:
+                console_manager.print(f"[italic]{note}[/italic]")
+
+            # For all commands, ask for confirmation unless yes flag is provided
+            if not yes:
+                import click
+
+                if not click.confirm(
+                    "Do you want to execute this command?", default=True
+                ):
+                    console_manager.print_cancelled()
+                    return
+
+            # Execute the command
+            console_manager.print_processing("Executing command...")
+            output = run_kubectl(kubectl_args, capture=True)
+
+            # Check if output contains error information
+            is_error = output and output.startswith("Error:")
+
+            if not output:
+                # Create special message for empty output
+                empty_output_message = "No resources found."
+                console_manager.print_note(
+                    "Command executed successfully with no output"
+                )
+
+                # Update memory with the empty output information
+                if show_vibe:
+                    try:
+                        # Generate interpretation for empty output
+                        llm_model = llm.get_model(model_name)
+                        summary_prompt = summary_prompt_func()
+                        prompt = summary_prompt.format(
+                            output=f"Command returned no output: {kubectl_cmd}"
+                        )
+                        response = llm_model.prompt(prompt)
+                        vibe_output = (
+                            response.text()
+                            if hasattr(response, "text")
+                            else str(response)
+                        )
+
+                        # Update memory with empty result context
+                        update_memory(
+                            kubectl_cmd, empty_output_message, vibe_output, model_name
+                        )
+                    except Exception as e:
+                        handle_exception(e, exit_on_error=False)
+                return
+
+            # For error outputs in autonomous mode, ensure they're displayed
+            if is_error and show_raw_output is False:
+                console_manager.print_raw(output)
+
+            # Handle the output display
+            handle_command_output(
+                output=output,
+                show_raw_output=show_raw_output,
+                show_vibe=show_vibe,
+                model_name=model_name,
+                summary_prompt_func=summary_prompt_func,
+                command=kubectl_cmd,
+                warn_no_output=warn_no_output and not already_warned,
+            )
+            return
+
+        # Standard (non-autonomous) mode handling below:
         # Extract kubectl command from plan
         kubectl_args = []
         yaml_content = ""
@@ -248,71 +353,59 @@ def handle_vibe_request(
             # confirmation prompt because click.confirm() displays formatting tags
             # as raw text when trying to use Rich formatting directly. A better
             # solution would be to use the Rich library's prompt features or to
-            # integrate colorama properly, but this approach avoids adding dependencies
-            # while still providing clear visual feedback to the user.
-            # TODO: Implement a more elegant solution for styled confirmation prompts
-            # that properly integrates with both Rich and click.
-            console_manager.print(
-                "[bold red]Warning:[/bold red] This will delete resources."
-            )
-
-            # Ask for confirmation with a plain text prompt
-            confirmation = click.confirm(
-                "Do you want to proceed with deletion?",
-                default=False,
-            )
-
-            if not confirmation:
-                console_manager.print("[yellow]Deletion cancelled.[/yellow]")
+            # create a custom click confirmation handler
+            if not click.confirm(
+                "Do you want to execute this delete command?", default=False
+            ):
+                console_manager.print_cancelled()
                 return
 
-            console_manager.print("[green]Proceeding with deletion...[/green]")
-
-        # Special handling for 'create' command with YAML content
-        if command == "create" and has_yaml_section:
+        # Check if we have a YAML input creation
+        if has_yaml_section and command == "create":
+            # Create a temporary file for YAML content
             import tempfile
 
-            # Create a temporary file for the YAML content
             with tempfile.NamedTemporaryFile(
-                suffix=".yaml", mode="w", delete=False
-            ) as tmpfile:
-                temp_file_path = tmpfile.name
-                tmpfile.write(yaml_content)
+                mode="w", suffix=".yaml", delete=False
+            ) as f:
+                f.write(yaml_content)
+                yaml_file = f.name
 
             try:
-                # Run kubectl create with the temporary file
-                cmd = [command, "-f", temp_file_path]
-                if kubectl_args:  # Add any other args like namespace
+                # Build kubectl command with -f flag and additional args
+                cmd = [command, "-f", yaml_file]
+                if kubectl_args:
                     cmd.extend(kubectl_args)
 
+                # Execute the command
                 output = run_kubectl(cmd, capture=True)
 
-                # Clean up the temporary file
-                os.unlink(temp_file_path)
+                # Remove the temporary file
+                os.unlink(yaml_file)
 
-                # If no output, nothing to do
                 if not output:
                     return
 
-                # Handle the output display
+                # Check for errors
+                is_error = output and output.startswith("Error:")
+                if is_error and show_raw_output is False:
+                    # Force showing raw output for errors to ensure visibility
+                    console_manager.print_raw(output)
+
+                # Handle the output display based on the configured flags
                 handle_command_output(
                     output=output,
                     show_raw_output=show_raw_output,
                     show_vibe=show_vibe,
                     model_name=model_name,
                     summary_prompt_func=summary_prompt_func,
-                    command=f"{command} {' '.join(kubectl_args)}",
+                    command=f"{command} -f yaml_content {''.join(kubectl_args)}",
                     warn_no_output=warn_no_output and not already_warned,
                 )
-            except Exception as e:  # pragma: no cover - complex error handling path
-                # for temporary file management
-                # Clean up temp file if an error occurs
-                if os.path.exists(
-                    temp_file_path
-                ):  # pragma: no cover - complex error path with filesystem interaction
-                    os.unlink(temp_file_path)
-                handle_exception(e)
-                return
+            except Exception as e:
+                # Make sure to clean up the temp file in case of an error
+                os.unlink(yaml_file)
+                raise e
         else:
             # Standard command handling (not create with YAML)
             try:
@@ -324,6 +417,12 @@ def handle_vibe_request(
             # If no output, nothing to do
             if not output:
                 return
+
+            # Check if output contains error information and ensure it's displayed
+            is_error = output.startswith("Error:")
+            if is_error and show_raw_output is False:
+                # Force showing raw output for errors to ensure visibility
+                console_manager.print_raw(output)
 
             # Handle the output display based on the configured flags
             try:

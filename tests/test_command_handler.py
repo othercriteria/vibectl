@@ -62,6 +62,9 @@ def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> No
     # Set test kubeconfig
     test_config.set("kubeconfig", "/test/kubeconfig")
 
+    # Configure mock to return success
+    mock_subprocess.return_value.stdout = "test output"
+
     # Run command
     output = run_kubectl(["get", "pods"], capture=True, config=test_config)
 
@@ -78,6 +81,9 @@ def test_run_kubectl_no_kubeconfig(
     """Test kubectl command without kubeconfig."""
     # Explicitly set kubeconfig to None
     test_config.set("kubeconfig", None)
+
+    # Configure mock to return success
+    mock_subprocess.return_value.stdout = "test output"
 
     output = run_kubectl(["get", "pods"], capture=True, config=test_config)
 
@@ -116,7 +122,8 @@ def test_run_kubectl_called_process_error(
     # Verify error was printed to stderr
     captured = capsys.readouterr()
     assert captured.err == "test error\n"
-    assert output == "test output"  # For test compatibility
+    # Check error message is properly formatted
+    assert output == "Error: test error"
 
 
 def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) -> None:
@@ -125,7 +132,7 @@ def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) 
     mock_subprocess.side_effect = error
 
     output = run_kubectl(["get", "pods"], capture=True)
-    assert output == "test output"  # For test compatibility
+    assert output == "Error: Command failed with exit code 1"
 
 
 def test_run_kubectl_no_capture(mock_subprocess: MagicMock) -> None:
@@ -765,17 +772,17 @@ spec:
     mock_handle_output.assert_called_once()
 
 
-@patch("os.path.exists")
 @patch("os.unlink")
 @patch("tempfile.NamedTemporaryFile")
 @patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @patch("llm.get_model")
 def test_handle_vibe_request_create_with_yaml_error(
     mock_llm: MagicMock,
+    mock_handle_output: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_named_temp_file: MagicMock,
     mock_unlink: MagicMock,
-    mock_exists: MagicMock,
 ) -> None:
     """Test error handling in vibe request for create command with YAML content."""
     # Setup mock LLM response with both kubectl args and YAML content
@@ -806,14 +813,12 @@ spec:
     # Setup kubectl to raise an exception
     mock_run_kubectl.side_effect = Exception("Error creating resource")
 
-    # Setup path exists to return True for cleanup
-    mock_exists.return_value = True
-
     # Run the function
     def summary_prompt() -> str:
         return "Summary: {output}"
 
-    with pytest.raises(SystemExit):
+    # Use patch to prevent sys.exit from actually exiting
+    with patch("sys.exit") as mock_exit:
         handle_vibe_request(
             request="create a pod called test-pod",
             command="create",
@@ -824,6 +829,9 @@ spec:
             model_name="test-model",
         )
 
+        # Verify exit was called
+        mock_exit.assert_called_once_with(1)
+
     # Verify tempfile was created
     mock_named_temp_file.assert_called_once()
 
@@ -831,7 +839,6 @@ spec:
     mock_run_kubectl.assert_called_once()
 
     # Verify temporary file was cleaned up after error
-    mock_exists.assert_called_once_with("/tmp/test-yaml-12345.yaml")
     mock_unlink.assert_called_once_with("/tmp/test-yaml-12345.yaml")
 
 
@@ -1047,6 +1054,107 @@ def test_handle_vibe_request_with_memory(
         ["get", "pods", "-n", "kube-system"],
         capture=True,
     )
+
+
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
+def test_handle_vibe_request_in_autonomous_mode(
+    mock_handle_output: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_llm: MagicMock,
+) -> None:
+    """Test vibe request in autonomous mode.
+
+    This test verifies that autonomous mode properly handles kubectl commands
+    and executes them directly.
+    """
+    # Set up mocks
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(
+        text=lambda: "kubectl get pods -n kube-system\nNOTE: Checking system pods"
+    )
+    mock_llm.return_value = mock_model
+
+    # Mock run_kubectl to return test output
+    mock_run_kubectl.return_value = "test output"
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request in autonomous mode
+    handle_vibe_request(
+        request="check system pods",
+        command="vibe",
+        plan_prompt="Plan this autonomous command: {request}",
+        summary_prompt_func=summary_prompt,
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        yes=True,  # Skip confirmation
+        autonomous_mode=True,
+    )
+
+    # Verify that the LLM was called with the unmodified plan prompt
+    mock_model.prompt.assert_called_once_with("Plan this autonomous command: {request}")
+
+    # Verify that kubectl was called with the correct arguments
+    mock_run_kubectl.assert_called_once_with(
+        ["get", "pods", "-n", "kube-system"],
+        capture=True,
+    )
+
+    # Verify that handle_command_output was called with the correct parameters
+    mock_handle_output.assert_called_once_with(
+        output="test output",
+        show_raw_output=True,
+        show_vibe=True,
+        model_name="test-model",
+        summary_prompt_func=summary_prompt,
+        command="kubectl get pods -n kube-system",
+        warn_no_output=True,
+    )
+
+
+@patch("vibectl.command_handler.console_manager")
+@patch("click.confirm")
+def test_handle_vibe_request_autonomous_mode_with_confirmation(
+    mock_confirm: MagicMock,
+    mock_console: MagicMock,
+    mock_llm: MagicMock,
+) -> None:
+    """Test vibe request confirmation in autonomous mode.
+
+    This test verifies that confirmation prompts work properly in autonomous mode.
+    """
+    # Set up mocks
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(
+        text=lambda: "kubectl delete pod test-pod\nNOTE: Removing test pod"
+    )
+    mock_llm.return_value = mock_model
+
+    # Mock confirmation to cancel the command
+    mock_confirm.return_value = False
+
+    def summary_prompt() -> str:
+        return "Summarize this: {output}"
+
+    # Run vibe request in autonomous mode
+    handle_vibe_request(
+        request="remove test pod",
+        command="vibe",
+        plan_prompt="Plan this autonomous command",
+        summary_prompt_func=summary_prompt,
+        autonomous_mode=True,
+    )
+
+    # Verify confirmation was called
+    mock_confirm.assert_called_once_with(
+        "Do you want to execute this command?", default=True
+    )
+
+    # Verify cancellation message was shown
+    mock_console.print_cancelled.assert_called_once()
 
 
 @patch("vibectl.command_handler.run_kubectl")
