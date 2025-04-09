@@ -565,13 +565,18 @@ Based on this new information, update the memory to maintain the most \
 relevant context.
 Focus on cluster state, conditions, and configurations that will help with \
 future requests.
+
+IMPORTANT: If the command output was empty or indicates "No resources found", \
+this is still crucial information. Update the memory to include the fact that \
+the specified resources don't exist in the queried context or namespace. This \
+will help guide future operations.
+
 Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
 Only include things actually observed from the output, no speculation or generalization.
 
 IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
 in your response. Just provide the direct memory content itself with \
-no additional labels or headers.
-"""
+no additional labels or headers."""
 
 
 def memory_fuzzy_update_prompt(
@@ -874,6 +879,11 @@ Important:
   before making changes
 - If the command is potentially destructive, add a note about the impact
 - If the request is invalid or impossible, return 'ERROR: <reason>'
+- If previous commands returned empty results, use that information to intelligently
+  progress to the next logical step (e.g., checking other namespaces, trying different
+  resource types, or suggesting resource creation)
+- After discovering empty namespaces or no pods/resources, progress to create
+  needed resources rather than repeatedly checking empty resources
 
 Example inputs and outputs:
 
@@ -900,6 +910,13 @@ Output:
 kubectl get deployment frontend -o yaml
 NOTE: Will examine frontend configuration to help determine next steps
 
+Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
+Checked for pods but found none in the sandbox namespace."
+Input: "keep building the nginx demo"
+Output:
+kubectl create deployment nginx --image=nginx -n sandbox
+NOTE: Creating nginx deployment as first step in building the demo
+
 Here's the current memory context and request:
 
 {memory_context}
@@ -918,6 +935,12 @@ def vibe_autonomous_prompt() -> str:
 Focus on the state of the resources, any issues detected, and suggest logical
 next steps.
 
+If the output indicates "Command returned no output" or "No resources found",
+this is still valuable information! It means the requested resources don't exist
+in the specified namespace or context. Include this fact in your interpretation
+and suggest appropriate next steps (e.g., creating resources, checking namespace,
+confirming context, etc.).
+
 {get_formatting_instructions()}
 
 Example format:
@@ -925,6 +948,10 @@ Example format:
 [green]All deployments healthy[/green] with proper replica counts
 [yellow]Note: database pod has high CPU usage[/yellow]
 Next steps: Consider checking logs for database pod or scaling the deployment
+
+For empty output examples:
+[yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
+Next steps: Create the first pod or deployment in this namespace
 
 Here's the output:
 

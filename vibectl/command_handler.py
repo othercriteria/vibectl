@@ -254,9 +254,34 @@ def handle_vibe_request(
             output = run_kubectl(kubectl_args, capture=True)
 
             if not output:
+                # Create special message for empty output
+                empty_output_message = "No resources found."
                 console_manager.print_note(
-                    "Command executed successfully without output"
+                    "Command executed successfully with no output"
                 )
+
+                # Update memory with the empty output information
+                if show_vibe:
+                    try:
+                        # Generate interpretation for empty output
+                        llm_model = llm.get_model(model_name)
+                        summary_prompt = summary_prompt_func()
+                        prompt = summary_prompt.format(
+                            output=f"Command returned no output: {kubectl_cmd}"
+                        )
+                        response = llm_model.prompt(prompt)
+                        vibe_output = (
+                            response.text()
+                            if hasattr(response, "text")
+                            else str(response)
+                        )
+
+                        # Update memory with empty result context
+                        update_memory(
+                            kubectl_cmd, empty_output_message, vibe_output, model_name
+                        )
+                    except Exception as e:
+                        handle_exception(e, exit_on_error=False)
                 return
 
             # Handle the output display
