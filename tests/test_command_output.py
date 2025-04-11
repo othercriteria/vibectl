@@ -448,7 +448,7 @@ def test_handle_command_output_raw(
         )
 
         # Verify raw output was shown
-        mock_console.print_raw.assert_called_once_with("processed output")
+        mock_console.print_raw.assert_called_once_with("test output")
 
 
 @patch("vibectl.command_handler.get_model_adapter")

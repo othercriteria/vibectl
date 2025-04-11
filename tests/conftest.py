@@ -149,7 +149,7 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
     """Mock the configure_output_flags function for control over flags.
 
     Returns:
-        Mock: Mocked configure_output_flags function that returns an OutputFlags instance.
+        Mock: Mocked configure_output_flags function that returns OutputFlags instance.
     """
     with patch("vibectl.cli.configure_output_flags") as mock:
         # Return an OutputFlags instance instead of a tuple
@@ -342,11 +342,15 @@ def mock_output_flags_for_vibe_request() -> "OutputFlags":
 
 @pytest.fixture
 def mock_memory() -> Generator[MagicMock, None, None]:
-    """Mock memory functions to avoid slow file operations.
+    """Mock memory functions to avoid actual LLM API calls.
 
-    This fixture prevents actual file I/O during tests by mocking the memory
-    functions. It's particularly important for test performance since memory
-    operations can be slow due to disk access.
+    This fixture prevents actual API calls to LLMs during tests, which would:
+    - Add cost for each test run
+    - Make tests flaky due to API dependencies
+    - Significantly slow down test execution
+
+    Memory functions involve both file operations and LLM calls, but the LLM calls
+    are the primary concern for test stability and performance.
     """
     with (
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
