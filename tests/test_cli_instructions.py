@@ -113,14 +113,11 @@ def test_instructions_set_config_save_error(
     mock_config.set.assert_called_once()
 
 
-@patch("vibectl.cli.Config")
 def test_instructions_show_basic(
-    mock_config_class: Mock, cli_runner: CliRunner
+    cli_runner: CliRunner, mock_config: Mock
 ) -> None:
     """Test showing instructions when they are set."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    # Setup direct mock for get_memory
     mock_config.get.return_value = "Test instructions"
 
     with patch("vibectl.cli.console_manager") as mock_console:

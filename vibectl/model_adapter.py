@@ -46,12 +46,12 @@ class ModelAdapter(ABC):
         pass
 
     @abstractmethod
-    def prompt(self, model: Any, prompt_text: str) -> str:
-        """Send a prompt to the model and get a response.
+    def execute(self, model: Any, prompt_text: str) -> str:
+        """Execute a prompt on the model and get a response.
 
         Args:
-            model: The model instance to prompt
-            prompt_text: The prompt text to send
+            model: The model instance to execute the prompt on
+            prompt_text: The prompt text to execute
 
         Returns:
             str: The response text
@@ -96,12 +96,12 @@ class LLMModelAdapter(ModelAdapter):
         except Exception as e:
             raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
-    def prompt(self, model: Any, prompt_text: str) -> str:
-        """Send a prompt to the model and get a response.
+    def execute(self, model: Any, prompt_text: str) -> str:
+        """Execute a prompt on the model and get a response.
 
         Args:
-            model: The model instance to prompt
-            prompt_text: The prompt text to send
+            model: The model instance to execute the prompt on
+            prompt_text: The prompt text to execute
 
         Returns:
             str: The response text
@@ -112,7 +112,7 @@ class LLMModelAdapter(ModelAdapter):
                 return cast(ModelResponse, response).text()
             return str(response)
         except Exception as e:
-            raise ValueError(f"Error during model prompt: {e}") from e
+            raise ValueError(f"Error during model execution: {e}") from e
 
 
 # Default model adapter instance

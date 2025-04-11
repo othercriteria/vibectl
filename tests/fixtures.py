@@ -3,8 +3,8 @@
 This module contains reusable fixtures to reduce duplication across test files.
 """
 
-from collections.abc import Generator
-from unittest.mock import Mock, patch
+from collections.abc import Generator, Callable
+from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
@@ -34,17 +34,6 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def mock_console() -> Generator[Mock, None, None]:
-    """Mock the console_manager to prevent terminal output during tests.
-
-    Returns:
-        Mock: Mocked console_manager instance.
-    """
-    with patch("vibectl.cli.console_manager") as mock:
-        yield mock
-
-
-@pytest.fixture
 def mock_handle_command_output() -> Generator[Mock, None, None]:
     """Mock the handle_command_output function to prevent actual output processing.
 
@@ -67,18 +56,6 @@ def mock_handle_vibe_request() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def mock_configure_output_flags() -> Generator[Mock, None, None]:
-    """Mock the configure_output_flags function for control over flags.
-
-    Returns:
-        Mock: Mocked configure_output_flags function that returns default values.
-    """
-    with patch("vibectl.cli.configure_output_flags") as mock:
-        mock.return_value = (False, True, False, "claude-3.7-sonnet")
-        yield mock
-
-
-@pytest.fixture
 def mock_handle_exception() -> Generator[Mock, None, None]:
     """Mock the handle_exception function to prevent sys.exit during tests.
 
@@ -87,6 +64,26 @@ def mock_handle_exception() -> Generator[Mock, None, None]:
     """
     with patch("vibectl.cli.handle_exception") as mock:
         yield mock
+
+
+@pytest.fixture
+def mock_summary_prompt() -> Callable[[], str]:
+    """Mock summary prompt function.
+    
+    Returns a function that generates a summary prompt template.
+    """
+    return lambda: "Summarize this: {output}"
+
+
+@pytest.fixture
+def prevent_exit() -> Generator[MagicMock, None, None]:
+    """Prevent sys.exit from exiting the tests.
+    
+    This fixture is useful for testing error cases where sys.exit would normally
+    terminate the test.
+    """
+    with patch("sys.exit") as mock_exit:
+        yield mock_exit
 
 
 @pytest.fixture
@@ -174,22 +171,6 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
         mock_run_kubectl.set_error_response = set_error_response
 
         yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
-
-
-@pytest.fixture
-def mock_subprocess_run() -> Generator[Mock, None, None]:
-    """Mock subprocess.run to prevent execution of actual commands.
-
-    Returns:
-        Mock: Mocked subprocess.run function.
-    """
-    mock_process = Mock()
-    mock_process.stdout = "mocked stdout"
-    mock_process.stderr = ""
-    mock_process.returncode = 0
-
-    with patch("subprocess.run", return_value=mock_process) as mock_run:
-        yield mock_run
 
 
 @pytest.fixture

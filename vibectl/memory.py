@@ -118,7 +118,7 @@ def update_memory(
     model = model_adapter.get_model(model_name)
     prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
 
-    updated_memory = model_adapter.prompt(model, prompt)
+    updated_memory = model_adapter.execute(model, prompt)
     set_memory(updated_memory, cfg)
 
 
