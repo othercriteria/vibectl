@@ -84,7 +84,7 @@ def mock_summary_prompt() -> Callable[[], str]:
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.include_memory_in_prompt")
+@patch("vibectl.memory.include_memory_in_prompt")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.OutputProcessor")
 def test_handle_standard_command(

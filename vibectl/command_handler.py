@@ -225,6 +225,12 @@ def handle_vibe_request(
             console_manager.print_error("No kubectl command could be generated.")
             return
 
+        # Check if the response is an error message
+        if kubectl_cmd.startswith("ERROR:"):
+            # Don't try to run the error as a command
+            console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
+            return
+
         # Format the command with the correct namespace if not specified
         args = kubectl_cmd.split()
         # Check if a namespace was specified in the generated command
