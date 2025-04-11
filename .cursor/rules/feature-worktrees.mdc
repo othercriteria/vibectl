@@ -27,9 +27,14 @@ actions:
       For feature development:
       1. Create a feature branch from main:
          ```
+         # First ensure you're on main
+         git checkout main
+
+         # Create the feature branch
          git checkout -b feature/name-of-feature main
          ```
-      2. Add a worktree with project and feature name:
+
+      2. **IMPORTANT**: Add and switch to the worktree BEFORE creating any files:
          ```
          # Create worktrees directory if it doesn't exist
          mkdir -p ../worktrees/
@@ -39,8 +44,14 @@ actions:
 
          # Add worktree with project and feature name to avoid collisions
          git worktree add ../worktrees/${PROJECT_NAME}-feature-name feature/name-of-feature
+
+         # Switch to the worktree directory
          cd ../worktrees/${PROJECT_NAME}-feature-name
+
+         # Verify you're in the correct branch
+         git status
          ```
+
       3. Set up development environment in the worktree:
          ```
          # Allow direnv in the worktree
@@ -49,7 +60,8 @@ actions:
          # Install pre-commit hooks in the worktree using Makefile target
          nix develop --quiet -c make install-pre-commit 2>/dev/null
          ```
-      4. Create a minimal PR for visibility early in development:
+
+      4. Create a minimal PR for visibility early in development (do this ONLY in the worktree):
          ```
          # Make initial commit with planned changes
          touch PLANNED_CHANGES.md
@@ -61,11 +73,16 @@ actions:
          # Create the PR using GitHub CLI in the dev shell - suppress Nix output
          nix develop --quiet -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft 2>/dev/null
          ```
+
       5. Always do your work in the worktree directory, not the main workspace:
          ```
          # Check which branch you're on before starting work
          git status
+
+         # If you're not in the worktree, switch to it
+         cd ../worktrees/${PROJECT_NAME}-feature-name
          ```
+
       6. When complete, commit final changes from the worktree:
          ```
          # Run pre-commit checks before committing
@@ -79,6 +96,7 @@ actions:
          # Update PR from draft to ready for review - suppress Nix output
          nix develop --quiet -c gh pr ready 2>/dev/null
          ```
+
       7. Clean up after PR merge completion:
          ```
          # First, get back to main and pull latest changes
@@ -110,11 +128,15 @@ actions:
       # Warn about not using pre-commit in worktree
       - pattern: "(?i)git\\s+commit.*(?!.*pre-commit|make lint).*worktree"
         message: "Make sure to run pre-commit checks before committing in the worktree: nix develop --quiet -c make lint"
+      # Warn about creating files for feature work before switching to worktree
+      - pattern: "(?i)(touch|echo|create file|new file).*(?!cd\\s+\\.\\./worktrees).*feature"
+        message: "Always switch to the feature worktree BEFORE creating any files: cd ../worktrees/${PROJECT_NAME}-feature-name"
 
 criteria:
   required:
     - Create feature branches with descriptive names (feature/name-of-feature)
     - Use worktrees with project-prefixed directories to avoid collisions
+    - ALWAYS switch to the worktree BEFORE creating or editing any files
     - Run direnv allow in the worktree
     - Install and run pre-commit hooks in the worktree using Makefile targets
     - Create minimal PR at beginning of feature work
@@ -130,19 +152,23 @@ examples:
     output: |
       Create a feature branch, worktree, and initial PR:
       ```
-      # Create the feature branch
+      # Create the feature branch from main
+      git checkout main
       git checkout -b feature/my-new-feature main
 
-      # Setup worktree with project name
+      # Setup worktree with project name and SWITCH to it
       PROJECT_NAME=$(basename $(pwd))
       git worktree add ../worktrees/${PROJECT_NAME}-my-new-feature feature/my-new-feature
       cd ../worktrees/${PROJECT_NAME}-my-new-feature
+
+      # Verify you're in the correct branch
+      git status
 
       # Setup development environment
       direnv allow
       nix develop --quiet -c make install-pre-commit 2>/dev/null
 
-      # Create initial PR
+      # Create initial PR (only after switching to the worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes\n\n- Add new functionality\n- Update documentation" > PLANNED_CHANGES.md
       git add PLANNED_CHANGES.md
@@ -158,14 +184,15 @@ examples:
       # Get project name for worktree directories
       PROJECT_NAME=$(basename $(pwd))
 
-      # For feature 1
+      # For feature 1 - create branch, create worktree, then SWITCH to it
+      git checkout main
       git checkout -b feature/feature-one main
       git worktree add ../worktrees/${PROJECT_NAME}-feature-one feature/feature-one
       cd ../worktrees/${PROJECT_NAME}-feature-one
       direnv allow
       nix develop --quiet -c make install-pre-commit 2>/dev/null
 
-      # Create initial PR for feature 1
+      # Create initial PR for feature 1 (only after switching to worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature One" > PLANNED_CHANGES.md
       git add PLANNED_CHANGES.md
@@ -175,13 +202,14 @@ examples:
 
       # For feature 2 (from main workspace)
       cd ~/workspace/${PROJECT_NAME}
+      git checkout main
       git checkout -b feature/feature-two main
       git worktree add ../worktrees/${PROJECT_NAME}-feature-two feature/feature-two
       cd ../worktrees/${PROJECT_NAME}-feature-two
       direnv allow
       nix develop --quiet -c make install-pre-commit 2>/dev/null
 
-      # Create initial PR for feature 2
+      # Create initial PR for feature 2 (only after switching to worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature Two" > PLANNED_CHANGES.md
       git add PLANNED_CHANGES.md
@@ -221,5 +249,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.5
+  version: 1.6
 </rule>
