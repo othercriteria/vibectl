@@ -5,7 +5,6 @@ Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
 """
 
-import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -13,7 +12,7 @@ from dataclasses import dataclass
 
 from .config import Config
 from .console import console_manager
-from .memory import include_memory_in_prompt, update_memory
+from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
 from .utils import handle_exception
@@ -22,10 +21,12 @@ from .utils import handle_exception
 @dataclass
 class OutputFlags:
     """Configuration for output display flags."""
+
     show_raw: bool
     show_vibe: bool
     warn_no_output: bool
     model_name: str
+
 
 # Constants for output flags
 DEFAULT_MODEL = "claude-3.7-sonnet"
@@ -121,7 +122,7 @@ def handle_command_output(
     command: str | None = None,
 ) -> None:
     """Handle displaying command output in both raw and vibe formats.
-    
+
     Args:
         output: The command output to display
         output_flags: Configuration for output display
@@ -131,7 +132,11 @@ def handle_command_output(
         command: Optional command string that generated the output
     """
     # Show warning if no output will be shown and warning is enabled
-    if not output_flags.show_raw and not output_flags.show_vibe and output_flags.warn_no_output:
+    if (
+        not output_flags.show_raw
+        and not output_flags.show_vibe
+        and output_flags.warn_no_output
+    ):
         console_manager.print_no_output_warning()
 
     # Show raw output if requested
@@ -153,7 +158,11 @@ def handle_command_output(
             model_adapter = get_model_adapter()
             model = model_adapter.get_model(output_flags.model_name)
             summary_prompt = summary_prompt_func()
-            prompt = summary_prompt.format(output=processed_output, command=command) if command else summary_prompt.format(output=processed_output)
+            prompt = (
+                summary_prompt.format(output=processed_output, command=command)
+                if command
+                else summary_prompt.format(output=processed_output)
+            )
             vibe_output = model_adapter.execute(model, prompt)
 
             # Update memory if we have a command, regardless of vibe output
@@ -189,83 +198,78 @@ def handle_vibe_request(
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> None:
-    """Handle a vibe request by planning and executing a kubectl command.
+    """Handle a request to execute a kubectl command based on a natural language query.
 
     Args:
-        request: The natural language request to process
-        command: The kubectl command (get, describe, logs, etc.)
-        plan_prompt: The prompt template for planning the command
-        summary_prompt_func: Function that returns the prompt template for summarizing
+        request: The natural language request
+        command: The kubectl command type (get, describe, etc.)
+        plan_prompt: The prompt template for planning
+        summary_prompt_func: Function that provides the prompt for summarizing output
         output_flags: Configuration for output display
-        yes: Whether to skip confirmation prompt (for non-interactive use)
-        autonomous_mode: Whether operating in autonomous vibe mode
+        yes: Whether to bypass confirmation prompts
+        autonomous_mode: Whether we're in autonomous mode
     """
     try:
-        # Track if we've already shown a no-output warning
-        already_warned = False
-
-        # Get the plan from LLM using model adapter
+        # Plan the kubectl command based on the request
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
+        kubectl_cmd = model_adapter.execute(
+            model, plan_prompt.format(request=request, command=command)
+        )
 
-        # Format prompt with request, including memory if available
-        if autonomous_mode:
-            # Plan prompt is already fully formatted for autonomous mode
-            prompt_with_memory = plan_prompt
-        else:
-            # Format prompt with request for standard commands
-            prompt_with_memory = include_memory_in_prompt(
-                lambda: plan_prompt.format(request=request)
-            )
+        # Strip any backticks that might be around the command
+        kubectl_cmd = kubectl_cmd.strip().strip("`").strip()
 
-        plan = model_adapter.execute(model, prompt_with_memory)
-
-        # Check for error responses from planner
-        if not plan or len(plan.strip()) == 0:
-            handle_exception(Exception("Invalid response format from planner"))
+        # If no command was generated, inform the user and exit
+        if not kubectl_cmd:
+            console_manager.print_error("No kubectl command could be generated.")
             return
 
-        # Check for error prefix in the response
-        if plan.startswith("ERROR:"):
-            error_message = plan[7:].strip()  # Remove "ERROR: " prefix
-            handle_exception(Exception(error_message))
-            return
+        # Format the command with the correct namespace if not specified
+        args = kubectl_cmd.split()
+        # Check if a namespace was specified in the generated command
+        has_namespace = "-n" in args or "--namespace" in args
+        # Add the current namespace if none was specified
+        if not has_namespace:
+            config = Config()
+            namespace = config.get("namespace", None)
+            if namespace:
+                args.insert(1, f"-n={namespace}")
 
-        # Parse the kubectl command from the plan
-        # Each line of the plan is an argument or flag
-        lines = [line.strip() for line in plan.split("\n") if line.strip()]
+        # Reconstruct the command as a string for display
+        formatted_cmd = " ".join(args)
 
-        # Handle special case for 'ERROR:' responses in parsed plans
-        if len(lines) > 0 and lines[0].startswith("ERROR:"):
-            error_message = lines[0][6:].strip()  # Remove "ERROR:" prefix
-            handle_exception(Exception(error_message))
-            return
-
-        # Build the command list
-        cmd = [command]
-        cmd.extend(lines)
-
-        # For debugging, show the planned command
-        formatted_cmd = " ".join(cmd)
+        # Show the planned command to user
         console_manager.print_note(f"Planning to run: kubectl {formatted_cmd}")
 
         # Determine if this is a dangerous command that requires confirmation
-        dangerous_commands = ["delete", "scale", "rollout", "patch", "apply", "replace", "create"]
-        is_dangerous = command in dangerous_commands or (autonomous_mode and command != "get")
+        dangerous_commands = [
+            "delete",
+            "scale",
+            "rollout",
+            "patch",
+            "apply",
+            "replace",
+            "create",
+        ]
+        is_dangerous = command in dangerous_commands or (
+            autonomous_mode and command != "get"
+        )
 
-        # Confirm with user for dangerous commands or in autonomous mode (except get) if not bypassed with --yes
+        # Confirm with user for dangerous commands or in autonomous mode
+        # (except get) if not bypassed with --yes
         if is_dangerous and not yes:
             import click
+
             if not click.confirm("Execute this command?"):
                 console_manager.print_cancelled()
                 return
 
         # Execute the command
-        output = run_kubectl(cmd, capture=True)
+        output = run_kubectl(args, capture=True)
 
         # Handle response - might be empty
         if not output:
-            already_warned = True
             console_manager.print_note("Command returned no output")
 
         # Process the output regardless
@@ -326,7 +330,7 @@ def configure_output_flags(
         show_raw=show_raw,
         show_vibe=show_vibe_output,
         warn_no_output=warn_no_output,
-        model_name=model_name
+        model_name=model_name,
     )
 
 

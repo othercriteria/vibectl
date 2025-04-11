@@ -3,10 +3,8 @@
 This module tests the memory commands of vibectl.
 """
 
-from collections.abc import Generator
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli

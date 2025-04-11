@@ -40,16 +40,16 @@ def test_vibe_command_with_request(
     """Test the main vibe command with a request."""
     with patch("vibectl.cli.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
-        
+
         # Run the command
         result = cli_runner.invoke(
             vibe,
             ["Create a deployment", "--show-raw-output"],
         )
-        
+
         # Check that the command completed successfully
         assert result.exit_code == 0
-        
+
         # Verify handle_vibe_request was called with OutputFlags
         mock_handle_vibe_request.assert_called_once()
         args, kwargs = mock_handle_vibe_request.call_args
@@ -67,16 +67,16 @@ def test_vibe_command_without_request(
     """Test the main vibe command without a request."""
     with patch("vibectl.cli.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
-        
+
         # Run the command
         result = cli_runner.invoke(
             vibe,
             ["--show-raw-output"],
         )
-        
+
         # Check that the command completed successfully
         assert result.exit_code == 0
-        
+
         # Verify handle_vibe_request was called with OutputFlags
         mock_handle_vibe_request.assert_called_once()
         args, kwargs = mock_handle_vibe_request.call_args
@@ -95,18 +95,18 @@ def test_vibe_command_with_yes_flag(
     """Test the main vibe command with the yes flag."""
     with patch("vibectl.cli.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
-        
+
         # Run the command
         result = cli_runner.invoke(
             vibe,
             ["Create a deployment", "--yes", "--show-raw-output"],
         )
-        
+
         # Check that the command completed successfully
         assert result.exit_code == 0
-        
+
         # Verify handle_vibe_request was called with yes=True
         mock_handle_vibe_request.assert_called_once()
         args, kwargs = mock_handle_vibe_request.call_args
         assert "yes" in kwargs
-        assert kwargs["yes"] is True 
+        assert kwargs["yes"] is True

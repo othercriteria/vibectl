@@ -1,7 +1,6 @@
 """Tests for run_kubectl functionality."""
 
 import subprocess
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
@@ -10,6 +9,7 @@ import pytest
 from vibectl.command_handler import OutputFlags, run_kubectl
 
 # The mock_subprocess and test_config fixtures are now provided by conftest.py
+
 
 def test_run_kubectl_basic(mock_subprocess: MagicMock) -> None:
     """Test basic kubectl command execution."""
@@ -132,22 +132,25 @@ def test_handle_command_with_options_none_output() -> None:
     # Set up mocks
     with (
         patch("vibectl.command_handler.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.command_handler.configure_output_flags") as mock_configure_output_flags,
+        patch(
+            "vibectl.command_handler.configure_output_flags"
+        ) as mock_configure_output_flags,
     ):
         mock_run_kubectl.return_value = None  # Simulate None output
         mock_configure_output_flags.return_value = OutputFlags(
             show_raw=True,
             show_vibe=False,
             warn_no_output=False,
-            model_name="claude-3-opus"
+            model_name="claude-3-opus",
         )
 
         # Test function
         from vibectl.command_handler import handle_command_with_options
+
         cmd = ["kubectl", "get", "pods"]
         output, show_vibe = handle_command_with_options(cmd)
 
         # Verify empty string is returned for None output
         assert output == ""
         assert not show_vibe
-        mock_run_kubectl.assert_called_once_with(cmd, capture=True, config=None) 
+        mock_run_kubectl.assert_called_once_with(cmd, capture=True, config=None)

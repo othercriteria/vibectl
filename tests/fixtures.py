@@ -3,8 +3,8 @@
 This module contains reusable fixtures to reduce duplication across test files.
 """
 
-from collections.abc import Generator, Callable
-from unittest.mock import Mock, patch, MagicMock
+from collections.abc import Callable, Generator
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -69,7 +69,7 @@ def mock_handle_exception() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_summary_prompt() -> Callable[[], str]:
     """Mock summary prompt function.
-    
+
     Returns a function that generates a summary prompt template.
     """
     return lambda: "Summarize this: {output}"
@@ -78,7 +78,7 @@ def mock_summary_prompt() -> Callable[[], str]:
 @pytest.fixture
 def prevent_exit() -> Generator[MagicMock, None, None]:
     """Prevent sys.exit from exiting the tests.
-    
+
     This fixture is useful for testing error cases where sys.exit would normally
     terminate the test.
     """

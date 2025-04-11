@@ -113,9 +113,7 @@ def test_instructions_set_config_save_error(
     mock_config.set.assert_called_once()
 
 
-def test_instructions_show_basic(
-    cli_runner: CliRunner, mock_config: Mock
-) -> None:
+def test_instructions_show_basic(cli_runner: CliRunner, mock_config: Mock) -> None:
     """Test showing instructions when they are set."""
     # Setup direct mock for get_memory
     mock_config.get.return_value = "Test instructions"

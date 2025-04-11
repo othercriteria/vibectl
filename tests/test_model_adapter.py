@@ -142,49 +142,51 @@ class TestLLMModelAdapter:
     @patch("vibectl.model_adapter.llm")
     def test_execute_with_type_casting(self, mock_llm: MagicMock) -> None:
         """Test type casting behavior in the execute method.
-        
+
         This tests the adapter's ability to properly handle and cast
         responses from the model that have a text() method returning
         different types.
         """
         # Setup
         mock_model = Mock()
-        
+
         # Create mock responses with text() methods returning different types
         mock_response_int = Mock()
         mock_response_int.text.return_value = 42
-        
+
         mock_response_float = Mock()
         mock_response_float.text.return_value = 3.14
-        
+
         mock_response_bool = Mock()
         mock_response_bool.text.return_value = True
-        
+
         mock_response_none = Mock()
         mock_response_none.text.return_value = None
-        
+
         # Test each response type
         adapter = LLMModelAdapter()
-        
+
         # Test integer response
         mock_model.prompt.return_value = mock_response_int
         response_int = adapter.execute(mock_model, "Integer prompt")
-        assert response_int == 42  # The adapter returns the actual value, not a string conversion
-        
+        assert (
+            response_int == 42
+        )  # The adapter returns the actual value, not a string conversion
+
         # Test float response
         mock_model.prompt.return_value = mock_response_float
         response_float = adapter.execute(mock_model, "Float prompt")
         assert response_float == 3.14
-        
+
         # Test boolean response
         mock_model.prompt.return_value = mock_response_bool
         response_bool = adapter.execute(mock_model, "Boolean prompt")
         assert response_bool is True
-        
+
         # Test None response
         mock_model.prompt.return_value = mock_response_none
         response_none = adapter.execute(mock_model, "None prompt")
         assert response_none is None
-        
+
         # Verify all prompt calls
         assert mock_model.prompt.call_count == 4

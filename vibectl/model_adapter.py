@@ -109,7 +109,7 @@ class LLMModelAdapter(ModelAdapter):
         try:
             response = model.prompt(prompt_text)
             if hasattr(response, "text"):
-                return cast(ModelResponse, response).text()
+                return cast("ModelResponse", response).text()
             return str(response)
         except Exception as e:
             raise ValueError(f"Error during model execution: {e}") from e

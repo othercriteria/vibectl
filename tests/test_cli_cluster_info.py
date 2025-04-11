@@ -3,15 +3,14 @@
 This module tests the cluster-info command functionality of vibectl.
 """
 
-from collections.abc import Generator
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
 
 # The mock_configure_output_flags fixture is now provided by conftest.py
+
 
 @patch("vibectl.cli.configure_output_flags")
 @patch("vibectl.cli.run_kubectl")

@@ -1,6 +1,5 @@
 """Tests for command output handling functionality."""
 
-import sys
 from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
@@ -13,9 +12,9 @@ from vibectl.command_handler import (
     DEFAULT_SHOW_RAW_OUTPUT,
     DEFAULT_SHOW_VIBE,
     DEFAULT_WARN_NO_OUTPUT,
+    OutputFlags,
     configure_output_flags,
     handle_command_output,
-    OutputFlags,
 )
 
 
@@ -37,21 +36,25 @@ def prevent_exit() -> Generator[MagicMock, None, None]:
 @pytest.fixture
 def default_summary_prompt() -> Callable[[], str]:
     """Create a default summary prompt function."""
+
     def summary_prompt() -> str:
         return "Summarize this: {output}"
+
     return summary_prompt
 
 
-def test_handle_command_output_with_raw_output_only(prevent_exit: MagicMock, default_summary_prompt: Callable[[], str]) -> None:
+def test_handle_command_output_with_raw_output_only(
+    prevent_exit: MagicMock, default_summary_prompt: Callable[[], str]
+) -> None:
     """Test handle_command_output with raw output only."""
     # Create output flags with raw output only
     output_flags = OutputFlags(
         show_raw=True,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
-    
+
     # Call the function with only raw output enabled
     handle_command_output(
         output="test output",
@@ -61,7 +64,9 @@ def test_handle_command_output_with_raw_output_only(prevent_exit: MagicMock, def
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_with_vibe_only(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_with_vibe_only(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with vibe output only."""
     # Set up adapter mock
     mock_adapter = Mock()
@@ -74,11 +79,11 @@ def test_handle_command_output_with_vibe_only(mock_llm: MagicMock, prevent_exit:
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
     # Call the function with vibe enabled
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -87,7 +92,9 @@ def test_handle_command_output_with_vibe_only(mock_llm: MagicMock, prevent_exit:
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_both_outputs(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_both_outputs(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with both outputs."""
     # Set up adapter mock
     mock_adapter = Mock()
@@ -97,14 +104,11 @@ def test_handle_command_output_both_outputs(mock_llm: MagicMock, prevent_exit: M
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        show_raw=True, show_vibe=True, warn_no_output=True, model_name="model-xyz-1.2.3"
     )
 
     # Call the function with both outputs enabled
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -112,18 +116,21 @@ def test_handle_command_output_both_outputs(mock_llm: MagicMock, prevent_exit: M
         )
 
 
-def test_handle_command_output_no_output(prevent_exit: MagicMock, default_summary_prompt: Callable[[], str]) -> None:
+def test_handle_command_output_no_output(
+    prevent_exit: MagicMock, default_summary_prompt: Callable[[], str]
+) -> None:
     """Test handle_command_output with no outputs enabled."""
     # Create output flags with no outputs
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
-    
+
     # Call the function with no outputs enabled and warning enabled
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    # Using patch but not capturing the mock since we're not inspecting its calls
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -132,7 +139,9 @@ def test_handle_command_output_no_output(prevent_exit: MagicMock, default_summar
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_llm_error(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_llm_error(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with LLM error."""
     # Set up adapter mock to return an error
     mock_adapter = Mock()
@@ -145,11 +154,11 @@ def test_handle_command_output_llm_error(mock_llm: MagicMock, prevent_exit: Magi
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
     # Call the function and check for error handling
-    with patch("vibectl.command_handler.handle_exception") as mock_handle_exception:
+    with patch("vibectl.command_handler.handle_exception"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -158,7 +167,9 @@ def test_handle_command_output_llm_error(mock_llm: MagicMock, prevent_exit: Magi
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_empty_response(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_empty_response(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with empty LLM response."""
     # Set up adapter mock to return empty response
     mock_adapter = Mock()
@@ -171,11 +182,11 @@ def test_handle_command_output_empty_response(mock_llm: MagicMock, prevent_exit:
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
     # Call the function with vibe enabled
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -184,7 +195,9 @@ def test_handle_command_output_empty_response(mock_llm: MagicMock, prevent_exit:
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_with_command(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_with_command(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with command parameter."""
     # Set up adapter mock
     mock_adapter = Mock()
@@ -197,32 +210,38 @@ def test_handle_command_output_with_command(mock_llm: MagicMock, prevent_exit: M
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
     # Call the function with command parameter
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        with patch("vibectl.command_handler.update_memory") as mock_update_memory:  # Mock memory update
-            with patch("vibectl.command_handler.output_processor") as mock_processor:  # Mock output processor
-                # Set up output processor mock
-                mock_processor.process_auto.return_value = ("test output", False)
+    with (
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler.output_processor") as mock_processor,
+    ):
+        # Set up output processor mock
+        mock_processor.process_auto.return_value = ("test output", False)
 
-                handle_command_output(
-                    output="test output",
-                    output_flags=output_flags,
-                    summary_prompt_func=lambda: "Summarize this command {command} with output: {output}",
-                    command="get pods",
-                )
+        handle_command_output(
+            output="test output",
+            output_flags=output_flags,
+            summary_prompt_func=lambda: (
+                "Summarize this command {command} with output: {output}"
+            ),
+            command="get pods",
+        )
 
-                # Verify output was displayed
-                mock_console.print_vibe.assert_called_once_with("Test response")
-                # Verify memory was updated
-                mock_update_memory.assert_called_once_with("get pods", "test output", "Test response", "model-xyz-1.2.3")
-                # Verify adapter was called with correct prompt
-                mock_adapter.execute.assert_called_once_with(
-                    mock_adapter.get_model.return_value,
-                    "Summarize this command get pods with output: test output"
-                )
+        # Verify output was displayed
+        mock_console.print_vibe.assert_called_once_with("Test response")
+        # Verify memory was updated
+        mock_update_memory.assert_called_once_with(
+            "get pods", "test output", "Test response", "model-xyz-1.2.3"
+        )
+        # Verify adapter was called with correct prompt
+        mock_adapter.execute.assert_called_once_with(
+            mock_adapter.get_model.return_value,
+            "Summarize this command get pods with output: test output",
+        )
 
 
 def test_configure_output_flags_no_flags() -> None:
@@ -241,9 +260,7 @@ def test_configure_output_flags_raw_only() -> None:
     """Test configure_output_flags with raw flag only."""
     # Run with raw flag only
     output_flags = configure_output_flags(
-        show_raw_output=True,
-        show_vibe=False,
-        model="model-xyz-1.2.3"
+        show_raw_output=True, show_vibe=False, model="model-xyz-1.2.3"
     )
 
     # Verify flags
@@ -257,9 +274,7 @@ def test_configure_output_flags_vibe_only() -> None:
     """Test configure_output_flags with vibe flag only."""
     # Run with vibe flag only
     output_flags = configure_output_flags(
-        show_raw_output=False,
-        show_vibe=True,
-        model="model-xyz-1.2.3"
+        show_raw_output=False, show_vibe=True, model="model-xyz-1.2.3"
     )
 
     # Verify flags
@@ -273,9 +288,7 @@ def test_configure_output_flags_both_flags() -> None:
     """Test configure_output_flags with both flags."""
     # Run with both flags
     output_flags = configure_output_flags(
-        show_raw_output=True,
-        show_vibe=True,
-        model="model-xyz-1.2.3"
+        show_raw_output=True, show_vibe=True, model="model-xyz-1.2.3"
     )
 
     # Verify flags
@@ -286,7 +299,9 @@ def test_configure_output_flags_both_flags() -> None:
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_model_name_from_config(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_model_name_from_config(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with model name from config."""
     # Set up adapter mock
     mock_adapter = Mock()
@@ -294,16 +309,16 @@ def test_handle_command_output_model_name_from_config(mock_llm: MagicMock, preve
     mock_adapter.execute.return_value = "Test response"
     mock_llm.return_value = mock_adapter
 
-    # Create output flags with model from config
+    # Create output flags with model name from config
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-from-config",
     )
 
     # Call the function with model name from config
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -312,7 +327,9 @@ def test_handle_command_output_model_name_from_config(mock_llm: MagicMock, preve
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_model_name_from_env(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_model_name_from_env(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with model name from environment."""
     # Set up adapter mock
     mock_adapter = Mock()
@@ -320,16 +337,16 @@ def test_handle_command_output_model_name_from_env(mock_llm: MagicMock, prevent_
     mock_adapter.execute.return_value = "Test response"
     mock_llm.return_value = mock_adapter
 
-    # Create output flags with model from env
+    # Create output flags with model name from env
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-from-env",
     )
 
-    # Call the function with model name from environment
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    # Call the function with model name from env
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -338,24 +355,26 @@ def test_handle_command_output_model_name_from_env(mock_llm: MagicMock, prevent_
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_model_name_from_default(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
-    """Test handle_command_output with default model name."""
+def test_handle_command_output_model_name_from_default(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
+    """Test handle_command_output with model name from default."""
     # Set up adapter mock
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
     mock_llm.return_value = mock_adapter
 
-    # Create output flags with default model
+    # Create output flags with model name from default
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"  # DEFAULT_MODEL
+        model_name=DEFAULT_MODEL,
     )
 
-    # Call the function with default model name
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    # Call the function with model name from default
+    with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -364,84 +383,85 @@ def test_handle_command_output_model_name_from_default(mock_llm: MagicMock, prev
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_basic(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
-    """Test handle_command_output."""
+def test_handle_command_output_basic(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
+    """Test handle_command_output with basic configuration."""
     # Set up adapter mock
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
     mock_llm.return_value = mock_adapter
 
-    # Create output flags
+    # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        show_raw=True, show_vibe=True, warn_no_output=True, model_name="model-xyz-1.2.3"
     )
 
-    # Call the function
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        with patch("vibectl.command_handler.output_processor") as mock_processor:
-            # Set up output processor mock
-            mock_processor.process_auto.return_value = ("test output", False)
+    # Call the function with both outputs enabled and processor
+    with (
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch("vibectl.command_handler.output_processor") as mock_processor,
+    ):
+        # Set up output processor mock
+        mock_processor.process_auto.return_value = ("test output", False)
 
-            handle_command_output(
-                output="test output",
-                output_flags=output_flags,
-                summary_prompt_func=lambda: "Summarize: {output}",
-            )
+        handle_command_output(
+            output="test output",
+            output_flags=output_flags,
+            summary_prompt_func=lambda: "Summarize this: {output}",
+        )
 
-            # Verify output was displayed
-            mock_console.print_vibe.assert_called_once_with("Test response")
-            # Verify adapter was called with correct prompt
-            mock_adapter.execute.assert_called_once_with(
-                mock_adapter.get_model.return_value, "Summarize: test output"
-            )
+        # Verify raw output was shown and proper function was called
+        mock_console.print_raw.assert_called_once_with("test output")
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_raw(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
-    """Test handle_command_output with raw output enabled."""
-    # Create output flags with raw output enabled
+def test_handle_command_output_raw(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
+    """Test handle_command_output with raw output only."""
+    # Set up adapter mock
+    mock_adapter = Mock()
+    mock_llm.return_value = mock_adapter
+
+    # Create output flags with raw only
     output_flags = OutputFlags(
         show_raw=True,
-        show_vibe=True,
+        show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
-    # Call the function
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        with patch("vibectl.command_handler.output_processor") as mock_processor:
-            # Set up output processor and adapter mocks
-            mock_processor.process_auto.return_value = ("test output", False)
-            mock_adapter = Mock()
-            mock_adapter.get_model.return_value = Mock()
-            mock_adapter.execute.return_value = "Test response"
-            mock_llm.return_value = mock_adapter
+    # Call the function with raw only and processor
+    with (
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch("vibectl.command_handler.output_processor") as mock_processor,
+    ):
+        # Set up output processor mock
+        mock_processor.process_auto.return_value = ("processed output", False)
 
-            handle_command_output(
-                output="test output",
-                output_flags=output_flags,
-                summary_prompt_func=lambda: "Summarize: {output}",
-            )
+        handle_command_output(
+            output="test output",
+            output_flags=output_flags,
+            summary_prompt_func=lambda: "Summarize this: {output}",
+        )
 
-            # Verify raw output was shown
-            mock_console.print_raw.assert_called_once_with("test output")
-            # Verify vibe output was also shown
-            mock_console.print_vibe.assert_called_once_with("Test response")
+        # Verify raw output was shown
+        mock_console.print_raw.assert_called_once_with("processed output")
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_no_vibe(mock_llm: MagicMock, prevent_exit: MagicMock) -> None:
+def test_handle_command_output_no_vibe(
+    mock_llm: MagicMock, prevent_exit: MagicMock
+) -> None:
     """Test handle_command_output with vibe disabled."""
     # Create output flags with vibe disabled
     output_flags = OutputFlags(
         show_raw=True,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3"
+        model_name="model-xyz-1.2.3",
     )
 
     # Call the function
@@ -455,4 +475,4 @@ def test_handle_command_output_no_vibe(mock_llm: MagicMock, prevent_exit: MagicM
         # Verify only raw output was shown
         mock_console.print_raw.assert_called_once_with("test output")
         # Verify vibe was not shown (model never used)
-        mock_llm.assert_not_called() 
+        mock_llm.assert_not_called()

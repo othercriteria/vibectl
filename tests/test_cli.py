@@ -286,7 +286,8 @@ def test_describe_basic(
     cli_runner: CliRunner,
 ) -> None:
     """Test basic describe command functionality."""
-    # Set up the return value for configure_output_flags to return an OutputFlags instance
+    # Set up the return value for configure_output_flags to return
+    # an OutputFlags instance
     from vibectl.command_handler import OutputFlags
 
     mock_configure_flags.return_value = OutputFlags(
@@ -316,7 +317,8 @@ def test_describe_with_args(
     cli_runner: CliRunner,
 ) -> None:
     """Test describe command with additional arguments."""
-    # Set up the return value for configure_output_flags to return an OutputFlags instance
+    # Set up the return value for configure_output_flags to return
+    # an OutputFlags instance
     from vibectl.command_handler import OutputFlags
 
     mock_configure_flags.return_value = OutputFlags(
@@ -349,7 +351,8 @@ def test_describe_with_flags(
     cli_runner: CliRunner,
 ) -> None:
     """Test describe command with output flags."""
-    # Set up the return value for configure_output_flags to return an OutputFlags instance
+    # Set up the return value for configure_output_flags to return
+    # an OutputFlags instance
     from vibectl.command_handler import OutputFlags
 
     mock_configure_flags.return_value = OutputFlags(
@@ -568,7 +571,8 @@ def test_logs_error_handling(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command error handling."""
-    # Set up the return value for configure_output_flags to return an OutputFlags instance
+    # Set up the return value for configure_output_flags to return
+    # an OutputFlags instance
     from vibectl.command_handler import OutputFlags
 
     mock_configure_flags.return_value = OutputFlags(

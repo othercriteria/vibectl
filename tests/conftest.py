@@ -7,16 +7,15 @@ This file contains fixtures that can be used across all tests.
 import os
 from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypeVar, cast
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
-from vibectl.command_handler import OutputFlags
 
 
 @pytest.fixture
@@ -55,8 +54,8 @@ def mock_handle_command_output() -> Generator[Mock, None, None]:
         patch("vibectl.cli.handle_command_output") as cli_mock,
         patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
-        # Keep calls in sync - this fixture returns the handler_mock since that's
-        # the implementation that actually gets used
+        # Keep calls in sync
+        # Return handler_mock as that's the implementation used
         cli_mock.side_effect = handler_mock
         yield handler_mock
 
@@ -156,9 +155,9 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
         # Return an OutputFlags instance instead of a tuple
         mock.return_value = OutputFlags(
             show_raw=False,
-            show_vibe=True, 
-            warn_no_output=True, 
-            model_name="claude-3.7-sonnet"
+            show_vibe=True,
+            warn_no_output=True,
+            model_name="claude-3.7-sonnet",
         )
         yield mock
 
@@ -221,7 +220,7 @@ def cli_runner(tmp_path: Path) -> CliRunner:
 @pytest.fixture
 def mock_llm() -> Generator[MagicMock, None, None]:
     """Mock the LLM model for testing.
-    
+
     This fixture provides a complete mock of the LLM functionality including:
     - Mock LLM module
     - Mock model with response handling
@@ -229,21 +228,21 @@ def mock_llm() -> Generator[MagicMock, None, None]:
     """
     with (
         patch("vibectl.model_adapter.get_model_adapter") as mock_get_adapter,
-        patch("vibectl.command_handler.get_model_adapter") as cmd_mock_get_adapter
+        patch("vibectl.command_handler.get_model_adapter") as cmd_mock_get_adapter,
     ):
         # Create a mock adapter that implements ModelAdapter
         mock_adapter = Mock()
-        
+
         # Set up the get_model method to return a mock model
         def get_model(model_name: str) -> Mock:
             # Create a mock model with proper response handling
             mock_model = Mock()
-            
+
             # Set up the prompt method to handle different test scenarios
             def model_prompt(prompt_text: str) -> Mock:
                 # Create a mock response that implements ModelResponse
                 mock_response = Mock()
-                
+
                 # Set up the text method based on the prompt
                 def get_text() -> str:
                     if "empty response test" in prompt_text:
@@ -257,34 +256,34 @@ def mock_llm() -> Generator[MagicMock, None, None]:
                         return "Test response"
                     else:
                         return "Test response"
-                
+
                 mock_response.text = Mock(side_effect=get_text)
                 return mock_response
-            
+
             mock_model.prompt = Mock(side_effect=model_prompt)
             return mock_model
-        
+
         # Configure the adapter mock
         mock_adapter.get_model = Mock(side_effect=get_model)
-        
+
         # Set up the adapter's execute method to handle different test scenarios
         def adapter_execute(model: Mock, prompt_text: str) -> str:
             response = model.prompt(prompt_text)
             if hasattr(response, "text"):
-                from typing import cast, Protocol
-                
+                from typing import Protocol, cast
+
                 class ResponseWithText(Protocol):
                     def text(self) -> str: ...
-                
-                return cast(ResponseWithText, response).text()
+
+                return cast("ResponseWithText", response).text()
             return str(response)
-        
+
         mock_adapter.execute = Mock(side_effect=adapter_execute)
-        
+
         # Set up both mocks to return the same adapter
         mock_get_adapter.return_value = mock_adapter
         cmd_mock_get_adapter.return_value = mock_adapter
-        
+
         yield mock_adapter
 
 
@@ -297,7 +296,7 @@ def mock_summary_prompt() -> Callable[[], str]:
 @pytest.fixture
 def prevent_exit() -> Generator[MagicMock, None, None]:
     """Prevent sys.exit from exiting the tests.
-    
+
     This fixture is useful for testing error cases where sys.exit would normally
     terminate the test.
     """
@@ -314,7 +313,7 @@ def mock_kubectl_output() -> str:
 @pytest.fixture
 def standard_output_flags() -> "OutputFlags":
     """Provide a standard set of OutputFlags for tests.
-    
+
     Returns:
         OutputFlags: Standard output flags configuration for testing.
     """
@@ -322,14 +321,14 @@ def standard_output_flags() -> "OutputFlags":
         show_raw=True,
         show_vibe=True,
         warn_no_output=True,
-        model_name="claude-3.7-sonnet"
+        model_name="claude-3.7-sonnet",
     )
 
 
 @pytest.fixture
 def mock_output_flags_for_vibe_request() -> "OutputFlags":
     """Provide OutputFlags specifically for vibe request tests.
-    
+
     Returns:
         OutputFlags: Output flags configuration for vibe request tests.
     """
@@ -337,28 +336,27 @@ def mock_output_flags_for_vibe_request() -> "OutputFlags":
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="claude-3.7-sonnet"
+        model_name="claude-3.7-sonnet",
     )
 
 
 @pytest.fixture
 def mock_memory() -> Generator[MagicMock, None, None]:
     """Mock memory functions to avoid slow file operations.
-    
+
     This fixture prevents actual file I/O during tests by mocking the memory
     functions. It's particularly important for test performance since memory
     operations can be slow due to disk access.
     """
     with (
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
-        patch("vibectl.memory.update_memory") as mock_memory_update,
         patch("vibectl.memory.get_memory") as mock_get_memory,
-        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory
+        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory,
     ):
         # Set default return values
         mock_get_memory.return_value = "Test memory context"
-        
+
         # Make include_memory_in_prompt just return the original prompt
         mock_include_memory.side_effect = lambda prompt_func: prompt_func()
-        
+
         yield mock_update_memory

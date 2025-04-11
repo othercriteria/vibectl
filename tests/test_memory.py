@@ -170,18 +170,18 @@ def test_update_memory(mock_llm_get_model: Mock, mock_update_prompt: Mock) -> No
     # Setup mocks
     mock_config = Mock()
     mock_config.get.return_value = True  # for is_memory_enabled check
-    
+
     # Setup prompt template
     mock_update_prompt.return_value = "Test memory update prompt"
-    
+
     # Setup model response
     mock_model = Mock()
     mock_llm_get_model.return_value = mock_model
-    
+
     mock_response = Mock()
     mock_response.text = Mock(return_value="Updated memory content")
     mock_model.prompt.return_value = mock_response
-    
+
     with patch("vibectl.memory.Config", return_value=mock_config):
         # Call update_memory
         update_memory(
@@ -195,10 +195,12 @@ def test_update_memory(mock_llm_get_model: Mock, mock_update_prompt: Mock) -> No
         mock_llm_get_model.assert_called_once_with("test-model")
         assert mock_model.prompt.call_count == 1  # Called once with any args
         mock_response.text.assert_called_once()
-        
+
         # Verify memory was set in config
         assert mock_config.set.call_count == 1
-        assert mock_config.set.call_args[0][0] == "memory"  # First arg should be 'memory'
+        assert (
+            mock_config.set.call_args[0][0] == "memory"
+        )  # First arg should be 'memory'
         mock_config.save.assert_called_once()
 
 
