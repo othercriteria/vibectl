@@ -12,6 +12,7 @@ This document provides an overview of the project's structure and organization.
 - `command_handler.py` - Common command handling patterns
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
+- `model_adapter.py` - Abstraction layer for LLM model interactions
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 
@@ -111,6 +112,22 @@ This document provides an overview of the project's structure and organization.
 - Type-safe configuration with validation
 - Theme configuration and custom prompt instructions
 - Memory settings management
+
+### Model Interaction System
+1. `model_adapter.py` - Abstraction for LLM model interactions
+   - Abstract `ModelAdapter` interface defining common operations
+   - `LLMModelAdapter` implementation for the llm package
+   - Model instance caching for performance
+   - Simplified access via module-level functions
+   - Consistent error handling
+2. `command_handler.py` - Uses model adapter for command execution
+   - Processes command output with model summaries
+   - Handles vibe requests with model planning
+3. `memory.py` - Uses model adapter for memory updates
+   - Updates memory context based on command execution
+4. `prompt.py` - Defines prompt templates used by model adapters
+   - Command-specific prompt templates
+   - Formatting instructions
 
 ## Development Workflow
 

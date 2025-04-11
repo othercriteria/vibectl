@@ -67,8 +67,7 @@ def patch_kubectl_and_llm() -> Generator[None, None, None]:
         patch("vibectl.command_handler.handle_command_output"),
         patch("vibectl.cli.handle_vibe_request"),
         patch("vibectl.command_handler.handle_vibe_request"),
-        patch("vibectl.memory.llm") as mock_llm,
-        patch("vibectl.command_handler.llm") as cmd_mock_llm,
+        patch("vibectl.model_adapter.llm") as mock_llm,
     ):
         # Set default return values
         cli_mock_run_kubectl.return_value = "test output"
@@ -80,7 +79,6 @@ def patch_kubectl_and_llm() -> Generator[None, None, None]:
         mock_response.text.return_value = "Test LLM response"
         mock_model.prompt.return_value = mock_response
         mock_llm.get_model.return_value = mock_model
-        cmd_mock_llm.get_model.return_value = mock_model
 
         yield
 

@@ -7,9 +7,8 @@ that is maintained between vibectl commands.
 from collections.abc import Callable
 from typing import cast
 
-import llm
-
 from .config import Config
+from .model_adapter import get_model_adapter
 from .prompt import memory_update_prompt
 
 
@@ -114,11 +113,12 @@ def update_memory(
 
     cfg = config or Config()
 
-    model = llm.get_model(model_name)
+    # Use model adapter instead of direct llm usage
+    model_adapter = get_model_adapter(cfg)
+    model = model_adapter.get_model(model_name)
     prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
 
-    response = model.prompt(prompt)
-    updated_memory = response.text()
+    updated_memory = model_adapter.prompt(model, prompt)
     set_memory(updated_memory, cfg)
 
 

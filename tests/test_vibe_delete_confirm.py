@@ -1,124 +1,148 @@
-"""Tests for the vibe delete confirmation functionality.
+"""Tests focused on the delete confirmation behavior in vibe delete commands."""
 
-This module tests the confirmation functionality in handle_vibe_request for
-delete commands.
-"""
+from collections.abc import Generator
+from unittest.mock import MagicMock, Mock, call, patch
 
-from unittest.mock import MagicMock, Mock, patch
+import pytest
 
 from vibectl.command_handler import handle_vibe_request
 
 
-# Note: We need to patch click at the proper import location
-@patch("click.confirm")  # Patch the actual click module
-@patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.llm.get_model")
-def test_vibe_delete_with_confirmation(
-    mock_get_model: MagicMock, mock_run_kubectl: MagicMock, mock_confirm: MagicMock
-) -> None:
-    """Test delete command with confirmation that gets confirmed."""
-    # Setup mocks
-    mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "pod\nnginx")
-    mock_get_model.return_value = mock_model
-    mock_confirm.return_value = True  # User confirms deletion
-    mock_run_kubectl.return_value = 'pod "nginx" deleted'
+@pytest.fixture
+def mock_confirm() -> Generator[MagicMock, None, None]:
+    """Mock click.confirm function."""
+    with patch("click.confirm") as mock:
+        yield mock
 
-    # Execute vibe request with delete command
+
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.model_adapter.llm")
+def test_vibe_delete_with_confirmation(
+    mock_llm: MagicMock, 
+    mock_run_kubectl: MagicMock,
+    mock_console: MagicMock, 
+    mock_confirm: MagicMock
+) -> None:
+    """Test delete command with confirmation dialog."""
+    # Set up mocks
+    mock_model = Mock()
+    mock_model.prompt.return_value = Mock(text=lambda: "kubectl delete pod test-pod")
+    mock_llm.get_model.return_value = mock_model
+    
+    # Set confirmation to True (accept)
+    mock_confirm.return_value = True
+
+    # Call function
     handle_vibe_request(
-        request="delete the nginx pod",
-        command="delete",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "summary template",
-        yes=False,  # Do not skip confirmation
+        request="delete the test pod",
+        command="delete",  # The actual command, not "delete vibe"
+        plan_prompt="Test plan prompt",
+        summary_prompt_func=lambda: "Test summary prompt",
+        yes=False,  # Confirm before executing
     )
 
-    # Assert
+    # Verify confirmation was shown
     mock_confirm.assert_called_once()
+    
+    # Verify kubectl was called with delete command
     mock_run_kubectl.assert_called_once()
 
 
-@patch("click.confirm")  # Patch the actual click module
+@patch("vibectl.command_handler.console_manager") 
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.llm.get_model")
+@patch("vibectl.model_adapter.llm")
 def test_vibe_delete_with_confirmation_cancelled(
-    mock_get_model: MagicMock, mock_run_kubectl: MagicMock, mock_confirm: MagicMock
+    mock_llm: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_console: MagicMock, 
+    mock_confirm: MagicMock
 ) -> None:
-    """Test delete command with confirmation that gets cancelled."""
-    # Setup mocks
+    """Test delete command with confirmation dialog cancelled."""
+    # Set up mocks
     mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "pod\nnginx")
-    mock_get_model.return_value = mock_model
-    mock_confirm.return_value = False  # User cancels deletion
+    mock_model.prompt.return_value = Mock(text=lambda: "kubectl delete pod test-pod")
+    mock_llm.get_model.return_value = mock_model
+    
+    # Set confirmation to False (cancel)
+    mock_confirm.return_value = False
 
-    # Execute vibe request with delete command
+    # Call function
     handle_vibe_request(
-        request="delete the nginx pod",
-        command="delete",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "summary template",
-        yes=False,  # Do not skip confirmation
+        request="delete the test pod",
+        command="delete",  # The actual command, not "delete vibe"
+        plan_prompt="Test plan prompt",
+        summary_prompt_func=lambda: "Test summary prompt",
+        yes=False,  # Confirm before executing
     )
 
-    # Assert
+    # Verify confirmation was shown
     mock_confirm.assert_called_once()
-    # Command should not be executed if cancelled
+    
+    # Verify cancelled message was shown
+    mock_console.print_cancelled.assert_called_once()
+    
+    # Verify kubectl was NOT called 
     mock_run_kubectl.assert_not_called()
 
 
-@patch("click.confirm")  # Patch the actual click module
+@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.llm.get_model")
+@patch("vibectl.model_adapter.llm")
 def test_vibe_delete_yes_flag_bypasses_confirmation(
-    mock_get_model: MagicMock, mock_run_kubectl: MagicMock, mock_confirm: MagicMock
+    mock_llm: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_console: MagicMock,
+    mock_confirm: MagicMock,
 ) -> None:
-    """Test that yes flag bypasses confirmation for delete commands."""
-    # Setup mocks
+    """Test delete command with --yes flag that bypasses confirmation."""
+    # Set up mocks
     mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "pod\nnginx")
-    mock_get_model.return_value = mock_model
-    mock_run_kubectl.return_value = 'pod "nginx" deleted'
+    mock_model.prompt.return_value = Mock(text=lambda: "kubectl delete pod test-pod")
+    mock_llm.get_model.return_value = mock_model
 
-    # Execute vibe request with delete command and yes flag
+    # Call function with yes=True
     handle_vibe_request(
-        request="delete the nginx pod",
-        command="delete",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "summary template",
+        request="delete the test pod",
+        command="delete",  # The actual command, not "delete vibe"
+        plan_prompt="Test plan prompt",
+        summary_prompt_func=lambda: "Test summary prompt",
         yes=True,  # Skip confirmation
     )
 
-    # Assert
-    mock_confirm.assert_not_called()  # Confirmation should be skipped
-    mock_run_kubectl.assert_called_once()  # Command should be executed
+    # Verify confirmation was NOT shown
+    mock_confirm.assert_not_called()
+    
+    # Verify kubectl was called
+    mock_run_kubectl.assert_called_once()
 
 
-@patch("click.confirm")  # Patch the actual click module
+@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.llm.get_model")
+@patch("vibectl.model_adapter.llm")
 def test_vibe_non_delete_commands_skip_confirmation(
-    mock_get_model: MagicMock, mock_run_kubectl: MagicMock, mock_confirm: MagicMock
+    mock_llm: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_console: MagicMock,
+    mock_confirm: MagicMock,
 ) -> None:
-    """Test that non-delete commands skip confirmation regardless of yes flag."""
-    # Setup mocks
+    """Test non-delete commands don't require confirmation."""
+    # Set up mocks
     mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "pod\nnginx")
-    mock_get_model.return_value = mock_model
-    output = "NAME    READY   STATUS    RESTARTS   AGE\n"
-    output += "nginx   1/1     Running   0          1h"
-    mock_run_kubectl.return_value = output
+    mock_model.prompt.return_value = Mock(text=lambda: "kubectl get pods")
+    mock_llm.get_model.return_value = mock_model
 
-    # Execute vibe request with get command (not delete)
+    # Call function with a non-delete command
     handle_vibe_request(
-        request="show me the nginx pod",
-        command="get",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "summary template",
-        # Even though False, confirmation should be skipped for non-delete
-        yes=False,
+        request="get all pods",
+        command="get",  # The actual command, not "get vibe"
+        plan_prompt="Test plan prompt",
+        summary_prompt_func=lambda: "Test summary prompt",
+        yes=False,  # Even with yes=False, non-delete commands don't need confirmation
     )
 
-    # Assert
-    # Confirmation should be skipped for non-delete
+    # Verify confirmation was NOT shown for get command
     mock_confirm.assert_not_called()
-    mock_run_kubectl.assert_called_once()  # Command should be executed
+    
+    # Verify kubectl was called
+    mock_run_kubectl.assert_called_once()

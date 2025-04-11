@@ -2,7 +2,7 @@
 
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
@@ -17,6 +17,8 @@ from vibectl.command_handler import (
     handle_vibe_request,
     run_kubectl,
 )
+from vibectl.console import console_manager
+from vibectl.utils import handle_exception
 
 
 @pytest.fixture
@@ -37,24 +39,16 @@ def mock_subprocess(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 
 @pytest.fixture
-def mock_llm(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Mock LLM model."""
-    mock = MagicMock()
-    mock_model = Mock()
-    mock_model.prompt.return_value = Mock(text=lambda: "Test response")
-    mock.return_value = mock_model
-    monkeypatch.setattr("llm.get_model", mock)
-    return mock
+def mock_llm() -> Generator[MagicMock, None, None]:
+    """Mock the LLM model for testing."""
+    with patch("vibectl.model_adapter.llm") as mock:
+        yield mock
 
 
 @pytest.fixture
 def mock_summary_prompt() -> Callable[[], str]:
     """Mock summary prompt function."""
-
-    def _summary_prompt() -> str:
-        return "Summarize this: {output}"
-
-    return _summary_prompt
+    return lambda: "Test Prompt: {output}"
 
 
 def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> None:
@@ -205,10 +199,26 @@ def test_handle_command_output_raw_only(
     mock_llm.assert_not_called()
 
 
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
 def test_handle_command_output_vibe_only(
-    mock_llm: MagicMock, mock_summary_prompt: Callable[[], str]
+    mock_console: MagicMock,
+    mock_processor: MagicMock,
+    mock_llm: MagicMock,
+    mock_summary_prompt: Callable[[], str],
 ) -> None:
-    """Test command output handling with only vibe output."""
+    """Test handling command output with vibe only."""
+    # Set up processor
+    mock_processor.process_auto.return_value = ("test output", False)
+
+    # Set up LLM model and response
+    mock_model = Mock()
+    mock_response = Mock()
+    mock_response.text.return_value = "Test response"
+    mock_model.prompt.return_value = mock_response
+    mock_llm.get_model.return_value = mock_model
+
+    # Run command output handling
     handle_command_output(
         output="test output",
         show_raw_output=False,
@@ -217,8 +227,13 @@ def test_handle_command_output_vibe_only(
         summary_prompt_func=mock_summary_prompt,
     )
 
-    # Verify LLM was called
-    mock_llm.assert_called_once()
+    # Verify console output
+    mock_console.print_raw.assert_not_called()
+    mock_console.print_vibe.assert_called_once_with(mock_response.text.return_value)
+
+    # Verify LLM model usage
+    mock_llm.get_model.assert_called_once_with("test-model")
+    mock_model.prompt.assert_called_once_with(mock_summary_prompt())
 
 
 def test_handle_command_output_truncation(
@@ -705,7 +720,7 @@ def test_handle_vibe_request_llm_error(
 @patch("tempfile.NamedTemporaryFile")
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.command_handler.handle_command_output")
-@patch("llm.get_model")
+@patch("vibectl.model_adapter.llm")
 def test_handle_vibe_request_create_with_yaml(
     mock_llm: MagicMock,
     mock_handle_output: MagicMock,
@@ -776,7 +791,7 @@ spec:
 @patch("tempfile.NamedTemporaryFile")
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.command_handler.handle_command_output")
-@patch("llm.get_model")
+@patch("vibectl.model_adapter.llm")
 def test_handle_vibe_request_create_with_yaml_error(
     mock_llm: MagicMock,
     mock_handle_output: MagicMock,

@@ -6,6 +6,8 @@ This module tests the memory management functionality of vibectl.
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from vibectl.config import Config
 from vibectl.memory import (
     clear_memory,
@@ -163,47 +165,37 @@ def test_clear_memory(mock_config_class: Mock) -> None:
     mock_config.save.assert_called_once()
 
 
-@patch("vibectl.memory.memory_update_prompt")
-@patch("vibectl.memory.llm.get_model")
-@patch("vibectl.memory.is_memory_enabled")
-@patch("vibectl.memory.get_memory")
-@patch("vibectl.memory.set_memory")
-@patch("vibectl.memory.Config")
-def test_update_memory(
-    mock_config_class: Mock,
-    mock_set_memory: Mock,
-    mock_get_memory: Mock,
-    mock_is_enabled: Mock,
-    mock_get_model: Mock,
-    mock_memory_update_prompt: Mock,
-) -> None:
-    """Test updating memory based on command output."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.get.return_value = 500  # max_chars
+def test_update_memory() -> None:
+    """Test memory update with command and response."""
+    # Setup mocks
+    config = Config(base_dir=Path("/fake/path"))
+    config.set("memory_enabled", True)
 
-    mock_is_enabled.return_value = True
-    mock_get_memory.return_value = "Previous memory"
+    with (
+        patch("vibectl.memory.Config", return_value=config),
+        patch("vibectl.model_adapter.llm") as mock_llm,
+    ):
+        # Create mock model response
+        mock_model = Mock()
+        mock_response = Mock()
+        mock_response.text.return_value = "Updated memory content"
+        mock_model.prompt.return_value = mock_response
+        mock_llm.get_model.return_value = mock_model
 
-    mock_model = Mock()
-    mock_get_model.return_value = mock_model
-    mock_response = Mock()
-    mock_response.text.return_value = "Updated memory"
-    mock_model.prompt.return_value = mock_response
+        # Call update_memory
+        update_memory(
+            command="kubectl get pods",
+            command_output="pod1 Running\npod2 Error",
+            vibe_output="Pods are in mixed state",
+            model_name="test-model",
+        )
 
-    mock_memory_update_prompt.return_value = "Test prompt"
-
-    # Execute
-    update_memory("kubectl get pods", "pod1 Running", "1 pod running", "test-model")
-
-    # Assert
-    mock_is_enabled.assert_called_once()
-    mock_memory_update_prompt.assert_called_once_with(
-        "kubectl get pods", "pod1 Running", "1 pod running", mock_config
-    )
-    mock_model.prompt.assert_called_once_with("Test prompt")
-    mock_set_memory.assert_called_once_with("Updated memory", mock_config)
+        # Verify model was called with correct parameters
+        mock_llm.get_model.assert_called_once_with("test-model")
+        mock_model.prompt.assert_called_once()
+        
+        # Verify memory was set in config
+        assert config.get("memory") == "Updated memory content"
 
 
 @patch("vibectl.memory.is_memory_enabled")

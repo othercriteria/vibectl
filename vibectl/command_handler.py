@@ -10,11 +10,10 @@ import subprocess
 import sys
 from collections.abc import Callable
 
-import llm
-
 from .config import Config
 from .console import console_manager
 from .memory import include_memory_in_prompt, update_memory
+from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
 from .utils import handle_exception
 
@@ -140,12 +139,12 @@ def handle_command_output(
             if was_truncated:
                 console_manager.print_truncation_warning()
 
-            # Get summary from LLM with processed output
-            llm_model = llm.get_model(model_name)
+            # Get summary from LLM with processed output using model adapter
+            model_adapter = get_model_adapter()
+            model = model_adapter.get_model(model_name)
             summary_prompt = summary_prompt_func()
             prompt = summary_prompt.format(output=processed_output)
-            response = llm_model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
+            summary = model_adapter.prompt(model, prompt)
             vibe_output = summary
 
             # If raw output was also shown, add a newline to separate
@@ -192,8 +191,9 @@ def handle_vibe_request(
         # Track if we've already shown a no-output warning
         already_warned = False
 
-        # Get the plan from LLM
-        llm_model = llm.get_model(model_name)
+        # Get the plan from LLM using model adapter
+        model_adapter = get_model_adapter()
+        model = model_adapter.get_model(model_name)
 
         # Format prompt with request, including memory if available
         if autonomous_mode:
@@ -205,8 +205,7 @@ def handle_vibe_request(
                 lambda: plan_prompt.format(request=request)
             )
 
-        response = llm_model.prompt(prompt_with_memory)
-        plan = response.text() if hasattr(response, "text") else str(response)
+        plan = model_adapter.prompt(model, prompt_with_memory)
 
         # Check for error responses from planner
         if not plan or len(plan.strip()) == 0:
@@ -272,18 +271,14 @@ def handle_vibe_request(
                 # Update memory with the empty output information
                 if show_vibe:
                     try:
-                        # Generate interpretation for empty output
-                        llm_model = llm.get_model(model_name)
+                        # Generate interpretation for empty output using model adapter
+                        model_adapter = get_model_adapter()
+                        model = model_adapter.get_model(model_name)
                         summary_prompt = summary_prompt_func()
                         prompt = summary_prompt.format(
                             output=f"Command returned no output: {kubectl_cmd}"
                         )
-                        response = llm_model.prompt(prompt)
-                        vibe_output = (
-                            response.text()
-                            if hasattr(response, "text")
-                            else str(response)
-                        )
+                        vibe_output = model_adapter.prompt(model, prompt)
 
                         # Update memory with empty result context
                         update_memory(
