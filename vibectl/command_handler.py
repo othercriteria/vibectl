@@ -231,22 +231,34 @@ def handle_vibe_request(
             console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
             return
 
-        # Format the command with the correct namespace if not specified
-        args = kubectl_cmd.split()
-        # Check if a namespace was specified in the generated command
-        has_namespace = "-n" in args or "--namespace" in args
-        # Add the current namespace if none was specified
-        if not has_namespace:
-            config = Config()
-            namespace = config.get("namespace", None)
-            if namespace:
-                args.insert(1, f"-n={namespace}")
+        # Check for YAML content separated by --- (common in kubectl manifests)
+        # If present, split on the delimiter and use only the part before for
+        # command arguments
+        cmd_parts = kubectl_cmd.split("---", 1)
+        cmd_args = cmd_parts[0].strip()
+        yaml_content = None
+        if len(cmd_parts) > 1:
+            yaml_content = "---" + cmd_parts[1]
 
-        # Reconstruct the command as a string for display
-        formatted_cmd = " ".join(args)
+        # Format the command with the correct namespace if not specified
+        args = cmd_args.split()
+
+        # Remove 'kubectl' prefix if the model included it
+        if args and args[0].lower() == "kubectl":
+            args = args[1:]
+
+        # If first arg doesn't include the command type (create, get, etc) and we
+        # know the command, insert it at the beginning
+        if args and command == "create" and args[0] != "create":
+            args.insert(0, "create")
+
+        # If we have YAML content, append it to the command for display
+        display_cmd = " ".join(args)
+        if yaml_content:
+            display_cmd = f"{display_cmd} {yaml_content}"
 
         # Show the planned command to user
-        console_manager.print_note(f"Planning to run: kubectl {formatted_cmd}")
+        console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
 
         # Determine if this is a dangerous command that requires confirmation
         dangerous_commands = [
@@ -271,8 +283,55 @@ def handle_vibe_request(
                 console_manager.print_cancelled()
                 return
 
-        # Execute the command
-        output = run_kubectl(args, capture=True)
+        # Execute the command, adding the YAML content if present
+        if yaml_content:
+            # For commands that accept YAML from stdin, use a proper process
+            import subprocess
+            import tempfile
+
+            # Create a temporary file with the YAML content
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False
+            ) as temp:
+                temp.write(yaml_content)
+                temp_path = temp.name
+
+            try:
+                # Run kubectl with the file as input
+                # For create commands, we need to use the -f flag correctly
+                if args[0] == "create":
+                    # Include args except the command, which is at index [0]
+                    # Add -f flag for the YAML file
+                    cmd = ["kubectl", "create"]
+                    # Add any other args that might have been provided
+                    if len(args) > 1:
+                        cmd.extend(args[1:])
+                    cmd.extend(["-f", temp_path])
+                else:
+                    # For other commands that accept YAML, keep the original args
+                    # but ensure they don't include -f which will be added separately
+                    filtered_args = [
+                        arg for arg in args if arg != "-f" and not arg.startswith("-f=")
+                    ]
+                    cmd = ["kubectl", *filtered_args, "-f", temp_path]
+
+                console_manager.print_processing(f"Running: {' '.join(cmd)}")
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                output = proc.stdout
+                if proc.returncode != 0:
+                    raise Exception(
+                        proc.stderr
+                        or f"Command failed with exit code {proc.returncode}"
+                    )
+            finally:
+                # Clean up the temporary file
+                import os
+
+                os.unlink(temp_path)
+        else:
+            # Regular command without YAML
+            cmd_output = run_kubectl(args, capture=True)
+            output = "" if cmd_output is None else cmd_output
 
         # Handle response - might be empty
         if not output:
@@ -283,7 +342,7 @@ def handle_vibe_request(
             output=output or "No resources found.",
             output_flags=output_flags,
             summary_prompt_func=summary_prompt_func,
-            command=formatted_cmd,
+            command=display_cmd,
         )
     except Exception as e:
         handle_exception(e)

@@ -15,6 +15,8 @@ import llm
 from rich.panel import Panel
 from rich.table import Table
 
+from vibectl.memory import include_memory_in_prompt
+
 from . import __version__
 from .command_handler import (
     configure_output_flags,
@@ -128,7 +130,7 @@ def get(
                 handle_vibe_request(
                     request=request,
                     command="get",
-                    plan_prompt=PLAN_GET_PROMPT,
+                    plan_prompt=include_memory_in_prompt(PLAN_GET_PROMPT),
                     summary_prompt_func=get_resource_prompt,
                     output_flags=output_flags,
                 )
@@ -189,7 +191,7 @@ def describe(
             handle_vibe_request(
                 request=request,
                 command="describe",
-                plan_prompt=PLAN_DESCRIBE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_DESCRIBE_PROMPT),
                 summary_prompt_func=describe_resource_prompt,
                 output_flags=output_flags,
             )
@@ -248,7 +250,7 @@ def logs(
             handle_vibe_request(
                 request=request,
                 command="logs",
-                plan_prompt=PLAN_LOGS_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_LOGS_PROMPT),
                 summary_prompt_func=logs_prompt,
                 output_flags=output_flags,
             )
@@ -318,7 +320,7 @@ def create(
             handle_vibe_request(
                 request=request,
                 command="create",
-                plan_prompt=PLAN_CREATE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_CREATE_PROMPT),
                 summary_prompt_func=create_resource_prompt,
                 output_flags=output_flags,
             )
@@ -387,7 +389,7 @@ def delete(
             handle_vibe_request(
                 request=request,
                 command="delete",
-                plan_prompt=PLAN_DELETE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_DELETE_PROMPT),
                 summary_prompt_func=delete_resource_prompt,
                 output_flags=output_flags,
                 yes=yes,
@@ -696,7 +698,7 @@ def vibe(
         else:
             console_manager.print_processing(f"Planning how to: {request}")
 
-        # Handle the autonomous vibe command
+        # Autonomous vibe command - plan_prompt already includes memory directly
         handle_vibe_request(
             request=request,
             command="vibe",
@@ -747,16 +749,13 @@ def events(
                 console_manager.print_error("Missing request after 'vibe'")
                 return 1
             request = " ".join(args[1:])
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="events",
-                    plan_prompt=PLAN_EVENTS_PROMPT,
-                    summary_prompt_func=events_prompt,
-                    output_flags=output_flags,
-                )
-            except Exception as e:
-                handle_exception(e)
+            handle_vibe_request(
+                request=request,
+                command="events",
+                plan_prompt=include_memory_in_prompt(PLAN_EVENTS_PROMPT),
+                summary_prompt_func=events_prompt,
+                output_flags=output_flags,
+            )
             return 1
 
         # For standard commands, run kubectl events
@@ -1102,7 +1101,7 @@ def scale(
             handle_vibe_request(
                 request=request,
                 command="scale",
-                plan_prompt=PLAN_SCALE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_SCALE_PROMPT),
                 summary_prompt_func=scale_resource_prompt,
                 output_flags=output_flags,
             )
@@ -1205,7 +1204,7 @@ def rollout(
             handle_vibe_request(
                 request=request,
                 command="rollout",
-                plan_prompt=PLAN_ROLLOUT_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_ROLLOUT_PROMPT),
                 summary_prompt_func=rollout_general_prompt,
                 output_flags=output_flags,
             )

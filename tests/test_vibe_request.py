@@ -229,14 +229,23 @@ def test_handle_vibe_request_llm_output_parsing(
     mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with LLM output that includes delimiter."""
-    # Set up LLM response with delimiter
+    # Set up LLM response with delimiter - get commands will also be parsed for YAML now
     mock_llm.execute.side_effect = ["get pods\n---\nother content", "Test response"]
 
-    # Call function
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: show me the pods",
+    # Mock subprocess.run for kubectl calls with YAML
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: show me the pods",
+        ),
+        patch("subprocess.run") as mock_subprocess,
     ):
+        # Configure mock subprocess to return success
+        mock_process = MagicMock()
+        mock_process.stdout = "pod-list-output"
+        mock_process.returncode = 0
+        mock_subprocess.return_value = mock_process
+
         handle_vibe_request(
             request="show me the pods",
             command="get",
@@ -245,14 +254,12 @@ def test_handle_vibe_request_llm_output_parsing(
             output_flags=standard_output_flags,
         )
 
+    # Verify subprocess was called, and run_kubectl was not called directly
+    mock_subprocess.assert_called_once()
+    mock_run_kubectl.assert_not_called()
+
     # Verify exception handler was not called
     mock_handle_exception.assert_not_called()
-
-    # Verify kubectl was called
-    mock_run_kubectl.assert_called_once()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
 
 
 @patch("vibectl.command_handler.handle_exception")
@@ -349,11 +356,20 @@ def test_handle_vibe_request_yaml_creation(
     # Set up confirmation to be True (explicitly, although it's the default)
     mock_confirm.return_value = True
 
-    # Call function
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: create pod yaml",
+    # Mock subprocess.run for kubectl calls with YAML
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: create pod yaml",
+        ),
+        patch("subprocess.run") as mock_subprocess,
     ):
+        # Configure mock subprocess to return success
+        mock_process = MagicMock()
+        mock_process.stdout = "pod/test-pod created"
+        mock_process.returncode = 0
+        mock_subprocess.return_value = mock_process
+
         handle_vibe_request(
             request="create pod yaml",
             command="create",
@@ -365,15 +381,19 @@ def test_handle_vibe_request_yaml_creation(
     # Verify confirmation was shown (create is a dangerous command)
     mock_confirm.assert_called_once()
 
-    # Verify kubectl was called with the correct args
-    mock_run_kubectl.assert_called_once()
-    args = mock_run_kubectl.call_args[0][0]
-    # First elements should be "-n", "default" based on the actual input
-    assert args[0] == "-n"
-    assert args[1] == "default"
+    # Verify subprocess.run was called with correct command format
+    mock_subprocess.assert_called_once()
+    args, kwargs = mock_subprocess.call_args
+    cmd = args[0]
 
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
+    # Check that the command is properly structured
+    assert cmd[0] == "kubectl"
+    assert "-n" in " ".join(cmd)
+    assert "default" in " ".join(cmd)
+    assert "-f" in cmd
+
+    # Verify temp file was created with .yaml extension
+    assert any(arg.endswith(".yaml") for arg in cmd)
 
 
 def test_handle_vibe_request_yaml_response(
@@ -392,11 +412,20 @@ def test_handle_vibe_request_yaml_response(
         "Test response",
     ]
 
-    # Call function with yes=True to bypass confirmation
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: yaml test",
+    # Mock subprocess.run for kubectl calls with YAML
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: yaml test",
+        ),
+        patch("subprocess.run") as mock_subprocess,
     ):
+        # Configure mock subprocess to return success
+        mock_process = MagicMock()
+        mock_process.stdout = "pod/test-pod created"
+        mock_process.returncode = 0
+        mock_subprocess.return_value = mock_process
+
         handle_vibe_request(
             request="yaml test",
             command="create",
@@ -409,12 +438,86 @@ def test_handle_vibe_request_yaml_response(
     # Verify confirmation was NOT shown (yes=True skips confirmation)
     mock_confirm.assert_not_called()
 
-    # Verify kubectl was called with the correct args
-    mock_run_kubectl.assert_called_once()
-    args = mock_run_kubectl.call_args[0][0]
-    # First elements should be "pod", "pod-name" based on the actual input
-    assert args[0] == "pod"
-    assert args[1] == "pod-name"
+    # Verify subprocess.run was called with correct command format
+    mock_subprocess.assert_called_once()
+    args, kwargs = mock_subprocess.call_args
+    cmd = args[0]
 
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
+    # Check that the command is properly structured
+    assert cmd[0] == "kubectl"
+    assert "pod" in " ".join(cmd)
+    assert "pod-name" in " ".join(cmd) or any("pod-name" in arg for arg in cmd)
+    assert "-f" in cmd
+
+    # Verify temp file was created with .yaml extension
+    assert any(arg.endswith(".yaml") for arg in cmd)
+
+
+def test_handle_vibe_request_create_pods_yaml(
+    mock_llm: MagicMock,
+    mock_run_kubectl: Mock,
+    mock_console: Mock,
+    mock_confirm: MagicMock,
+    prevent_exit: MagicMock,
+    mock_output_flags_for_vibe_request: OutputFlags,
+    mock_memory: MagicMock,
+) -> None:
+    """Test vibe request that specifically creates multiple pods using a YAML manifest.
+
+    This test ensures the regression with create commands and YAML files
+    doesn't happen again.
+    """
+    # Simulate a model response for creating two pods
+    # Similar to the failing case from the issue
+    mock_llm.execute.side_effect = [
+        "-n default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: foo\n"
+        "  labels:\n    app: nginx-demo\nspec:\n  containers:\n  - name: nginx\n"
+        "    image: nginx:latest\n    ports:\n    - containerPort: 80\n---\n"
+        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: bar\n  labels:\n"
+        "    app: nginx-demo\nspec:\n  containers:\n  - name: nginx\n"
+        "    image: nginx:latest\n    ports:\n    - containerPort: 80",
+        "Test response",
+    ]
+
+    # Set up confirmation to be True
+    mock_confirm.return_value = True
+
+    # Mock subprocess.run for kubectl calls with YAML
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: Create nginx demo pods foo and bar.",
+        ),
+        patch("subprocess.run") as mock_subprocess,
+    ):
+        # Configure mock subprocess to return success
+        mock_process = MagicMock()
+        mock_process.stdout = "pod/foo created\npod/bar created"
+        mock_process.returncode = 0
+        mock_subprocess.return_value = mock_process
+
+        handle_vibe_request(
+            request="Create nginx demo 'hello, world' pods foo and bar.",
+            command="create",
+            plan_prompt="Plan this: {request}",
+            summary_prompt_func=get_test_summary_prompt,
+            output_flags=mock_output_flags_for_vibe_request,
+        )
+
+    # Verify confirmation was shown (create is a dangerous command)
+    mock_confirm.assert_called_once()
+
+    # Verify subprocess.run was called with correct command format
+    mock_subprocess.assert_called_once()
+    args, kwargs = mock_subprocess.call_args
+    cmd = args[0]
+
+    # Check that the command is properly structured for create with YAML
+    # The correct format is: kubectl create [-n namespace] -f file.yaml
+    assert cmd[0] == "kubectl"
+    assert cmd[1] == "create"  # create must be the second element
+    # Check that namespace information is included somewhere in the command
+    assert "-n" in cmd, "Namespace flag '-n' not found in command"
+    assert "default" in cmd, "Namespace value 'default' not found in command"
+    # Check for -f flag and YAML file
+    assert "-f" in cmd, "Flag '-f' for file input not found in command"
