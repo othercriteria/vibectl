@@ -99,16 +99,17 @@ def test_vibe_delete_with_confirmation(
     # Verify command_handler.update_memory was called with expected args
     assert mock_update_memory.call_count == 1
     args, kwargs = mock_update_memory.call_args
-    assert args[0] == "pod my-pod"  # The command
+    assert args[0] == "delete pod my-pod"  # The command with verb prepended
     assert "Successfully deleted pod my-pod" in args  # The LLM summary
     assert standard_output_flags.model_name in args  # The model name
 
     # Verify memory.update_memory was also called (verifying the delegation works)
     assert mock_memory_update.call_count == 1
     mem_args, mem_kwargs = mock_memory_update.call_args
-    assert mem_args[0] == "pod my-pod"  # Command should be passed through
-    assert standard_output_flags.model_name in mem_args
+    # Command should be passed through with verb
+    assert mem_args[0] == "delete pod my-pod"  
     # Model name should be passed through
+    assert standard_output_flags.model_name in mem_args
 
     # Verify sys.exit was not called
     prevent_exit.assert_not_called()
