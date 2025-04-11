@@ -8,31 +8,21 @@ to reduce duplication across CLI commands.
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from .config import Config
 from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
+from .types import OutputFlags
 from .utils import handle_exception
-
-
-@dataclass
-class OutputFlags:
-    """Configuration for output display flags."""
-
-    show_raw: bool
-    show_vibe: bool
-    warn_no_output: bool
-    model_name: str
-
 
 # Constants for output flags
 DEFAULT_MODEL = "claude-3.7-sonnet"
 DEFAULT_SHOW_RAW_OUTPUT = False
 DEFAULT_SHOW_VIBE = True
 DEFAULT_WARN_NO_OUTPUT = True
+DEFAULT_SHOW_KUBECTL = False
 
 # Initialize output processor
 output_processor = OutputProcessor()
@@ -240,11 +230,15 @@ def handle_vibe_request(
         # Create a display command for user feedback
         display_cmd = _create_display_command(args, yaml_content)
 
-        # Show the planned command to user
-        console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+        # Check if we need confirmation or if show_kubectl is enabled
+        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
 
-        # Check if confirmation is needed for this command
-        if _needs_confirmation(command, autonomous_mode) and not yes:
+        # Show command if show_kubectl is True or confirmation needed
+        if output_flags.show_kubectl or needs_confirm:
+            console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+
+        # If confirmation needed, ask now
+        if needs_confirm:
             import click
 
             if not click.confirm("Execute this command?"):
@@ -309,14 +303,14 @@ def _process_command_args(cmd_args: str, command: str) -> list[str]:
     # This ensures correct kubectl command structure
     commands_to_normalize = ["get", "describe", "logs", "delete", "scale"]
 
-    if command in commands_to_normalize:
-        # If the command isn't already in the args, or it's not the first argument
-        # we need to insert it at the beginning
-        if not any(arg == command for arg in args) or args[0] != command:
-            # Remove the command if it's somewhere else in the args list
-            args = [arg for arg in args if arg != command]
-            # Add it at the beginning
-            args.insert(0, command)
+    # Check if we need to normalize the command and it's not already normalized
+    if command in commands_to_normalize and (
+        not any(arg == command for arg in args) or args[0] != command
+    ):
+        # Remove the command if it's somewhere else in the args list
+        args = [arg for arg in args if arg != command]
+        # Add it at the beginning
+        args.insert(0, command)
 
     # Special case for create command
     if command == "create" and args and args[0] != "create":
@@ -468,6 +462,7 @@ def configure_output_flags(
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
+    show_kubectl: bool | None = None,
 ) -> OutputFlags:
     """Configure output flags based on config.
 
@@ -478,6 +473,7 @@ def configure_output_flags(
         vibe: Optional override for showing vibe output
         show_vibe: Optional override for showing vibe output
         model: Optional override for LLM model
+        show_kubectl: Optional override for showing kubectl commands
 
     Returns:
         OutputFlags instance containing the configured flags
@@ -504,11 +500,19 @@ def configure_output_flags(
 
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
+    # Get show_kubectl setting - default to False
+    show_kubectl_commands = (
+        show_kubectl
+        if show_kubectl is not None
+        else config.get("show_kubectl", DEFAULT_SHOW_KUBECTL)
+    )
+
     return OutputFlags(
         show_raw=show_raw,
         show_vibe=show_vibe_output,
         warn_no_output=warn_no_output,
         model_name=model_name,
+        show_kubectl=show_kubectl_commands,
     )
 
 
@@ -520,6 +524,7 @@ def handle_command_with_options(
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
+    show_kubectl: bool | None = None,
     config: Config | None = None,
 ) -> tuple[str, bool]:
     """Handle command with output options.
@@ -532,6 +537,7 @@ def handle_command_with_options(
         vibe: Whether to vibe the output
         show_vibe: Whether to show vibe output
         model: Model to use for vibe
+        show_kubectl: Whether to show kubectl commands
         config: Config object
 
     Returns:
@@ -539,7 +545,7 @@ def handle_command_with_options(
     """
     # Configure output flags
     output_flags = configure_output_flags(
-        show_raw_output, yaml, json, vibe, show_vibe, model
+        show_raw_output, yaml, json, vibe, show_vibe, model, show_kubectl
     )
 
     # Run the command

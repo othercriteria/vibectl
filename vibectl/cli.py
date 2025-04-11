@@ -93,6 +93,12 @@ def cli(ctx: click.Context) -> None:
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
 @click.option("--model", default=None, help="The LLM model to use")
 @click.option(
     "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
@@ -105,6 +111,7 @@ def get(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
@@ -113,7 +120,10 @@ def get(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
 
         # Configure memory flags
@@ -648,6 +658,12 @@ def theme_set(theme_name: str) -> None:
 @click.argument("request", required=False)
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
 @click.option("--model", default=None, help="The LLM model to use")
 @click.option(
     "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
@@ -660,6 +676,7 @@ def vibe(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -680,7 +697,10 @@ def vibe(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
 
         # Configure memory flags

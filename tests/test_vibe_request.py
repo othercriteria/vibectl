@@ -189,6 +189,7 @@ def test_handle_vibe_request_no_output(
         show_vibe=False,
         warn_no_output=True,
         model_name="model-xyz-1.2.3",
+        show_kubectl=False,
     )
 
     # Call function with mocked console_manager and include_memory_in_prompt
@@ -521,3 +522,78 @@ def test_handle_vibe_request_create_pods_yaml(
     assert "default" in cmd, "Namespace value 'default' not found in command"
     # Check for -f flag and YAML file
     assert "-f" in cmd, "Flag '-f' for file input not found in command"
+
+
+@patch("vibectl.command_handler.console_manager")
+def test_show_kubectl_flag_controls_command_display(
+    mock_console_manager: MagicMock,
+    mock_llm: MagicMock,
+    mock_run_kubectl: Mock,
+    mock_memory: MagicMock,
+) -> None:
+    """Test that show_kubectl flag controls whether kubectl command is displayed."""
+    # Set up model responses - first one is for plan, second for summary
+    mock_llm.execute.side_effect = ["get pods", "Test summary"]
+
+    # Test with show_kubectl=True
+    show_kubectl_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=True,
+        model_name="test-model",
+        show_kubectl=True,
+    )
+
+    # Call function with show_kubectl=True
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=get_test_summary_prompt,
+        output_flags=show_kubectl_flags,
+    )
+
+    # Check calls to print_note - using a more flexible approach
+    kubectl_note_found = False
+    for call in mock_console_manager.print_note.call_args_list:
+        if (
+            isinstance(call[0][0], str)
+            and "Planning to run: kubectl get pods" in call[0][0]
+        ):
+            kubectl_note_found = True
+            break
+    assert (
+        kubectl_note_found
+    ), "Kubectl command note not displayed when show_kubectl=True"
+
+    # Reset mocks for next test
+    mock_console_manager.reset_mock()
+    mock_llm.execute.side_effect = ["get pods", "Test summary"]
+
+    # Test with show_kubectl=False for a non-confirmation command
+    hide_kubectl_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=True,
+        model_name="test-model",
+        show_kubectl=False,
+    )
+
+    # Call function with show_kubectl=False for a non-dangerous command
+    handle_vibe_request(
+        request="show me the pods",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=get_test_summary_prompt,
+        output_flags=hide_kubectl_flags,
+    )
+
+    # Verify print_note was NOT called with the kubectl command
+    kubectl_note_found = False
+    for call in mock_console_manager.print_note.call_args_list:
+        if isinstance(call[0][0], str) and "Planning to run: kubectl" in call[0][0]:
+            kubectl_note_found = True
+            break
+    assert (
+        not kubectl_note_found
+    ), "Kubectl command note was displayed when show_kubectl=False"

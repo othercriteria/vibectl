@@ -5,7 +5,6 @@ of kubeconfig flags to avoid regressions where kubeconfig flags appear in the wr
 position in the final command.
 """
 
-import subprocess
 from collections.abc import Generator
 from unittest.mock import MagicMock, Mock, patch
 
@@ -58,7 +57,7 @@ def test_handle_vibe_request_kubeconfig_handling(
     mock_handle_output: Mock,
 ) -> None:
     """Test that handle_vibe_request properly handles kubeconfig flags.
-    
+
     This test verifies that:
     1. The kubeconfig flag is not part of the command passed to run_kubectl
     2. run_kubectl gets a properly filtered command without kubeconfig flags
@@ -73,7 +72,7 @@ def test_handle_vibe_request_kubeconfig_handling(
 
     # Call handle_vibe_request with a request that might trigger the kubeconfig issue
     handle_vibe_request(
-        request="pods that are finished", 
+        request="pods that are finished",
         command="get",
         plan_prompt="Plan how to {command} {request}",
         summary_prompt_func=lambda: "Summarize {output}",
@@ -83,12 +82,12 @@ def test_handle_vibe_request_kubeconfig_handling(
     # Verify run_kubectl was called with the correct arguments
     mock_run_kubectl.assert_called_once()
     args = mock_run_kubectl.call_args[0][0]
-    
+
     # Check that no kubeconfig flags are in the command passed to run_kubectl
     assert "--kubeconfig" not in args
     assert not any(arg.startswith("--kubeconfig=") for arg in args)
-    
-    # Verify the command is properly structured with command verb first, followed by resource type
+
+    # Verify the command is structured with command verb first, followed by resource
     assert args[0] == "get"
     assert args[1] == "pods"
     assert "--field-selector=status.phase=Succeeded" in args
@@ -101,62 +100,10 @@ def test_handle_vibe_request_with_kubeconfig_in_model_response(
     mock_handle_output: Mock,
 ) -> None:
     """Test that handle_vibe_request filters out kubeconfig flags from model response.
-    
-    This test simulates the model explicitly including --kubeconfig flags in its response
+
+    This test simulates the model including --kubeconfig flags in its response
     and verifies they are properly filtered out.
     """
-    # Create a mock model adapter that includes kubeconfig in the response
-    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter:
-        mock_model = Mock()
-        mock_adapter.return_value.get_model.return_value = mock_model
-        # Simulate a model response that incorrectly includes kubeconfig flags
-        mock_adapter.return_value.execute.return_value = (
-            "pods --kubeconfig /path/to/config --field-selector=status.phase=Succeeded"
-        )
-        
-        # Mock run_kubectl to check the final command
-        with patch("vibectl.command_handler.run_kubectl") as mock_run:
-            mock_run.return_value = (
-                "NAME   READY   STATUS      RESTARTS   AGE\n"
-                "pod-1   1/1     Succeeded   0          1h"
-            )
-            
-            # Create output flags
-            output_flags = OutputFlags(
-                show_raw=True,
-                show_vibe=True,
-                warn_no_output=False,
-                model_name="claude-3-sonnet",
-            )
-            
-            # Call handle_vibe_request
-            handle_vibe_request(
-                request="pods that are finished with kubeconfig flag", 
-                command="get",
-                plan_prompt="Plan how to {command} {request}",
-                summary_prompt_func=lambda: "Summarize {output}",
-                output_flags=output_flags,
-            )
-            
-            # Verify run_kubectl was called with the correct arguments
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            
-            # Check that no kubeconfig flags are in the command passed to run_kubectl
-            assert "--kubeconfig" not in args
-            assert not any(arg.startswith("--kubeconfig=") for arg in args)
-            
-            # Verify the command is properly structured
-            assert args[0] == "get"
-            assert args[1] == "pods"
-            assert "--field-selector=status.phase=Succeeded" in args
-
-
-def test_handle_vibe_request_with_kubectl_and_kubeconfig(
-    mock_console: Mock,
-    mock_handle_output: Mock,
-) -> None:
-    """Test handle_vibe_request with 'kubectl' prefix and kubeconfig in model response."""
     # Create a mock model adapter with kubectl and kubeconfig in the response
     with patch("vibectl.command_handler.get_model_adapter") as mock_adapter:
         mock_model = Mock()
@@ -166,14 +113,14 @@ def test_handle_vibe_request_with_kubectl_and_kubeconfig(
             "kubectl --kubeconfig=/path/to/config pods "
             "--field-selector=status.phase=Succeeded"
         )
-        
+
         # Mock run_kubectl to check the final command
         with patch("vibectl.command_handler.run_kubectl") as mock_run:
             mock_run.return_value = (
                 "NAME   READY   STATUS      RESTARTS   AGE\n"
                 "pod-1   1/1     Succeeded   0          1h"
             )
-            
+
             # Create output flags
             output_flags = OutputFlags(
                 show_raw=True,
@@ -181,25 +128,80 @@ def test_handle_vibe_request_with_kubectl_and_kubeconfig(
                 warn_no_output=False,
                 model_name="claude-3-sonnet",
             )
-            
+
             # Call handle_vibe_request
             handle_vibe_request(
-                request="pods that are finished with kubectl and kubeconfig", 
+                request="pods that are finished with kubectl and kubeconfig",
                 command="get",
                 plan_prompt="Plan how to {command} {request}",
                 summary_prompt_func=lambda: "Summarize {output}",
                 output_flags=output_flags,
             )
-            
+
             # Verify run_kubectl was called with the correct arguments
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            
+
             # Check that 'kubectl' and no kubeconfig flags are in the command
             assert "kubectl" not in args  # Should be removed
             assert "--kubeconfig=/path/to/config" not in args
             assert not any(arg.startswith("--kubeconfig") for arg in args)
-            
+
+            # Verify the command is properly structured with command verb first
+            assert args[0] == "get"
+            assert "pods" in args
+            assert "--field-selector=status.phase=Succeeded" in args
+
+
+def test_handle_vibe_request_with_kubectl_prefix(
+    mock_llm: MagicMock,
+    mock_run_kubectl: Mock,
+    mock_handle_output: Mock,
+) -> None:
+    """Test handle_vibe_request with kubectl prefix in model response."""
+    # Create a mock model adapter with kubectl and kubeconfig in the response
+    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter:
+        mock_model = Mock()
+        mock_adapter.return_value.get_model.return_value = mock_model
+        # Simulate a model response that includes kubectl and kubeconfig flags
+        mock_adapter.return_value.execute.return_value = (
+            "kubectl --kubeconfig=/path/to/config pods "
+            "--field-selector=status.phase=Succeeded"
+        )
+
+        # Mock run_kubectl to check the final command
+        with patch("vibectl.command_handler.run_kubectl") as mock_run:
+            mock_run.return_value = (
+                "NAME   READY   STATUS      RESTARTS   AGE\n"
+                "pod-1   1/1     Succeeded   0          1h"
+            )
+
+            # Create output flags
+            output_flags = OutputFlags(
+                show_raw=True,
+                show_vibe=True,
+                warn_no_output=False,
+                model_name="claude-3-sonnet",
+            )
+
+            # Call handle_vibe_request
+            handle_vibe_request(
+                request="pods that are finished with kubectl and kubeconfig",
+                command="get",
+                plan_prompt="Plan how to {command} {request}",
+                summary_prompt_func=lambda: "Summarize {output}",
+                output_flags=output_flags,
+            )
+
+            # Verify run_kubectl was called with the correct arguments
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+
+            # Check that 'kubectl' and no kubeconfig flags are in the command
+            assert "kubectl" not in args  # Should be removed
+            assert "--kubeconfig=/path/to/config" not in args
+            assert not any(arg.startswith("--kubeconfig") for arg in args)
+
             # Verify the command is properly structured with command verb first
             assert args[0] == "get"
             assert "pods" in args

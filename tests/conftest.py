@@ -322,6 +322,7 @@ def standard_output_flags() -> "OutputFlags":
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-sonnet",
+        show_kubectl=False,
     )
 
 
@@ -337,6 +338,7 @@ def mock_output_flags_for_vibe_request() -> "OutputFlags":
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-sonnet",
+        show_kubectl=False,
     )
 
 

@@ -107,7 +107,7 @@ def test_vibe_delete_with_confirmation(
     assert mock_memory_update.call_count == 1
     mem_args, mem_kwargs = mock_memory_update.call_args
     # Command should be passed through with verb
-    assert mem_args[0] == "delete pod my-pod"  
+    assert mem_args[0] == "delete pod my-pod"
     # Model name should be passed through
     assert standard_output_flags.model_name in mem_args
 
