@@ -14,7 +14,13 @@ from vibectl.command_handler import (
 # The test_config and mock_subprocess fixtures are now provided by conftest.py
 
 
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.OutputProcessor")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_standard_command_basic(
+    mock_update_memory: MagicMock,
+    mock_output_processor: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
     mock_console: Mock,
@@ -22,14 +28,28 @@ def test_handle_standard_command_basic(
     test_config: Any,
     standard_output_flags: OutputFlags,
 ) -> None:
-    """Test basic command handling."""
+    """Test basic command handling.
+
+    This test ensures that all LLM calls are properly mocked to prevent
+    actual API calls which would cause slow tests.
+    """
     # Set test kubeconfig
     test_config.set("kubeconfig", "/test/kubeconfig")
 
     # Configure mock to return success
     mock_subprocess.return_value.stdout = "test output"
 
+    # Setup output processor
+    processor_instance = Mock()
+    processor_instance.process_auto.return_value = ("processed output", False)
+    mock_output_processor.return_value = processor_instance
+
+    # Ensure the get_model_adapter returns our mock_llm
+    mock_get_adapter.return_value = mock_llm
+
     # Set up model adapter response for summary
+    mock_model = Mock()
+    mock_llm.get_model.return_value = mock_model
     mock_llm.execute.return_value = "Summarized output"
 
     # Run command
@@ -63,7 +83,15 @@ def mock_summary_prompt() -> Callable[[], str]:
     return lambda: "Test Prompt: {output}"
 
 
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.include_memory_in_prompt")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.OutputProcessor")
 def test_handle_standard_command(
+    mock_output_processor: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_include_memory: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
     mock_console: Mock,
@@ -72,7 +100,26 @@ def test_handle_standard_command(
     test_config: Any,
     standard_output_flags: OutputFlags,
 ) -> None:
-    """Test standard command handling."""
+    """Test standard command handling.
+
+    This test ensures that all LLM calls are properly mocked to prevent
+    actual API calls which would cause slow tests.
+    """
+    # Setup output processor
+    processor_instance = Mock()
+    processor_instance.process_auto.return_value = ("processed output", False)
+    mock_output_processor.return_value = processor_instance
+
+    # Ensure the get_model_adapter returns our mock_llm
+    mock_get_adapter.return_value = mock_llm
+
+    # Setup model
+    mock_model = Mock()
+    mock_llm.get_model.return_value = mock_model
+
+    # Ensure memory functions are properly mocked
+    mock_include_memory.side_effect = lambda x: x()
+
     # Ensure no kubeconfig is set
     test_config.set("kubeconfig", None)
 
