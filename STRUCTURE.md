@@ -150,14 +150,19 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Simplified access via module-level functions
    - Consistent error handling
    - Model key management and validation
+   - Provider detection from model name prefixes
+   - Context manager for environment variable handling
 2. `command_handler.py` - Uses model adapter for command execution
    - Processes command output with model summaries
    - Handles vibe requests with model planning
+   - Provides consistent error handling for LLM interactions
 3. `memory.py` - Uses model adapter for memory updates
    - Updates memory context based on command execution
+   - Uses model adapter instead of direct LLM calls
 4. `prompt.py` - Defines prompt templates used by model adapters
    - Command-specific prompt templates
    - Formatting instructions
+   - Consistent prompt structure for all LLM interactions
 
 ## Development Workflow
 

@@ -205,8 +205,9 @@ vibectl config set model ollama:llama3      # Local Ollama
 vibectl config set model_keys.anthropic your-api-key
 vibectl config set model_key_files.openai /path/to/key-file
 
-# Always show raw kubectl output
-vibectl config set show_raw_output true
+# Control output display
+vibectl config set show_raw_output true    # Always show raw kubectl output
+vibectl config set show_kubectl true       # Show kubectl commands being executed
 
 # Set visual theme
 vibectl theme set dark
