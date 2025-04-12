@@ -48,11 +48,10 @@ class TestModelKeyConfig:
 
     def test_get_model_key_from_config(self) -> None:
         """Test getting a model key from configuration."""
-        with TemporaryDirectory() as temp_dir:
-            config = MockConfig()
-            config.set_model_key("openai", "test-openai-key-from-config")
-            key = config.get_model_key("openai")
-            assert key == "test-openai-key-from-config"
+        config = MockConfig()
+        config.set_model_key("openai", "test-openai-key-from-config")
+        key = config.get_model_key("openai")
+        assert key == "test-openai-key-from-config"
 
     def test_get_model_key_from_config_file(self) -> None:
         """Test getting a model key from configuration key file."""
@@ -115,7 +114,8 @@ class TestModelKeyConfig:
                         key = config.get_model_key("anthropic")
                         assert key == "test-key-from-env"
 
-                    # Remove VIBECTL_ANTHROPIC_API_KEY, VIBECTL_ANTHROPIC_API_KEY_FILE should win
+                    # Remove VIBECTL_ANTHROPIC_API_KEY
+                    # VIBECTL_ANTHROPIC_API_KEY_FILE should win
                     with patch.dict(
                         os.environ,
                         {
@@ -437,7 +437,8 @@ class TestModelKeyValidation:
         )
         adapter = LLMModelAdapter(config)
 
-        # Now the key doesn't start with sk- AND is long (>20 chars), so warning should be given
+        # Now the key doesn't start with sk- AND is long (>20 chars)
+        # So warning should be given
         warning = adapter.validate_model_key("claude-3.7-sonnet")
         assert warning is not None
         assert "format looks invalid" in warning

@@ -45,7 +45,8 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
 
     # Create a more realistic model adapter mock
     class MockLLMAdapter(ModelAdapter):
-        """Mock adapter that simulates environment variable handling like the real adapter."""
+        """Mock adapter that simulates environment variable handling
+        like the real adapter."""
 
         def get_model(self, model_name: str) -> Mock:
             """Get a model with environment setup."""
@@ -94,7 +95,8 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             command="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
-            model_name="claude-3.7-sonnet",  # Claude model should use Anthropic key
+            # Claude model should use Anthropic key
+            model_name="claude-3.7-sonnet",
             config=test_config,
         )
 
@@ -115,7 +117,8 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
 
     # Create a more realistic model adapter mock
     class MockLLMAdapter(ModelAdapter):
-        """Mock adapter that simulates environment variable handling like the real adapter."""
+        """Mock adapter that simulates environment variable handling
+        like the real adapter."""
 
         def get_model(self, model_name: str) -> Mock:
             """Get a model with environment setup."""

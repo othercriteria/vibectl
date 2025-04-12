@@ -417,7 +417,8 @@ class Config:
         if provider not in ENV_KEY_MAPPINGS:
             valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
             raise ValueError(
-                f"Invalid model provider: {provider}. Valid providers are: {valid_providers}"
+                f"Invalid model provider: {provider}. "
+                f"Valid providers are: {valid_providers}"
             )
 
         # Initialize the model_keys dict if it doesn't exist
@@ -441,7 +442,8 @@ class Config:
         if provider not in ENV_KEY_MAPPINGS:
             valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
             raise ValueError(
-                f"Invalid model provider: {provider}. Valid providers are: {valid_providers}"
+                f"Invalid model provider: {provider}. "
+                f"Valid providers are: {valid_providers}"
             )
 
         # Verify the file exists

@@ -55,7 +55,10 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     """Test basic memory update functionality with mocked model adapter."""
     # Test data
     command = "kubectl get pods"
-    command_output = "NAME    READY   STATUS    RESTARTS   AGE\nnginx-1   1/1     Running   0          10m"
+    command_output = (
+        "NAME    READY   STATUS    RESTARTS   AGE\n"
+        "nginx-1   1/1     Running   0          10m"
+    )
     vibe_output = "1 pod running: nginx-1"
 
     # Call update_memory
