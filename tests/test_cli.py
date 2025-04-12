@@ -889,13 +889,13 @@ def test_instructions_show_get_error(
     """Test instructions show command error handling when getting instructions."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    
+
     # Set side effects for multiple calls
     # Theme, model (no error), but error on custom_instructions
     mock_config.get.side_effect = [
         "dark",  # theme
         "claude-3.7-sonnet",  # model
-        Exception("Failed to get instructions")  # custom_instructions
+        Exception("Failed to get instructions"),  # custom_instructions
     ]
 
     # Need to also patch validate_model_key_on_startup to avoid warnings
