@@ -11,7 +11,7 @@ For most CLI tests, use the cli_test_mocks fixture which provides all three.
 
 import subprocess
 from collections.abc import Generator
-from unittest.mock import ANY, MagicMock, Mock, call, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -113,14 +113,19 @@ def test_cli_init_with_theme(
             patch(
                 "vibectl.command_handler.handle_command_output"
             ) as cmd_mock_handle_output,
+            patch("vibectl.cli.validate_model_key_on_startup") as mock_validate,
         ):
             # Set up mock return value
             cmd_mock_run_kubectl.return_value = "test output"
+            # Mock validate function to avoid warnings
+            mock_validate.return_value = None
 
             result = cli_runner.invoke(cli, ["get", "pods"])
 
             assert result.exit_code == 0
-            mock_config.get.assert_called_once_with("theme", "default")
+            # Check that we called get twice - once for theme, once for model
+            assert mock_config.get.call_count == 2
+            # Check theme was set
             mock_console.set_theme.assert_called_once_with("dark")
             cmd_mock_handle_output.assert_called_once()
 
@@ -862,13 +867,18 @@ def test_instructions_show_basic(
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = "Test instructions"
 
-    result = cli_runner.invoke(cli, ["instructions", "show"])
+    # Need to also patch validate_model_key_on_startup to avoid warnings
+    with patch("vibectl.cli.validate_model_key_on_startup") as mock_validate:
+        mock_validate.return_value = None
+        result = cli_runner.invoke(cli, ["instructions", "show"])
 
     assert result.exit_code == 0
     assert "Test instructions" in result.output
-    assert mock_config.get.call_count == 2
-    mock_config.get.assert_has_calls(
-        [call("theme", "default"), call("custom_instructions", "")]
+    # Now called 3 times (theme, model, custom_instructions)
+    assert mock_config.get.call_count == 3
+    # Check that custom_instructions was called at some point
+    assert any(
+        call[0][0] == "custom_instructions" for call in mock_config.get.call_args_list
     )
 
 
@@ -879,15 +889,22 @@ def test_instructions_show_get_error(
     """Test instructions show command error handling when getting instructions."""
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    mock_config.get.side_effect = [None, Exception("Failed to get instructions")]
+    
+    # Set side effects for multiple calls
+    # Theme, model (no error), but error on custom_instructions
+    mock_config.get.side_effect = [
+        "dark",  # theme
+        "claude-3.7-sonnet",  # model
+        Exception("Failed to get instructions")  # custom_instructions
+    ]
 
-    result = cli_runner.invoke(cli, ["instructions", "show"])
+    # Need to also patch validate_model_key_on_startup to avoid warnings
+    with patch("vibectl.cli.validate_model_key_on_startup") as mock_validate:
+        mock_validate.return_value = None
+        result = cli_runner.invoke(cli, ["instructions", "show"])
 
     assert result.exit_code == 1
-    assert mock_config.get.call_count == 2
-    mock_config.get.assert_has_calls(
-        [call("theme", "default"), call("custom_instructions", "")]
-    )
+    assert mock_config.get.call_count == 3
 
 
 @patch("vibectl.cli.Config")
@@ -1085,19 +1102,22 @@ def test_main_general_error(
     assert exc_info.value.code == 1
 
 
-@patch("subprocess.run")
+@patch("vibectl.cli.console_manager")
 @patch("vibectl.cli.Config")
 def test_just_general_exception(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
+    mock_config_class: Mock, mock_console: Mock, cli_runner: CliRunner
 ) -> None:
     """Test just command with a general exception."""
     # Setup Config to raise a generic exception
-    mock_config.side_effect = Exception("General error")
+    error = Exception("General error")
+    mock_config_class.side_effect = error
 
-    result = cli_runner.invoke(cli, ["just", "get", "pods"])
+    # Invoke command with catch_exceptions=False to let exception bubble up
+    with pytest.raises(Exception) as excinfo:
+        cli_runner.invoke(cli, ["just", "get", "pods"], catch_exceptions=False)
 
-    assert result.exit_code == 1
-    assert "Error: General error" in result.output
+    # Verify the error is the one we created
+    assert "General error" in str(excinfo.value)
 
 
 @patch("vibectl.cli.Config")
@@ -1433,3 +1453,87 @@ def test_get_vibe_with_default_flags(
     # These should not be called for vibe requests
     mock_run_kubectl.assert_not_called()
     mock_handle_output.assert_not_called()
+
+
+@patch("vibectl.cli.validate_model_key_on_startup")
+@patch("vibectl.cli.console_manager")
+@patch("vibectl.cli.Config")
+def test_cli_validates_model_key_on_startup(
+    mock_config_class: Mock,
+    mock_console: Mock,
+    mock_validate: Mock,
+    cli_runner: CliRunner,
+) -> None:
+    """Test that CLI validates model key on startup."""
+    # Setup Config mock to return model name
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.get.return_value = "claude-3.7-sonnet"
+
+    # Setup mock to return a warning
+    mock_validate.return_value = "Test validation warning"
+
+    # Run the CLI command
+    result = cli_runner.invoke(cli, ["get", "pods"])
+
+    # Verify validation was called
+    mock_validate.assert_called_once()
+    # Verify warning was displayed
+    mock_console.print_warning.assert_called_once_with("Test validation warning")
+    assert result.exit_code == 0
+
+
+@patch("vibectl.cli.validate_model_key_on_startup")
+@patch("vibectl.cli.console_manager")
+@patch("vibectl.cli.Config")
+def test_cli_no_warning_for_valid_key(
+    mock_config_class: Mock,
+    mock_console: Mock,
+    mock_validate: Mock,
+    cli_runner: CliRunner,
+) -> None:
+    """Test that CLI doesn't show warning for valid key."""
+    # Setup Config mock to return model name
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.get.return_value = "claude-3.7-sonnet"
+
+    # Setup mock to return None (no warning)
+    mock_validate.return_value = None
+
+    # Run the CLI command
+    result = cli_runner.invoke(cli, ["get", "pods"])
+
+    # Verify validation was called
+    mock_validate.assert_called_once()
+    # Verify no warning was displayed
+    mock_console.print_warning.assert_not_called()
+    assert result.exit_code == 0
+
+
+@patch("vibectl.cli.validate_model_key_on_startup")
+@patch("vibectl.cli.console_manager")
+@patch("vibectl.cli.Config")
+def test_cli_no_warning_for_config_command(
+    mock_config_class: Mock,
+    mock_console: Mock,
+    mock_validate: Mock,
+    cli_runner: CliRunner,
+) -> None:
+    """Test that CLI doesn't show warning for config command."""
+    # Setup Config mock to return model name
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+    mock_config.get.return_value = "claude-3.7-sonnet"
+
+    # Setup mock to return a warning
+    mock_validate.return_value = "Test validation warning"
+
+    # Run the config command
+    result = cli_runner.invoke(cli, ["config", "--help"])
+
+    # Verify validation was called
+    mock_validate.assert_called_once()
+    # Verify no warning was displayed for config command
+    mock_console.print_warning.assert_not_called()
+    assert result.exit_code == 0

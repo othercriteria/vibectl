@@ -28,6 +28,7 @@ from .command_handler import (
 from .config import Config
 from .console import console_manager
 from .memory import clear_memory, disable_memory, enable_memory, get_memory, set_memory
+from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
@@ -81,6 +82,13 @@ def cli(ctx: click.Context) -> None:
     except Exception:
         # Fallback to default in case of any issues (helpful for tests)
         pass
+
+    # Validate model configuration on startup - outside try/except for testing
+    cfg = Config()  # Get a fresh config instance
+    model_name = cfg.get("model", DEFAULT_MODEL)
+    validation_warning = validate_model_key_on_startup(model_name)
+    if validation_warning and ctx.invoked_subcommand not in ["config", "help"]:
+        console_manager.print_warning(validation_warning)
 
     # Show welcome message if no subcommand is invoked
     if ctx.invoked_subcommand is None:

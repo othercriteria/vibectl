@@ -24,6 +24,10 @@ This document provides an overview of the project's structure and organization.
 ### Type Information (`typings/`)
 - Custom type definitions and type stubs
 
+### Documentation (`docs/`)
+- `MODEL_KEYS.md` - Comprehensive guide for model API key management
+- Additional documentation files
+
 ### Configuration
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
@@ -52,6 +56,7 @@ This document provides an overview of the project's structure and organization.
 - `STRUCTURE.md` - This file, documenting project organization
 - `LICENSE` - Project license information
 - `RULES.md` - Documentation of Cursor rules system
+- `docs/MODEL_KEYS.md` - Guide for configuring model API keys
 
 ## Architecture
 
@@ -103,6 +108,26 @@ This document provides an overview of the project's structure and organization.
    - Memory-related flags in all main commands
    - Configuration for memory behavior
 
+### Model Key Management System
+1. `model_adapter.py` - Manages model API keys and validation
+   - `ModelEnvironment` context manager for safely handling model environment variables
+   - Key format validation on startup with helpful warnings
+   - Model provider detection based on model name prefix
+   - Environment variable management for multiple providers (OpenAI, Anthropic, Ollama)
+2. `config.py` - Stores and retrieves model keys with precedence:
+   - Environment variables (e.g., `VIBECTL_ANTHROPIC_API_KEY`)
+   - Environment variable key files (e.g., `VIBECTL_ANTHROPIC_API_KEY_FILE`)
+   - Configuration file keys (via `vibectl config set model_keys.anthropic`)
+   - Configuration file key paths (via `vibectl config set model_key_files.anthropic`)
+   - Legacy environment variables (e.g., `ANTHROPIC_API_KEY`)
+3. `cli.py` - Key validation at application startup
+   - Validates model keys when commands are executed
+   - Displays warnings for missing or suspicious keys
+   - Skips validation for `config` and `help` commands
+   - Provides detailed instructions for resolving key issues
+
+Detailed documentation about model key configuration can be found in [Model API Key Management](docs/MODEL_KEYS.md).
+
 ### Type Safety
 - Extensive type annotations throughout codebase
 - Generic type parameters and TypeVar for flexible interfaces
@@ -112,6 +137,7 @@ This document provides an overview of the project's structure and organization.
 - Type-safe configuration with validation
 - Theme configuration and custom prompt instructions
 - Memory settings management
+- Model key management and validation
 
 ### Model Interaction System
 1. `model_adapter.py` - Abstraction for LLM model interactions
@@ -120,6 +146,7 @@ This document provides an overview of the project's structure and organization.
    - Model instance caching for performance
    - Simplified access via module-level functions
    - Consistent error handling
+   - Model key management and validation
 2. `command_handler.py` - Uses model adapter for command execution
    - Processes command output with model summaries
    - Handles vibe requests with model planning
@@ -149,6 +176,7 @@ The project is structured as a Python package with:
 - Development tools configured in project root
 - Tests separated in `tests/` directory
 - Type information in `typings/`
+- Documentation in `docs/` directory
 
 Installation options:
 1. Standard pip installation for users (`pip install vibectl`)
