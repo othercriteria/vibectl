@@ -1,0 +1,138 @@
+---
+description: Rules for maintaining a comprehensive changelog
+globs: ["CHANGELOG.md", "bump_version.py", "pyproject.toml"]
+alwaysApply: true
+---
+# Changelog Management
+
+Maintain a clear, consistent changelog for tracking and communicating changes.
+
+<rule>
+name: changelog_management
+description: Rules for maintaining CHANGELOG.md and its integration with version bumping
+filters:
+  # Match changelog file
+  - type: file
+    pattern: "CHANGELOG\\.md$"
+  # Match version bump script
+  - type: file
+    pattern: "bump_version\\.py$"
+  # Match version-related commands
+  - type: content
+    pattern: "(?i)\\b(version|bump|release|changelog)\\b"
+  # Match commit messages
+  - type: content
+    pattern: "(?i)\\b(commit|feat|fix|chore|docs|refactor|test|style|perf|ci|build)(?:[:(]|\\b)"
+
+actions:
+  - type: suggest
+    message: |
+      ## Changelog Management
+
+      Follow these guidelines for maintaining CHANGELOG.md:
+
+      1. **Structure**: Keep CHANGELOG.md organized with:
+         - "Unreleased" section at the top
+         - Versions in reverse-chronological order
+         - Changes grouped by type (Added, Changed, Fixed, etc.)
+
+      2. **Integration with version bumping**:
+         - After running `bump-version`, update CHANGELOG.md
+         - Move changes from "Unreleased" to a new version section
+         - Include the version number and release date
+
+      3. **Workflow**:
+         - For each PR merged to main, add a bullet point to "Unreleased"
+         - Before releasing, review and organize "Unreleased" changes
+         - When releasing, move "Unreleased" to new version section
+         - Keep entries concise and user-focused
+
+      4. **Change types**:
+         - Added: New features
+         - Changed: Changes in existing functionality
+         - Deprecated: Soon-to-be removed features
+         - Removed: Now removed features
+         - Fixed: Bug fixes
+         - Security: Security fixes
+
+  - type: reject
+    conditions:
+      # Ensure version bump includes CHANGELOG update
+      - pattern: "bump-version|bump_version\\.py"
+        message: |
+          Remember to update CHANGELOG.md after bumping the version.
+          Move "Unreleased" changes to a new version section with the bumped version number and today's date.
+
+      # Reject commits without changelog updates for user-facing changes
+      - pattern: "(?i)\\b(feat|fix)(?:[:(]|\\b)"
+        message: |
+          Feature or fix changes should be documented in CHANGELOG.md.
+          Add a bullet point to the "Unreleased" section.
+
+criteria:
+  required:
+    - CHANGELOG.md exists in project root
+    - "Unreleased" section at the top
+    - Versions in descending order (newest first)
+    - Changes grouped by type
+    - Each version has a release date
+    - Changes focus on user impact, not implementation details
+    - Each PR to main updates CHANGELOG.md as needed
+    - Integration with version bumping process
+
+examples:
+  - input: "How should I update the changelog after merging a PR?"
+    output: |
+      Update CHANGELOG.md as follows:
+
+      1. Add a bullet point to the "Unreleased" section:
+      ```markdown
+      ## [Unreleased]
+
+      ### Added
+      - New feature description
+
+      ### Fixed
+      - Bug fix description
+      ```
+
+      2. Group by appropriate change type (Added, Changed, Fixed, etc.)
+      3. Focus on user impact, not implementation details
+      4. Commit with a message like "docs: update changelog for PR #123"
+
+  - input: "What's the process for preparing a release?"
+    output: |
+      To prepare for a release:
+
+      1. Ensure all PRs merged to main are reflected in the "Unreleased" section
+      2. Organize "Unreleased" changes by type (Added, Changed, Fixed, etc.)
+      3. Run version bump:
+         ```zsh
+         bump-version patch  # or minor/major as appropriate
+         ```
+      4. Update CHANGELOG.md:
+         ```markdown
+         ## [0.2.3] - YYYY-MM-DD
+
+         ### Added
+         - Feature 1
+         - Feature 2
+
+         ### Fixed
+         - Bug 1
+         - Bug 2
+         ```
+      5. Add a fresh "Unreleased" section at the top
+      6. Commit the changelog update:
+         ```zsh
+         git commit -am "docs: update changelog for version 0.2.3"
+         ```
+      7. Proceed with release process:
+         ```zsh
+         make pypi-release  # or pypi-dist all
+         ```
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

@@ -1,0 +1,46 @@
+name: Changelog Check
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '.github/**'
+      - '*.md'
+      - '!CHANGELOG.md'
+
+jobs:
+  check-changelog:
+    runs-on: ubuntu-latest
+    # Skip changelog check if PR has 'no-changelog' label
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for comparing changes
+
+    - name: Check if CHANGELOG.md needs updating
+      run: |
+        # Check if code has changed but CHANGELOG.md hasn't
+        CODE_CHANGED=$(git diff --name-only origin/main...HEAD | grep -v "CHANGELOG.md" | grep -E '\.py$|\.yml$|\.yaml$|\.toml$|\.js$|\.ts$|\.tsx$|\.jsx$|\.css$|\.html$' || echo "")
+        CHANGELOG_UPDATED=$(git diff --name-only origin/main...HEAD | grep "CHANGELOG.md" || echo "")
+
+        if [[ -n "$CODE_CHANGED" && -z "$CHANGELOG_UPDATED" ]]; then
+          echo "::warning::Code changes detected but CHANGELOG.md has not been updated."
+          echo "Please add an entry to the [Unreleased] section in CHANGELOG.md."
+          echo "If these changes don't require a changelog entry, add the 'no-changelog' label to this PR."
+
+          # Check if PR title starts with common prefixes that might indicate changelog-worthy changes
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if [[ "$PR_TITLE" =~ ^(feat|fix|perf|breaking): ]]; then
+            echo "::error::This PR title suggests user-facing changes that should be documented in CHANGELOG.md."
+            echo "Prefixes like 'feat:', 'fix:', 'perf:', and 'breaking:' typically indicate changelog-worthy changes."
+            exit 1
+          else
+            # Warning only for other changes
+            echo "::warning::Consider whether these changes should be documented in CHANGELOG.md."
+          fi
+        else
+          echo "Either no code changes were detected or CHANGELOG.md has been updated."
+        fi

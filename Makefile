@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major
+.PHONY: help format lint typecheck test test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -76,21 +76,32 @@ clean:  ## Clean up python cache files and build artifacts
 
 ##@ Version Management
 
-bump-patch:  ## Bump patch version (0.0.x)
+update-changelog:  ## Update CHANGELOG.md for a new release
+	@echo "Please prepare CHANGELOG.md for release by:"
+	@echo "  1. Moving 'Unreleased' changes to a new version section with today's date (YYYY-MM-DD)"
+	@echo "  2. Organizing changes by type (Added, Changed, Fixed, etc.)"
+	@echo "  3. Adding a fresh 'Unreleased' section at the top"
+	@read -p "Have you updated the CHANGELOG.md file? (y/n) " answer; \
+	if [ "$$answer" != "y" ]; then \
+		echo "Please update CHANGELOG.md before continuing"; \
+		exit 1; \
+	fi
+
+bump-patch: update-changelog  ## Bump patch version (0.0.x)
 	@if command -v bump-version >/dev/null 2>&1; then \
 		bump-version patch; \
 	else \
 		python ./bump_version.py patch; \
 	fi
 
-bump-minor:  ## Bump minor version (0.x.0)
+bump-minor: update-changelog  ## Bump minor version (0.x.0)
 	@if command -v bump-version >/dev/null 2>&1; then \
 		bump-version minor; \
 	else \
 		python ./bump_version.py minor; \
 	fi
 
-bump-major:  ## Bump major version (x.0.0)
+bump-major: update-changelog  ## Bump major version (x.0.0)
 	@if command -v bump-version >/dev/null 2>&1; then \
 		bump-version major; \
 	else \

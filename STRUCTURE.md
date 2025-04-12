@@ -57,6 +57,9 @@ This document provides an overview of the project's structure and organization.
 - `LICENSE` - Project license information
 - `RULES.md` - Documentation of Cursor rules system
 - `docs/MODEL_KEYS.md` - Guide for configuring model API keys
+- `CHANGELOG.md` - Documentation of notable changes for each version
+- `DISTRIBUTION.md` - Guide for publishing to PyPI
+- `bump_version.py` - Script for semantic version management
 
 ## Architecture
 
