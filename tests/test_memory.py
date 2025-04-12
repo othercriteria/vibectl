@@ -1,6 +1,7 @@
-"""Tests for the memory module.
+"""Tests for memory management functionality.
 
-This module tests the memory management functionality of vibectl.
+The memory.py module provides functions to manage the memory feature,
+allowing vibectl to maintain context across commands.
 """
 
 from pathlib import Path
@@ -22,7 +23,7 @@ from vibectl.memory import (
 @patch("vibectl.memory.Config")
 def test_get_memory(mock_config_class: Mock) -> None:
     """Test retrieving memory from config."""
-    # Setup
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = "Test memory content"
@@ -54,7 +55,7 @@ def test_get_memory_with_config(mock_config_class: Mock) -> None:
 @patch("vibectl.memory.Config")
 def test_is_memory_enabled(mock_config_class: Mock) -> None:
     """Test checking if memory is enabled."""
-    # Setup
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
     mock_config.get.return_value = True
@@ -85,19 +86,18 @@ def test_is_memory_enabled_with_config(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.Config")
 def test_set_memory(mock_config_class: Mock) -> None:
-    """Test setting memory content."""
-    # Setup
+    """Test setting memory in config."""
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
-    mock_config.get.return_value = 500  # max_chars is big enough for the test string
-    memory_text = "Test memory content"
+    # Return an integer for memory_max_chars to avoid type error
+    mock_config.get.return_value = 500
 
     # Execute
-    set_memory(memory_text)
+    set_memory("New memory content")
 
     # Assert
-    mock_config.get.assert_called_once_with("memory_max_chars", 500)
-    mock_config.set.assert_called_once_with("memory", memory_text)
+    mock_config.set.assert_called_once_with("memory", "New memory content")
     mock_config.save.assert_called_once()
 
 
@@ -120,8 +120,8 @@ def test_set_memory_truncation(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.Config")
 def test_enable_memory(mock_config_class: Mock) -> None:
-    """Test enabling memory updates."""
-    # Setup
+    """Test enabling memory in config."""
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
 
@@ -135,8 +135,8 @@ def test_enable_memory(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.Config")
 def test_disable_memory(mock_config_class: Mock) -> None:
-    """Test disabling memory updates."""
-    # Setup
+    """Test disabling memory in config."""
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
 
@@ -151,7 +151,7 @@ def test_disable_memory(mock_config_class: Mock) -> None:
 @patch("vibectl.memory.Config")
 def test_clear_memory(mock_config_class: Mock) -> None:
     """Test clearing memory content."""
-    # Setup
+    # Setup mock
     mock_config = Mock()
     mock_config_class.return_value = mock_config
 
@@ -163,26 +163,32 @@ def test_clear_memory(mock_config_class: Mock) -> None:
     mock_config.save.assert_called_once()
 
 
-@patch("vibectl.prompt.memory_update_prompt")
-@patch("llm.get_model")
-def test_update_memory(mock_llm_get_model: Mock, mock_update_prompt: Mock) -> None:
+@patch("vibectl.memory.memory_update_prompt")
+@patch("vibectl.memory.get_model_adapter")
+def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
     """Test memory update with command and response."""
     # Setup mocks
     mock_config = Mock()
     mock_config.get.return_value = True  # for is_memory_enabled check
 
+    # Mock adapter and its model reference
+    mock_adapter = Mock()
+    mock_model = Mock()
+    mock_get_adapter.return_value = mock_adapter
+    mock_adapter.get_model.return_value = mock_model
+
     # Setup prompt template
     mock_update_prompt.return_value = "Test memory update prompt"
 
     # Setup model response
-    mock_model = Mock()
-    mock_llm_get_model.return_value = mock_model
+    mock_response = "Updated memory content"
+    mock_adapter.execute.return_value = mock_response
 
-    mock_response = Mock()
-    mock_response.text = Mock(return_value="Updated memory content")
-    mock_model.prompt.return_value = mock_response
-
-    with patch("vibectl.memory.Config", return_value=mock_config):
+    # Create a spy on set_memory to verify what's actually being passed
+    with (
+        patch("vibectl.memory.Config", return_value=mock_config),
+        patch("vibectl.memory.set_memory") as mock_set_memory,
+    ):
         # Call update_memory
         update_memory(
             command="kubectl get pods",
@@ -191,17 +197,23 @@ def test_update_memory(mock_llm_get_model: Mock, mock_update_prompt: Mock) -> No
             model_name="test-model",
         )
 
-        # Verify the model was used
-        mock_llm_get_model.assert_called_once_with("test-model")
-        assert mock_model.prompt.call_count == 1  # Called once with any args
-        mock_response.text.assert_called_once()
+    # Verify the prompt was created
+    mock_update_prompt.assert_called_once_with(
+        "kubectl get pods",
+        "pod1 Running\npod2 Error",
+        "Pods are in mixed state",
+        mock_config,
+    )
 
-        # Verify memory was set in config
-        assert mock_config.set.call_count == 1
-        assert (
-            mock_config.set.call_args[0][0] == "memory"
-        )  # First arg should be 'memory'
-        mock_config.save.assert_called_once()
+    # Verify the adapter was used correctly
+    mock_get_adapter.assert_called_once()
+    mock_adapter.get_model.assert_called_once_with("test-model")
+    mock_adapter.execute.assert_called_once_with(
+        mock_model, "Test memory update prompt"
+    )
+
+    # Verify memory was updated with the correct content
+    mock_set_memory.assert_called_once_with(mock_response, mock_config)
 
 
 @patch("vibectl.memory.is_memory_enabled")
