@@ -15,6 +15,8 @@ import llm
 from rich.panel import Panel
 from rich.table import Table
 
+from vibectl.memory import include_memory_in_prompt
+
 from . import __version__
 from .command_handler import (
     configure_output_flags,
@@ -26,6 +28,7 @@ from .command_handler import (
 from .config import Config
 from .console import console_manager
 from .memory import clear_memory, disable_memory, enable_memory, get_memory, set_memory
+from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
@@ -80,6 +83,13 @@ def cli(ctx: click.Context) -> None:
         # Fallback to default in case of any issues (helpful for tests)
         pass
 
+    # Validate model configuration on startup - outside try/except for testing
+    cfg = Config()  # Get a fresh config instance
+    model_name = cfg.get("model", DEFAULT_MODEL)
+    validation_warning = validate_model_key_on_startup(model_name)
+    if validation_warning and ctx.invoked_subcommand not in ["config", "help"]:
+        console_manager.print_warning(validation_warning)
+
     # Show welcome message if no subcommand is invoked
     if ctx.invoked_subcommand is None:
         console_manager.print("Checking cluster vibes...")
@@ -91,6 +101,12 @@ def cli(ctx: click.Context) -> None:
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
 @click.option("--model", default=None, help="The LLM model to use")
 @click.option(
     "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
@@ -103,6 +119,7 @@ def get(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
@@ -110,8 +127,11 @@ def get(
     """Get resources in a concise format."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        output_flags = configure_output_flags(
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
 
         # Configure memory flags
@@ -128,12 +148,9 @@ def get(
                 handle_vibe_request(
                     request=request,
                     command="get",
-                    plan_prompt=PLAN_GET_PROMPT,
+                    plan_prompt=include_memory_in_prompt(PLAN_GET_PROMPT),
                     summary_prompt_func=get_resource_prompt,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
-                    warn_no_output=warn_no_output,
+                    output_flags=output_flags,
                 )
             except Exception as e:
                 handle_exception(e)
@@ -144,11 +161,8 @@ def get(
             command="get",
             resource=resource,
             args=args,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=get_resource_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -178,7 +192,7 @@ def describe(
     """Show details of a specific resource or group of resources."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -195,12 +209,9 @@ def describe(
             handle_vibe_request(
                 request=request,
                 command="describe",
-                plan_prompt=PLAN_DESCRIBE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_DESCRIBE_PROMPT),
                 summary_prompt_func=describe_resource_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return
 
@@ -209,11 +220,8 @@ def describe(
             command="describe",
             resource=resource,
             args=args,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=describe_resource_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -243,7 +251,7 @@ def logs(
     """Show logs for a container in a pod."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -260,12 +268,9 @@ def logs(
             handle_vibe_request(
                 request=request,
                 command="logs",
-                plan_prompt=PLAN_LOGS_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_LOGS_PROMPT),
                 summary_prompt_func=logs_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return
 
@@ -284,13 +289,10 @@ def logs(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=logs_prompt,
             max_token_limit=MAX_TOKEN_LIMIT,
             truncation_ratio=LOGS_TRUNCATION_RATIO,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -320,7 +322,7 @@ def create(
     """Create a resource."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -336,12 +338,9 @@ def create(
             handle_vibe_request(
                 request=request,
                 command="create",
-                plan_prompt=PLAN_CREATE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_CREATE_PROMPT),
                 summary_prompt_func=create_resource_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return
 
@@ -355,9 +354,7 @@ def create(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=create_resource_prompt,
         )
     except Exception as e:
@@ -394,7 +391,7 @@ def delete(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -410,12 +407,9 @@ def delete(
             handle_vibe_request(
                 request=request,
                 command="delete",
-                plan_prompt=PLAN_DELETE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_DELETE_PROMPT),
                 summary_prompt_func=delete_resource_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
                 yes=yes,
             )
             return
@@ -425,11 +419,8 @@ def delete(
             command="delete",
             resource=resource,
             args=args,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=delete_resource_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -675,6 +666,12 @@ def theme_set(theme_name: str) -> None:
 @click.argument("request", required=False)
 @click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
 @click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
 @click.option("--model", default=None, help="The LLM model to use")
 @click.option(
     "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
@@ -687,6 +684,7 @@ def vibe(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -706,8 +704,11 @@ def vibe(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+        output_flags = configure_output_flags(
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
 
         # Configure memory flags
@@ -725,7 +726,7 @@ def vibe(
         else:
             console_manager.print_processing(f"Planning how to: {request}")
 
-        # Handle the autonomous vibe command
+        # Autonomous vibe command - plan_prompt already includes memory directly
         handle_vibe_request(
             request=request,
             command="vibe",
@@ -733,10 +734,7 @@ def vibe(
                 memory_context=memory_context, request=request
             ),
             summary_prompt_func=vibe_autonomous_prompt,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
-            warn_no_output=warn_no_output,
+            output_flags=output_flags,
             yes=yes,
             autonomous_mode=True,
         )
@@ -766,7 +764,7 @@ def events(
     """List events in the cluster."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -779,19 +777,13 @@ def events(
                 console_manager.print_error("Missing request after 'vibe'")
                 return 1
             request = " ".join(args[1:])
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="events",
-                    plan_prompt=PLAN_EVENTS_PROMPT,
-                    summary_prompt_func=events_prompt,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
-                    warn_no_output=warn_no_output,
-                )
-            except Exception as e:
-                handle_exception(e)
+            handle_vibe_request(
+                request=request,
+                command="events",
+                plan_prompt=include_memory_in_prompt(PLAN_EVENTS_PROMPT),
+                summary_prompt_func=events_prompt,
+                output_flags=output_flags,
+            )
             return 1
 
         # For standard commands, run kubectl events
@@ -808,9 +800,7 @@ def events(
             try:
                 handle_command_output(
                     output=output,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
+                    output_flags=output_flags,
                     summary_prompt_func=events_prompt,
                 )
                 return 0
@@ -844,7 +834,7 @@ def version(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -861,10 +851,7 @@ def version(
                     command="version",
                     plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
                     summary_prompt_func=version_prompt,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
-                    warn_no_output=warn_no_output,
+                    output_flags=output_flags,
                 )
             except Exception as e:
                 handle_exception(e)
@@ -881,9 +868,7 @@ def version(
             # Handle output display based on flags
             handle_command_output(
                 output=output,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
+                output_flags=output_flags,
                 summary_prompt_func=version_prompt,
             )
         except Exception as e:
@@ -909,7 +894,7 @@ def cluster_info(
     """Display cluster info."""
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -924,10 +909,7 @@ def cluster_info(
                 command="cluster-info",
                 plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
                 summary_prompt_func=cluster_info_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return 0
 
@@ -940,9 +922,7 @@ def cluster_info(
         # Handle output display based on flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=cluster_info_prompt,
         )
         return 0
@@ -1133,7 +1113,7 @@ def scale(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1149,12 +1129,9 @@ def scale(
             handle_vibe_request(
                 request=request,
                 command="scale",
-                plan_prompt=PLAN_SCALE_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_SCALE_PROMPT),
                 summary_prompt_func=scale_resource_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return
 
@@ -1168,11 +1145,8 @@ def scale(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=scale_resource_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1242,7 +1216,7 @@ def rollout(
 
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1258,12 +1232,9 @@ def rollout(
             handle_vibe_request(
                 request=request,
                 command="rollout",
-                plan_prompt=PLAN_ROLLOUT_PROMPT,
+                plan_prompt=include_memory_in_prompt(PLAN_ROLLOUT_PROMPT),
                 summary_prompt_func=rollout_general_prompt,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                warn_no_output=warn_no_output,
+                output_flags=output_flags,
             )
             return
 
@@ -1306,7 +1277,7 @@ def status(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1323,11 +1294,8 @@ def status(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_status_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1363,7 +1331,7 @@ def history(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1380,11 +1348,8 @@ def history(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_history_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1422,7 +1387,7 @@ def undo(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1448,11 +1413,8 @@ def undo(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1488,7 +1450,7 @@ def restart(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1505,11 +1467,8 @@ def restart(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1544,7 +1503,7 @@ def pause(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1561,11 +1520,8 @@ def pause(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)
@@ -1600,7 +1556,7 @@ def resume(
     """
     try:
         # Configure output flags
-        show_raw_output, show_vibe, warn_no_output, model_name = configure_output_flags(
+        output_flags = configure_output_flags(
             show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
         )
 
@@ -1617,11 +1573,8 @@ def resume(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         handle_exception(e)

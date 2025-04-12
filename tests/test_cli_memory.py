@@ -3,29 +3,11 @@
 This module tests the memory commands of vibectl.
 """
 
-from collections.abc import Generator
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-
-
-@pytest.fixture
-def mock_config() -> Generator[Mock, None, None]:
-    """Provide a mocked Config instance."""
-    with patch("vibectl.cli.Config") as mock_config_class:
-        mock_config = Mock()
-        mock_config_class.return_value = mock_config
-        yield mock_config
-
-
-@pytest.fixture
-def mock_console() -> Generator[Mock, None, None]:
-    """Provide a mocked ConsoleManager instance."""
-    with patch("vibectl.cli.console_manager") as mock_console:
-        yield mock_console
 
 
 def test_memory_show(

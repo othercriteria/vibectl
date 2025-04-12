@@ -19,7 +19,10 @@ your cluster management more intuitive and fun!
 
 - Python 3.10+
 - kubectl command-line tool installed and in your PATH
-- Anthropic API key (for Claude models)
+- API key for your chosen LLM provider:
+  - Anthropic API key (for Claude models, default)
+  - OpenAI API key (for GPT models)
+  - Ollama (for local models, no API key required)
 
 ## Installation
 
@@ -30,16 +33,39 @@ your cluster management more intuitive and fun!
    pip install vibectl
    ```
 
-2. Install the LLM Anthropic provider:
+2. Install the LLM provider for your chosen model:
    ```zsh
+   # For Anthropic (Claude) models (default)
    pip install llm-anthropic
    llm install llm-anthropic
+
+   # For OpenAI models
+   pip install llm-openai
+   llm install llm-openai
+
+   # For Ollama (local models)
+   pip install llm-ollama
+   llm install llm-ollama
    ```
 
-3. Configure your Anthropic API key:
+3. Configure your API key (using one of these methods):
    ```zsh
-   export ANTHROPIC_API_KEY=your-api-key
+   # For Anthropic (default model)
+   export VIBECTL_ANTHROPIC_API_KEY=your-api-key
+
+   # For OpenAI
+   export VIBECTL_OPENAI_API_KEY=your-api-key
+
+   # Using config (more permanent)
+   vibectl config set model_keys.anthropic your-api-key
+
+   # Using key files (more secure)
+   echo "your-api-key" > ~/.anthropic-key
+   chmod 600 ~/.anthropic-key
+   vibectl config set model_key_files.anthropic ~/.anthropic-key
    ```
+
+See [Model API Key Management](docs/MODEL_KEYS.md) for more detailed configuration options.
 
 ### Option 2: Development Installation with Flake (NixOS users)
 
@@ -50,10 +76,7 @@ your cluster management more intuitive and fun!
    cd vibectl
    flake develop
    ```
-3. Configure your Anthropic API key:
-   ```zsh
-   export ANTHROPIC_API_KEY=your-api-key
-   ```
+3. Configure your API key for your chosen model (see above)
 
 The development environment will automatically:
 - Create and activate a Python virtual environment
@@ -174,7 +197,13 @@ especially powerful with the autonomous `vibectl vibe` command.
 vibectl config set kubeconfig /path/to/kubeconfig
 
 # Use a different LLM model (default: claude-3.7-sonnet)
-vibectl config set llm_model your-preferred-model
+vibectl config set model claude-3.7-sonnet  # Default
+vibectl config set model gpt-4              # OpenAI
+vibectl config set model ollama:llama3      # Local Ollama
+
+# Configure API keys (multiple methods available)
+vibectl config set model_keys.anthropic your-api-key
+vibectl config set model_key_files.openai /path/to/key-file
 
 # Always show raw kubectl output
 vibectl config set show_raw_output true
@@ -182,6 +211,8 @@ vibectl config set show_raw_output true
 # Set visual theme
 vibectl theme set dark
 ```
+
+For detailed API key management options, see [Model API Key Management](docs/MODEL_KEYS.md).
 
 ### Custom Instructions
 

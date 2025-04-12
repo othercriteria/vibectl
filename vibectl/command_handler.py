@@ -5,17 +5,16 @@ Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
 """
 
-import os
 import subprocess
 import sys
 from collections.abc import Callable
 
-import llm
-
 from .config import Config
 from .console import console_manager
-from .memory import include_memory_in_prompt, update_memory
+from .memory import update_memory
+from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
+from .types import OutputFlags
 from .utils import handle_exception
 
 # Constants for output flags
@@ -23,6 +22,7 @@ DEFAULT_MODEL = "claude-3.7-sonnet"
 DEFAULT_SHOW_RAW_OUTPUT = False
 DEFAULT_SHOW_VIBE = True
 DEFAULT_WARN_NO_OUTPUT = True
+DEFAULT_SHOW_KUBECTL = False
 
 # Initialize output processor
 output_processor = OutputProcessor()
@@ -76,11 +76,8 @@ def handle_standard_command(
     command: str,
     resource: str,
     args: tuple,
-    show_raw_output: bool,
-    show_vibe: bool,
-    model_name: str,
+    output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
-    warn_no_output: bool = True,
 ) -> None:
     """Handle a standard kubectl command with both raw and vibe output."""
     try:
@@ -97,12 +94,9 @@ def handle_standard_command(
         # Handle the output display based on the configured flags
         handle_command_output(
             output=output,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model_name=model_name,
+            output_flags=output_flags,
             summary_prompt_func=summary_prompt_func,
             command=f"{command} {resource} {' '.join(args)}",
-            warn_no_output=warn_no_output,
         )
     except Exception as e:
         # Use centralized error handling
@@ -111,27 +105,37 @@ def handle_standard_command(
 
 def handle_command_output(
     output: str,
-    show_raw_output: bool,
-    show_vibe: bool,
-    model_name: str,
+    output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
     max_token_limit: int = 10000,
     truncation_ratio: int = 3,
     command: str | None = None,
-    warn_no_output: bool = True,
 ) -> None:
-    """Handle displaying command output in both raw and vibe formats."""
+    """Handle displaying command output in both raw and vibe formats.
+
+    Args:
+        output: The command output to display
+        output_flags: Configuration for output display
+        summary_prompt_func: Function returning the prompt template for summarizing
+        max_token_limit: Maximum number of tokens for the prompt
+        truncation_ratio: Ratio for truncating the output
+        command: Optional command string that generated the output
+    """
     # Show warning if no output will be shown and warning is enabled
-    if not show_raw_output and not show_vibe and warn_no_output:
+    if (
+        not output_flags.show_raw
+        and not output_flags.show_vibe
+        and output_flags.warn_no_output
+    ):
         console_manager.print_no_output_warning()
 
     # Show raw output if requested
-    if show_raw_output:
+    if output_flags.show_raw:
         console_manager.print_raw(output)
 
     # Show vibe output if requested
     vibe_output = ""
-    if show_vibe:
+    if output_flags.show_vibe:
         try:
             # Process output to avoid token limits
             processed_output, was_truncated = output_processor.process_auto(output)
@@ -140,24 +144,37 @@ def handle_command_output(
             if was_truncated:
                 console_manager.print_truncation_warning()
 
-            # Get summary from LLM with processed output
-            llm_model = llm.get_model(model_name)
+            # Get summary from LLM with processed output using model adapter
+            model_adapter = get_model_adapter()
+            model = model_adapter.get_model(output_flags.model_name)
             summary_prompt = summary_prompt_func()
-            prompt = summary_prompt.format(output=processed_output)
-            response = llm_model.prompt(prompt)
-            summary = response.text() if hasattr(response, "text") else str(response)
-            vibe_output = summary
+            prompt = (
+                summary_prompt.format(output=processed_output, command=command)
+                if command
+                else summary_prompt.format(output=processed_output)
+            )
+            vibe_output = model_adapter.execute(model, prompt)
+
+            # Update memory if we have a command, regardless of vibe output
+            if command:
+                update_memory(command, output, vibe_output, output_flags.model_name)
+
+            # Check for empty response
+            if not vibe_output:
+                console_manager.print_empty_output_message()
+                return
+
+            # Check for error response
+            if vibe_output.startswith("ERROR:"):
+                error_message = vibe_output[7:].strip()  # Remove "ERROR: " prefix
+                raise ValueError(error_message)
 
             # If raw output was also shown, add a newline to separate
-            if show_raw_output:
+            if output_flags.show_raw:
                 console_manager.console.print()
 
             # Display the summary
             console_manager.print_vibe(vibe_output)
-
-            # Update memory if we have a command and vibe output
-            if command and vibe_output:
-                update_memory(command, output, vibe_output, model_name)
         except Exception as e:
             handle_exception(e, exit_on_error=False)
 
@@ -167,280 +184,275 @@ def handle_vibe_request(
     command: str,
     plan_prompt: str,
     summary_prompt_func: Callable[[], str],
-    show_raw_output: bool = False,
-    show_vibe: bool = True,
-    model_name: str = "claude-3.7-sonnet",
-    warn_no_output: bool = True,
+    output_flags: OutputFlags,
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> None:
-    """Handle a vibe request by planning and executing a kubectl command.
+    """Handle a request to execute a kubectl command based on a natural language query.
 
     Args:
-        request: The natural language request to process
-        command: The kubectl command (get, describe, logs, etc.)
-        plan_prompt: The prompt template for planning the command
-        summary_prompt_func: Function that returns the prompt template for summarizing
-        show_raw_output: Whether to display raw kubectl output
-        show_vibe: Whether to display the vibe check summary
-        model_name: The LLM model to use
-        warn_no_output: Whether to warn when no output will be shown
-        yes: Whether to skip confirmation prompt (for non-interactive use)
-        autonomous_mode: Whether operating in autonomous vibe mode
+        request: The natural language request
+        command: The kubectl command type (get, describe, etc.)
+        plan_prompt: The prompt template for planning
+        summary_prompt_func: Function that provides the prompt for summarizing output
+        output_flags: Configuration for output display
+        yes: Whether to bypass confirmation prompts
+        autonomous_mode: Whether we're in autonomous mode
     """
     try:
-        # Track if we've already shown a no-output warning
-        already_warned = False
+        # Plan the kubectl command based on the request
+        model_adapter = get_model_adapter()
+        model = model_adapter.get_model(output_flags.model_name)
+        kubectl_cmd = model_adapter.execute(
+            model, plan_prompt.format(request=request, command=command)
+        )
 
-        # Get the plan from LLM
-        llm_model = llm.get_model(model_name)
+        # Strip any backticks that might be around the command
+        kubectl_cmd = kubectl_cmd.strip().strip("`").strip()
 
-        # Format prompt with request, including memory if available
-        if autonomous_mode:
-            # Plan prompt is already fully formatted for autonomous mode
-            prompt_with_memory = plan_prompt
-        else:
-            # Format prompt with request for standard commands
-            prompt_with_memory = include_memory_in_prompt(
-                lambda: plan_prompt.format(request=request)
-            )
-
-        response = llm_model.prompt(prompt_with_memory)
-        plan = response.text() if hasattr(response, "text") else str(response)
-
-        # Check for error responses from planner
-        if not plan or len(plan.strip()) == 0:
-            handle_exception(Exception("Invalid response format from planner"))
+        # If no command was generated, inform the user and exit
+        if not kubectl_cmd:
+            console_manager.print_error("No kubectl command could be generated.")
             return
 
-        # Check for error prefix in the response
-        if plan.startswith("ERROR:"):
-            error_message = plan[7:].strip()  # Remove "ERROR: " prefix
-            handle_exception(Exception(error_message))
+        # Check if the response is an error message
+        if kubectl_cmd.startswith("ERROR:"):
+            # Don't try to run the error as a command
+            console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
             return
 
-        # For autonomous mode, handle direct kubectl commands
-        if autonomous_mode:
-            lines = plan.split("\n")
-            kubectl_cmd = lines[0].strip()
+        # Process the command to extract YAML content and command arguments
+        cmd_args, yaml_content = _process_command_string(kubectl_cmd)
 
-            # Check if it starts with kubectl
-            if not kubectl_cmd.startswith("kubectl "):
-                handle_exception(
-                    Exception("Invalid command format, expected kubectl command")
-                )
-                return
+        # Process the arguments into a properly structured command
+        args = _process_command_args(cmd_args, command)
 
-            # Extract note if provided
-            note = None
-            if len(lines) > 1 and lines[1].strip().startswith("NOTE:"):
-                note = lines[1].strip()[5:].strip()  # Remove "NOTE: " prefix
+        # Create a display command for user feedback
+        display_cmd = _create_display_command(args, yaml_content)
 
-            # Remove "kubectl" from the command
-            kubectl_args = kubectl_cmd.split()[1:]
+        # Check if we need confirmation or if show_kubectl is enabled
+        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
 
-            # Show the plan and note if available
-            console_manager.print("[bold blue]Planned action:[/bold blue]")
-            console_manager.print(f"[bold]{kubectl_cmd}[/bold]")
-            if note:
-                console_manager.print(f"[italic]{note}[/italic]")
+        # Show command if show_kubectl is True or confirmation needed
+        if output_flags.show_kubectl or needs_confirm:
+            console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
 
-            # For all commands, ask for confirmation unless yes flag is provided
-            if not yes:
-                import click
-
-                if not click.confirm(
-                    "Do you want to execute this command?", default=True
-                ):
-                    console_manager.print_cancelled()
-                    return
-
-            # Execute the command
-            console_manager.print_processing("Executing command...")
-            output = run_kubectl(kubectl_args, capture=True)
-
-            # Check if output contains error information
-            is_error = output and output.startswith("Error:")
-
-            if not output:
-                # Create special message for empty output
-                empty_output_message = "No resources found."
-                console_manager.print_note(
-                    "Command executed successfully with no output"
-                )
-
-                # Update memory with the empty output information
-                if show_vibe:
-                    try:
-                        # Generate interpretation for empty output
-                        llm_model = llm.get_model(model_name)
-                        summary_prompt = summary_prompt_func()
-                        prompt = summary_prompt.format(
-                            output=f"Command returned no output: {kubectl_cmd}"
-                        )
-                        response = llm_model.prompt(prompt)
-                        vibe_output = (
-                            response.text()
-                            if hasattr(response, "text")
-                            else str(response)
-                        )
-
-                        # Update memory with empty result context
-                        update_memory(
-                            kubectl_cmd, empty_output_message, vibe_output, model_name
-                        )
-                    except Exception as e:
-                        handle_exception(e, exit_on_error=False)
-                return
-
-            # For error outputs in autonomous mode, ensure they're displayed
-            if is_error and show_raw_output is False:
-                console_manager.print_raw(output)
-
-            # Handle the output display
-            handle_command_output(
-                output=output,
-                show_raw_output=show_raw_output,
-                show_vibe=show_vibe,
-                model_name=model_name,
-                summary_prompt_func=summary_prompt_func,
-                command=kubectl_cmd,
-                warn_no_output=warn_no_output and not already_warned,
-            )
-            return
-
-        # Standard (non-autonomous) mode handling below:
-        # Extract kubectl command from plan
-        kubectl_args = []
-        yaml_content = ""
-        has_yaml_section = False
-        found_delimiter = False
-
-        # Parse the output from the LLM, handling both arguments and YAML manifest
-        # if present
-        for line in plan.split("\n"):
-            if line == "---":
-                found_delimiter = True
-                has_yaml_section = True
-                continue
-
-            if found_delimiter:
-                yaml_content += line + "\n"
-            else:
-                kubectl_args.append(line)
-
-        # Validate plan format
-        if not kubectl_args and not has_yaml_section:
-            handle_exception(Exception("Invalid response format from planner"))
-            return
-
-        # Show warning only if we're not going to execute a command that produces output
-        # (which would trigger handle_command_output later)
-        if not show_raw_output and not show_vibe and warn_no_output:
-            console_manager.print_no_output_warning()
-            already_warned = True
-
-        # For delete commands, ask for confirmation unless yes flag is provided
-        if command == "delete" and not yes:
+        # If confirmation needed, ask now
+        if needs_confirm:
             import click
 
-            # Show what will be executed
-            cmd_str = f"kubectl {command} {' '.join(kubectl_args)}"
-            console_manager.print("[bold yellow]About to execute:[/bold yellow]")
-            console_manager.print(f"[bold]{cmd_str}[/bold]")
-
-            # NOTE: We use a separate styled warning message before the plain text
-            # confirmation prompt because click.confirm() displays formatting tags
-            # as raw text when trying to use Rich formatting directly. A better
-            # solution would be to use the Rich library's prompt features or to
-            # create a custom click confirmation handler
-            if not click.confirm(
-                "Do you want to execute this delete command?", default=False
-            ):
+            if not click.confirm("Execute this command?"):
                 console_manager.print_cancelled()
                 return
 
-        # Check if we have a YAML input creation
-        if has_yaml_section and command == "create":
-            # Create a temporary file for YAML content
-            import tempfile
+        # Execute the command and get output
+        output = _execute_command(args, yaml_content)
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
-                f.write(yaml_content)
-                yaml_file = f.name
+        # Handle response - might be empty
+        if not output:
+            console_manager.print_note("Command returned no output")
 
-            try:
-                # Build kubectl command with -f flag and additional args
-                cmd = [command, "-f", yaml_file]
-                if kubectl_args:
-                    cmd.extend(kubectl_args)
-
-                # Execute the command
-                output = run_kubectl(cmd, capture=True)
-
-                # Remove the temporary file
-                os.unlink(yaml_file)
-
-                if not output:
-                    return
-
-                # Check for errors
-                is_error = output and output.startswith("Error:")
-                if is_error and show_raw_output is False:
-                    # Force showing raw output for errors to ensure visibility
-                    console_manager.print_raw(output)
-
-                # Handle the output display based on the configured flags
-                handle_command_output(
-                    output=output,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
-                    summary_prompt_func=summary_prompt_func,
-                    command=f"{command} -f yaml_content {''.join(kubectl_args)}",
-                    warn_no_output=warn_no_output and not already_warned,
-                )
-            except Exception as e:
-                # Make sure to clean up the temp file in case of an error
-                os.unlink(yaml_file)
-                raise e
-        else:
-            # Standard command handling (not create with YAML)
-            try:
-                output = run_kubectl([command, *kubectl_args], capture=True)
-            except Exception as e:
-                handle_exception(e)
-                return
-
-            # If no output, nothing to do
-            if not output:
-                return
-
-            # Check if output contains error information and ensure it's displayed
-            is_error = output.startswith("Error:")
-            if is_error and show_raw_output is False:
-                # Force showing raw output for errors to ensure visibility
-                console_manager.print_raw(output)
-
-            # Handle the output display based on the configured flags
-            try:
-                handle_command_output(
-                    output=output,
-                    show_raw_output=show_raw_output,
-                    show_vibe=show_vibe,
-                    model_name=model_name,
-                    summary_prompt_func=summary_prompt_func,
-                    command=f"{command} {' '.join(kubectl_args)}",
-                    warn_no_output=warn_no_output and not already_warned,
-                )
-            except (
-                Exception
-            ) as e:  # pragma: no cover - error handling for command output processing
-                handle_exception(e, exit_on_error=False)
+        # Process the output regardless
+        handle_command_output(
+            output=output or "No resources found.",
+            output_flags=output_flags,
+            summary_prompt_func=summary_prompt_func,
+            command=display_cmd,
+        )
     except Exception as e:
         handle_exception(e)
+
+
+def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
+    """Process the command string to extract YAML content and command arguments.
+
+    Args:
+        kubectl_cmd: The command string from the model
+
+    Returns:
+        Tuple of (command arguments, YAML content or None)
+    """
+    # Check for YAML content separated by --- (common in kubectl manifests)
+    cmd_parts = kubectl_cmd.split("---", 1)
+    cmd_args = cmd_parts[0].strip()
+    yaml_content = None
+    if len(cmd_parts) > 1:
+        yaml_content = "---" + cmd_parts[1]
+
+    return cmd_args, yaml_content
+
+
+def _process_command_args(cmd_args: str, command: str) -> list[str]:
+    """Process command arguments into a properly structured list.
+
+    Args:
+        cmd_args: The command arguments string
+        command: The kubectl command type (get, describe, etc.)
+
+    Returns:
+        List of command arguments with kubectl prefix removed and filtered
+    """
+    # Split into individual arguments
+    args = cmd_args.split()
+
+    # Remove 'kubectl' prefix if the model included it
+    if args and args[0].lower() == "kubectl":
+        args = args[1:]
+
+    # For certain commands, we want to make sure the command verb is the first argument
+    # This ensures correct kubectl command structure
+    commands_to_normalize = ["get", "describe", "logs", "delete", "scale"]
+
+    # Check if we need to normalize the command and it's not already normalized
+    if command in commands_to_normalize and (
+        not any(arg == command for arg in args) or args[0] != command
+    ):
+        # Remove the command if it's somewhere else in the args list
+        args = [arg for arg in args if arg != command]
+        # Add it at the beginning
+        args.insert(0, command)
+
+    # Special case for create command
+    if command == "create" and args and args[0] != "create":
+        args.insert(0, "create")
+
+    # Filter out any kubeconfig flags that might be present
+    # as they should be handled by run_kubectl, not included directly
+    return _filter_kubeconfig_flags(args)
+
+
+def _filter_kubeconfig_flags(args: list[str]) -> list[str]:
+    """Filter out kubeconfig flags from the command arguments.
+
+    Args:
+        args: List of command arguments
+
+    Returns:
+        Filtered list of arguments without kubeconfig flags
+    """
+    filtered_args = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        # Skip --kubeconfig and its value
+        if arg == "--kubeconfig" and i < len(args) - 1:
+            i += 2  # Skip this flag and its value
+            continue
+        # Skip --kubeconfig=value style
+        if arg.startswith("--kubeconfig="):
+            i += 1
+            continue
+        filtered_args.append(arg)
+        i += 1
+
+    return filtered_args
+
+
+def _create_display_command(args: list[str], yaml_content: str | None) -> str:
+    """Create a display-friendly command string.
+
+    Args:
+        args: List of command arguments
+        yaml_content: YAML content if present
+
+    Returns:
+        Command string for display
+    """
+    display_cmd = " ".join(args)
+    if yaml_content:
+        display_cmd = f"{display_cmd} {yaml_content}"
+    return display_cmd
+
+
+def _needs_confirmation(command: str, autonomous_mode: bool) -> bool:
+    """Determine if this command requires confirmation.
+
+    Args:
+        command: The kubectl command type
+        autonomous_mode: Whether we're in autonomous mode
+
+    Returns:
+        True if confirmation is needed, False otherwise
+    """
+    dangerous_commands = [
+        "delete",
+        "scale",
+        "rollout",
+        "patch",
+        "apply",
+        "replace",
+        "create",
+    ]
+    return command in dangerous_commands or (autonomous_mode and command != "get")
+
+
+def _execute_command(args: list[str], yaml_content: str | None) -> str:
+    """Execute the kubectl command with the given arguments.
+
+    Args:
+        args: List of command arguments
+        yaml_content: YAML content if present
+
+    Returns:
+        Output of the command
+    """
+    if yaml_content:
+        return _execute_yaml_command(args, yaml_content)
+    else:
+        # Regular command without YAML
+        cmd_output = run_kubectl(args, capture=True)
+        return "" if cmd_output is None else cmd_output
+
+
+def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
+    """Execute a kubectl command with YAML content.
+
+    Args:
+        args: List of command arguments
+        yaml_content: YAML content to be written to a file
+
+    Returns:
+        Output of the command
+    """
+    import subprocess
+    import tempfile
+
+    # Create a temporary file with the YAML content
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as temp:
+        temp.write(yaml_content)
+        temp_path = temp.name
+
+    try:
+        # For create commands, we need to use the -f flag correctly
+        if args[0] == "create":
+            # Include args except the command, which is at index [0]
+            # Add -f flag for the YAML file
+            cmd = ["kubectl", "create"]
+            # Add any other args that might have been provided
+            if len(args) > 1:
+                cmd.extend(args[1:])
+            cmd.extend(["-f", temp_path])
+        else:
+            # For other commands that accept YAML, keep the original args
+            # but ensure they don't include -f which will be added separately
+            filtered_args = [
+                arg for arg in args if arg != "-f" and not arg.startswith("-f=")
+            ]
+            cmd = ["kubectl", *filtered_args, "-f", temp_path]
+
+        console_manager.print_processing(f"Running: {' '.join(cmd)}")
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        output = proc.stdout
+        if proc.returncode != 0:
+            raise Exception(
+                proc.stderr or f"Command failed with exit code {proc.returncode}"
+            )
+        return output
+    finally:
+        # Clean up the temporary file
+        import os
+
+        os.unlink(temp_path)
 
 
 def configure_output_flags(
@@ -450,7 +462,8 @@ def configure_output_flags(
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
-) -> tuple[bool, bool, bool, str]:
+    show_kubectl: bool | None = None,
+) -> OutputFlags:
     """Configure output flags based on config.
 
     Args:
@@ -460,9 +473,10 @@ def configure_output_flags(
         vibe: Optional override for showing vibe output
         show_vibe: Optional override for showing vibe output
         model: Optional override for LLM model
+        show_kubectl: Optional override for showing kubectl commands
 
     Returns:
-        Tuple of (show_raw, show_vibe, warn_no_output, model_name)
+        OutputFlags instance containing the configured flags
     """
     config = Config()
 
@@ -486,7 +500,20 @@ def configure_output_flags(
 
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
-    return show_raw, show_vibe_output, warn_no_output, model_name
+    # Get show_kubectl setting - default to False
+    show_kubectl_commands = (
+        show_kubectl
+        if show_kubectl is not None
+        else config.get("show_kubectl", DEFAULT_SHOW_KUBECTL)
+    )
+
+    return OutputFlags(
+        show_raw=show_raw,
+        show_vibe=show_vibe_output,
+        warn_no_output=warn_no_output,
+        model_name=model_name,
+        show_kubectl=show_kubectl_commands,
+    )
 
 
 def handle_command_with_options(
@@ -497,6 +524,7 @@ def handle_command_with_options(
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
+    show_kubectl: bool | None = None,
     config: Config | None = None,
 ) -> tuple[str, bool]:
     """Handle command with output options.
@@ -509,14 +537,15 @@ def handle_command_with_options(
         vibe: Whether to vibe the output
         show_vibe: Whether to show vibe output
         model: Model to use for vibe
+        show_kubectl: Whether to show kubectl commands
         config: Config object
 
     Returns:
         Tuple of output and vibe status
     """
     # Configure output flags
-    show_raw, show_vibe_output, warn_no_output, model_name = configure_output_flags(
-        show_raw_output, yaml, json, vibe, show_vibe, model
+    output_flags = configure_output_flags(
+        show_raw_output, yaml, json, vibe, show_vibe, model, show_kubectl
     )
 
     # Run the command
@@ -526,4 +555,4 @@ def handle_command_with_options(
     if output is None:
         output = ""
 
-    return output, show_vibe_output
+    return output, output_flags.show_vibe

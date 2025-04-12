@@ -3,28 +3,13 @@
 This module tests the cluster-info command functionality of vibectl.
 """
 
-from collections.abc import Generator
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-
-@pytest.fixture
-def mock_configure_output_flags() -> Generator[Mock, None, None]:
-    """Fixture providing a mocked configure_output_flags function."""
-    with patch("vibectl.cli.configure_output_flags") as mock:
-        mock.return_value = (False, True, False, "test-model")
-        yield mock
-
-
-@pytest.fixture
-def mock_console() -> Generator[Mock, None, None]:
-    """Fixture providing a mocked console manager."""
-    with patch("vibectl.cli.console_manager") as mock:
-        yield mock
+# The mock_configure_output_flags fixture is now provided by conftest.py
 
 
 @patch("vibectl.cli.configure_output_flags")

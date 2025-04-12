@@ -19,6 +19,17 @@ DEFAULT_CONFIG = {
     "memory_max_chars": 500,
     "warn_no_output": True,
     "colored_output": True,
+    # Model Key Configuration Section
+    "model_keys": {
+        "openai": None,  # API key for OpenAI models
+        "anthropic": None,  # API key for Anthropic models
+        "ollama": None,  # Not usually needed, but for custom Ollama setups
+    },
+    "model_key_files": {
+        "openai": None,  # Path to file containing OpenAI API key
+        "anthropic": None,  # Path to file containing Anthropic API key
+        "ollama": None,  # Path to file containing Ollama API key (if needed)
+    },
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -42,12 +53,39 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "memory_enabled": bool,
     "memory_max_chars": int,
     "colored_output": bool,
+    "model_keys": dict,
+    "model_key_files": dict,
 }
 
 # Valid values for specific keys
 CONFIG_VALID_VALUES: dict[str, list[Any]] = {
     "theme": ["default", "dark", "light", "accessible"],
-    "model": ["gpt-4", "gpt-3.5-turbo", "claude-3.7-sonnet", "claude-3.7-opus"],
+    "model": [
+        "gpt-4",
+        "gpt-3.5-turbo",
+        "claude-3.7-sonnet",
+        "claude-3.7-opus",
+        "ollama:llama3",
+    ],
+}
+
+# Environment variable mappings for API keys
+ENV_KEY_MAPPINGS = {
+    "openai": {
+        "key": "VIBECTL_OPENAI_API_KEY",
+        "key_file": "VIBECTL_OPENAI_API_KEY_FILE",
+        "legacy_key": "OPENAI_API_KEY",
+    },
+    "anthropic": {
+        "key": "VIBECTL_ANTHROPIC_API_KEY",
+        "key_file": "VIBECTL_ANTHROPIC_API_KEY_FILE",
+        "legacy_key": "ANTHROPIC_API_KEY",
+    },
+    "ollama": {
+        "key": "VIBECTL_OLLAMA_API_KEY",
+        "key_file": "VIBECTL_OLLAMA_API_KEY_FILE",
+        "legacy_key": "OLLAMA_API_KEY",
+    },
 }
 
 
@@ -248,56 +286,175 @@ class Config:
         return cast("T", value)
 
     def get_available_themes(self) -> list[str]:
-        """Get list of available themes."""
-        return CONFIG_VALID_VALUES.get("theme", []).copy()
+        """Get list of available themes.
+
+        Returns:
+            List of theme names
+        """
+        return CONFIG_VALID_VALUES["theme"]
 
     def show(self) -> dict[str, Any]:
-        """Return the entire configuration as a dictionary."""
+        """Show the current configuration.
+
+        Returns:
+            The current configuration dictionary
+        """
         return self._config.copy()
 
     def save(self) -> None:
-        """Save the current configuration."""
+        """Save the current configuration to disk."""
         self._save_config()
 
     def get_all(self) -> dict[str, Any]:
         """Get all configuration values.
 
         Returns:
-            All configuration values as a dictionary
+            The full configuration dictionary
         """
         return self._config.copy()
 
     def unset(self, key: str) -> None:
-        """Unset configuration value.
+        """Unset a configuration key, resetting it to default if applicable.
 
         Args:
-            key: The configuration key to unset
+            key: The key to unset
 
         Raises:
-            ValueError: If the key is invalid or not found
+            ValueError: If the key is not found
         """
-        # Special case for backward compatibility with tests
-        if key in ["invalid_key", "nonexistent_key"]:
+        if key not in self._config:
             raise ValueError(f"Key not found in configuration: {key}")
 
-        # Check if the key exists in the actual config
-        if key in self._config:
-            # Key exists in config, remove or reset it
-            if key in DEFAULT_CONFIG:
-                # Reset to default value if key is in defaults
-                self._config[key] = DEFAULT_CONFIG[key]
-            else:
-                # Remove the key if it's not in defaults
-                del self._config[key]
-            self._save_config()
-            return
+        if key in DEFAULT_CONFIG:
+            # Reset to default value
+            self._config[key] = DEFAULT_CONFIG[key]
+        else:
+            # Remove entirely if no default
+            del self._config[key]
 
-        # If we get here, the key doesn't exist in the config
-        # Now check if it's a valid key that just doesn't have a value yet
-        if key not in CONFIG_SCHEMA:
-            valid_keys = ", ".join(CONFIG_SCHEMA.keys())
+        self._save_config()
+
+    def get_model_key(self, provider: str) -> str | None:
+        """Get API key for a specific model provider.
+
+        This method checks multiple sources in this order:
+        1. Environment variable override (VIBECTL_*_API_KEY)
+        2. Key file path from environment variable (VIBECTL_*_API_KEY_FILE)
+        3. Configured key in model_keys dictionary
+        4. Configured key file in model_key_files dictionary
+        5. Legacy environment variable (*_API_KEY)
+
+        Args:
+            provider: The model provider (openai, anthropic, ollama)
+
+        Returns:
+            The API key if found, None otherwise
+        """
+        # Check if we have mappings for this provider
+        if provider not in ENV_KEY_MAPPINGS:
+            return None
+
+        # Get mapping for specific provider
+        mapping = ENV_KEY_MAPPINGS[provider]
+
+        # 1. Check environment variable override
+        env_key = os.environ.get(mapping["key"])
+        if env_key:
+            return env_key
+
+        # 2. Check environment variable key file
+        env_key_file = os.environ.get(mapping["key_file"])
+        if env_key_file:
+            try:
+                key_path = Path(env_key_file).expanduser()
+                if key_path.exists():
+                    return key_path.read_text().strip()
+            except OSError:
+                # Log warning but continue with other methods
+                pass
+
+        # 3. Check configured key
+        model_keys = self._config.get("model_keys", {})
+        if (
+            isinstance(model_keys, dict)
+            and provider in model_keys
+            and model_keys[provider]
+        ):
+            return str(model_keys[provider])
+
+        # 4. Check configured key file
+        model_key_files = self._config.get("model_key_files", {})
+        if (
+            isinstance(model_key_files, dict)
+            and provider in model_key_files
+            and model_key_files[provider]
+        ):
+            try:
+                key_path = Path(model_key_files[provider]).expanduser()
+                if key_path.exists():
+                    return key_path.read_text().strip()
+            except OSError:
+                # Continue with legacy environment variable
+                pass
+
+        # 5. Check legacy environment variable
+        legacy_key = os.environ.get(mapping["legacy_key"])
+        if legacy_key:
+            return legacy_key
+
+        return None
+
+    def set_model_key(self, provider: str, key: str) -> None:
+        """Set API key for a specific model provider in the config.
+
+        Args:
+            provider: The model provider (openai, anthropic, ollama)
+            key: The API key to set
+
+        Raises:
+            ValueError: If the provider is invalid
+        """
+        if provider not in ENV_KEY_MAPPINGS:
+            valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
             raise ValueError(
-                f"Unknown configuration key: {key}. Valid keys are: {valid_keys}"
+                f"Invalid model provider: {provider}. "
+                f"Valid providers are: {valid_providers}"
             )
 
-        # If it's a valid key but not in the config, nothing to do
+        # Initialize the model_keys dict if it doesn't exist
+        if "model_keys" not in self._config:
+            self._config["model_keys"] = {}
+
+        # Set the key
+        self._config["model_keys"][provider] = key
+        self._save_config()
+
+    def set_model_key_file(self, provider: str, file_path: str) -> None:
+        """Set path to key file for a specific model provider.
+
+        Args:
+            provider: The model provider (openai, anthropic, ollama)
+            file_path: Path to file containing the API key
+
+        Raises:
+            ValueError: If the provider is invalid or the file doesn't exist
+        """
+        if provider not in ENV_KEY_MAPPINGS:
+            valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
+            raise ValueError(
+                f"Invalid model provider: {provider}. "
+                f"Valid providers are: {valid_providers}"
+            )
+
+        # Verify the file exists
+        path = Path(file_path).expanduser()
+        if not path.exists():
+            raise ValueError(f"Key file does not exist: {file_path}")
+
+        # Initialize the model_key_files dict if it doesn't exist
+        if "model_key_files" not in self._config:
+            self._config["model_key_files"] = {}
+
+        # Set the file path
+        self._config["model_key_files"][provider] = str(path)
+        self._save_config()
