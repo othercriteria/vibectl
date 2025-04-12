@@ -136,7 +136,7 @@ class TestLLMModelAdapter:
             adapter.execute(mock_model, "Test prompt")
 
         # Verify
-        assert "Error during model execution" in str(exc_info.value)
+        assert "Error executing prompt: Test error" in str(exc_info.value)
         mock_model.prompt.assert_called_once_with("Test prompt")
 
     @patch("vibectl.model_adapter.llm")

@@ -76,7 +76,8 @@ class ModelEnvironment:
     """Context manager for handling model-specific environment variables.
 
     This class provides a safer way to temporarily set environment variables
-    for model execution, ensuring they are properly restored even in case of exceptions.
+    for model execution, ensuring they are properly restored even in case of
+    exceptions.
     """
 
     def __init__(self, model_name: str, config: Config):
@@ -211,16 +212,10 @@ class LLMModelAdapter(ModelAdapter):
 
                 # Check if error might be due to missing API key
                 if provider and not self.config.get_model_key(provider):
-                    env_var = f"VIBECTL_{provider.upper()}_API_KEY"
-                    file_var = f"VIBECTL_{provider.upper()}_API_KEY_FILE"
-                    raise ValueError(
-                        f"Failed to get model '{model_name}': API key for {provider} not found. "
-                        f"Please set it using one of these methods:\n"
-                        f"- Environment variable: export {env_var}=your-api-key\n"
-                        f"- Config key file: vibectl config set model_key_files.{provider} /path/to/key/file\n"
-                        f"- Direct config: vibectl config set model_keys.{provider} your-api-key\n"
-                        f"- Environment variable key file: export {file_var}=/path/to/key/file"
-                    ) from e
+                    error_msg = self._format_api_key_message(
+                        provider, model_name, is_error=True
+                    )
+                    raise ValueError(error_msg) from e
 
                 # Generic error message if not API key related
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
@@ -249,18 +244,14 @@ class LLMModelAdapter(ModelAdapter):
                     return cast("ModelResponse", response).text()
                 return str(response)
             except Exception as e:
-                provider = self._determine_provider_from_model(model_name)
-
-                # Check if error might be due to invalid API key
-                if provider and "authentication" in str(e).lower():
-                    env_var = f"VIBECTL_{provider.upper()}_API_KEY"
+                # Check if error might be related to token limit
+                if "token" in str(e).lower() and "limit" in str(e).lower():
+                    # Handle token limit errors more gracefully
                     raise ValueError(
-                        f"Authentication error during model execution: {e}\n"
-                        f"Please check your {provider} API key is valid and set correctly."
+                        f"Token limit exceeded: {e}. Try shortening your prompt."
                     ) from e
-
-                # Generic error message
-                raise ValueError(f"Error during model execution: {e}") from e
+                # Generic error for all other issues
+                raise ValueError(f"Error executing prompt: {e}") from e
 
     def validate_model_key(self, model_name: str) -> str | None:
         """Validate the API key for a model.
@@ -273,7 +264,10 @@ class LLMModelAdapter(ModelAdapter):
         """
         provider = self._determine_provider_from_model(model_name)
         if not provider:
-            return f"Unknown model provider for '{model_name}'. Key validation skipped."
+            return (
+                f"Unknown model provider for '{model_name}'. "
+                f"Key validation skipped."
+            )
 
         # Ollama models often don't need a key for local usage
         if provider == "ollama":
@@ -282,33 +276,73 @@ class LLMModelAdapter(ModelAdapter):
         # Check if we have a key configured
         key = self.config.get_model_key(provider)
         if not key:
-            env_var = f"VIBECTL_{provider.upper()}_API_KEY"
-            file_var = f"VIBECTL_{provider.upper()}_API_KEY_FILE"
-            return (
-                f"Warning: No API key found for {provider} models like '{model_name}'. "
-                f"Set a key using one of these methods:\n"
-                f"- Environment variable: export {env_var}=your-api-key\n"
-                f"- Config key file: vibectl config set model_key_files.{provider} /path/to/key/file\n"
-                f"- Direct config: vibectl config set model_keys.{provider} your-api-key\n"
-                f"- Environment variable key file: export {file_var}=/path/to/key/file"
-            )
+            return self._format_api_key_message(provider, model_name, is_error=False)
 
         # Basic validation - check key format based on provider
         # Valid keys either start with sk- OR are short (<20 chars)
-        # Warning is shown when key doesn't start with sk- AND is not short (>=20 chars)
+        # Warning is shown when key doesn't start with sk- AND is not
+        # short (>=20 chars)
         if provider == "anthropic" and not key.startswith("sk-") and len(key) >= 20:
-            return (
-                "Warning: The Anthropic API key format looks invalid. "
-                "Anthropic keys typically start with 'sk-' and are longer than 20 characters."
-            )
+            return self._format_key_validation_message(provider)
 
         if provider == "openai" and not key.startswith("sk-") and len(key) >= 20:
-            return (
-                "Warning: The OpenAI API key format looks invalid. "
-                "OpenAI keys typically start with 'sk-' and are longer than 20 characters."
-            )
+            return self._format_key_validation_message(provider)
 
         return None
+
+    def _format_api_key_message(
+        self, provider: str, model_name: str, is_error: bool = False
+    ) -> str:
+        """Format a message about missing or invalid API keys.
+
+        Args:
+            provider: The provider name (openai, anthropic, etc.)
+            model_name: The name of the model
+            is_error: Whether this is an error (True) or warning (False)
+
+        Returns:
+            A formatted message string with key setup instructions
+        """
+        env_key = f"VIBECTL_{provider.upper()}_API_KEY"
+        file_key = f"VIBECTL_{provider.upper()}_API_KEY_FILE"
+
+        if is_error:
+            prefix = (
+                f"Failed to get model '{model_name}': "
+                f"API key for {provider} not found. "
+            )
+        else:
+            prefix = (
+                f"Warning: No API key found for {provider} "
+                f"models like '{model_name}'. "
+            )
+
+        instructions = (
+            f"Set a key using one of these methods:\n"
+            f"- Environment variable: export {env_key}=your-api-key\n"
+            f"- Config key file: vibectl config set model_key_files.{provider} \n"
+            f"  /path/to/key/file\n"
+            f"- Direct config: vibectl config set model_keys.{provider} your-api-key\n"
+            f"- Environment variable key file: export {file_key}=/path/to/key/file"
+        )
+
+        return f"{prefix}{instructions}"
+
+    def _format_key_validation_message(self, provider: str) -> str:
+        """Format a message about potentially invalid API key format.
+
+        Args:
+            provider: The provider name (openai, anthropic, etc.)
+
+        Returns:
+            A formatted warning message about the key format
+        """
+        provider_name = provider.capitalize()
+        return (
+            f"Warning: The {provider_name} API key format looks invalid. "
+            f"{provider_name} keys typically start with 'sk-' and are "
+            f"longer than 20 characters."
+        )
 
 
 # Default model adapter instance
