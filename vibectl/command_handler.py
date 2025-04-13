@@ -388,11 +388,14 @@ def _create_display_command(args: list[str], yaml_content: str | None) -> str:
             # For other commands, standard format with YAML note
             return f"{' '.join(args)} -f (YAML content)"
     else:
-        # For standard commands without YAML, quote arguments with spaces or special characters
+        # For standard commands without YAML, quote arguments with spaces/chars
         display_args = []
         for arg in args:
             # Check if the argument needs quoting
-            if " " in arg or any(char in arg for char in '"\'<>|&;()'):
+            chars = "\"'<>|&;()"
+            has_space = " " in arg
+            has_special = any(c in arg for c in chars)
+            if has_space or has_special:
                 # Use shlex.quote to properly quote the argument
                 display_args.append(shlex.quote(arg))
             else:
@@ -435,10 +438,8 @@ def _execute_command(args: list[str], yaml_content: str | None) -> str:
     if yaml_content:
         return _execute_yaml_command(args, yaml_content)
     else:
-        # Check if any arguments contain spaces or special characters that might need quoting
-        has_complex_args = any(
-            " " in arg or "<" in arg or ">" in arg for arg in args
-        )
+        # Check if any arguments contain spaces or special characters
+        has_complex_args = any(" " in arg or "<" in arg or ">" in arg for arg in args)
 
         if has_complex_args:
             # Use direct subprocess execution with preserved argument structure
@@ -451,10 +452,10 @@ def _execute_command(args: list[str], yaml_content: str | None) -> str:
 
 def _execute_command_with_complex_args(args: list[str]) -> str:
     """Execute a kubectl command with complex arguments that need special handling.
-    
+
     Args:
         args: List of command arguments
-        
+
     Returns:
         Output of the command
     """
@@ -463,7 +464,7 @@ def _execute_command_with_complex_args(args: list[str]) -> str:
     # Build the full command to preserve argument structure
     cmd = ["kubectl"]
 
-    # Add each argument, preserving structure that might have spaces or special characters
+    # Add each argument, preserving structure that might have spaces or special chars
     for arg in args:
         cmd.append(arg)
 
@@ -471,9 +472,7 @@ def _execute_command_with_complex_args(args: list[str]) -> str:
 
     # Run the command, preserving the argument structure
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
         if e.stderr:
@@ -638,11 +637,11 @@ def handle_command_with_options(
 
 def _validate_command_args(args: list[str], command: str) -> str | None:
     """Validate command arguments for common issues.
-    
+
     Args:
         args: List of command arguments
         command: The command type
-        
+
     Returns:
         Error message if validation fails, None if it passes
     """
@@ -650,16 +649,27 @@ def _validate_command_args(args: list[str], command: str) -> str | None:
     if not args:
         return "No command arguments provided"
 
-    # Special validation for configmap creation
-    if len(args) >= 2 and args[0] == "create" and args[1] == "configmap":
-        # Need at least 3 args (create, configmap, name)
+    # Resource creation validation
+    if args and args[0] == "create":
+        # Check that resource type and name are provided
         if len(args) < 3:
-            return "configmap creation requires a name"
+            resource_type = args[1] if len(args) > 1 else "resource"
+            return f"{resource_type} creation requires a name"
 
-        # Check for potentially broken --from-literal arguments
+        # Check for potentially broken --from-literal arguments (applies
+        # seemingly exclusively to create secret and create configmap commands)
         for arg in args:
-            if arg.startswith("--from-literal=") and "=" not in arg[len("--from-literal="):]:
-                return "Invalid --from-literal format. Should be --from-literal=key=value"
+            if arg.startswith("--from-literal="):
+                # Check if there's a key=value format after the prefix
+                prefix = "--from-literal="
+                val_part = arg[len(prefix) :]
+
+                # Validate format: should have key=value part
+                if "=" not in val_part:
+                    return (
+                        "Invalid --from-literal format. "
+                        "Should be --from-literal=key=value"
+                    )
 
     # Success - no validation errors
     return None

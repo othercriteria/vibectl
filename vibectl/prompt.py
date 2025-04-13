@@ -264,9 +264,10 @@ Important:
 - Use standard kubectl syntax and conventions
 - If the request is unclear, use reasonable defaults
 - If the request is invalid or impossible, return 'ERROR: <reason>'
-- For commands with complex arguments (e.g., --from-literal with spaces, HTML, or special 
-  characters):
-  * PREFER creating a YAML file with '---' separator instead of inline --from-literal arguments
+- For commands with complex arguments (e.g., --from-literal with spaces, HTML, or
+  special characters):
+  * PREFER creating a YAML file with '---' separator instead of inline --from-literal
+    arguments
   * If --from-literal must be used, ensure values are properly quoted
 
 Example inputs and outputs:
@@ -1008,8 +1009,8 @@ confirming context, etc.).
 
 When suggesting next steps that involve creating resources with complex data:
 - Suggest using YAML manifest approaches rather than inline flags like --from-literal
-- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line text),
-  recommend explicit YAML creation using kubectl create/apply -f
+- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line
+  text), recommend explicit YAML creation using kubectl create/apply -f
 - Avoid suggesting command line arguments with quoted content when possible
 
 {get_formatting_instructions()}

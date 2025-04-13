@@ -39,31 +39,46 @@ def test_process_command_args_with_spaces() -> None:
     # Arguments with spaces should be preserved with shlex parsing
     cmd = 'create configmap test-map --from-literal=key="value with spaces"'
     args = _process_command_args(cmd, "create")
-    assert args == ["create", "configmap", "test-map", '--from-literal=key=value with spaces']
+    assert args == [
+        "create",
+        "configmap",
+        "test-map",
+        "--from-literal=key=value with spaces",
+    ]
 
 
 def test_process_command_args_with_multiple_literals() -> None:
     """Test command argument processing with multiple --from-literal values."""
     # Multiple from-literal arguments
-    cmd = ('create configmap test-map --from-literal=key1="value1" '
-           '--from-literal=key2="value with spaces"')
+    cmd = (
+        'create configmap test-map --from-literal=key1="value1" '
+        '--from-literal=key2="value with spaces"'
+    )
     args = _process_command_args(cmd, "create")
     assert args == [
-        "create", "configmap", "test-map",
-        '--from-literal=key1=value1',
-        '--from-literal=key2=value with spaces'
+        "create",
+        "configmap",
+        "test-map",
+        "--from-literal=key1=value1",
+        "--from-literal=key2=value with spaces",
     ]
 
 
 def test_process_command_args_html_content() -> None:
     """Test command argument processing with HTML content in values."""
     # HTML content in from-literal
-    cmd = ('create configmap nginx-config '
-           '--from-literal=index.html="<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"')
+    cmd = (
+        "create configmap nginx-config "
+        '--from-literal=index.html="<html><body>'
+        '<h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"'
+    )
     args = _process_command_args(cmd, "create")
+    html_value = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
     assert args == [
-        "create", "configmap", "nginx-config",
-        '--from-literal=index.html=<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>'
+        "create",
+        "configmap",
+        "nginx-config",
+        f"--from-literal=index.html={html_value}",
     ]
 
 
@@ -75,14 +90,19 @@ def test_create_display_command_basic() -> None:
 
 def test_create_display_command_with_spaces() -> None:
     """Test creating display command with spaces in args."""
-    html_content = '<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>'
+    html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
     display_cmd = _create_display_command(
-        ["create", "configmap", "nginx-config", f'--from-literal=index.html={html_content}'],
-        None
+        [
+            "create",
+            "configmap",
+            "nginx-config",
+            f"--from-literal=index.html={html_content}",
+        ],
+        None,
     )
     # The command display should include quoted version of the argument
-    assert 'from-literal=index.html=' in display_cmd
-    assert 'CTF-FLAG-1: K8S_MASTER' in display_cmd
+    assert "from-literal=index.html=" in display_cmd
+    assert "CTF-FLAG-1: K8S_MASTER" in display_cmd
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -99,10 +119,12 @@ def test_execute_command_with_spaces(
     mock_subprocess.return_value = mock_process
 
     # Run the command
-    html_content = '<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>'
+    html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
     args = [
-        "create", "configmap", "nginx-config",
-        f'--from-literal=index.html={html_content}'
+        "create",
+        "configmap",
+        "nginx-config",
+        f"--from-literal=index.html={html_content}",
     ]
     # Store output but not used in assertions
     _ = _execute_command(args, None)
@@ -120,7 +142,9 @@ def test_execute_command_with_spaces(
 
 @patch("subprocess.run")
 @patch("vibectl.command_handler.console_manager")
-def test_execute_command_integration_with_spaces(mock_console: Mock, mock_subprocess: Mock) -> None:
+def test_execute_command_integration_with_spaces(
+    mock_console: Mock, mock_subprocess: Mock
+) -> None:
     """Integration test simulating the configmap command issue."""
     # Configure mock subprocess
     mock_process = Mock()
@@ -132,9 +156,12 @@ def test_execute_command_integration_with_spaces(mock_console: Mock, mock_subpro
     from vibectl.command_handler import handle_vibe_request
 
     with patch("vibectl.command_handler._process_command_string") as mock_process_cmd:
-        # Mock the LLM response and command processing to simulate the problematic command
-        html_val = '<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>'
-        cmd_str = f'create configmap nginx-config --from-literal=index.html="{html_val}"'
+        # Mock the LLM response and command processing to simulate the
+        # problematic command
+        html = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
+        cmd = "create configmap nginx-config"
+        literal = f'--from-literal=index.html="{html}"'
+        cmd_str = f"{cmd} {literal}"
         mock_process_cmd.return_value = (cmd_str, None)
 
         with patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter:
@@ -147,6 +174,7 @@ def test_execute_command_integration_with_spaces(mock_console: Mock, mock_subpro
 
             # Call handle_vibe_request directly
             from vibectl.types import OutputFlags
+
             output_flags = OutputFlags(
                 show_raw=True,
                 show_vibe=True,
