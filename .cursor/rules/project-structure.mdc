@@ -73,7 +73,7 @@ examples:
       ```
       examples/your-example/STRUCTURE.md
       ```
-      
+
       Detail the example's structure there, and add a reference to it in the root STRUCTURE.md:
       ```markdown
       ## Examples
@@ -85,20 +85,20 @@ examples:
       A local STRUCTURE.md should include:
       ```markdown
       # Component Name Structure
-      
+
       Brief overview of this component's purpose.
-      
+
       ## Key Files
       - `file1.py`: Core functionality
       - `file2.py`: Supporting utilities
-      
+
       ## Directories
       - `subdir1/`: Purpose of this subdirectory
       - `subdir2/`: Purpose of this subdirectory
-      
+
       ## Interface with Main Project
       How this component connects to the rest of the project.
-      
+
       ## Configuration
       How to configure this component.
       ```

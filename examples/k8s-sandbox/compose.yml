@@ -1,0 +1,54 @@
+services:
+  sandbox:
+    build:
+      context: ../..
+      dockerfile: examples/k8s-sandbox/Dockerfile
+      args:
+        # Pass the host's Docker GID to the container build
+        DOCKER_GID: ${DOCKER_GID:-999}
+    privileged: true  # Needed for running docker inside the container (for Kind)
+    # Use random host ports to avoid port conflicts but fixed internal ports
+    ports:
+      - "0:30001"  # First challenge port
+      - "0:30002"  # Second challenge port
+      - "0:30003"  # Third challenge port
+    environment:
+      - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
+      - VIBECTL_MODEL=claude-3.7-sonnet
+      # Fixed internal ports for simplicity
+      - NODE_PORT_1=30001
+      - NODE_PORT_2=30002
+      - NODE_PORT_3=30003
+      # Not using HOST_PORT vars anymore since we're using dynamically assigned ports
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Mount docker socket for Kind
+    networks:
+      - ctf-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+
+  poller:
+    build:
+      context: ./poller
+      dockerfile: Dockerfile
+    depends_on:
+      sandbox:
+        condition: service_healthy
+    environment:
+      - TARGET_HOST=sandbox
+      - PORT_1=30001  # These are internal container ports
+      - PORT_2=30002
+      - PORT_3=30003
+      - "EXPECTED_FLAG_1=CTF-FLAG-1: K8S_MASTER"
+      - "EXPECTED_FLAG_2=CTF-FLAG-2: VIBECTL_PRO"
+      - "EXPECTED_FLAG_3=CTF-FLAG-3: CHALLENGE_COMPLETE"
+    networks:
+      - ctf-network
+
+networks:
+  ctf-network:
+    driver: bridge

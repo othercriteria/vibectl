@@ -57,20 +57,20 @@ actions:
       # Verify what's being committed
       echo "Checking actual changes to be committed..."
       CHANGED_FILES=$(git diff --cached --name-only)
-      
+
       if [ -z "$CHANGED_FILES" ]; then
         echo "Error: No files staged for commit. Use git add to stage changes."
         exit 1
       fi
-      
+
       echo "Files to be committed:"
       echo "$CHANGED_FILES"
       echo ""
-      
+
       echo "Summary of changes:"
       git diff --cached --stat
       echo ""
-      
+
       # Process commit message parts preserving actual newlines
       # Split multiline inputs into separate -m arguments
       create_m_args() {
@@ -165,7 +165,7 @@ examples:
     output: |
       # First check what's actually changing
       git diff --staged
-      
+
       # Confirm the changes match your understanding, then commit:
       git commit \
         -m "fix: improve YAML parsing error handling" \
@@ -180,4 +180,4 @@ examples:
 
 metadata:
   priority: high
-  version: 1.0 
+  version: 1.0
