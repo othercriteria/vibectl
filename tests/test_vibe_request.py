@@ -263,9 +263,7 @@ def test_handle_vibe_request_llm_output_parsing(
     mock_handle_exception.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_command_error(
-    mock_handle_exception: MagicMock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: Mock,
@@ -280,24 +278,54 @@ def test_handle_vibe_request_command_error(
     # Set up kubectl to throw an exception
     mock_run_kubectl.side_effect = Exception("Command failed")
 
-    # Call function
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: show me the pods",
-    ):
-        handle_vibe_request(
-            request="show me the pods",
-            command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
-            output_flags=standard_output_flags,
-        )
+    # Create a dummy stdout capture to verify the expected pattern
+    import sys
+    from io import StringIO
 
-    # Verify exception was handled
-    mock_handle_exception.assert_called_once_with(mock_run_kubectl.side_effect)
+    captured_stdout = StringIO()
+    original_stdout = sys.stdout
+    captured_stderr = StringIO()
+    original_stderr = sys.stderr
 
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
+    sys.stdout = captured_stdout
+    sys.stderr = captured_stderr
+
+    try:
+        # Call function
+        with patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: show me the pods",
+        ):
+            handle_vibe_request(
+                request="show me the pods",
+                command="get",
+                plan_prompt="Plan this: {request}",
+                summary_prompt_func=get_test_summary_prompt,
+                output_flags=standard_output_flags,
+            )
+
+        # Restore streams
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        output = captured_stdout.getvalue()
+
+        # The new robustness improvements print errors to stderr directly
+        # and don't use mock_handle_exception anymore
+        # Instead, verify the call to run_kubectl
+        mock_run_kubectl.assert_called_once()
+
+        # Verify recovery suggestions were shown
+        assert mock_llm.execute.call_count >= 2
+
+        # Verify the output contains the expected pattern
+        # (vibe check with recovery suggestions)
+        assert "✨ Vibe check:" in output
+        assert "Test response" in output
+
+    finally:
+        # Ensure stdout and stderr are restored even if there's an exception
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
 
 
 @patch("vibectl.command_handler.handle_exception")

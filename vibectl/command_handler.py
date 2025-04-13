@@ -191,13 +191,16 @@ def handle_vibe_request(
     """Handle a request to execute a kubectl command based on a natural language query.
 
     Args:
-        request: The natural language request
-        command: The kubectl command type (get, describe, etc.)
-        plan_prompt: The prompt template for planning
-        summary_prompt_func: Function that provides the prompt for summarizing output
-        output_flags: Configuration for output display
+        request: Natural language request from the user
+        command: Command type (get, describe, etc.)
+        plan_prompt: LLM prompt template for planning the kubectl command
+        summary_prompt_func: Function that returns the LLM prompt for summarizing
+        output_flags: Output configuration flags
         yes: Whether to bypass confirmation prompts
-        autonomous_mode: Whether we're in autonomous mode
+        autonomous_mode: Whether this is operating in autonomous mode
+
+    Returns:
+        None
     """
     try:
         # Plan the kubectl command based on the request
@@ -253,7 +256,46 @@ def handle_vibe_request(
                     return
 
             # Execute the command and get output
-            output = _execute_command(args, yaml_content)
+            try:
+                output = _execute_command(args, yaml_content)
+            except Exception as cmd_error:
+                # Provide a more helpful error message and recovery suggestions
+                error_message = f"Command execution error: {cmd_error}"
+                console_manager.print_error(error_message)
+
+                # Capture error for memory update
+                output = f"Error: {cmd_error}"
+
+                # Generate recovery suggestions from the model
+                try:
+                    recovery_prompt = f"""
+                    The following kubectl command failed with an error:
+                    kubectl {display_cmd}
+
+                    Error: {cmd_error}
+
+                    Explain the error in simple terms and provide 2-3 alternative
+                    approaches to fix the issue.
+                    Focus on common syntax issues or kubectl command structure problems.
+                    Keep your response under 400 tokens.
+                    """
+                    recovery_suggestions = model_adapter.execute(model, recovery_prompt)
+                    console_manager.print_vibe(recovery_suggestions)
+
+                    # Include recovery suggestions in output for memory
+                    output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
+                except Exception:
+                    # If even the recovery suggestions fail, at least don't crash
+                    pass
+
+                # Process the output for memory update (don't return early)
+                handle_command_output(
+                    output=output,
+                    output_flags=output_flags,
+                    summary_prompt_func=summary_prompt_func,
+                    command=display_cmd,
+                )
+                return
         except ValueError as ve:
             # Handle command parsing/processing errors explicitly
             console_manager.print_error(f"Command parsing error: {ve}")
@@ -271,7 +313,18 @@ def handle_vibe_request(
             command=display_cmd,
         )
     except Exception as e:
-        handle_exception(e)
+        # Print error but don't exit the process for non-critical errors
+        console_manager.print_error(f"Error: {e}")
+
+        # If this seems to be a command execution error, add more context
+        if "kubectl" in str(e).lower() or "command" in str(e).lower():
+            console_manager.print_note(
+                "This appears to be a kubectl command error. "
+                "You can try rephrasing your request or using 'vibectl just' "
+                "to run raw kubectl commands directly."
+            )
+
+        # Don't call handle_exception which would exit the process
 
 
 def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
@@ -283,6 +336,37 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     Returns:
         Tuple of (command arguments, YAML content or None)
     """
+    # Check for heredoc syntax (create -f - << EOF)
+    if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
+        # Find the start of the heredoc
+        if " << EOF" in kubectl_cmd:
+            cmd_parts = kubectl_cmd.split(" << EOF", 1)
+        else:
+            cmd_parts = kubectl_cmd.split(" <<EOF", 1)
+
+        cmd_args = cmd_parts[0].strip()
+        yaml_content = None
+
+        # If there's content after the heredoc marker, treat it as YAML
+        if len(cmd_parts) > 1:
+            yaml_content = cmd_parts[1].strip()
+            # Remove trailing EOF if present
+            if yaml_content.endswith("EOF"):
+                yaml_content = yaml_content[:-3].strip()
+
+        # If command contains -f -, strip it as we'll add it explicitly when executing
+        if " -f - " in cmd_args:
+            cmd_args = cmd_args.replace(" -f - ", " ")
+        elif " -f -" in cmd_args:
+            cmd_args = cmd_args.replace(" -f -", "")
+
+        # For create commands in heredoc, ensure we maintain the structure
+        # This is important for proper command validation
+        if cmd_args.startswith("create") and "create " not in cmd_args:
+            cmd_args = "create " + cmd_args[6:].strip()
+
+        return cmd_args, yaml_content
+
     # Check for YAML content separated by --- (common in kubectl manifests)
     cmd_parts = kubectl_cmd.split("---", 1)
     cmd_args = cmd_parts[0].strip()
@@ -494,9 +578,48 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     import subprocess
     import tempfile
 
-    # Create a temporary file with the YAML content
+    import yaml
+
+    # Try to parse the YAML to normalize indentation and format
+    normalized_yaml = yaml_content
+    try:
+        # For multi-document YAML (separated by ---), split and process each document
+        if "\n---" in yaml_content:
+            # Split by --- marker but preserve the marker in the output
+            docs = yaml_content.split("\n---")
+            parsed_docs = []
+
+            for i, doc in enumerate(docs):
+                # Skip empty documents
+                if doc.strip():
+                    # Parse and dump each document
+                    try:
+                        doc_content = doc.strip()
+                        # For the first document, remove leading --- if present
+                        if i == 0 and doc_content.startswith("---"):
+                            doc_content = doc_content[3:].strip()
+
+                        # Parse and dump to normalize format
+                        parsed = yaml.safe_load(doc_content)
+                        parsed_docs.append(yaml.dump(parsed, default_flow_style=False))
+                    except Exception:
+                        # If parsing fails, keep original document
+                        parsed_docs.append(doc)
+
+            # Join documents with --- separator
+            normalized_yaml = "---\n" + "\n---\n".join(parsed_docs)
+        else:
+            # Single YAML document
+            parsed = yaml.safe_load(yaml_content)
+            normalized_yaml = yaml.dump(parsed, default_flow_style=False)
+    except Exception:
+        # If YAML parsing fails, use original content but make sure it's properly
+        # formatted
+        normalized_yaml = yaml_content.strip()
+
+    # Create a temporary file with the normalized YAML content
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as temp:
-        temp.write(yaml_content)
+        temp.write(normalized_yaml)
         temp_path = temp.name
 
     try:
