@@ -50,15 +50,24 @@ print_status() {
 
 # Wait for the sandbox to be ready
 echo -e "${YELLOW}Waiting for sandbox Kubernetes cluster to be ready...${NC}"
-until curl -s --connect-timeout 2 "http://$TARGET_HOST:$PORT_1" -o /dev/null -w '' 2>/dev/null || \
-      curl -s --connect-timeout 2 "http://$TARGET_HOST:$PORT_2" -o /dev/null -w '' 2>/dev/null || \
-      curl -s --connect-timeout 2 "http://$TARGET_HOST:$PORT_3" -o /dev/null -w '' 2>/dev/null
-do
-  echo -e "${YELLOW}Sandbox services not ready yet, waiting...${NC}"
-  sleep 5
+
+# Wait for the sandbox container to be ready based on the healthcheck
+# This is different than waiting for the services to be up
+SANDBOX_READY=false
+while ! $SANDBOX_READY; do
+  echo -e "${YELLOW}Checking if sandbox container is ready...${NC}"
+
+  # Try to ping the target host to check if it's up
+  if ping -c 1 "$TARGET_HOST" >/dev/null 2>&1; then
+    echo -e "${GREEN}Sandbox container is reachable!${NC}"
+    SANDBOX_READY=true
+  else
+    echo -e "${YELLOW}Sandbox container not ready yet, waiting...${NC}"
+    sleep 5
+  fi
 done
 
-echo -e "${GREEN}Sandbox Kubernetes cluster is up! Starting to poll...${NC}"
+echo -e "${GREEN}Sandbox is up! Starting to poll for services...${NC}"
 
 # Main polling loop
 while true; do

@@ -16,9 +16,36 @@ if [ -z "$VIBECTL_MODEL" ]; then
   echo "ℹ️ VIBECTL_MODEL not set, defaulting to $VIBECTL_MODEL"
 fi
 
-# Explicitly export API key to make sure it's available for vibectl and llm
+# Explicitly export API keys for all relevant tools - set both versions to ensure compatibility
+# Environment variables are the most reliable way to set these across different tools
 export VIBECTL_ANTHROPIC_API_KEY="$VIBECTL_ANTHROPIC_API_KEY"
 export ANTHROPIC_API_KEY="$VIBECTL_ANTHROPIC_API_KEY"
+
+# Set up LLM tool API keys directly
+echo "🔑 Setting up LLM tool API keys..."
+# Get the exact path for the keys.json file from the llm tool
+LLM_KEYS_PATH=$(llm keys path)
+if [ -z "$LLM_KEYS_PATH" ]; then
+  echo "❌ ERROR: Could not determine keys path from llm tool."
+  echo "This is required for the sandbox to work properly."
+  exit 1
+fi
+echo "📁 Using LLM keys path: $LLM_KEYS_PATH"
+
+# Ensure the directory exists
+mkdir -p "$(dirname "$LLM_KEYS_PATH")"
+
+# Write the keys file
+cat > "$LLM_KEYS_PATH" << EOF
+{
+  "anthropic": "$VIBECTL_ANTHROPIC_API_KEY"
+}
+EOF
+chmod 600 "$LLM_KEYS_PATH"
+echo "✅ LLM API key set via direct file configuration"
+
+# Set up OpenAI key as an empty value to avoid errors
+export OPENAI_API_KEY=""
 
 # Check Docker socket permissions
 if ! docker ps >/dev/null 2>&1; then
@@ -104,13 +131,6 @@ vibectl config set memory_max_chars 1000
 echo "🔧 Configuring vibectl model..."
 vibectl config set model "$VIBECTL_MODEL"
 
-# Set environment variables for the API key - this is the most reliable method
-# We're already exporting them above, but we'll make this section more visible
-echo "🔑 Configuring vibectl API keys..."
-echo "Using environment variables for API key configuration"
-# Environment variables have precedence over config settings, so this is the safest approach
-# No need to use vibectl config set as it doesn't properly handle nested values
-
 # Initialize the challenge with specific memory instructions
 echo "🧠 Setting up vibectl memory with CTF challenges..."
 CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
@@ -123,13 +143,22 @@ CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to c
 
 # Set vibectl memory with the challenges
 vibectl memory set "$CHALLENGE_MEMORY"
+echo "Memory set"
 
 # Start vibectl in autonomous mode with auto-confirmation
 echo "🤖 Starting vibectl in autonomous mode..."
 echo "📝 CTF challenge has begun! Internal ports ${NODE_PORT_1}, ${NODE_PORT_2}, and ${NODE_PORT_3} will be monitored by the poller."
 
-# Loop to repeatedly execute vibectl vibe with auto-confirmation
-while true; do
+# Simple function to run vibectl vibe with yes for auto-confirmation
+run_vibectl() {
+  # Run vibectl with yes to auto-confirm
+  echo "🔄 Running vibectl vibe..."
   yes | vibectl vibe
+}
+
+# Loop to repeatedly execute vibectl vibe with auto-confirmation
+echo "🔄 Starting main vibectl loop..."
+while true; do
+  run_vibectl
   sleep 10
 done

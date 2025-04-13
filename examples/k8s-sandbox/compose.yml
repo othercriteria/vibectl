@@ -48,6 +48,11 @@ services:
       - "EXPECTED_FLAG_3=CTF-FLAG-3: CHALLENGE_COMPLETE"
     networks:
       - ctf-network
+    healthcheck:
+      test: ["CMD", "ping", "-c", "1", "sandbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   ctf-network:
