@@ -52,3 +52,6 @@ htmlcov/
 .ruff_cache/
 .hypothesis/
 prof/
+
+# Ignore coverage annotated files
+*.cover
