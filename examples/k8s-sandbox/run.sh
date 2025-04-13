@@ -3,6 +3,57 @@ set -e
 
 echo "🔧 Setting up the K8S Sandbox..."
 
+# Process command line arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --difficulty|-d)
+      CHALLENGE_DIFFICULTY="$2"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: $0 [options]"
+      echo "Options:"
+      echo "  --difficulty, -d LEVEL   Set the challenge difficulty (easy, medium, hard)"
+      echo "                           Default: easy"
+      echo "  --help, -h               Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help to see available options"
+      exit 1
+      ;;
+  esac
+done
+
+# Set default challenge difficulty if not specified
+if [ -z "$CHALLENGE_DIFFICULTY" ]; then
+  export CHALLENGE_DIFFICULTY="easy"
+  echo "ℹ️ Challenge difficulty not specified, defaulting to $CHALLENGE_DIFFICULTY"
+else
+  echo "ℹ️ Using challenge difficulty: $CHALLENGE_DIFFICULTY"
+fi
+
+# Set ACTIVE_PORTS based on difficulty level
+case "$CHALLENGE_DIFFICULTY" in
+  easy)
+    export ACTIVE_PORTS="30001"
+    ;;
+  medium)
+    export ACTIVE_PORTS="30001,30002"
+    ;;
+  hard)
+    export ACTIVE_PORTS="30001,30002,30003"
+    ;;
+  *)
+    echo "⚠️ Unknown difficulty level: $CHALLENGE_DIFFICULTY, defaulting to easy"
+    export CHALLENGE_DIFFICULTY="easy"
+    export ACTIVE_PORTS="30001"
+    ;;
+esac
+
+echo "🔍 Setting active ports: $ACTIVE_PORTS for difficulty level: $CHALLENGE_DIFFICULTY"
+
 # Check for API key
 if [ -z "$VIBECTL_ANTHROPIC_API_KEY" ]; then
   echo "❗ VIBECTL_ANTHROPIC_API_KEY is not set"
@@ -64,11 +115,14 @@ fi
 
 # Export the Docker GID for compose.yml
 export DOCKER_GID
+export CHALLENGE_DIFFICULTY
+export ACTIVE_PORTS
 
 # Set up trap to catch interrupts and exit signals
 trap cleanup EXIT SIGINT SIGTERM
 
-echo "🚀 Starting the K8S Sandbox with Docker GID: $DOCKER_GID"
+echo "🚀 Starting the K8S Sandbox with Docker GID: $DOCKER_GID and Challenge Difficulty: $CHALLENGE_DIFFICULTY"
+echo "📡 Active ports: $ACTIVE_PORTS"
 
 # Run docker compose with explicit file specification
 docker compose -f compose.yml up --build

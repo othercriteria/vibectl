@@ -1,6 +1,6 @@
 # Kubernetes CTF Sandbox Structure
 
-This directory contains a Capture The Flag (CTF) style sandbox environment for testing vibectl's autonomous mode capabilities using an isolated Kubernetes environment.
+This directory contains a Capture The Flag (CTF) style sandbox environment for testing vibectl's autonomous mode capabilities using an isolated Kubernetes environment. The sandbox can be run with different difficulty levels to gradually train and test vibectl's capabilities.
 
 ## Key Files
 
@@ -8,12 +8,13 @@ This directory contains a Capture The Flag (CTF) style sandbox environment for t
   - Detects Docker GID
   - Checks for Anthropic API key and prompts if not set
   - Handles cleanup on exit
+  - Accepts `--difficulty` parameter to set challenge level
 - `start.sh`: Script executed inside the sandbox container to initialize Kind and challenge environment
   - Validates API key environment variables
   - Configures vibectl with the API key and model settings
-  - Sets up memory for the challenges
+  - Sets up memory for the challenges based on selected difficulty level
 - `compose.yml`: Docker Compose configuration defining the sandbox and poller services
-  - Passes API key from host environment to containers
+  - Passes API key and challenge difficulty from host environment to containers
 - `Dockerfile`: Container definition for the sandbox environment
 - `README.md`: User documentation for the sandbox
 - `STRUCTURE.md`: This file, documenting component structure
@@ -40,7 +41,23 @@ The sandbox operates with two main components in an isolated Docker network:
    - Polls each service port for the expected flag text
    - Reports completion status
    - Waits for sandbox container health check before starting
-   - Exits when all challenges are completed
+   - Exits when all challenges at the selected difficulty level are completed
+
+## Challenge Difficulty Levels
+
+The sandbox supports three difficulty levels:
+
+1. **Easy**: Creates a single service returning a flag text on port 30001
+   - Good for basic testing of vibectl's Kubernetes capabilities
+   - Requires minimal knowledge of Kubernetes objects
+
+2. **Medium**: Creates two services on ports 30001 and 30002
+   - Second service requires multiple replicas for resilience
+   - Tests more advanced deployment knowledge
+
+3. **Hard**: Creates three services on ports 30001, 30002, and 30003
+   - Third service requires using a ConfigMap
+   - Tests comprehensive knowledge of Kubernetes configuration objects
 
 ## Interface with Main Project
 
@@ -49,6 +66,7 @@ This sandbox demonstrates vibectl's autonomous capabilities by creating a contro
 - vibectl memory is initialized with challenge instructions
 - vibectl must infer kubectl commands to execute based on limited information
 - vibectl success is measured by external validation (poller)
+- Challenge difficulty can be adjusted to match vibectl's capabilities
 
 ## Configuration
 
@@ -56,6 +74,7 @@ The sandbox can be configured with the following environment variables:
 
 - `VIBECTL_ANTHROPIC_API_KEY`: Required API key for Claude (passed from host to container)
 - `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet)
+- `CHALLENGE_DIFFICULTY`: Difficulty level of challenges (easy, medium, hard)
 - `DOCKER_GID`: Docker group ID for socket access (auto-detected)
 
 ## API Key Handling
