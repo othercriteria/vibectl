@@ -7,7 +7,7 @@ import pytest
 from vibectl.command_handler import (
     _create_display_command,
     _execute_command,
-    _process_command_args,
+    _parse_command_args,
     _process_command_string,
     handle_vibe_request,
 )
@@ -31,18 +31,18 @@ def test_process_command_string_with_yaml() -> None:
     assert yaml_content == "---\napiVersion: v1\nkind: Pod"
 
 
-def test_process_command_args_basic() -> None:
-    """Test basic command argument processing."""
+def test_parse_command_args_basic() -> None:
+    """Test basic command argument parsing."""
     # Simple arguments
-    args = _process_command_args("create configmap test-map", "create")
+    args = _parse_command_args("create configmap test-map")
     assert args == ["create", "configmap", "test-map"]
 
 
-def test_process_command_args_with_spaces() -> None:
-    """Test command argument processing with spaces in values."""
+def test_parse_command_args_with_spaces() -> None:
+    """Test command argument parsing with spaces in values."""
     # Arguments with spaces should be preserved with shlex parsing
     cmd = 'create configmap test-map --from-literal=key="value with spaces"'
-    args = _process_command_args(cmd, "create")
+    args = _parse_command_args(cmd)
     assert args == [
         "create",
         "configmap",
@@ -51,15 +51,15 @@ def test_process_command_args_with_spaces() -> None:
     ]
 
 
-def test_process_command_args_with_multiple_literals() -> None:
-    """Test command argument processing with multiple --from-literal values."""
+def test_parse_command_args_with_multiple_literals() -> None:
+    """Test command argument parsing with multiple --from-literal values."""
     # Multiple from-literal arguments
     cmd = (
         "create secret generic api-creds "
         '--from-literal=username="user123" '
         '--from-literal=password="pass!with spaces"'
     )
-    args = _process_command_args(cmd, "create")
+    args = _parse_command_args(cmd)
     assert args == [
         "create",
         "secret",
@@ -70,15 +70,15 @@ def test_process_command_args_with_multiple_literals() -> None:
     ]
 
 
-def test_process_command_args_html_content() -> None:
-    """Test command argument processing with HTML content in values."""
+def test_parse_command_args_html_content() -> None:
+    """Test command argument parsing with HTML content in values."""
     # HTML content in from-literal
     cmd = (
         "create secret generic token-secret "
         '--from-literal=token="<token>eyJhbGciOiJIUzI1NiJ9.e30.'
         'ZRrHA1JJJW8opsbCGfG_HACGpVUMN_a9IV7pAx_Zmeo</token>"'
     )
-    args = _process_command_args(cmd, "create")
+    args = _parse_command_args(cmd)
     token_value = (
         "<token>eyJhbGciOiJIUzI1NiJ9.e30."
         "ZRrHA1JJJW8opsbCGfG_HACGpVUMN_a9IV7pAx_Zmeo</token>"
@@ -258,7 +258,7 @@ def test_process_command_string_heredoc() -> None:
 # Mark these as integration tests since they mock fewer components
 @patch("vibectl.command_handler._execute_command")  # Mock command execution
 @patch(
-    "vibectl.command_handler._process_command_args"
+    "vibectl.command_handler._parse_command_args"
 )  # Mock args processing to pass validation
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")
@@ -324,7 +324,7 @@ def test_handle_vibe_request_with_heredoc_integration(
 # Mark these as integration tests since they mock fewer components
 @patch("vibectl.command_handler._execute_command")  # Mock command execution
 @patch(
-    "vibectl.command_handler._process_command_args"
+    "vibectl.command_handler._parse_command_args"
 )  # Mock args processing to pass validation
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")

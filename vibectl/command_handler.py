@@ -14,6 +14,7 @@ from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
+from .prompt import recovery_prompt
 from .types import OutputFlags
 from .utils import handle_exception
 
@@ -228,14 +229,8 @@ def handle_vibe_request(
             # Process the command to extract YAML content and command arguments
             cmd_args, yaml_content = _process_command_string(kubectl_cmd)
 
-            # Process the arguments into a properly structured command
-            args = _process_command_args(cmd_args, command)
-
-            # Validate the command args for common issues before proceeding
-            validation_error = _validate_command_args(args, command)
-            if validation_error:
-                console_manager.print_error(f"Invalid command: {validation_error}")
-                return
+            # Convert command string to a list of arguments
+            args = _parse_command_args(cmd_args)
 
             # Create a display command for user feedback
             display_cmd = _create_display_command(args, yaml_content)
@@ -268,18 +263,9 @@ def handle_vibe_request(
 
                 # Generate recovery suggestions from the model
                 try:
-                    recovery_prompt = f"""
-                    The following kubectl command failed with an error:
-                    kubectl {display_cmd}
-
-                    Error: {cmd_error}
-
-                    Explain the error in simple terms and provide 2-3 alternative
-                    approaches to fix the issue.
-                    Focus on common syntax issues or kubectl command structure problems.
-                    Keep your response under 400 tokens.
-                    """
-                    recovery_suggestions = model_adapter.execute(model, recovery_prompt)
+                    # Use the recovery_prompt from prompt.py
+                    prompt = recovery_prompt(display_cmd, str(cmd_error))
+                    recovery_suggestions = model_adapter.execute(model, prompt)
                     console_manager.print_vibe(recovery_suggestions)
 
                     # Include recovery suggestions in output for memory
@@ -354,17 +340,6 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
             if yaml_content.endswith("EOF"):
                 yaml_content = yaml_content[:-3].strip()
 
-        # If command contains -f -, strip it as we'll add it explicitly when executing
-        if " -f - " in cmd_args:
-            cmd_args = cmd_args.replace(" -f - ", " ")
-        elif " -f -" in cmd_args:
-            cmd_args = cmd_args.replace(" -f -", "")
-
-        # For create commands in heredoc, ensure we maintain the structure
-        # This is important for proper command validation
-        if cmd_args.startswith("create") and "create " not in cmd_args:
-            cmd_args = "create " + cmd_args[6:].strip()
-
         return cmd_args, yaml_content
 
     # Check for YAML content separated by --- (common in kubectl manifests)
@@ -377,15 +352,14 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     return cmd_args, yaml_content
 
 
-def _process_command_args(cmd_args: str, command: str) -> list[str]:
-    """Process command arguments into a properly structured list.
+def _parse_command_args(cmd_args: str) -> list[str]:
+    """Parse command arguments into a list.
 
     Args:
         cmd_args: The command arguments string
-        command: The kubectl command type (get, describe, etc.)
 
     Returns:
-        List of command arguments with kubectl prefix removed and filtered
+        List of command arguments
     """
     import shlex
 
@@ -400,23 +374,6 @@ def _process_command_args(cmd_args: str, command: str) -> list[str]:
     # Remove 'kubectl' prefix if the model included it
     if args and args[0].lower() == "kubectl":
         args = args[1:]
-
-    # For certain commands, we want to make sure the command verb is the first argument
-    # This ensures correct kubectl command structure
-    commands_to_normalize = ["get", "describe", "logs", "delete", "scale"]
-
-    # Check if we need to normalize the command and it's not already normalized
-    if command in commands_to_normalize and (
-        not any(arg == command for arg in args) or args[0] != command
-    ):
-        # Remove the command if it's somewhere else in the args list
-        args = [arg for arg in args if arg != command]
-        # Add it at the beginning
-        args.insert(0, command)
-
-    # Special case for create command
-    if command == "create" and args and args[0] != "create":
-        args.insert(0, "create")
 
     # Filter out any kubeconfig flags that might be present
     # as they should be handled by run_kubectl, not included directly
@@ -578,67 +535,21 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     import subprocess
     import tempfile
 
-    import yaml
-
-    # Try to parse the YAML to normalize indentation and format
-    normalized_yaml = yaml_content
-    try:
-        # For multi-document YAML (separated by ---), split and process each document
-        if "\n---" in yaml_content:
-            # Split by --- marker but preserve the marker in the output
-            docs = yaml_content.split("\n---")
-            parsed_docs = []
-
-            for i, doc in enumerate(docs):
-                # Skip empty documents
-                if doc.strip():
-                    # Parse and dump each document
-                    try:
-                        doc_content = doc.strip()
-                        # For the first document, remove leading --- if present
-                        if i == 0 and doc_content.startswith("---"):
-                            doc_content = doc_content[3:].strip()
-
-                        # Parse and dump to normalize format
-                        parsed = yaml.safe_load(doc_content)
-                        parsed_docs.append(yaml.dump(parsed, default_flow_style=False))
-                    except Exception:
-                        # If parsing fails, keep original document
-                        parsed_docs.append(doc)
-
-            # Join documents with --- separator
-            normalized_yaml = "---\n" + "\n---\n".join(parsed_docs)
-        else:
-            # Single YAML document
-            parsed = yaml.safe_load(yaml_content)
-            normalized_yaml = yaml.dump(parsed, default_flow_style=False)
-    except Exception:
-        # If YAML parsing fails, use original content but make sure it's properly
-        # formatted
-        normalized_yaml = yaml_content.strip()
-
-    # Create a temporary file with the normalized YAML content
+    # Create a temporary file with the YAML content
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as temp:
-        temp.write(normalized_yaml)
+        temp.write(yaml_content)
         temp_path = temp.name
 
     try:
-        # For create commands, we need to use the -f flag correctly
-        if args[0] == "create":
-            # Include args except the command, which is at index [0]
-            # Add -f flag for the YAML file
-            cmd = ["kubectl", "create"]
-            # Add any other args that might have been provided
-            if len(args) > 1:
-                cmd.extend(args[1:])
+        # For create commands that might be using --from-literal or similar flags
+        # just pass the arguments as is and add the -f flag
+        cmd = ["kubectl", *args]
+
+        # Only add -f if we have YAML content and it's not already in the args
+        if yaml_content and not any(
+            arg == "-f" or arg.startswith("-f=") for arg in args
+        ):
             cmd.extend(["-f", temp_path])
-        else:
-            # For other commands that accept YAML, keep the original args
-            # but ensure they don't include -f which will be added separately
-            filtered_args = [
-                arg for arg in args if arg != "-f" and not arg.startswith("-f=")
-            ]
-            cmd = ["kubectl", *filtered_args, "-f", temp_path]
 
         console_manager.print_processing(f"Running: {' '.join(cmd)}")
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -714,85 +625,3 @@ def configure_output_flags(
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
     )
-
-
-def handle_command_with_options(
-    cmd: list[str],
-    show_raw_output: bool | None = None,
-    yaml: bool | None = None,
-    json: bool | None = None,
-    vibe: bool | None = None,
-    show_vibe: bool | None = None,
-    model: str | None = None,
-    show_kubectl: bool | None = None,
-    config: Config | None = None,
-) -> tuple[str, bool]:
-    """Handle command with output options.
-
-    Args:
-        cmd: Command to run
-        show_raw_output: Whether to show raw output
-        yaml: Whether to use yaml output
-        json: Whether to use json output
-        vibe: Whether to vibe the output
-        show_vibe: Whether to show vibe output
-        model: Model to use for vibe
-        show_kubectl: Whether to show kubectl commands
-        config: Config object
-
-    Returns:
-        Tuple of output and vibe status
-    """
-    # Configure output flags
-    output_flags = configure_output_flags(
-        show_raw_output, yaml, json, vibe, show_vibe, model, show_kubectl
-    )
-
-    # Run the command
-    output = run_kubectl(cmd, capture=True, config=config)
-
-    # Ensure we have a string
-    if output is None:
-        output = ""
-
-    return output, output_flags.show_vibe
-
-
-def _validate_command_args(args: list[str], command: str) -> str | None:
-    """Validate command arguments for common issues.
-
-    Args:
-        args: List of command arguments
-        command: The command type
-
-    Returns:
-        Error message if validation fails, None if it passes
-    """
-    # Check for empty args
-    if not args:
-        return "No command arguments provided"
-
-    # Resource creation validation
-    if args and args[0] == "create":
-        # Check that resource type and name are provided
-        if len(args) < 3:
-            resource_type = args[1] if len(args) > 1 else "resource"
-            return f"{resource_type} creation requires a name"
-
-        # Check for potentially broken --from-literal arguments (applies
-        # seemingly exclusively to create secret and create configmap commands)
-        for arg in args:
-            if arg.startswith("--from-literal="):
-                # Check if there's a key=value format after the prefix
-                prefix = "--from-literal="
-                val_part = arg[len(prefix) :]
-
-                # Validate format: should have key=value part
-                if "=" not in val_part:
-                    return (
-                        "Invalid --from-literal format. "
-                        "Should be --from-literal=key=value"
-                    )
-
-    # Success - no validation errors
-    return None

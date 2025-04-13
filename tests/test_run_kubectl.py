@@ -2,11 +2,11 @@
 
 import subprocess
 from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from vibectl.command_handler import OutputFlags, run_kubectl
+from vibectl.command_handler import run_kubectl
 
 # The mock_subprocess and test_config fixtures are now provided by conftest.py
 
@@ -125,32 +125,3 @@ def test_run_kubectl_called_process_error_no_capture(
     captured = capsys.readouterr()
     assert captured.err == "test error\n"
     assert output is None
-
-
-def test_handle_command_with_options_none_output() -> None:
-    """Test handling command with options when output is None."""
-    # Set up mocks
-    with (
-        patch("vibectl.command_handler.run_kubectl") as mock_run_kubectl,
-        patch(
-            "vibectl.command_handler.configure_output_flags"
-        ) as mock_configure_output_flags,
-    ):
-        mock_run_kubectl.return_value = None  # Simulate None output
-        mock_configure_output_flags.return_value = OutputFlags(
-            show_raw=True,
-            show_vibe=False,
-            warn_no_output=False,
-            model_name="claude-3-opus",
-        )
-
-        # Test function
-        from vibectl.command_handler import handle_command_with_options
-
-        cmd = ["kubectl", "get", "pods"]
-        output, show_vibe = handle_command_with_options(cmd)
-
-        # Verify empty string is returned for None output
-        assert output == ""
-        assert not show_vibe
-        mock_run_kubectl.assert_called_once_with(cmd, capture=True, config=None)

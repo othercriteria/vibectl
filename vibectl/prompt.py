@@ -863,23 +863,20 @@ Here's the output:
 
 # Template for summarizing other rollout command outputs
 def rollout_general_prompt() -> str:
-    """Get the prompt template for summarizing other kubectl rollout commands.
-
-    Includes current datetime information for timestamp context. Used for commands
-    like undo, restart, pause, and resume.
+    """Get the prompt template for summarizing kubectl rollout output.
 
     Returns:
-        str: The rollout general prompt template with formatting instructions
+        str: The rollout general prompt template with current formatting instructions
     """
-    return f"""Summarize this kubectl rollout command output. Focus on what
-action was taken, the affected resources, and any important details or warnings.
+    return f"""Summarize this kubectl rollout command output.
+Focus on the key information about the rollout operation.
 
 {get_formatting_instructions()}
 
 Example format:
-[bold]deployment/api[/bold] rollout [green]successfully restarted[/green]
-[blue]All pods will be replaced[/blue]
-[italic]Check status with 'kubectl rollout status deployment/api'[/italic]
+[bold]Deployment rollout[/bold] [green]successful[/green]
+[blue]Updates applied[/blue] to [bold]my-deployment[/bold]
+[yellow]Warning: rollout took longer than expected[/yellow]
 
 Here's the output:
 
@@ -992,10 +989,11 @@ Request: {request}"""
 
 # Template for summarizing vibe autonomous command output
 def vibe_autonomous_prompt() -> str:
-    """Get the prompt template for summarizing the output of an autonomous vibe command.
+    """Get the prompt for generating autonomous kubectl commands based on
+    natural language.
 
     Returns:
-        str: The vibe autonomous prompt template with formatting instructions
+        str: The autonomous command generation prompt
     """
     return f"""Analyze this kubectl command output and provide a concise summary.
 Focus on the state of the resources, any issues detected, and suggest logical
@@ -1028,3 +1026,28 @@ Next steps: Create the first pod or deployment in this namespace using a YAML ma
 Here's the output:
 
 {{output}}"""
+
+
+def recovery_prompt(command: str, error: str) -> str:
+    """Get the prompt template for generating recovery suggestions when a command fails.
+
+    Args:
+        command: The kubectl command that failed
+        error: The error message
+
+    Returns:
+        str: The recovery prompt template
+    """
+    return f"""
+The following kubectl command failed with an error:
+kubectl {command}
+
+Error: {error}
+
+Explain the error in simple terms and provide 2-3 alternative approaches to
+fix the issue.
+
+Focus on common syntax issues or kubectl command structure problems.
+
+Keep your response under 400 tokens.
+"""
