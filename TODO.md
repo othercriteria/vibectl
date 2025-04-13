@@ -11,6 +11,12 @@
 - Update configuration examples with new key management options
 - Include migration guide for users coming from older versions
 
+## Configuration System Improvements
+- Fix config system to properly handle nested keys (e.g., `model_keys.anthropic`) in the `set` command
+- Add validation and helpful error messages for nested config operations
+- Ensure CLI experience matches documented interface in MODEL_KEYS.md
+- Implement proper escaping for special characters in config values
+
 ## Performance Optimization
 - Profile key loading performance in different environments
 - Identify and optimize any remaining slow paths

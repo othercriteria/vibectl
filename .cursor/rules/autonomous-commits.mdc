@@ -64,55 +64,9 @@ actions:
         fi
       fi
 
-      # Process commit message parts preserving actual newlines
-      # Split multiline inputs into separate -m arguments
-      create_m_args() {
-        local input="$1"
-        local args=""
-
-        # Skip if empty or "None"
-        if [[ -z "$input" || "$input" == "None" ]]; then
-          echo ""
-          return
-        fi
-
-        # Create a temporary file for line-by-line processing
-        local tmpfile=$(mktemp)
-        echo "$input" > "$tmpfile"
-
-        # Read line by line and create -m arguments
-        while IFS= read -r line; do
-          args="$args -m \"$line\""
-        done < "$tmpfile"
-
-        rm "$tmpfile"
-        echo "$args"
-      }
-
-      # Create -m arguments for each section
-      CONCISE_ARG="-m \"{type}: {concise description}\""
-      DESCRIPTION_ARGS=$(create_m_args "{detailed description if needed}")
-
-      # Add empty line before breaking changes if they exist
-      if [[ -n "{breaking changes if any}" && "{breaking changes if any}" != "None" ]]; then
-        BREAKING_HEADER="-m \"\" -m \"Breaking Changes:\""
-        BREAKING_ARGS=$(create_m_args "{breaking changes if any}")
-      else
-        BREAKING_HEADER=""
-        BREAKING_ARGS=""
-      fi
-
-      # Add empty line before related issues if they exist
-      if [[ -n "{related issues/tickets}" && "{related issues/tickets}" != "None" ]]; then
-        ISSUES_HEADER="-m \"\" -m \"Related Issues:\""
-        ISSUES_ARGS=$(create_m_args "{related issues/tickets}")
-      else
-        ISSUES_HEADER=""
-        ISSUES_ARGS=""
-      fi
-
-      # Construct the final git commit command with all arguments
-      eval git commit $CONCISE_ARG $DESCRIPTION_ARGS $BREAKING_HEADER $BREAKING_ARGS $ISSUES_HEADER $ISSUES_ARGS
+      # Defer to commit-message rule for message formatting
+      # The placeholder values will be filled by the commit-message rule
+      git commit -m "{type}: {concise description}"
 
   - type: reject
     conditions:
@@ -132,38 +86,6 @@ criteria:
     - Test coverage meets target (100%) or exclusions documented
     - No undocumented "pragma: no cover" directives
 
-commit_message_format: |
-  {type}: {concise description}
-
-  {detailed description if needed}
-
-  Breaking Changes:
-  {breaking changes if any}
-
-  Related Issues: {related issues/tickets}
-
-types:
-  - feat: New feature
-  - fix: Bug fix
-  - refactor: Code restructuring
-  - docs: Documentation updates
-  - test: Test additions/updates
-  - chore: Maintenance tasks
-
-examples:
-  - input: "Fixed YAML parsing error handling with breaking changes"
-    output: |
-      git commit \
-        -m "fix: improve YAML parsing error handling" \
-        -m "Add error catching for YAMLError
-Add type validation
-Add tests for invalid cases" \
-        -m "" \
-        -m "Breaking Changes:" \
-        -m "- Changed error return type from string to structured Error object" \
-        -m "" \
-        -m "Related Issues: #456"
-
 metadata:
   priority: critical
-  version: 1.5
+  version: 2.0

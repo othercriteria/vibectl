@@ -21,6 +21,10 @@ This document provides an overview of the project's structure and organization.
 - Coverage tracking with pytest-cov
 - `.coveragerc` - Coverage measurement configuration
 
+### Examples (`examples/`)
+- Example usage scenarios and demo environments
+- `k8s-sandbox/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/STRUCTURE.md](examples/k8s-sandbox/STRUCTURE.md) for details.
+
 ### Type Information (`typings/`)
 - Custom type definitions and type stubs
 
@@ -34,6 +38,7 @@ This document provides an overview of the project's structure and organization.
   - `rules/` - Project-specific Cursor rules
     - `feature-worktrees.mdc` - Guidelines for using Git worktrees for feature development
     - `autonomous-commits.mdc` - Defines criteria and behavior for autonomous commits
+    - `commit-message.mdc` - Defines commit message format and best practices
     - `test-coverage.mdc` - Enforces high test coverage standards with documented exceptions
     - `slow-tests.mdc` - Monitors and enforces resolution of slow tests
     - `dry-test-fixtures.mdc` - Enforces DRY principles in test fixtures
@@ -185,6 +190,7 @@ The project is structured as a Python package with:
 - Tests separated in `tests/` directory
 - Type information in `typings/`
 - Documentation in `docs/` directory
+- Examples and demos in `examples/` directory
 
 Installation options:
 1. Standard pip installation for users (`pip install vibectl`)
