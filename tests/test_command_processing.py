@@ -1,6 +1,6 @@
 """Tests for command string processing functionality."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -256,10 +256,8 @@ def test_process_command_string_heredoc() -> None:
 
 
 # Mark these as integration tests since they mock fewer components
-@patch("vibectl.command_handler._execute_command")  # Mock command execution
-@patch(
-    "vibectl.command_handler._parse_command_args"
-)  # Mock args processing to pass validation
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler._parse_command_args")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.run_kubectl")
@@ -322,10 +320,8 @@ def test_handle_vibe_request_with_heredoc_integration(
 
 
 # Mark these as integration tests since they mock fewer components
-@patch("vibectl.command_handler._execute_command")  # Mock command execution
-@patch(
-    "vibectl.command_handler._parse_command_args"
-)  # Mock args processing to pass validation
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler._parse_command_args")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.run_kubectl")
@@ -439,3 +435,286 @@ spec:
     # Verify this YAML cannot be parsed
     with pytest.raises(yaml.error.YAMLError):
         yaml.safe_load(invalid_yaml)
+
+
+def test_parse_command_args_robust() -> None:
+    """Test command argument parsing with more complex cases."""
+    # Test that quotes are handled properly
+    args = _parse_command_args('create configmap test-map --from-literal="key=value"')
+    assert args == ["create", "configmap", "test-map", "--from-literal=key=value"]
+
+    # Test that complex quoting is handled properly
+    args = _parse_command_args(
+        "create secret generic my-secret --from-literal='user=admin' "
+        '--from-literal="password=secret with spaces"'
+    )
+    assert args == [
+        "create",
+        "secret",
+        "generic",
+        "my-secret",
+        "--from-literal=user=admin",
+        "--from-literal=password=secret with spaces",
+    ]
+
+    # Test that malformed quoting falls back to simple splitting
+    args = _parse_command_args('create configmap test-map --from-literal="key=value')
+    assert args == [
+        "create",
+        "configmap",
+        "test-map",
+        '--from-literal="key=value',
+    ]
+
+
+@patch("click.confirm")
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.handle_command_output")
+def test_handle_vibe_request_execution(
+    mock_handle_output: Mock,
+    mock_console: Mock,
+    mock_execute: Mock,
+    mock_confirm: Mock,
+    mock_llm: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Test vibe request handling with command execution."""
+    # Configure mock for click.confirm
+    mock_confirm.return_value = True
+
+    # Configure mock_llm for our test scenarios
+    mock_execute.return_value = "deployment.apps/test-deploy created"
+    mock_llm.execute.return_value = (
+        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
+        "metadata:\n  name: test-deploy\nEOF"
+    )
+
+    # Create test OutputFlags
+    output_flags = OutputFlags(
+        show_raw=True, show_vibe=True, warn_no_output=True, model_name="test-model"
+    )
+
+    # Call the function
+    handle_vibe_request(
+        request="deploy nginx with 3 replicas",
+        command="create",
+        plan_prompt="test prompt {request}",
+        summary_prompt_func=lambda: "test summary prompt",
+        output_flags=output_flags,
+        yes=False,  # Don't skip confirmation, let mock handle it
+    )
+
+    # Verify model adapter was called
+    assert mock_llm.execute.call_count == 1
+
+    # Verify _execute_command was called
+    mock_execute.assert_called_once()
+
+    # Verify handle_command_output was called
+    mock_handle_output.assert_called_once()
+
+    # Test with no command generated
+    mock_llm.reset_mock()
+    mock_execute.reset_mock()
+    mock_handle_output.reset_mock()
+    mock_console.reset_mock()
+
+    # Set up custom behavior for execute to help debug
+    def get_empty_command(*args: object, **kwargs: object) -> str:
+        return ""
+
+    # Configure mock for empty string scenario
+    mock_llm.execute.side_effect = get_empty_command
+
+    handle_vibe_request(
+        request="invalid request",
+        command="create",
+        plan_prompt="test prompt {request}",
+        summary_prompt_func=lambda: "test summary prompt",
+        output_flags=output_flags,
+    )
+
+    # Verify model adapter was called with the right arguments
+    assert mock_llm.execute.call_count == 1
+
+    # Verify print_error was called with the expected message
+    mock_console.print_error.assert_called_once_with(
+        "No kubectl command could be generated."
+    )
+
+    # Verify execute command was not called
+    mock_execute.assert_not_called()
+
+    # Test with error response
+    mock_llm.reset_mock()
+    mock_execute.reset_mock()
+    mock_handle_output.reset_mock()
+    mock_console.reset_mock()
+
+    # Configure mock for new scenario - explicitly use "ERROR:" prefix
+    mock_llm.execute.side_effect = None
+    mock_llm.execute.return_value = "ERROR: Invalid request"
+
+    handle_vibe_request(
+        request="invalid request",
+        command="create",
+        plan_prompt="test prompt {request}",
+        summary_prompt_func=lambda: "test summary prompt",
+        output_flags=output_flags,
+    )
+
+    # Verify model adapter was called
+    assert mock_llm.execute.call_count == 1
+
+    # Verify note was printed with the expected message
+    mock_console.print_note.assert_called_with(
+        "Planning to run: kubectl ERROR: Invalid request"
+    )
+
+    # Verify execute command was not called
+    mock_execute.assert_not_called()
+
+    # Test user rejecting the command
+    mock_llm.reset_mock()
+    mock_execute.reset_mock()
+    mock_handle_output.reset_mock()
+    mock_console.reset_mock()
+    mock_confirm.reset_mock()
+
+    # Configure mocks for rejection scenario
+    mock_llm.execute.return_value = (
+        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
+        "metadata:\n  name: test-deploy\nEOF"
+    )
+    mock_confirm.return_value = False  # User rejects the command
+
+    handle_vibe_request(
+        request="deploy nginx with 3 replicas",
+        command="create",
+        plan_prompt="test prompt {request}",
+        summary_prompt_func=lambda: "test summary prompt",
+        output_flags=output_flags,
+        yes=False,  # Don't skip confirmation
+    )
+
+    # Verify model adapter was called
+    assert mock_llm.execute.call_count == 1
+
+    # Verify confirmation was requested
+    mock_confirm.assert_called_once()
+
+    # Verify cancelled message was printed
+    mock_console.print_cancelled.assert_called_once()
+
+    # Verify execute command was not called (rejected)
+    mock_execute.assert_not_called()
+
+
+@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.command_handler.console_manager")
+def test_execute_stdin_command(mock_console: Mock, mock_popen: Mock) -> None:
+    """Test executing a command with stdin input (kubectl create -f -)."""
+    # Set up mock
+    mock_process = Mock()
+    mock_process.returncode = 0
+    mock_process.communicate.return_value = (b"deployment.apps/nginx created", b"")
+    mock_popen.return_value = mock_process
+
+    # YAML content to use
+    yaml_content = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+"""
+
+    # Call _execute_command with "create -f -" args
+    output = _execute_command(["create", "-f", "-"], yaml_content)
+
+    # Verify Popen was called with correct arguments
+    mock_popen.assert_called_once()
+    args, kwargs = mock_popen.call_args
+    assert args[0][0] == "kubectl"
+    assert args[0][1] == "create"
+    assert args[0][2] == "-f"
+    assert args[0][3] == "-"
+    assert "stdin" in kwargs
+    assert kwargs["stdout"] is not None
+    assert kwargs["stderr"] is not None
+
+    # Verify communicate was called with the YAML content
+    yaml_bytes = yaml_content.encode("utf-8")
+    mock_process.communicate.assert_called_once_with(input=yaml_bytes)
+
+    # Verify correct output was returned
+    assert "deployment.apps/nginx created" in output
+
+
+@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.command_handler.console_manager")
+def test_execute_stdin_command_with_other_flags(
+    mock_console: Mock, mock_popen: Mock
+) -> None:
+    """Test executing a command with stdin input and additional flags."""
+    # Set up mock
+    mock_process = Mock()
+    mock_process.returncode = 0
+    mock_process.communicate.return_value = (b"deployment.apps/nginx created", b"")
+    mock_popen.return_value = mock_process
+
+    # YAML content to use
+    yaml_content = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: test
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+"""
+
+    # Call _execute_command with "create -n test -f -" args (different order)
+    output = _execute_command(["create", "-n", "test", "-f", "-"], yaml_content)
+
+    # Verify Popen was called with correct arguments
+    mock_popen.assert_called_once()
+    args, kwargs = mock_popen.call_args
+    assert args[0][0] == "kubectl"
+    assert args[0][1] == "create"
+    assert args[0][2] == "-n"
+    assert args[0][3] == "test"
+    assert args[0][4] == "-f"
+    assert args[0][5] == "-"
+    assert "stdin" in kwargs
+
+    # Verify communicate was called with the YAML content
+    yaml_bytes = yaml_content.encode("utf-8")
+    mock_process.communicate.assert_called_once_with(input=yaml_bytes)
+
+    # Verify correct output was returned
+    assert "deployment.apps/nginx created" in output

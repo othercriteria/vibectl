@@ -535,35 +535,73 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     import subprocess
     import tempfile
 
-    # Create a temporary file with the YAML content
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as temp:
-        temp.write(yaml_content)
-        temp_path = temp.name
+    # Check if this is a stdin pipe command (kubectl ... -f -)
+    is_stdin_command = False
+    for i, arg in enumerate(args):
+        if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
+            is_stdin_command = True
+            break
 
-    try:
-        # For create commands that might be using --from-literal or similar flags
-        # just pass the arguments as is and add the -f flag
+    if is_stdin_command:
+        # For commands like kubectl create -f -, use Popen with stdin
         cmd = ["kubectl", *args]
-
-        # Only add -f if we have YAML content and it's not already in the args
-        if yaml_content and not any(
-            arg == "-f" or arg.startswith("-f=") for arg in args
-        ):
-            cmd.extend(["-f", temp_path])
-
         console_manager.print_processing(f"Running: {' '.join(cmd)}")
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        output = proc.stdout
-        if proc.returncode != 0:
-            raise Exception(
-                proc.stderr or f"Command failed with exit code {proc.returncode}"
-            )
-        return output
-    finally:
-        # Clean up the temporary file
-        import os
 
-        os.unlink(temp_path)
+        # Use bytes mode for Popen to avoid encoding issues
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,  # Use bytes mode
+        )
+
+        # Encode the YAML content to bytes
+        yaml_bytes = yaml_content.encode("utf-8")
+        stdout_bytes, stderr_bytes = process.communicate(input=yaml_bytes)
+
+        # Decode the output back to strings
+        stdout = stdout_bytes.decode("utf-8")
+        stderr = stderr_bytes.decode("utf-8")
+
+        if process.returncode != 0:
+            raise Exception(
+                stderr or f"Command failed with exit code {process.returncode}"
+            )
+
+        return stdout
+    else:
+        # For other commands, use a temporary file as before
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as temp:
+            temp.write(yaml_content)
+            temp_path = temp.name
+
+        try:
+            # For create commands that might be using --from-literal or similar flags
+            # just pass the arguments as is and add the -f flag
+            cmd = ["kubectl", *args]
+
+            # Only add -f if we have YAML content and it's not already in the args
+            if yaml_content and not any(
+                arg == "-f" or arg.startswith("-f=") for arg in args
+            ):
+                cmd.extend(["-f", temp_path])
+
+            console_manager.print_processing(f"Running: {' '.join(cmd)}")
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = proc.stdout
+            if proc.returncode != 0:
+                raise Exception(
+                    proc.stderr or f"Command failed with exit code {proc.returncode}"
+                )
+            return output
+        finally:
+            # Clean up the temporary file
+            import os
+
+            os.unlink(temp_path)
 
 
 def configure_output_flags(
