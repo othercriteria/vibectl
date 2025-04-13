@@ -221,32 +221,43 @@ def handle_vibe_request(
             console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
             return
 
-        # Process the command to extract YAML content and command arguments
-        cmd_args, yaml_content = _process_command_string(kubectl_cmd)
+        try:
+            # Process the command to extract YAML content and command arguments
+            cmd_args, yaml_content = _process_command_string(kubectl_cmd)
 
-        # Process the arguments into a properly structured command
-        args = _process_command_args(cmd_args, command)
+            # Process the arguments into a properly structured command
+            args = _process_command_args(cmd_args, command)
 
-        # Create a display command for user feedback
-        display_cmd = _create_display_command(args, yaml_content)
-
-        # Check if we need confirmation or if show_kubectl is enabled
-        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
-
-        # Show command if show_kubectl is True or confirmation needed
-        if output_flags.show_kubectl or needs_confirm:
-            console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
-
-        # If confirmation needed, ask now
-        if needs_confirm:
-            import click
-
-            if not click.confirm("Execute this command?"):
-                console_manager.print_cancelled()
+            # Validate the command args for common issues before proceeding
+            validation_error = _validate_command_args(args, command)
+            if validation_error:
+                console_manager.print_error(f"Invalid command: {validation_error}")
                 return
 
-        # Execute the command and get output
-        output = _execute_command(args, yaml_content)
+            # Create a display command for user feedback
+            display_cmd = _create_display_command(args, yaml_content)
+
+            # Check if we need confirmation or if show_kubectl is enabled
+            needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
+
+            # Show command if show_kubectl is True or confirmation needed
+            if output_flags.show_kubectl or needs_confirm:
+                console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+
+            # If confirmation needed, ask now
+            if needs_confirm:
+                import click
+
+                if not click.confirm("Execute this command?"):
+                    console_manager.print_cancelled()
+                    return
+
+            # Execute the command and get output
+            output = _execute_command(args, yaml_content)
+        except ValueError as ve:
+            # Handle command parsing/processing errors explicitly
+            console_manager.print_error(f"Command parsing error: {ve}")
+            return
 
         # Handle response - might be empty
         if not output:
@@ -292,8 +303,15 @@ def _process_command_args(cmd_args: str, command: str) -> list[str]:
     Returns:
         List of command arguments with kubectl prefix removed and filtered
     """
-    # Split into individual arguments
-    args = cmd_args.split()
+    import shlex
+
+    # Use shlex to properly handle quoted arguments
+    try:
+        # This preserves quotes and handles spaces in arguments properly
+        args = shlex.split(cmd_args)
+    except ValueError:
+        # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
+        args = cmd_args.split()
 
     # Remove 'kubectl' prefix if the model included it
     if args and args[0].lower() == "kubectl":
@@ -356,12 +374,30 @@ def _create_display_command(args: list[str], yaml_content: str | None) -> str:
         yaml_content: YAML content if present
 
     Returns:
-        Command string for display
+        Display-friendly command string
     """
-    display_cmd = " ".join(args)
+    import shlex
+
+    # Reconstruct the command for display
     if yaml_content:
-        display_cmd = f"{display_cmd} {yaml_content}"
-    return display_cmd
+        # For commands with YAML, show a simplified version
+        if args and args[0] == "create":
+            # For create, we show that it's using a YAML file
+            return f"{' '.join(args)} (with YAML content)"
+        else:
+            # For other commands, standard format with YAML note
+            return f"{' '.join(args)} -f (YAML content)"
+    else:
+        # For standard commands without YAML, quote arguments with spaces or special characters
+        display_args = []
+        for arg in args:
+            # Check if the argument needs quoting
+            if " " in arg or any(char in arg for char in '"\'<>|&;()'):
+                # Use shlex.quote to properly quote the argument
+                display_args.append(shlex.quote(arg))
+            else:
+                display_args.append(arg)
+        return " ".join(display_args)
 
 
 def _needs_confirmation(command: str, autonomous_mode: bool) -> bool:
@@ -399,9 +435,51 @@ def _execute_command(args: list[str], yaml_content: str | None) -> str:
     if yaml_content:
         return _execute_yaml_command(args, yaml_content)
     else:
-        # Regular command without YAML
-        cmd_output = run_kubectl(args, capture=True)
-        return "" if cmd_output is None else cmd_output
+        # Check if any arguments contain spaces or special characters that might need quoting
+        has_complex_args = any(
+            " " in arg or "<" in arg or ">" in arg for arg in args
+        )
+
+        if has_complex_args:
+            # Use direct subprocess execution with preserved argument structure
+            return _execute_command_with_complex_args(args)
+        else:
+            # Regular command without complex arguments
+            cmd_output = run_kubectl(args, capture=True)
+            return "" if cmd_output is None else cmd_output
+
+
+def _execute_command_with_complex_args(args: list[str]) -> str:
+    """Execute a kubectl command with complex arguments that need special handling.
+    
+    Args:
+        args: List of command arguments
+        
+    Returns:
+        Output of the command
+    """
+    import subprocess
+
+    # Build the full command to preserve argument structure
+    cmd = ["kubectl"]
+
+    # Add each argument, preserving structure that might have spaces or special characters
+    for arg in args:
+        cmd.append(arg)
+
+    console_manager.print_processing(f"Running: {' '.join(cmd)}")
+
+    # Run the command, preserving the argument structure
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+            return f"Error: {e.stderr}"
+        return f"Error: Command failed with exit code {e.returncode}"
 
 
 def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
@@ -556,3 +634,32 @@ def handle_command_with_options(
         output = ""
 
     return output, output_flags.show_vibe
+
+
+def _validate_command_args(args: list[str], command: str) -> str | None:
+    """Validate command arguments for common issues.
+    
+    Args:
+        args: List of command arguments
+        command: The command type
+        
+    Returns:
+        Error message if validation fails, None if it passes
+    """
+    # Check for empty args
+    if not args:
+        return "No command arguments provided"
+
+    # Special validation for configmap creation
+    if len(args) >= 2 and args[0] == "create" and args[1] == "configmap":
+        # Need at least 3 args (create, configmap, name)
+        if len(args) < 3:
+            return "configmap creation requires a name"
+
+        # Check for potentially broken --from-literal arguments
+        for arg in args:
+            if arg.startswith("--from-literal=") and "=" not in arg[len("--from-literal="):]:
+                return "Invalid --from-literal format. Should be --from-literal=key=value"
+
+    # Success - no validation errors
+    return None

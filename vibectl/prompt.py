@@ -264,6 +264,10 @@ Important:
 - Use standard kubectl syntax and conventions
 - If the request is unclear, use reasonable defaults
 - If the request is invalid or impossible, return 'ERROR: <reason>'
+- For commands with complex arguments (e.g., --from-literal with spaces, HTML, or special 
+  characters):
+  * PREFER creating a YAML file with '---' separator instead of inline --from-literal arguments
+  * If --from-literal must be used, ensure values are properly quoted
 
 Example inputs and outputs:
 
@@ -284,6 +288,19 @@ spec:
     image: nginx:latest
     ports:
     - containerPort: 80
+
+Input: "create a configmap with HTML content"
+Output:
+-n
+default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: html-content
+data:
+  index.html: |
+    <html><body><h1>Hello World</h1></body></html>
 
 Input: "create a deployment with 3 nginx replicas in prod namespace"
 Output:
@@ -889,6 +906,14 @@ Important:
 - After discovering empty namespaces or no pods/resources, progress to create
   needed resources rather than repeatedly checking empty resources
 
+Command Structure Guidelines:
+- For creating resources with complex data (HTML, strings with spaces, etc.):
+  * PREFER using YAML manifests with 'kubectl create -f <file.yaml>' approach
+  * If command-line flags like --from-literal must be used, ensure correct quoting
+- Avoid spaces in resource names when possible
+- Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
+- Each multi-line command should be explicit about line continuation with backslashes
+
 Example inputs and outputs:
 
 Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
@@ -918,8 +943,44 @@ Memory: "We're working only in the 'sandbox' namespace to demonstrate new featur
 Checked for pods but found none in the sandbox namespace."
 Input: "keep building the nginx demo"
 Output:
-kubectl create deployment nginx --image=nginx -n sandbox
+kubectl create -f - << EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+EOF
 NOTE: Creating nginx deployment as first step in building the demo
+
+Memory: "We need to create a configmap with HTML content in the 'web' namespace."
+Input: "create the configmap for the nginx website"
+Output:
+kubectl create -f - << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-html
+  namespace: web
+data:
+  index.html: |
+    <html><body><h1>Welcome to Nginx</h1><p>This is a demo website.</p></body></html>
+EOF
+NOTE: Creating configmap with HTML content for the nginx website
 
 Here's the current memory context and request:
 
@@ -945,6 +1006,12 @@ in the specified namespace or context. Include this fact in your interpretation
 and suggest appropriate next steps (e.g., creating resources, checking namespace,
 confirming context, etc.).
 
+When suggesting next steps that involve creating resources with complex data:
+- Suggest using YAML manifest approaches rather than inline flags like --from-literal
+- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line text),
+  recommend explicit YAML creation using kubectl create/apply -f
+- Avoid suggesting command line arguments with quoted content when possible
+
 {get_formatting_instructions()}
 
 Example format:
@@ -955,7 +1022,7 @@ Next steps: Consider checking logs for database pod or scaling the deployment
 
 For empty output examples:
 [yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
-Next steps: Create the first pod or deployment in this namespace
+Next steps: Create the first pod or deployment in this namespace using a YAML manifest
 
 Here's the output:
 
