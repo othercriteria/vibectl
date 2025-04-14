@@ -23,6 +23,7 @@ from .command_handler import (
     handle_command_output,
     handle_standard_command,
     handle_vibe_request,
+    handle_wait_with_live_display,
     run_kubectl,
 )
 from .config import Config
@@ -1600,6 +1601,12 @@ def resume(
 @click.option(
     "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
 )
+@click.option(
+    "--live-display/--no-live-display",
+    is_flag=True,
+    default=True,
+    help="Show a live spinner with elapsed time during waiting",
+)
 def wait(
     resource: str,
     args: tuple,
@@ -1609,8 +1616,13 @@ def wait(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    live_display: bool = True,
 ) -> None:
-    """Wait for a specific condition on one or more resources."""
+    """Wait for a specific condition on one or more resources.
+
+    Shows a live spinner with elapsed time while waiting for resources
+    to meet their specified conditions.
+    """
     try:
         # Configure output flags
         output_flags = configure_output_flags(
@@ -1642,14 +1654,22 @@ def wait(
                 handle_exception(e)
             return
 
-        # Handle standard command
-        handle_standard_command(
-            command="wait",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=wait_resource_prompt,
-        )
+        # Handle command with live display
+        if live_display:
+            handle_wait_with_live_display(
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+            )
+        else:
+            # Standard command without live display
+            handle_standard_command(
+                command="wait",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=wait_resource_prompt,
+            )
     except Exception as e:
         handle_exception(e)
 

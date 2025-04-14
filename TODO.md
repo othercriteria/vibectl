@@ -23,6 +23,14 @@
 - Add benchmarking tests for model loading times
 - Implement metrics collection for model usage and performance
 
+## Future Rich Display Improvements for Wait Command
+Consider implementing rich progress displays for the wait command in the future:
+- Add animated waiting indicators with elapsed time tracking
+- Show live status updates as resources are checked
+- Integrate with logs to provide context during waiting
+- Support multi-resource dependencies and detailed progress tracking
+- Ensure proper unit testing strategy for complex terminal UI elements
+
 ## Future MCP Integration
 While full [Model Context Protocol](https://github.com/modelcontextprotocol/python-sdk) implementation is out of scope currently, future work should:
 

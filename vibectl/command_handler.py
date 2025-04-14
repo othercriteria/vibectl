@@ -5,16 +5,22 @@ Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
 """
 
+import asyncio
 import subprocess
 import sys
+import time
 from collections.abc import Callable
+from contextlib import suppress
+
+import click
+from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
 
 from .config import Config
 from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
-from .prompt import recovery_prompt
+from .prompt import recovery_prompt, wait_resource_prompt
 from .types import OutputFlags
 from .utils import handle_exception
 
@@ -243,12 +249,9 @@ def handle_vibe_request(
                 console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
 
             # If confirmation needed, ask now
-            if needs_confirm:
-                import click
-
-                if not click.confirm("Execute this command?"):
-                    console_manager.print_cancelled()
-                    return
+            if needs_confirm and not click.confirm("Execute this command?"):
+                console_manager.print_cancelled()
+                return
 
             # Execute the command and get output
             try:
@@ -663,3 +666,184 @@ def configure_output_flags(
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
     )
+
+
+def handle_wait_with_live_display(
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+) -> None:
+    """Handle wait command with a live spinner and elapsed time display.
+
+    Args:
+        resource: Resource to wait for
+        args: Command line arguments
+        output_flags: Output configuration flags
+    """
+    # Extract the condition from args for display
+    condition = "condition"
+    for arg in args:
+        if arg.startswith("--for="):
+            condition = arg[6:]
+            break
+
+    # Create the command for display
+    display_text = f"Waiting for {resource} to meet {condition}"
+
+    # Track start time to calculate total duration
+    start_time = time.time()
+
+    # This is our async function to run the kubectl wait command
+    async def async_run_wait_command() -> str | None:
+        """Run kubectl wait command asynchronously."""
+        # Build command list
+        cmd_args = ["wait", resource]
+        if args:
+            cmd_args.extend(args)
+
+        # Execute the command in a separate thread to avoid blocking the event loop
+        # We use asyncio.to_thread to run the blocking kubectl call in a thread pool
+        return await asyncio.to_thread(run_kubectl, cmd_args, capture=True)
+
+    # Create a coroutine to update the progress display continuously
+    async def update_progress(task_id: TaskID, progress: Progress) -> None:
+        """Update the progress display regularly."""
+        try:
+            # Keep updating at a frequent interval until cancelled
+            while True:
+                progress.update(task_id)
+                # Very small sleep interval for smoother animation
+                # (20-30 updates per second)
+                await asyncio.sleep(0.03)
+        except asyncio.CancelledError:
+            # Handle cancellation gracefully by doing a final update
+            progress.update(task_id)
+            return
+
+    # Create a more visually appealing progress display
+    with Progress(
+        SpinnerColumn(),
+        TimeElapsedColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        console=console_manager.console,
+        transient=True,
+        refresh_per_second=30,  # Higher refresh rate for smoother animation
+    ) as progress:
+        # Add a wait task
+        task_id = progress.add_task(description=display_text, total=None)
+
+        # Define the async main routine that coordinates the wait operation
+        async def main() -> str | None:
+            """Main async routine that runs the wait command and updates progress."""
+            # Start updating the progress display in a separate task
+            progress_task = asyncio.create_task(update_progress(task_id, progress))
+
+            # Force at least one update to ensure spinner visibility
+            await asyncio.sleep(0.1)
+
+            try:
+                # Run the wait command
+                result = await async_run_wait_command()
+
+                # Give the progress display time to show completion
+                # (avoids abrupt disappearance)
+                await asyncio.sleep(0.5)
+
+                # Cancel the progress update task
+                if not progress_task.done():
+                    progress_task.cancel()
+                    # Wait for the task to actually cancel
+                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                        await asyncio.wait_for(progress_task, timeout=0.5)
+
+                return result
+            except Exception as e:
+                # Ensure we cancel the progress task on errors
+                if not progress_task.done():
+                    progress_task.cancel()
+                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                        await asyncio.wait_for(progress_task, timeout=0.5)
+
+                # Propagate the exception
+                raise e
+
+        # Set up loop and run the async code
+        result = None
+        created_new_loop = False
+        loop = None
+        wait_success = False  # Track if wait completed successfully
+
+        try:
+            # Get or create an event loop in a resilient way
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're in a running loop context, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    created_new_loop = True
+            except RuntimeError:
+                # If we can't get a loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                created_new_loop = True
+
+            # Run our main coroutine in the event loop
+            result = loop.run_until_complete(main())
+            wait_success = True  # Mark as successful if we get here
+
+        except asyncio.CancelledError:
+            # Handle user interrupts (like Ctrl+C)
+            console_manager.print_note("Wait operation cancelled")
+            return
+
+        finally:
+            # Clean up the progress display
+            progress.stop()
+
+            # If we created a new loop, close it to prevent asyncio warnings
+            if created_new_loop and loop is not None:
+                loop.close()
+
+    # Calculate elapsed time regardless of output
+    elapsed_time = time.time() - start_time
+
+    # Handle the command output if any
+    if result:
+        # Display success message with duration
+        console_manager.console.print(
+            f"[bold green]✓[/] Wait completed in [bold]{elapsed_time:.2f}s[/]"
+        )
+
+        # Add a small visual separator before the output
+        if output_flags.show_raw or output_flags.show_vibe:
+            console_manager.console.print()
+
+        handle_command_output(
+            output=result,
+            output_flags=output_flags,
+            summary_prompt_func=wait_resource_prompt,
+            command=f"wait {resource} {' '.join(args)}",
+        )
+    elif wait_success:
+        # If wait completed successfully but there's no output to display
+        success_message = (
+            f"[bold green]✓[/] {resource} now meets condition '[bold]{condition}[/]' "
+            f"(completed in [bold]{elapsed_time:.2f}s[/])"
+        )
+        console_manager.console.print(success_message)
+
+        # Add a small note if no output will be shown
+        if not output_flags.show_raw and not output_flags.show_vibe:
+            message = (
+                "\nNo output display enabled. Use --show-raw-output or "
+                "--show-vibe to see details."
+            )
+            console_manager.console.print(message)
+    else:
+        # If there was an issue but we didn't raise an exception
+        message = (
+            f"[bold yellow]![/] Wait operation completed with no result "
+            f"after [bold]{elapsed_time:.2f}s[/]"
+        )
+        console_manager.console.print(message)

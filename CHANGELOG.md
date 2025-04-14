@@ -12,12 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `wait` command for waiting on specific conditions in Kubernetes
   - Basic implementation with support for all standard kubectl wait functionality
   - Support for vibe-based natural language requests
-  - Rich output formatting with status indicators
 - Proxy layer for analyzing traffic through port-forward connections (WIP)
-- Rich terminal UI for displaying live status of blocking operations (WIP)
 - Traffic metrics collection for improved troubleshooting (WIP)
 - Extended options for port selection and service discovery (WIP)
 - Background execution mode for long-running operations (WIP)
+
+### Changed
+- Switched to asyncio for `wait` command implementation
+  - Improves scalability for future features
+  - Enables non-blocking progress displays
+  - Prepares for more complex asynchronous operations in port-forward
+
+### Fixed
+- Fixed tests for the `wait` command's live display feature
+  - Properly mocked CLI and command handler modules
+  - Resolved issues with asyncio coroutines in tests
 
 ## [0.3.1] - 2024-05-22
 

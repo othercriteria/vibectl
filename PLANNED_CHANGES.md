@@ -16,12 +16,8 @@
 ### `wait` Command
 
 - Implement `vibectl wait` command for waiting on specific conditions in Kubernetes
-- Add rich progress display showing:
-  - Animated waiting indicator
-  - Elapsed time since waiting began
-  - Current condition being waited for
-  - Status updates as checks are performed
-  - Visual indication of progress when available
+- Support for basic condition checks using standard kubectl functionality
+- Support for vibe-based natural language requests
 
 ## Enhanced Functionality
 
@@ -40,15 +36,6 @@
   - Automatic selection of available local ports
   - Integration with memory to remember commonly used forwards
   - Background mode with daemon capabilities
-
-### Wait Enhancements
-
-- Add support for complex waiting conditions beyond standard kubectl capabilities:
-  - Custom resource state transitions
-  - Multi-resource dependencies
-  - Integration with logs to provide context during waiting
-  - Detailed progress tracking with percentage when possible
-  - Customizable timeout handling with graceful termination
 
 ## Observability and Debugging
 
@@ -73,7 +60,8 @@
 
 ## Implementation Approach
 
-- Use Python's `asyncio` for non-blocking I/O to handle multiple connections
+- ✅ Use Python's `asyncio` for non-blocking I/O to handle multiple connections
+- ✅ Used in `wait` command implementation as a foundation for later port-forward development
 - Leverage `rich` library for terminal UI with progress bars and live displays
 - Create dedicated progress visualizations for blocking operations
 - Implement clean signal handling for graceful termination
