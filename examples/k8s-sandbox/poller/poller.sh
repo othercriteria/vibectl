@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 set -e
 
+# TODO: Rewrite poller in Python
+# This bash script has grown complex and would benefit from being rewritten in Python:
+# - Better error handling
+# - Cleaner code organization with classes
+# - Better container/k8s API interaction
+# - Simpler implementation of the detection logic
+# - More robust handling of container inspection
+
 echo "🔍 Starting CTF Challenge Poller Service"
-echo "👀 Watching for challenge completion on $TARGET_HOST"
+echo "👀 Watching for challenge completion in the sandbox container"
+
+# Ensure Docker socket has proper permissions
+if [ ! -w "/var/run/docker.sock" ]; then
+  echo "⚠️ Docker socket not writable, applying fix..."
+  chmod 666 /var/run/docker.sock || true
+fi
 
 # Initialize flags - they'll be set to false or disabled based on active ports
 FLAG1_ACTIVE=false
@@ -88,53 +102,124 @@ print_status() {
   echo -e "${BLUE}=========================${NC}"
 }
 
+# Find the sandbox container ID
+find_sandbox_container() {
+  # If TARGET_HOST is set and valid, use it directly
+  if [ -n "$TARGET_HOST" ] && docker ps --format '{{.Names}}' | grep -q "^${TARGET_HOST}$"; then
+    echo "$TARGET_HOST"
+    return 0
+  fi
+
+  # Fallback to pattern matching if the explicit name isn't found
+  # Try different naming patterns that Docker Compose might use
+  local container_id
+
+  # Try to get just the container ID using various patterns
+  container_id=$(docker ps | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | awk '{print $1}' | head -1)
+
+  if [ -z "$container_id" ]; then
+    # If no container ID found, try to get container name
+    container_id=$(docker ps --format '{{.Names}}' | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | head -1)
+
+    if [ -z "$container_id" ]; then
+      echo "Error: Could not find sandbox container"
+      return 1
+    fi
+  fi
+
+  echo "$container_id"
+}
+
+# Function to check if the service is ready
+check_service() {
+  local port=$1
+  local expected_flag=$2
+  local container_id
+
+  container_id=$(find_sandbox_container) || return 1
+
+  # Check if docker exec command works at all
+  if ! docker exec "$container_id" echo "Connection test" >/dev/null 2>&1; then
+    echo -e "${RED}Cannot connect to sandbox container.${NC}"
+    return 1
+  fi
+
+  # Get the Kind container ID (direct access to nodes)
+  local kind_container="${KIND_CONTAINER:-ctf-cluster-control-plane}"
+  local kind_container_ip
+
+  # Get the IP address of the Kind container (where K8s is actually running)
+  kind_container_ip=$(docker exec "$container_id" bash -c "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $kind_container 2>/dev/null" 2>/dev/null || echo "")
+
+  if [ -z "$kind_container_ip" ]; then
+    echo -e "${YELLOW}Could not determine Kind container IP${NC}"
+    return 1
+  fi
+
+  # Direct access to the Kind container (most reliable method)
+  echo -e "${BLUE}Checking service at Kind container ${kind_container} (${kind_container_ip}:$port)${NC}"
+  if ! docker exec "$container_id" bash -c "nc -z $kind_container_ip $port 2>/dev/null"; then
+    echo -e "${YELLOW}Port $port is not listening on Kind container${NC}"
+    return 1
+  fi
+
+  echo -e "${YELLOW}Port $port is accessible on Kind container, trying to get content...${NC}"
+  local response
+  response=$(docker exec "$container_id" bash -c "curl -s --connect-timeout 5 --max-time 10 http://${kind_container_ip}:$port")
+  if echo "$response" | grep -q "$expected_flag"; then
+    echo -e "${GREEN}Found flag via Kind container!${NC}"
+    return 0
+  else
+    echo -e "${YELLOW}Kind container port $port returned incorrect content:${NC}"
+    echo -e "${GRAY}$response${NC}"
+    return 1
+  fi
+}
+
 # Wait for the sandbox to be ready
 echo -e "${YELLOW}Waiting for sandbox Kubernetes cluster to be ready...${NC}"
 
-# Wait for the sandbox container to be ready based on the healthcheck
-# This is different than waiting for the services to be up
-SANDBOX_READY=false
-while ! $SANDBOX_READY; do
-  echo -e "${YELLOW}Checking if sandbox container is ready...${NC}"
-
-  # Try to ping the target host to check if it's up
-  if ping -c 1 "$TARGET_HOST" >/dev/null 2>&1; then
-    echo -e "${GREEN}Sandbox container is reachable!${NC}"
-    SANDBOX_READY=true
-  else
-    echo -e "${YELLOW}Sandbox container not ready yet, waiting...${NC}"
-    sleep 5
-  fi
+# Wait for sandbox container to be ready
+while ! docker ps | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" > /dev/null; do
+  echo -e "${YELLOW}Waiting for sandbox container to start...${NC}"
+  sleep 5
 done
 
-echo -e "${GREEN}Sandbox is up! Starting to poll for services...${NC}"
+echo -e "${GREEN}Sandbox container is running! Starting to check for services...${NC}"
+
+# Initialize check counter
+CHECK_COUNT=0
 
 # Main polling loop
 while true; do
-  print_status
+  # Only display status every 2 checks to reduce noise (except the first check)
+  if [ $CHECK_COUNT -eq 0 ] || [ $((CHECK_COUNT % 2)) -eq 0 ]; then
+    print_status
+  fi
+  CHECK_COUNT=$((CHECK_COUNT + 1))
 
-  # Check only active challenges with generous timeout
+  # Check only active challenges
   if $FLAG1_ACTIVE && ! $FLAG1_FOUND; then
-    RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 "http://$TARGET_HOST:$PORT_1" || echo "")
-    if echo "$RESPONSE" | grep -q "$EXPECTED_FLAG_1"; then
+    if check_service "$PORT_1" "$EXPECTED_FLAG_1"; then
       echo -e "${GREEN}FLAG 1 FOUND! 🎉${NC}"
       FLAG1_FOUND=true
+      print_status  # Always print status when finding a flag
     fi
   fi
 
   if $FLAG2_ACTIVE && ! $FLAG2_FOUND; then
-    RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 "http://$TARGET_HOST:$PORT_2" || echo "")
-    if echo "$RESPONSE" | grep -q "$EXPECTED_FLAG_2"; then
+    if check_service "$PORT_2" "$EXPECTED_FLAG_2"; then
       echo -e "${GREEN}FLAG 2 FOUND! 🎉${NC}"
       FLAG2_FOUND=true
+      print_status  # Always print status when finding a flag
     fi
   fi
 
   if $FLAG3_ACTIVE && ! $FLAG3_FOUND; then
-    RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 "http://$TARGET_HOST:$PORT_3" || echo "")
-    if echo "$RESPONSE" | grep -q "$EXPECTED_FLAG_3"; then
+    if check_service "$PORT_3" "$EXPECTED_FLAG_3"; then
       echo -e "${GREEN}FLAG 3 FOUND! 🎉${NC}"
       FLAG3_FOUND=true
+      print_status  # Always print status when finding a flag
     fi
   fi
 

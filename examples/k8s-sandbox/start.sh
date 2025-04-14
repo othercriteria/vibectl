@@ -229,43 +229,32 @@ check_k8s_health() {
   fi
 }
 
-# Function to check if test services are running
-check_services() {
-  # Track which services we've found to avoid excessive logging
-  local service_1_found=false
-  local service_2_found=false
-  local service_3_found=false
+# Function to check if poller is still running and if not, exit with a success message
+check_poller_status() {
+  # Check if the poller container is still running
+  if ! docker ps | grep -q "k8s-poller"; then
+    # Get the exit code of the poller
+    POLLER_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' k8s-poller 2>/dev/null || echo "-1")
 
-  if [[ "$ACTIVE_PORTS" == *"$NODE_PORT_1"* ]] && ! $service_1_found; then
-    if curl -s --connect-timeout 2 --max-time 5 "http://localhost:$NODE_PORT_1" | grep -q "CTF-FLAG-1"; then
-      echo "🎯 Service 1 is running! (Port $NODE_PORT_1)"
-      service_1_found=true
-    fi
-  fi
-
-  if [[ "$ACTIVE_PORTS" == *"$NODE_PORT_2"* ]] && ! $service_2_found; then
-    if curl -s --connect-timeout 2 --max-time 5 "http://localhost:$NODE_PORT_2" | grep -q "CTF-FLAG-2"; then
-      echo "🎯 Service 2 is running! (Port $NODE_PORT_2)"
-      service_2_found=true
-    fi
-  fi
-
-  if [[ "$ACTIVE_PORTS" == *"$NODE_PORT_3"* ]] && ! $service_3_found; then
-    if curl -s --connect-timeout 2 --max-time 5 "http://localhost:$NODE_PORT_3" | grep -q "CTF-FLAG-3"; then
-      echo "🎯 Service 3 is running! (Port $NODE_PORT_3)"
-      service_3_found=true
+    if [ "$POLLER_EXIT_CODE" = "0" ]; then
+      echo "🏆 Poller has exited with success (exit code 0) - Challenge COMPLETE!"
+      echo "🎉 CTF Sandbox challenge completed successfully. Terminating sandbox."
+      exit 0
+    else
+      echo "⚠️ Poller has exited with code $POLLER_EXIT_CODE - continuing in case of restart..."
     fi
   fi
 }
 
 # Main loop that keeps the sandbox running even if vibectl crashes
 echo "🔄 Starting main sandbox loop..."
+
 while true; do
   # Check cluster health before running vibectl
   check_k8s_health
 
-  # Check if services are responding
-  check_services
+  # Check if poller has completed
+  check_poller_status
 
   # Run vibectl with error handling
   run_vibectl

@@ -58,6 +58,7 @@ COPY --chown=sandbox:sandbox pyproject.toml README.md setup.* /home/sandbox/vibe
 # Set up virtual environment (will be cached if requirements don't change)
 RUN python3 -m venv /home/sandbox/.venv \
     && . /home/sandbox/.venv/bin/activate \
+    && pip install --no-cache-dir pip setuptools wheel --upgrade \
     && pip install --no-cache-dir llm-anthropic \
     && python -m llm install llm-anthropic
 
@@ -66,7 +67,10 @@ COPY --chown=sandbox:sandbox . /home/sandbox/vibectl-src/
 
 # Install vibectl in development mode
 RUN . /home/sandbox/.venv/bin/activate \
-    && pip install --no-cache-dir -e /home/sandbox/vibectl-src
+    && cd /home/sandbox/vibectl-src \
+    && pip install --no-cache-dir . || \
+    ( echo "Trying modern editable install..." && \
+      pip install --no-cache-dir -e . --config-settings editable_mode=compat )
 
 # Ensure PATH includes venv binaries
 ENV PATH="/home/sandbox/.venv/bin:${PATH}"

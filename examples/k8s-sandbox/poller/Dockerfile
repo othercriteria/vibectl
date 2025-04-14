@@ -1,12 +1,17 @@
-FROM alpine:3.18
+FROM ubuntu:22.04
 
-# Install required packages (minimal)
-RUN apk add --no-cache \
+# Avoid prompts during package installations
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
     bash \
     curl \
-    iputils
+    docker.io \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy our poller script
+# Copy our script
 COPY poller.sh /poller.sh
 RUN chmod +x /poller.sh
 

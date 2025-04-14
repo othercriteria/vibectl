@@ -1,5 +1,6 @@
 services:
   sandbox:
+    container_name: k8s-sandbox
     build:
       context: ../..
       dockerfile: examples/k8s-sandbox/Dockerfile
@@ -7,11 +8,9 @@ services:
         # Pass the host's Docker GID to the container build
         DOCKER_GID: ${DOCKER_GID:-999}
     privileged: true  # Needed for running docker inside the container (for Kind)
-    # Use random host ports to avoid port conflicts but fixed internal ports
+    # NodePorts are accessed internally via Kind container, not externally
     ports:
-      - "0:30001"  # First challenge port
-      - "0:30002"  # Second challenge port
-      - "0:30003"  # Third challenge port
+      - "30001:30001"  # For debugging only - not needed for detection
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
@@ -23,9 +22,10 @@ services:
       - NODE_PORT_3=30003
       # Default ACTIVE_PORTS for the difficulty level
       - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
-      # Not using HOST_PORT vars anymore since we're using dynamically assigned ports
+      # Add the control plane container name for direct port access
+      - KIND_CONTAINER=ctf-cluster-control-plane
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Mount docker socket for Kind
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Mount docker socket for Kind with explicit rw
     networks:
       - ctf-network
     healthcheck:
@@ -34,8 +34,12 @@ services:
       timeout: 10s
       retries: 15
       start_period: 120s
+    # TODO: Implement sandbox termination at the Docker Compose level
+    # Instead of having sandbox container check poller exit code in code, use Docker Compose
+    # depends_on with "condition: service_completed_successfully" once Docker Compose v2.2+ becomes standard
 
   poller:
+    container_name: k8s-poller
     build:
       context: ./poller
       dockerfile: Dockerfile
@@ -43,7 +47,7 @@ services:
       sandbox:
         condition: service_healthy
     environment:
-      - TARGET_HOST=sandbox
+      - TARGET_HOST=k8s-sandbox  # Used to find the sandbox container
       - PORT_1=30001  # These are internal container ports
       - PORT_2=30002
       - PORT_3=30003
@@ -52,13 +56,15 @@ services:
       - "EXPECTED_FLAG_3=CTF-FLAG-3: CHALLENGE_COMPLETE"
       # Get active ports from sandbox container
       - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
+      # Share the KIND_CONTAINER env var (critical for detection)
+      - KIND_CONTAINER=ctf-cluster-control-plane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Needed to access Docker API for finding containers
     networks:
       - ctf-network
-    healthcheck:
-      test: ["CMD", "ping", "-c", "1", "sandbox"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    # TODO: Implement depends_on with exit_code_from
+    # This feature is available in newer Docker Compose versions
+    # Would allow sandbox to terminate when poller exits successfully
 
 networks:
   ctf-network:
