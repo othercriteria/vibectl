@@ -38,45 +38,58 @@ output_processor = OutputProcessor()
 def run_kubectl(
     cmd: list[str], capture: bool = False, config: Config | None = None
 ) -> str | None:
-    """Run kubectl command with configured kubeconfig.
+    """Run kubectl command and capture output.
 
     Args:
-        cmd: The kubectl command arguments
+        cmd: List of command arguments
         capture: Whether to capture and return output
-        config: Optional Config instance to use (for testing)
+        config: Optional Config instance to use
+
+    Returns:
+        Command output if capture=True, None otherwise
     """
-    # Use provided config or create new one
-    cfg = config or Config()
-
-    # Start with base command
-    full_cmd = ["kubectl"]
-
-    # Add kubeconfig if set
-    kubeconfig = cfg.get("kubeconfig")
-    if kubeconfig:
-        full_cmd.extend(["--kubeconfig", str(kubeconfig)])
-
-    # Add the rest of the command
-    full_cmd.extend(cmd)
-
-    # Run command
     try:
-        result = subprocess.run(full_cmd, capture_output=True, text=True, check=True)
+        # Get a Config instance if not provided
+        cfg = config or Config()
+
+        # Get the kubeconfig path from config
+        kubeconfig = cfg.get("kubeconfig")
+
+        # Build the full command
+        kubectl_cmd = ["kubectl"]
+
+        # Add the command arguments first, to ensure kubeconfig is AFTER the main command
+        kubectl_cmd.extend(cmd)
+
+        # Add kubeconfig AFTER the main command to avoid errors
+        if kubeconfig:
+            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+
+        # Execute the command
+        result = subprocess.run(
+            kubectl_cmd,
+            capture_output=capture,
+            check=False,
+            text=True,
+            encoding="utf-8",
+        )
+
+        # Check for errors
+        if result.returncode != 0:
+            error_message = result.stderr.strip() if capture else "Command failed"
+            if not error_message:
+                error_message = f"Command failed with exit code {result.returncode}"
+            raise Exception(error_message)
+
+        # Return output if capturing
         if capture:
-            return result.stdout
+            return result.stdout.strip()
         return None
-    except subprocess.CalledProcessError as e:
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
-        if capture:
-            # Return the error message as part of the output so it can be processed
-            # by command handlers and included in memory
-            return (
-                f"Error: {e.stderr}"
-                if e.stderr
-                else f"Error: Command failed with exit code {e.returncode}"
-            )
-        return None
+    except FileNotFoundError:
+        raise Exception("kubectl not found. Please install it and try again.") from None
+    except Exception as e:
+        # Re-raise with the original error message
+        raise Exception(str(e)) from e
 
 
 def handle_standard_command(
@@ -217,9 +230,6 @@ def handle_vibe_request(
             model, plan_prompt.format(request=request, command=command)
         )
 
-        # Strip any backticks that might be around the command
-        kubectl_cmd = kubectl_cmd.strip().strip("`").strip()
-
         # If no command was generated, inform the user and exit
         if not kubectl_cmd:
             console_manager.print_error("No kubectl command could be generated.")
@@ -227,8 +237,10 @@ def handle_vibe_request(
 
         # Check if the response is an error message
         if kubectl_cmd.startswith("ERROR:"):
+            # TODO: Make sure this makes it into memory
+
             # Don't try to run the error as a command
-            console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
+            console_manager.print_error(kubectl_cmd)
             return
 
         try:
@@ -246,7 +258,9 @@ def handle_vibe_request(
 
             # Show command if show_kubectl is True or confirmation needed
             if output_flags.show_kubectl or needs_confirm:
-                console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+                console_manager.print_note(
+                    f"Planning to run: kubectl {command} {display_cmd}"
+                )
 
             # If confirmation needed, ask now
             if needs_confirm and not click.confirm("Execute this command?"):
@@ -255,7 +269,7 @@ def handle_vibe_request(
 
             # Execute the command and get output
             try:
-                output = _execute_command(args, yaml_content)
+                output = _execute_command([command, *args], yaml_content)
             except Exception as cmd_error:
                 # Provide a more helpful error message and recovery suggestions
                 error_message = f"Command execution error: {cmd_error}"
@@ -269,7 +283,13 @@ def handle_vibe_request(
                     # Use the recovery_prompt from prompt.py
                     prompt = recovery_prompt(display_cmd, str(cmd_error))
                     recovery_suggestions = model_adapter.execute(model, prompt)
-                    console_manager.print_vibe(recovery_suggestions)
+                    # Don't print the raw recovery suggestions to the user
+                    # console_manager.print_vibe(recovery_suggestions)
+
+                    # Instead, just note that we're including recovery info in memory
+                    console_manager.print_note(
+                        "Recovery suggestions added to memory context"
+                    )
 
                     # Include recovery suggestions in output for memory
                     output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
@@ -325,6 +345,7 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     Returns:
         Tuple of (command arguments, YAML content or None)
     """
+
     # Check for heredoc syntax (create -f - << EOF)
     if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
         # Find the start of the heredoc
@@ -374,40 +395,21 @@ def _parse_command_args(cmd_args: str) -> list[str]:
         # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
         args = cmd_args.split()
 
-    # Remove 'kubectl' prefix if the model included it
-    if args and args[0].lower() == "kubectl":
-        args = args[1:]
-
-    # Filter out any kubeconfig flags that might be present
-    # as they should be handled by run_kubectl, not included directly
-    return _filter_kubeconfig_flags(args)
+    return args
 
 
 def _filter_kubeconfig_flags(args: list[str]) -> list[str]:
     """Filter out kubeconfig flags from the command arguments.
 
+    This is a stub function left for backward compatibility.
+
     Args:
         args: List of command arguments
 
     Returns:
-        Filtered list of arguments without kubeconfig flags
+        The same list of arguments unchanged
     """
-    filtered_args = []
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        # Skip --kubeconfig and its value
-        if arg == "--kubeconfig" and i < len(args) - 1:
-            i += 2  # Skip this flag and its value
-            continue
-        # Skip --kubeconfig=value style
-        if arg.startswith("--kubeconfig="):
-            i += 1
-            continue
-        filtered_args.append(arg)
-        i += 1
-
-    return filtered_args
+    return args
 
 
 def _create_display_command(args: list[str], yaml_content: str | None) -> str:
@@ -847,3 +849,224 @@ def handle_wait_with_live_display(
             f"after [bold]{elapsed_time:.2f}s[/]"
         )
         console_manager.console.print(message)
+
+
+def handle_port_forward_with_live_display(
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+) -> None:
+    """Handle port-forward command with a live display showing connection status and ports.
+
+    Args:
+        resource: Resource to forward ports for
+        args: Command line arguments including port specifications
+        output_flags: Output configuration flags
+    """
+    # Extract port mapping from args for display
+    port_mapping = "port"
+    for arg in args:
+        if ":" in arg and all(part.isdigit() for part in arg.split(":")):
+            port_mapping = arg
+            break
+
+    # Format local and remote ports for display
+    local_port, remote_port = (
+        port_mapping.split(":") if ":" in port_mapping else (port_mapping, port_mapping)
+    )
+
+    # Create the command for display
+    display_text = f"Forwarding {resource} port [bold]{remote_port}[/] to localhost:[bold]{local_port}[/]"
+
+    # Track start time for elapsed time display
+    start_time = time.time()
+
+    # Create a subprocess to run kubectl port-forward
+    # We'll use asyncio to manage this process and update the display
+    async def run_port_forward() -> asyncio.subprocess.Process:
+        """Run the port-forward command and capture output."""
+        # Build command list
+        cmd_args = ["port-forward", resource]
+
+        # Make sure we have valid args - check for resource pattern first
+        args_list = list(args)
+
+        # Add remaining arguments
+        if args_list:
+            cmd_args.extend(args_list)
+
+        # Full kubectl command
+        full_cmd = ["kubectl"]
+
+        # Add kubeconfig if set
+        cfg = Config()
+        kubeconfig = cfg.get("kubeconfig")
+        if kubeconfig:
+            full_cmd.extend(["--kubeconfig", str(kubeconfig)])
+
+        # Add the port-forward command args
+        full_cmd.extend(cmd_args)
+
+        # Create a process to run kubectl port-forward
+        # This process will keep running until cancelled
+        process = await asyncio.create_subprocess_exec(
+            *full_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        # Return reference to the process
+        return process
+
+    # Update the progress display with connection status
+    async def update_progress(
+        task_id: TaskID, progress: Progress, process: asyncio.subprocess.Process
+    ) -> None:
+        """Update the progress display with connection status and data."""
+        connected = False
+
+        try:
+            # Keep updating until cancelled
+            while True:
+                # Check if process has output ready
+                if process.stdout:
+                    line = await process.stdout.readline()
+                    if line:
+                        # Got output, update connection status
+                        line_str = line.decode("utf-8").strip()
+                        if "Forwarding from" in line_str:
+                            connected = True
+
+                # Update the description based on connection status
+                if connected:
+                    progress.update(
+                        task_id,
+                        description=f"{display_text} - [green]Connected[/green]",
+                    )
+                else:
+                    # Check if the process is still running
+                    if process.returncode is not None:
+                        progress.update(
+                            task_id,
+                            description=f"{display_text} - [red]Disconnected[/red]",
+                        )
+                        break
+
+                    # Still establishing connection
+                    progress.update(
+                        task_id,
+                        description=f"{display_text} - Connecting...",
+                    )
+
+                # Small sleep for smooth updates
+                await asyncio.sleep(0.1)
+
+        except asyncio.CancelledError:
+            # Final update before cancellation
+            progress.update(
+                task_id,
+                description=f"{display_text} - [yellow]Cancelled[/yellow]",
+            )
+
+    # Create progress display
+    with Progress(
+        SpinnerColumn(),
+        TimeElapsedColumn(),
+        TextColumn("{task.description}"),
+        console=console_manager.console,
+        transient=False,  # We want to keep this visible
+        refresh_per_second=10,
+    ) as progress:
+        # Add port-forward task
+        task_id = progress.add_task(
+            description=f"{display_text} - Starting...", total=None
+        )
+
+        # Define the main async routine
+        async def main() -> None:
+            """Main async routine that runs port-forward and updates progress."""
+            # Start the port-forward process
+            process = await run_port_forward()
+
+            # Start updating the progress display
+            progress_task = asyncio.create_task(
+                update_progress(task_id, progress, process)
+            )
+
+            try:
+                # Keep running until user interrupts with Ctrl+C
+                await process.wait()
+
+                # If we get here, the process completed or errored
+                if process.returncode != 0:
+                    # Read error output
+                    stderr = await process.stderr.read() if process.stderr else b""
+                    error_msg = stderr.decode("utf-8").strip()
+                    console_manager.print_error(f"Port-forward error: {error_msg}")
+
+            except asyncio.CancelledError:
+                # User cancelled, terminate the process
+                process.terminate()
+                await process.wait()
+                raise
+
+            finally:
+                # Cancel the progress task
+                if not progress_task.done():
+                    progress_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.wait_for(progress_task, timeout=0.5)
+
+        # Set up event loop and run the async code
+        created_new_loop = False
+        loop = None
+
+        try:
+            # Get or create an event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    created_new_loop = True
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                created_new_loop = True
+
+            # Run the main coroutine
+            loop.run_until_complete(main())
+
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            console_manager.print_note("\nPort-forward cancelled by user")
+
+        except asyncio.CancelledError:
+            # Handle cancellation
+            console_manager.print_note("\nPort-forward cancelled")
+
+        except Exception as e:
+            # Handle other errors
+            console_manager.print_error(f"\nPort-forward error: {e!s}")
+
+        finally:
+            # Clean up
+            if created_new_loop and loop is not None:
+                loop.close()
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+
+    # Show final message with elapsed time
+    console_manager.print_note(
+        f"\n[bold]Port-forward session ended after [italic]{elapsed_time:.1f}s[/italic][/bold]"
+    )
+
+    # Update memory with the port-forward information
+    forward_info = f"Port-forward {resource} {port_mapping} ran for {elapsed_time:.1f}s"
+    update_memory(
+        f"port-forward {resource} {' '.join(args)}",
+        forward_info,
+        "",  # Empty vibe output
+        output_flags.model_name,
+    )
