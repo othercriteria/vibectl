@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] - 2024-05-22
 
+### Added
+- K8s-sandbox example with challenge-based learning for Kubernetes
+- Parameterizable difficulty levels for the K8s-sandbox demo
+- Verbose mode option for the K8s-sandbox demo
+- Heredoc handling for complex command processing
+
 ### Changed
 - Bumped version from 0.3.0 to 0.3.1
+- Improved K8s-sandbox architecture with overseer component
+- Simplified command handling and argument parsing
+- Enhanced test coverage for memory and output processor modules
+
+### Fixed
+- Improved K8s-sandbox challenge detection with direct Kind container access
+- Resolved K8s-sandbox demo issues with API keys and poller detection
+- Optimized slow tests in test_vibe_delete_confirm.py
+- Fixed mock console handling in handle_vibe_request test
+- Improved command processing for complex arguments with spaces
+- Resolved line length errors in command handling
+- Added tests/__init__.py to fix MyPy module detection
 
 ## [0.3.0] - 2025-05-01
 
