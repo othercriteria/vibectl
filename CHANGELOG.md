@@ -8,13 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- New `port-forward` command with enhanced monitoring and visualization
-- New `wait` command with progress tracking for blocking operations
-- Proxy layer for analyzing traffic through port-forward connections
-- Rich terminal UI for displaying live status of blocking operations
-- Traffic metrics collection for improved troubleshooting
-- Extended options for port selection and service discovery
-- Background execution mode for long-running operations
+- New `port-forward` command with enhanced monitoring and visualization (WIP)
+- New `wait` command with progress tracking for blocking operations (WIP)
+- Proxy layer for analyzing traffic through port-forward connections (WIP)
+- Rich terminal UI for displaying live status of blocking operations (WIP)
+- Traffic metrics collection for improved troubleshooting (WIP)
+- Extended options for port selection and service discovery (WIP)
+- Background execution mode for long-running operations (WIP)
 
 ## [0.3.1] - 2024-05-22
 
