@@ -66,7 +66,23 @@ actions:
          # Make initial commit with planned changes
          touch PLANNED_CHANGES.md
          echo "# Planned Changes\n\n- Feature 1\n- Feature 2" > PLANNED_CHANGES.md
-         git add PLANNED_CHANGES.md
+
+         # Update CHANGELOG.md with planned changes under [Unreleased]
+         # First, check the current changelog content to see where to add entries
+         grep -A 10 "## \[Unreleased\]" CHANGELOG.md
+
+         # Open the CHANGELOG.md file to add entries under [Unreleased]
+         # Add entries in the appropriate section (Added, Changed, Fixed)
+         # Example:
+         # ## [Unreleased]
+         #
+         # ### Added
+         # - New feature description
+         ${EDITOR:-vi} CHANGELOG.md
+
+         # Stage both files
+         git add PLANNED_CHANGES.md CHANGELOG.md
+
          git commit -m "feat: initial commit for feature-name"
          git push -u origin feature/name-of-feature
 
@@ -85,6 +101,10 @@ actions:
 
       6. When complete, commit final changes from the worktree:
          ```
+         # Update CHANGELOG.md with final changes under [Unreleased]
+         # Make sure all your feature changes are properly documented
+         ${EDITOR:-vi} CHANGELOG.md
+
          # Run pre-commit checks before committing
          nix develop --quiet -c make lint 2>/dev/null
 
@@ -97,7 +117,21 @@ actions:
          nix develop --quiet -c gh pr ready 2>/dev/null
          ```
 
-      7. Clean up after PR merge completion:
+      7. Before merging, ensure the changelog is up-to-date:
+         ```
+         # Check if CHANGELOG.md is updated correctly
+         git diff HEAD~ CHANGELOG.md
+
+         # If not updated or needs improvements, make changes
+         ${EDITOR:-vi} CHANGELOG.md
+
+         # Commit any additional changes
+         git add CHANGELOG.md
+         git commit -m "docs: update changelog for feature-name"
+         git push
+         ```
+
+      8. Clean up after PR merge completion:
          ```
          # First, get back to main and pull latest changes
          cd ~/workspace/${PROJECT_NAME}
@@ -131,6 +165,9 @@ actions:
       # Warn about creating files for feature work before switching to worktree
       - pattern: "(?i)(touch|echo|create file|new file).*(?!cd\\s+\\.\\./worktrees).*feature"
         message: "Always switch to the feature worktree BEFORE creating any files: cd ../worktrees/${PROJECT_NAME}-feature-name"
+      # Warn about not updating CHANGELOG.md in feature PR
+      - pattern: "(?i)gh\\s+pr\\s+(create|ready).*(?!.*CHANGELOG\\.md)"
+        message: "Make sure to update CHANGELOG.md with your changes before finalizing the PR. Add your changes to the [Unreleased] section."
 
 criteria:
   required:
@@ -140,6 +177,8 @@ criteria:
     - Run direnv allow in the worktree
     - Install and run pre-commit hooks in the worktree using Makefile targets
     - Create minimal PR at beginning of feature work
+    - Update CHANGELOG.md with planned changes at PR creation
+    - Update CHANGELOG.md with final changes before PR is ready for review
     - Work exclusively in the worktree directory, not the main workspace
     - Run pre-commit checks before committing
     - Keep feature branches focused on single features
@@ -150,7 +189,7 @@ criteria:
 examples:
   - input: "I need to start developing a new feature"
     output: |
-      Create a feature branch, worktree, and initial PR:
+      Create a feature branch, worktree, initial PR, and update CHANGELOG.md:
       ```
       # Create the feature branch from main
       git checkout main
@@ -171,10 +210,52 @@ examples:
       # Create initial PR (only after switching to the worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes\n\n- Add new functionality\n- Update documentation" > PLANNED_CHANGES.md
-      git add PLANNED_CHANGES.md
+
+      # Update CHANGELOG.md with planned changes
+      vi CHANGELOG.md
+      # Add under [Unreleased]:
+      # ### Added
+      # - New functionality (WIP)
+      # ### Changed
+      # - Updated documentation (WIP)
+
+      # Stage both files and commit
+      git add PLANNED_CHANGES.md CHANGELOG.md
       git commit -m "feat: initial commit for my-new-feature"
       git push -u origin feature/my-new-feature
       nix develop --quiet -c gh pr create --title "WIP: my-new-feature" --body "Work in progress" --draft 2>/dev/null
+      ```
+
+  - input: "How do I finalize my feature PR?"
+    output: |
+      Finalize your feature PR with updated changelog:
+      ```
+      # Ensure you're in the worktree
+      cd ../worktrees/${PROJECT_NAME}-my-new-feature
+
+      # Update CHANGELOG.md with final changes
+      vi CHANGELOG.md
+      # Update under [Unreleased]:
+      # ### Added
+      # - New search functionality for resource discovery
+      # ### Changed
+      # - Improved error handling for failed API calls
+      # ### Fixed
+      # - Fixed issue with command line argument parsing
+
+      # Run checks
+      nix develop --quiet -c make lint 2>/dev/null
+
+      # Commit final changes
+      git add .
+      git commit -m "feat: implement my-new-feature"
+      git push
+
+      # Double-check changelog is properly updated
+      git diff HEAD~ CHANGELOG.md
+
+      # Mark PR as ready for review
+      nix develop --quiet -c gh pr ready 2>/dev/null
       ```
 
   - input: "How do I manage multiple features at once?"
@@ -195,7 +276,15 @@ examples:
       # Create initial PR for feature 1 (only after switching to worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature One" > PLANNED_CHANGES.md
-      git add PLANNED_CHANGES.md
+
+      # Update CHANGELOG.md with planned changes
+      vi CHANGELOG.md
+      # Add under [Unreleased]:
+      # ### Added
+      # - Feature One functionality (WIP)
+
+      # Stage and commit files
+      git add PLANNED_CHANGES.md CHANGELOG.md
       git commit -m "feat: initial commit for feature-one"
       git push -u origin feature/feature-one
       nix develop --quiet -c gh pr create --title "WIP: feature-one" --body "Work in progress" --draft 2>/dev/null
@@ -212,7 +301,15 @@ examples:
       # Create initial PR for feature 2 (only after switching to worktree)
       touch PLANNED_CHANGES.md
       echo "# Planned Changes for Feature Two" > PLANNED_CHANGES.md
-      git add PLANNED_CHANGES.md
+
+      # Update CHANGELOG.md with planned changes
+      vi CHANGELOG.md
+      # Add under [Unreleased]:
+      # ### Changed
+      # - Feature Two improvements (WIP)
+
+      # Stage and commit files
+      git add PLANNED_CHANGES.md CHANGELOG.md
       git commit -m "feat: initial commit for feature-two"
       git push -u origin feature/feature-two
       nix develop --quiet -c gh pr create --title "WIP: feature-two" --body "Work in progress" --draft 2>/dev/null
@@ -249,5 +346,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.6
+  version: 1.7
 </rule>

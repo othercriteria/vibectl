@@ -23,6 +23,9 @@ filters:
   # Match commit messages
   - type: content
     pattern: "(?i)\\b(commit|feat|fix|chore|docs|refactor|test|style|perf|ci|build)(?:[:(]|\\b)"
+  # Match feature workflow content
+  - type: content
+    pattern: "(?i)\\b(feature|worktree|branch|pr|merge)\\b"
 
 actions:
   - type: suggest
@@ -55,6 +58,11 @@ actions:
          - Fixed: Bug fixes
          - Security: Security fixes
 
+      5. **Integration with feature worktrees**:
+         - Update CHANGELOG.md as part of initial feature PR creation
+         - Update again with final changes before marking PR as ready
+         - See feature-worktrees rule for detailed workflow
+
   - type: reject
     conditions:
       # Ensure version bump includes CHANGELOG update
@@ -69,6 +77,14 @@ actions:
           Feature or fix changes should be documented in CHANGELOG.md.
           Add a bullet point to the "Unreleased" section.
 
+      # Reject feature PRs without changelog updates
+      - pattern: "(?i)\\b(pr|pull request).*(?:feature|feat).*(?:create|ready|review)"
+        message: |
+          Feature PRs must include CHANGELOG.md updates.
+          1. Add planned changes to the "Unreleased" section in the initial PR.
+          2. Update with final changes before marking as ready for review.
+          See feature-worktrees rule for workflow details.
+
 criteria:
   required:
     - CHANGELOG.md exists in project root
@@ -79,6 +95,7 @@ criteria:
     - Changes focus on user impact, not implementation details
     - Each PR to main updates CHANGELOG.md as needed
     - Integration with version bumping process
+    - Coordination with feature worktree development workflow
 
 examples:
   - input: "How should I update the changelog after merging a PR?"
@@ -132,7 +149,29 @@ examples:
          make pypi-release  # or pypi-dist all
          ```
 
+  - input: "I'm starting a new feature branch, do I need to update the changelog?"
+    output: |
+      Yes, update the CHANGELOG.md twice during feature development:
+
+      1. First update during initial PR creation:
+         ```markdown
+         ## [Unreleased]
+
+         ### Added
+         - New feature description (WIP)
+         ```
+
+      2. Second update before marking PR as ready for review:
+         ```markdown
+         ## [Unreleased]
+
+         ### Added
+         - Completed feature with detailed user impact
+         ```
+
+      The feature-worktrees rule provides a complete workflow that includes these changelog updates.
+
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
 </rule>

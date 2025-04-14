@@ -20,6 +20,9 @@ filters:
   # Match file creation events
   - type: event
     pattern: "file_create"
+  # Match rules discussions
+  - type: content
+    pattern: "(?i)\\b(rule|rules|consistency|standards|guidelines)\\b"
 
 actions:
   - type: reject
@@ -31,27 +34,115 @@ actions:
 
   - type: suggest
     message: |
-      Rules must have:
-      1. YAML frontmatter (description, globs, alwaysApply)
-      2. Located in .cursor/rules/ directory
-      3. Use kebab-case filenames with .mdc extension
-      4. Avoid project-specific references for reusability
-      5. Use generic patterns that work across different codebases
+      ## Cursor Rules Standards
+
+      1. **File Organization**:
+         - YAML frontmatter (description, globs, alwaysApply)
+         - Located in .cursor/rules/ directory
+         - Use kebab-case filenames with .mdc extension
+
+      2. **Rule Content**:
+         - Avoid project-specific references for reusability
+         - Use generic patterns that work across different codebases
+         - Include clear examples with both input and expected output
+
+      3. **Consistency Across Rules**:
+         - Cross-reference related rules explicitly
+         - Maintain consistent structure (filters, actions, criteria, examples)
+         - Use similar terminology for similar concepts
+         - Balance rejection conditions with helpful suggestions
+
+      4. **Versioning**:
+         - Increment patch version (x.y.Z) for minor fixes or clarifications
+         - Increment minor version (x.Y.z) for new features or non-breaking changes
+         - Increment major version (X.y.z) for breaking changes or significant rewrites
+         - Include version update in commit message when changing rules
+
+      5. **Integration**:
+         - Ensure rules work together without contradictions
+         - Prevent overlapping responsibilities between rules
+         - Reference other rules when dependencies exist
+         - Maintain STRUCTURE.md to document overall rule organization
 
 examples:
-  - input: |
-      # Bad: Missing YAML frontmatter or wrong location
-      # Good: Complete rule file in correct location
+  - input: "How should I create a new rule file?"
+    output: |
+      Create a new rule file following these standards:
+
+      ```
       ---
-      description: My rule description
-      globs: ["**/*.py"]
-      alwaysApply: true
+      description: Clear description of the rule's purpose
+      globs: ["**/*.py"]  # Files the rule applies to
+      alwaysApply: true   # Whether to always apply this rule
       ---
-      # My Rule
-      <rule>...</rule>
-    output: "Correctly formatted and placed Cursor rule file"
+      # Rule Title
+
+      Brief description of the rule and its purpose.
+
+      <rule>
+      name: kebab_case_rule_name
+      description: Detailed description of what the rule enforces
+
+      filters:
+        - type: file_pattern
+          pattern: "^path/to/files/.*\\.py$"
+        - type: content
+          pattern: "(?i)\\b(relevant|terms|to|match)\\b"
+
+      actions:
+        - type: suggest
+          message: |
+            Clear, helpful guidance on following the rule
+
+        - type: reject
+          conditions:
+            - pattern: "(?i)\\b(pattern|to|reject)\\b"
+              message: "Helpful error message with guidance for fixing"
+
+      criteria:
+        required:
+          - List of specific requirements enforced by this rule
+          - Each item should be clear and specific
+
+      examples:
+        - input: "Example query or scenario"
+          output: |
+            Example response or guidance
+
+      metadata:
+        priority: high  # critical, high, medium, or low
+        version: 1.0    # Semantic versioning
+      </rule>
+      ```
+
+      Save the file as `.cursor/rules/kebab-case-name.mdc`
+
+  - input: "How do I make my rules work well together?"
+    output: |
+      To ensure rules work well together:
+
+      1. **Cross-reference related rules**:
+         ```
+         See the [other-rule-name] rule for related guidelines on X.
+         ```
+
+      2. **Avoid overlapping functionality**:
+         - Each rule should have a clear, distinct responsibility
+         - If rules must overlap, ensure patterns don't conflict
+
+      3. **Use consistent terminology**:
+         - Use same terms for same concepts across rules
+         - Keep messaging style consistent
+
+      4. **Coordinate version updates**:
+         - When updating multiple related rules, increment versions consistently
+         - Document dependencies between rules in comments
+
+      5. **Test rules together**:
+         - Verify that combined rule application doesn't create conflicts
+         - Use reject patterns judiciously to avoid frustrating users
 
 metadata:
   priority: high
-  version: 1.1
+  version: 1.2
 </rule>

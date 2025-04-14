@@ -39,6 +39,23 @@ actions:
         exit 1
       fi
 
+      # Check if feature changes need CHANGELOG.md updates
+      # Look for feature changes (new features, bug fixes) but skip version bumps and changelog updates themselves
+      FEATURE_CHANGES=false
+      echo "$CHANGED_FILES" | grep -qvE '^(CHANGELOG\.md|bump_version\.py|pyproject\.toml)$' && echo "$CHANGED_FILES" | grep -qE '\.(py|js|ts|jsx|tsx|css|html|md)$' && FEATURE_CHANGES=true
+
+      # For feature branches, changelog updates are managed by the feature-worktrees rule
+      # For direct commits to main, we need to check
+      CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      if [ "$FEATURE_CHANGES" = true ] && [ "$CURRENT_BRANCH" = "main" ]; then
+        if ! echo "$CHANGED_FILES" | grep -q '^CHANGELOG\.md$'; then
+          echo "Warning: Feature changes detected on main branch but CHANGELOG.md not updated."
+          echo "Consider adding your changes to the Unreleased section of CHANGELOG.md"
+          echo "See the changelog rule for details."
+          # Don't exit, just warn - it's a reminder, not a blocker
+        fi
+      fi
+
       # Check for Python files and run coverage test if needed
       if echo "$CHANGED_FILES" | grep -qE '\.py$'; then
         if command -v pytest &> /dev/null && python -c "import pytest_cov" &> /dev/null; then
@@ -74,18 +91,49 @@ actions:
         message: |
           Disabling pre-commit hooks is not allowed. Fix reported issues or ask for guidance.
 
+      - pattern: "(?i)\\bfeature.*\\bwithout.*\\bchangelog\\b"
+        message: |
+          Feature PRs must include CHANGELOG.md updates.
+          See the changelog and feature-worktrees rules for details.
+
+  - type: suggest
+    message: |
+      ## Autonomous Commit Guidelines
+
+      Your changes will be committed with these checks:
+
+      1. **Documentation**:
+         - STRUCTURE.md updated for structural changes
+         - CHANGELOG.md updated for user-facing changes
+         - All rule files (.mdc) tracked in git
+
+      2. **Code Quality**:
+         - All tests passing
+         - Test coverage meeting requirements (or documented exclusions)
+         - All linting issues resolved
+         - No debug code
+
+      3. **Message Format**:
+         - Following conventional commit format (see commit-message rule)
+         - Descriptive first line under 72 characters
+         - Imperative mood ("Add feature" not "Added feature")
+
+      Changes on feature branches should follow the feature-worktrees workflow.
+
 criteria:
   required:
     - All tests pass
     - Pre-commit checks pass
     - Documentation updated if needed
     - STRUCTURE.md up-to-date with structural changes
+    - CHANGELOG.md up-to-date with feature changes
     - All .mdc files tracked in git
     - No debug code remains
     - All linting issues resolved
     - Test coverage meets target (100%) or exclusions documented
     - No undocumented "pragma: no cover" directives
+    - Commit message follows conventional format
 
 metadata:
   priority: critical
-  version: 2.0
+  version: 2.1
