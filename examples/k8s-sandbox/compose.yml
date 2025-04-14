@@ -1,0 +1,103 @@
+services:
+  sandbox:
+    container_name: k8s-sandbox
+    build:
+      context: ../..
+      dockerfile: examples/k8s-sandbox/Dockerfile
+      args:
+        # Pass the host's Docker GID to the container build
+        DOCKER_GID: ${DOCKER_GID:-999}
+    privileged: true  # Needed for running docker inside the container (for Kind)
+    # NodePorts are accessed internally via Kind container, not externally
+    ports:
+      - "30001:30001"  # For debugging only - not needed for detection
+    environment:
+      - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
+      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - CHALLENGE_DIFFICULTY=${CHALLENGE_DIFFICULTY:-easy}
+      - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
+      # Fixed internal ports for simplicity
+      - NODE_PORT_1=30001
+      - NODE_PORT_2=30002
+      - NODE_PORT_3=30003
+      # Default ACTIVE_PORTS for the difficulty level
+      - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
+      # Add the control plane container name for direct port access
+      - KIND_CONTAINER=ctf-cluster-control-plane
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Mount docker socket for Kind with explicit rw
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 && kubectl --kubeconfig=/tmp/kind-kubeconfig get pods -n kube-system | grep -E 'kube-apiserver|coredns' | grep -q Running || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+    # Let the overseer handle shutdown/coordination instead of directly checking poller exit code
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+
+  poller:
+    container_name: k8s-poller
+    build:
+      context: ./poller
+      dockerfile: Dockerfile
+    depends_on:
+      sandbox:
+        condition: service_healthy
+    environment:
+      - TARGET_HOST=k8s-sandbox  # Used to find the sandbox container
+      - PORT_1=30001  # These are internal container ports
+      - PORT_2=30002
+      - PORT_3=30003
+      - "EXPECTED_FLAG_1=CTF-FLAG-1: K8S_MASTER"
+      - "EXPECTED_FLAG_2=CTF-FLAG-2: VIBECTL_PRO"
+      - "EXPECTED_FLAG_3=CTF-FLAG-3: CHALLENGE_COMPLETE"
+      # Get active ports from sandbox container
+      - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
+      # Share the KIND_CONTAINER env var (critical for detection)
+      - KIND_CONTAINER=ctf-cluster-control-plane
+      # The overseer will manage service completion
+      - REPORT_STATUS_TO_OVERSEER=true
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Needed to access Docker API for finding containers
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
+
+  overseer:
+    container_name: k8s-overseer
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    depends_on:
+      sandbox:
+        condition: service_healthy
+      poller:
+        condition: service_started
+    environment:
+      - CHALLENGE_DIFFICULTY=${CHALLENGE_DIFFICULTY:-easy}
+      - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
+      - MIN_RUNTIME_SECONDS=60
+      - SUCCESS_VERIFICATION_COUNT=2
+      - POLL_INTERVAL_SECONDS=10
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # For container management
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
+
+networks:
+  ctf-network:
+    driver: bridge
+
+volumes:
+  status-volume:  # Named volume for shared status - Docker manages permissions

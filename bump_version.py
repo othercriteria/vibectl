@@ -151,9 +151,15 @@ def main() -> int:
         return 1
 
     print("\nTo release this version:")
-    print("  1. Commit the version change:")
-    print(f"     git commit -am 'chore: bump version to {new_version_str}'")
-    print("  2. Release to PyPI (using NixOS tools):")
+    print("  1. Update CHANGELOG.md:")
+    print("     - Move 'Unreleased' changes to a new section:")
+    print(f"       [{new_version_str}] - YYYY-MM-DD")
+    print("     - Organize changes by type (Added, Changed, Fixed, etc.)")
+    print("     - Add a fresh 'Unreleased' section at the top")
+    print("  2. Commit the version changes:")
+    print("     git commit -am 'chore: bump version to")
+    print(f"     {new_version_str} and update changelog'")
+    print("  3. Release to PyPI (using NixOS tools):")
     print("     pypi-dist all")
     print("     OR")
     print("     make pypi-release")

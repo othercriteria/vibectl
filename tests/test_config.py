@@ -93,6 +93,25 @@ def test_config_set_boolean_values(test_config: MockConfig) -> None:
         assert test_config.get("show_raw_output") == expected
 
 
+def test_config_set_show_kubectl(test_config: MockConfig) -> None:
+    """Test setting show_kubectl configuration value."""
+    # Set show_kubectl to true
+    test_config.set("show_kubectl", True)
+    assert test_config.get("show_kubectl") is True
+
+    # Set show_kubectl to false
+    test_config.set("show_kubectl", False)
+    assert test_config.get("show_kubectl") is False
+
+    # Test string conversion to boolean
+    test_config.set("show_kubectl", "true")
+    assert test_config.get("show_kubectl") is True
+
+    # Unset should reset to default (False)
+    test_config.unset("show_kubectl")
+    assert test_config.get("show_kubectl") is False
+
+
 def test_config_set_invalid_boolean(test_config: MockConfig) -> None:
     """Test setting invalid boolean value."""
     with pytest.raises(ValueError, match="Invalid boolean value"):

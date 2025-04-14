@@ -17,7 +17,6 @@ import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-from vibectl.prompt import describe_resource_prompt
 
 # The cli_runner and mock_config fixtures are now provided by conftest.py
 
@@ -248,6 +247,84 @@ def test_get_with_flags(
         cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
 
 
+def test_get_with_show_kubectl_flag(
+    cli_runner: CliRunner,
+    mock_run_kubectl: Mock,
+    mock_handle_command_output: Mock,
+) -> None:
+    """Test get command with show_kubectl flag."""
+    with (
+        patch("vibectl.cli.configure_output_flags") as mock_configure_flags,
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Set up mock return value
+        cmd_mock_run_kubectl.return_value = "test output"
+
+        # Mock the configure_output_flags function
+        mock_configure_flags.return_value = Mock(
+            show_raw=False, show_vibe=True, warn_no_output=True, model_name="test-model"
+        )
+
+        result = cli_runner.invoke(
+            cli,
+            [
+                "get",
+                "pods",
+                "--show-kubectl",
+            ],
+        )
+
+        # Check results
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+
+        # Check that show_kubectl=True was passed to configure_output_flags
+        mock_configure_flags.assert_called_once()
+        kwargs = mock_configure_flags.call_args[1]
+        assert "show_kubectl" in kwargs
+        assert kwargs["show_kubectl"] is True
+
+
+def test_get_with_no_show_kubectl_flag(
+    cli_runner: CliRunner,
+    mock_run_kubectl: Mock,
+    mock_handle_command_output: Mock,
+) -> None:
+    """Test get command with no-show-kubectl flag."""
+    with (
+        patch("vibectl.cli.configure_output_flags") as mock_configure_flags,
+        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Set up mock return value
+        cmd_mock_run_kubectl.return_value = "test output"
+
+        # Mock the configure_output_flags function
+        mock_configure_flags.return_value = Mock(
+            show_raw=False, show_vibe=True, warn_no_output=True, model_name="test-model"
+        )
+
+        result = cli_runner.invoke(
+            cli,
+            [
+                "get",
+                "pods",
+                "--no-show-kubectl",
+            ],
+        )
+
+        # Check results
+        assert result.exit_code == 0
+        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+
+        # Check that show_kubectl=False was passed to configure_output_flags
+        mock_configure_flags.assert_called_once()
+        kwargs = mock_configure_flags.call_args[1]
+        assert "show_kubectl" in kwargs
+        assert kwargs["show_kubectl"] is False
+
+
 @patch("vibectl.cli.handle_vibe_request")
 def test_get_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
     """Test get command with vibe request."""
@@ -281,150 +358,6 @@ def test_get_error_handling(cli_runner: CliRunner, mock_run_kubectl: Mock) -> No
 
         # Check that the command failed with a non-zero exit code
         assert result.exit_code != 0
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.handle_standard_command")
-def test_describe_basic(
-    mock_handle_standard: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test basic describe command functionality."""
-    # Set up the return value for configure_output_flags to return
-    # an OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    result = cli_runner.invoke(cli, ["describe", "pod", "my-pod"])
-
-    assert result.exit_code == 0
-    mock_handle_standard.assert_called_once_with(
-        command="describe",
-        resource="pod",
-        args=("my-pod",),
-        output_flags=mock_configure_flags.return_value,
-        summary_prompt_func=describe_resource_prompt,
-    )
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.handle_standard_command")
-def test_describe_with_args(
-    mock_handle_standard: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test describe command with additional arguments."""
-    # Set up the return value for configure_output_flags to return
-    # an OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Use -- to separate options from arguments
-    result = cli_runner.invoke(
-        cli, ["describe", "pod", "my-pod", "--", "-n", "default"]
-    )
-
-    assert result.exit_code == 0
-    mock_handle_standard.assert_called_once_with(
-        command="describe",
-        resource="pod",
-        args=("my-pod", "-n", "default"),
-        output_flags=mock_configure_flags.return_value,
-        summary_prompt_func=describe_resource_prompt,
-    )
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.handle_standard_command")
-def test_describe_with_flags(
-    mock_handle_standard: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test describe command with output flags."""
-    # Set up the return value for configure_output_flags to return
-    # an OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=True, show_vibe=False, warn_no_output=False, model_name="test-model"
-    )
-
-    result = cli_runner.invoke(
-        cli,
-        [
-            "describe",
-            "pod",
-            "my-pod",
-            "--show-raw-output",
-            "--no-show-vibe",
-            "--model",
-            "test-model",
-        ],
-    )
-
-    assert result.exit_code == 0
-    mock_handle_standard.assert_called_once_with(
-        command="describe",
-        resource="pod",
-        args=("my-pod",),
-        output_flags=mock_configure_flags.return_value,
-        summary_prompt_func=describe_resource_prompt,
-    )
-
-
-@patch("vibectl.cli.handle_vibe_request")
-def test_describe_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
-    """Test describe command with vibe request."""
-    result = cli_runner.invoke(
-        cli, ["describe", "vibe", "show", "me", "pod", "details"]
-    )
-
-    assert result.exit_code == 0
-    mock_handle_vibe.assert_called_once()
-    args, kwargs = mock_handle_vibe.call_args
-    assert kwargs["request"] == "show me pod details"
-    assert kwargs["command"] == "describe"
-
-
-def test_describe_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
-    """Test describe vibe command without a request."""
-    # Call should fail since there's no request provided
-    with patch("vibectl.cli.console_manager.print_missing_request_error"):
-        result = cli_runner.invoke(cli, ["describe", "vibe"])
-
-        # Verify the command fails - exact exit code depends on implementation
-        assert result.exit_code != 0 or isinstance(result.exception, SystemExit)
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.handle_standard_command")
-def test_describe_error_handling(
-    mock_handle_standard: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test describe command error handling."""
-    mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
-    mock_handle_standard.side_effect = Exception("Test error")
-
-    result = cli_runner.invoke(cli, ["describe", "pod", "my-pod"])
-
-    assert result.exit_code == 1  # Should exit with error code
 
 
 @patch("vibectl.cli.configure_output_flags")

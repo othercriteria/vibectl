@@ -1,0 +1,183 @@
+---
+description: Defines commit message format and best practices
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Commit Message Format
+
+Guidelines for creating clear, descriptive commit messages that accurately reflect changes.
+
+<rule>
+name: commit_message
+description: Defines commit message format and best practices
+filters:
+  - type: intent
+    pattern: "commit_message_preparation"
+  - type: content
+    pattern: "(?i)\\b(commit|save|checkpoint|message|description)\\b"
+
+actions:
+  - type: suggest
+    message: |
+      ## Commit Message Best Practices
+
+      1. **IMPORTANT: Always check git for actual changes**
+         - Use `git diff --staged` to see exactly what's being committed
+         - Don't rely only on the chat history or agent's memory
+         - Verify all files modified and specific changes made
+
+      2. **Use conventional commit format**:
+         ```
+         {type}: {concise description}
+
+         {detailed description if needed}
+
+         Breaking Changes:
+         {breaking changes if any}
+
+         Related Issues: {related issues/tickets}
+         ```
+
+      3. **Select appropriate type**:
+         - `feat`: New feature
+         - `fix`: Bug fix
+         - `refactor`: Code restructuring
+         - `docs`: Documentation updates
+         - `test`: Test additions/updates
+         - `chore`: Maintenance tasks
+
+      4. **Keep descriptions concise and clear**:
+         - First line should be under 72 characters
+         - Use imperative mood (e.g., "Add feature" not "Added feature")
+         - Be specific about what changed and why
+
+  - type: commit
+    command: |
+      # Verify what's being committed
+      echo "Checking actual changes to be committed..."
+      CHANGED_FILES=$(git diff --cached --name-only)
+
+      if [ -z "$CHANGED_FILES" ]; then
+        echo "Error: No files staged for commit. Use git add to stage changes."
+        exit 1
+      fi
+
+      echo "Files to be committed:"
+      echo "$CHANGED_FILES"
+      echo ""
+
+      echo "Summary of changes:"
+      git diff --cached --stat
+      echo ""
+
+      # Process commit message parts preserving actual newlines
+      # Split multiline inputs into separate -m arguments
+      create_m_args() {
+        local input="$1"
+        local args=""
+
+        # Skip if empty or "None"
+        if [[ -z "$input" || "$input" == "None" ]]; then
+          echo ""
+          return
+        fi
+
+        # Create a temporary file for line-by-line processing
+        local tmpfile=$(mktemp)
+        echo "$input" > "$tmpfile"
+
+        # Read line by line and create -m arguments
+        while IFS= read -r line; do
+          args="$args -m \"$line\""
+        done < "$tmpfile"
+
+        rm "$tmpfile"
+        echo "$args"
+      }
+
+      # Create -m arguments for each section
+      CONCISE_ARG="-m \"{type}: {concise description}\""
+      DESCRIPTION_ARGS=$(create_m_args "{detailed description if needed}")
+
+      # Add empty line before breaking changes if they exist
+      if [[ -n "{breaking changes if any}" && "{breaking changes if any}" != "None" ]]; then
+        BREAKING_HEADER="-m \"\" -m \"Breaking Changes:\""
+        BREAKING_ARGS=$(create_m_args "{breaking changes if any}")
+      else
+        BREAKING_HEADER=""
+        BREAKING_ARGS=""
+      fi
+
+      # Add empty line before related issues if they exist
+      if [[ -n "{related issues/tickets}" && "{related issues/tickets}" != "None" ]]; then
+        ISSUES_HEADER="-m \"\" -m \"Related Issues:\""
+        ISSUES_ARGS=$(create_m_args "{related issues/tickets}")
+      else
+        ISSUES_HEADER=""
+        ISSUES_ARGS=""
+      fi
+
+      # Construct the final git commit command with all arguments
+      eval git commit $CONCISE_ARG $DESCRIPTION_ARGS $BREAKING_HEADER $BREAKING_ARGS $ISSUES_HEADER $ISSUES_ARGS
+
+  - type: reject
+    conditions:
+      - pattern: "(?i)commit\\s+message\\s+.*too\\s+(long|lengthy|verbose)"
+        message: |
+          Keep the first line of commit messages under 72 characters.
+          Use the detailed description for additional information.
+
+      - pattern: "(?i)commit\\s+.*without\\s+(explaining|description|reason)"
+        message: |
+          Provide a clear description of what changes were made and why.
+          Always include both what changed and the reason for the change.
+
+criteria:
+  required:
+    - First line follows format "{type}: {concise description}"
+    - First line is under 72 characters
+    - Description is in imperative mood ("Add feature" not "Added feature")
+    - Breaking changes are clearly marked
+    - Related issues are referenced when applicable
+    - Changes are verified with git diff before committing
+
+commit_message_format: |
+  {type}: {concise description}
+
+  {detailed description if needed}
+
+  Breaking Changes:
+  {breaking changes if any}
+
+  Related Issues: {related issues/tickets}
+
+types:
+  - feat: New feature
+  - fix: Bug fix
+  - refactor: Code restructuring
+  - docs: Documentation updates
+  - test: Test additions/updates
+  - chore: Maintenance tasks
+
+examples:
+  - input: "Fixed YAML parsing error handling with breaking changes"
+    output: |
+      # First check what's actually changing
+      git diff --staged
+
+      # Confirm the changes match your understanding, then commit:
+      git commit \
+        -m "fix: improve YAML parsing error handling" \
+        -m "Add error catching for YAMLError
+      Add type validation
+      Add tests for invalid cases" \
+        -m "" \
+        -m "Breaking Changes:" \
+        -m "- Changed error return type from string to structured Error object" \
+        -m "" \
+        -m "Related Issues: #456"
+
+metadata:
+  priority: high
+  version: 1.0

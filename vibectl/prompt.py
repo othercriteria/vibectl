@@ -264,6 +264,11 @@ Important:
 - Use standard kubectl syntax and conventions
 - If the request is unclear, use reasonable defaults
 - If the request is invalid or impossible, return 'ERROR: <reason>'
+- For commands with complex arguments (e.g., --from-literal with spaces, HTML, or
+  special characters):
+  * PREFER creating a YAML file with '---' separator instead of inline --from-literal
+    arguments
+  * If --from-literal must be used, ensure values are properly quoted
 
 Example inputs and outputs:
 
@@ -284,6 +289,19 @@ spec:
     image: nginx:latest
     ports:
     - containerPort: 80
+
+Input: "create a configmap with HTML content"
+Output:
+-n
+default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: html-content
+data:
+  index.html: |
+    <html><body><h1>Hello World</h1></body></html>
 
 Input: "create a deployment with 3 nginx replicas in prod namespace"
 Output:
@@ -845,23 +863,20 @@ Here's the output:
 
 # Template for summarizing other rollout command outputs
 def rollout_general_prompt() -> str:
-    """Get the prompt template for summarizing other kubectl rollout commands.
-
-    Includes current datetime information for timestamp context. Used for commands
-    like undo, restart, pause, and resume.
+    """Get the prompt template for summarizing kubectl rollout output.
 
     Returns:
-        str: The rollout general prompt template with formatting instructions
+        str: The rollout general prompt template with current formatting instructions
     """
-    return f"""Summarize this kubectl rollout command output. Focus on what
-action was taken, the affected resources, and any important details or warnings.
+    return f"""Summarize this kubectl rollout command output.
+Focus on the key information about the rollout operation.
 
 {get_formatting_instructions()}
 
 Example format:
-[bold]deployment/api[/bold] rollout [green]successfully restarted[/green]
-[blue]All pods will be replaced[/blue]
-[italic]Check status with 'kubectl rollout status deployment/api'[/italic]
+[bold]Deployment rollout[/bold] [green]successful[/green]
+[blue]Updates applied[/blue] to [bold]my-deployment[/bold]
+[yellow]Warning: rollout took longer than expected[/yellow]
 
 Here's the output:
 
@@ -888,6 +903,14 @@ Important:
   resource types, or suggesting resource creation)
 - After discovering empty namespaces or no pods/resources, progress to create
   needed resources rather than repeatedly checking empty resources
+
+Command Structure Guidelines:
+- For creating resources with complex data (HTML, strings with spaces, etc.):
+  * PREFER using YAML manifests with 'kubectl create -f <file.yaml>' approach
+  * If command-line flags like --from-literal must be used, ensure correct quoting
+- Avoid spaces in resource names when possible
+- Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
+- Each multi-line command should be explicit about line continuation with backslashes
 
 Example inputs and outputs:
 
@@ -918,8 +941,44 @@ Memory: "We're working only in the 'sandbox' namespace to demonstrate new featur
 Checked for pods but found none in the sandbox namespace."
 Input: "keep building the nginx demo"
 Output:
-kubectl create deployment nginx --image=nginx -n sandbox
+kubectl create -f - << EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+EOF
 NOTE: Creating nginx deployment as first step in building the demo
+
+Memory: "We need to create a configmap with HTML content in the 'web' namespace."
+Input: "create the configmap for the nginx website"
+Output:
+kubectl create -f - << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-html
+  namespace: web
+data:
+  index.html: |
+    <html><body><h1>Welcome to Nginx</h1><p>This is a demo website.</p></body></html>
+EOF
+NOTE: Creating configmap with HTML content for the nginx website
 
 Here's the current memory context and request:
 
@@ -930,10 +989,11 @@ Request: {request}"""
 
 # Template for summarizing vibe autonomous command output
 def vibe_autonomous_prompt() -> str:
-    """Get the prompt template for summarizing the output of an autonomous vibe command.
+    """Get the prompt for generating autonomous kubectl commands based on
+    natural language.
 
     Returns:
-        str: The vibe autonomous prompt template with formatting instructions
+        str: The autonomous command generation prompt
     """
     return f"""Analyze this kubectl command output and provide a concise summary.
 Focus on the state of the resources, any issues detected, and suggest logical
@@ -945,6 +1005,12 @@ in the specified namespace or context. Include this fact in your interpretation
 and suggest appropriate next steps (e.g., creating resources, checking namespace,
 confirming context, etc.).
 
+When suggesting next steps that involve creating resources with complex data:
+- Suggest using YAML manifest approaches rather than inline flags like --from-literal
+- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line
+  text), recommend explicit YAML creation using kubectl create/apply -f
+- Avoid suggesting command line arguments with quoted content when possible
+
 {get_formatting_instructions()}
 
 Example format:
@@ -955,8 +1021,33 @@ Next steps: Consider checking logs for database pod or scaling the deployment
 
 For empty output examples:
 [yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
-Next steps: Create the first pod or deployment in this namespace
+Next steps: Create the first pod or deployment in this namespace using a YAML manifest
 
 Here's the output:
 
 {{output}}"""
+
+
+def recovery_prompt(command: str, error: str) -> str:
+    """Get the prompt template for generating recovery suggestions when a command fails.
+
+    Args:
+        command: The kubectl command that failed
+        error: The error message
+
+    Returns:
+        str: The recovery prompt template
+    """
+    return f"""
+The following kubectl command failed with an error:
+kubectl {command}
+
+Error: {error}
+
+Explain the error in simple terms and provide 2-3 alternative approaches to
+fix the issue.
+
+Focus on common syntax issues or kubectl command structure problems.
+
+Keep your response under 400 tokens.
+"""

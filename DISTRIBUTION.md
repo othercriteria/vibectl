@@ -177,13 +177,29 @@ rm -rf dist/ build/ *.egg-info
 
 When updating the package on PyPI:
 
-1. Update the version in `pyproject.toml`
-2. Make your changes
-3. Use one of the workflows above to publish
+1. Update the CHANGELOG.md file:
+   - Move "Unreleased" changes to a new version section
+   - Include the version number and release date
+   - Group changes by type (Added, Changed, Fixed, etc.)
+   - Add a fresh "Unreleased" section at the top
+
+2. Update the version in `pyproject.toml` using the version bump command:
+   ```zsh
+   bump-version patch|minor|major  # Or use make bump-patch|bump-minor|bump-major
+   ```
+   This will automatically update both `pyproject.toml` and `vibectl/__init__.py` to keep them in sync.
+
+3. Commit the changes:
+   ```zsh
+   git commit -am "chore: bump version to X.Y.Z and update changelog"
+   ```
+
+4. Use one of the workflows above to publish
 
 > **Note**: Always use the `bump-version` command to update versions, as it will
 > automatically update both `pyproject.toml` and `vibectl/__init__.py` to keep them
-> in sync. Running `bump-version patch|minor|major` will handle this for you.
+> in sync. The make targets (e.g., `make bump-patch`) will prompt you to update the
+> CHANGELOG.md before running the version bump.
 
 ## Troubleshooting
 

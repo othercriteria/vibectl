@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # Project Structure Documentation
 
-Document project structure in STRUCTURE.md.
+Document project structure in STRUCTURE.md files at appropriate levels.
 
 <rule>
 name: project_structure
@@ -21,14 +21,32 @@ filters:
 actions:
   - type: suggest
     message: |
-      STRUCTURE.md should include:
+      STRUCTURE.md at the project root should include:
       1. Project organization overview
       2. Key directories and purposes
       3. Important file locations
       4. Component dependencies
       5. Configuration file locations
+      6. References to local STRUCTURE.md files in subprojects
 
-      Update when adding directories, moving files, or changing structure.
+      For loosely coupled components or examples, create local STRUCTURE.md files:
+      ```
+      examples/k8s-sandbox/STRUCTURE.md
+      ```
+
+      The root STRUCTURE.md should reference these local files rather than duplicating details:
+      ```markdown
+      ## Examples
+      - k8s-sandbox: Kubernetes CTF sandbox environment. See [examples/k8s-sandbox/STRUCTURE.md](examples/k8s-sandbox/STRUCTURE.md) for details.
+      ```
+
+      Local STRUCTURE.md files should focus on the specific subproject structure:
+      1. Component overview
+      2. Local directories and files
+      3. How it interfaces with the main project
+      4. Local configuration options
+
+      Update STRUCTURE.md files when adding directories, moving files, or changing structure.
 
   - type: reject
     conditions:
@@ -38,15 +56,53 @@ actions:
 criteria:
   required:
     - STRUCTURE.md exists in project root
-    - File is up-to-date with current structure
+    - Local STRUCTURE.md files for loosely coupled components
+    - Files are up-to-date with current structure
     - All major components documented
     - Directory purposes explained
     - Key file locations listed
+    - Root STRUCTURE.md references local STRUCTURE.md files
 
 examples:
   - input: "Where should I put my new service component?"
-    output: "Check STRUCTURE.md for guidelines on component placement. Update STRUCTURE.md after adding your new service."
+    output: "Check the relevant STRUCTURE.md for guidelines on component placement. Update STRUCTURE.md after adding your new service."
+
+  - input: "I'm adding a new example, should I document its structure?"
+    output: |
+      Create a local STRUCTURE.md file in your example directory:
+      ```
+      examples/your-example/STRUCTURE.md
+      ```
+
+      Detail the example's structure there, and add a reference to it in the root STRUCTURE.md:
+      ```markdown
+      ## Examples
+      - your-example: Brief description. See [examples/your-example/STRUCTURE.md](examples/your-example/STRUCTURE.md) for details.
+      ```
+
+  - input: "How should I structure a local STRUCTURE.md file?"
+    output: |
+      A local STRUCTURE.md should include:
+      ```markdown
+      # Component Name Structure
+
+      Brief overview of this component's purpose.
+
+      ## Key Files
+      - `file1.py`: Core functionality
+      - `file2.py`: Supporting utilities
+
+      ## Directories
+      - `subdir1/`: Purpose of this subdirectory
+      - `subdir2/`: Purpose of this subdirectory
+
+      ## Interface with Main Project
+      How this component connects to the rest of the project.
+
+      ## Configuration
+      How to configure this component.
+      ```
 
 metadata:
   priority: high
-  version: 1.1
+  version: 1.2

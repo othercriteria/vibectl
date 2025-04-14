@@ -14,6 +14,7 @@ from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
+from .prompt import recovery_prompt
 from .types import OutputFlags
 from .utils import handle_exception
 
@@ -191,13 +192,16 @@ def handle_vibe_request(
     """Handle a request to execute a kubectl command based on a natural language query.
 
     Args:
-        request: The natural language request
-        command: The kubectl command type (get, describe, etc.)
-        plan_prompt: The prompt template for planning
-        summary_prompt_func: Function that provides the prompt for summarizing output
-        output_flags: Configuration for output display
+        request: Natural language request from the user
+        command: Command type (get, describe, etc.)
+        plan_prompt: LLM prompt template for planning the kubectl command
+        summary_prompt_func: Function that returns the LLM prompt for summarizing
+        output_flags: Output configuration flags
         yes: Whether to bypass confirmation prompts
-        autonomous_mode: Whether we're in autonomous mode
+        autonomous_mode: Whether this is operating in autonomous mode
+
+    Returns:
+        None
     """
     try:
         # Plan the kubectl command based on the request
@@ -221,32 +225,67 @@ def handle_vibe_request(
             console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
             return
 
-        # Process the command to extract YAML content and command arguments
-        cmd_args, yaml_content = _process_command_string(kubectl_cmd)
+        try:
+            # Process the command to extract YAML content and command arguments
+            cmd_args, yaml_content = _process_command_string(kubectl_cmd)
 
-        # Process the arguments into a properly structured command
-        args = _process_command_args(cmd_args, command)
+            # Convert command string to a list of arguments
+            args = _parse_command_args(cmd_args)
 
-        # Create a display command for user feedback
-        display_cmd = _create_display_command(args, yaml_content)
+            # Create a display command for user feedback
+            display_cmd = _create_display_command(args, yaml_content)
 
-        # Check if we need confirmation or if show_kubectl is enabled
-        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
+            # Check if we need confirmation or if show_kubectl is enabled
+            needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
 
-        # Show command if show_kubectl is True or confirmation needed
-        if output_flags.show_kubectl or needs_confirm:
-            console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+            # Show command if show_kubectl is True or confirmation needed
+            if output_flags.show_kubectl or needs_confirm:
+                console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
 
-        # If confirmation needed, ask now
-        if needs_confirm:
-            import click
+            # If confirmation needed, ask now
+            if needs_confirm:
+                import click
 
-            if not click.confirm("Execute this command?"):
-                console_manager.print_cancelled()
+                if not click.confirm("Execute this command?"):
+                    console_manager.print_cancelled()
+                    return
+
+            # Execute the command and get output
+            try:
+                output = _execute_command(args, yaml_content)
+            except Exception as cmd_error:
+                # Provide a more helpful error message and recovery suggestions
+                error_message = f"Command execution error: {cmd_error}"
+                console_manager.print_error(error_message)
+
+                # Capture error for memory update
+                output = f"Error: {cmd_error}"
+
+                # Generate recovery suggestions from the model
+                try:
+                    # Use the recovery_prompt from prompt.py
+                    prompt = recovery_prompt(display_cmd, str(cmd_error))
+                    recovery_suggestions = model_adapter.execute(model, prompt)
+                    console_manager.print_vibe(recovery_suggestions)
+
+                    # Include recovery suggestions in output for memory
+                    output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
+                except Exception:
+                    # If even the recovery suggestions fail, at least don't crash
+                    pass
+
+                # Process the output for memory update (don't return early)
+                handle_command_output(
+                    output=output,
+                    output_flags=output_flags,
+                    summary_prompt_func=summary_prompt_func,
+                    command=display_cmd,
+                )
                 return
-
-        # Execute the command and get output
-        output = _execute_command(args, yaml_content)
+        except ValueError as ve:
+            # Handle command parsing/processing errors explicitly
+            console_manager.print_error(f"Command parsing error: {ve}")
+            return
 
         # Handle response - might be empty
         if not output:
@@ -260,7 +299,18 @@ def handle_vibe_request(
             command=display_cmd,
         )
     except Exception as e:
-        handle_exception(e)
+        # Print error but don't exit the process for non-critical errors
+        console_manager.print_error(f"Error: {e}")
+
+        # If this seems to be a command execution error, add more context
+        if "kubectl" in str(e).lower() or "command" in str(e).lower():
+            console_manager.print_note(
+                "This appears to be a kubectl command error. "
+                "You can try rephrasing your request or using 'vibectl just' "
+                "to run raw kubectl commands directly."
+            )
+
+        # Don't call handle_exception which would exit the process
 
 
 def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
@@ -272,6 +322,26 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     Returns:
         Tuple of (command arguments, YAML content or None)
     """
+    # Check for heredoc syntax (create -f - << EOF)
+    if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
+        # Find the start of the heredoc
+        if " << EOF" in kubectl_cmd:
+            cmd_parts = kubectl_cmd.split(" << EOF", 1)
+        else:
+            cmd_parts = kubectl_cmd.split(" <<EOF", 1)
+
+        cmd_args = cmd_parts[0].strip()
+        yaml_content = None
+
+        # If there's content after the heredoc marker, treat it as YAML
+        if len(cmd_parts) > 1:
+            yaml_content = cmd_parts[1].strip()
+            # Remove trailing EOF if present
+            if yaml_content.endswith("EOF"):
+                yaml_content = yaml_content[:-3].strip()
+
+        return cmd_args, yaml_content
+
     # Check for YAML content separated by --- (common in kubectl manifests)
     cmd_parts = kubectl_cmd.split("---", 1)
     cmd_args = cmd_parts[0].strip()
@@ -282,39 +352,28 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     return cmd_args, yaml_content
 
 
-def _process_command_args(cmd_args: str, command: str) -> list[str]:
-    """Process command arguments into a properly structured list.
+def _parse_command_args(cmd_args: str) -> list[str]:
+    """Parse command arguments into a list.
 
     Args:
         cmd_args: The command arguments string
-        command: The kubectl command type (get, describe, etc.)
 
     Returns:
-        List of command arguments with kubectl prefix removed and filtered
+        List of command arguments
     """
-    # Split into individual arguments
-    args = cmd_args.split()
+    import shlex
+
+    # Use shlex to properly handle quoted arguments
+    try:
+        # This preserves quotes and handles spaces in arguments properly
+        args = shlex.split(cmd_args)
+    except ValueError:
+        # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
+        args = cmd_args.split()
 
     # Remove 'kubectl' prefix if the model included it
     if args and args[0].lower() == "kubectl":
         args = args[1:]
-
-    # For certain commands, we want to make sure the command verb is the first argument
-    # This ensures correct kubectl command structure
-    commands_to_normalize = ["get", "describe", "logs", "delete", "scale"]
-
-    # Check if we need to normalize the command and it's not already normalized
-    if command in commands_to_normalize and (
-        not any(arg == command for arg in args) or args[0] != command
-    ):
-        # Remove the command if it's somewhere else in the args list
-        args = [arg for arg in args if arg != command]
-        # Add it at the beginning
-        args.insert(0, command)
-
-    # Special case for create command
-    if command == "create" and args and args[0] != "create":
-        args.insert(0, "create")
 
     # Filter out any kubeconfig flags that might be present
     # as they should be handled by run_kubectl, not included directly
@@ -356,12 +415,33 @@ def _create_display_command(args: list[str], yaml_content: str | None) -> str:
         yaml_content: YAML content if present
 
     Returns:
-        Command string for display
+        Display-friendly command string
     """
-    display_cmd = " ".join(args)
+    import shlex
+
+    # Reconstruct the command for display
     if yaml_content:
-        display_cmd = f"{display_cmd} {yaml_content}"
-    return display_cmd
+        # For commands with YAML, show a simplified version
+        if args and args[0] == "create":
+            # For create, we show that it's using a YAML file
+            return f"{' '.join(args)} (with YAML content)"
+        else:
+            # For other commands, standard format with YAML note
+            return f"{' '.join(args)} -f (YAML content)"
+    else:
+        # For standard commands without YAML, quote arguments with spaces/chars
+        display_args = []
+        for arg in args:
+            # Check if the argument needs quoting
+            chars = "\"'<>|&;()"
+            has_space = " " in arg
+            has_special = any(c in arg for c in chars)
+            if has_space or has_special:
+                # Use shlex.quote to properly quote the argument
+                display_args.append(shlex.quote(arg))
+            else:
+                display_args.append(arg)
+        return " ".join(display_args)
 
 
 def _needs_confirmation(command: str, autonomous_mode: bool) -> bool:
@@ -399,9 +479,47 @@ def _execute_command(args: list[str], yaml_content: str | None) -> str:
     if yaml_content:
         return _execute_yaml_command(args, yaml_content)
     else:
-        # Regular command without YAML
-        cmd_output = run_kubectl(args, capture=True)
-        return "" if cmd_output is None else cmd_output
+        # Check if any arguments contain spaces or special characters
+        has_complex_args = any(" " in arg or "<" in arg or ">" in arg for arg in args)
+
+        if has_complex_args:
+            # Use direct subprocess execution with preserved argument structure
+            return _execute_command_with_complex_args(args)
+        else:
+            # Regular command without complex arguments
+            cmd_output = run_kubectl(args, capture=True)
+            return "" if cmd_output is None else cmd_output
+
+
+def _execute_command_with_complex_args(args: list[str]) -> str:
+    """Execute a kubectl command with complex arguments that need special handling.
+
+    Args:
+        args: List of command arguments
+
+    Returns:
+        Output of the command
+    """
+    import subprocess
+
+    # Build the full command to preserve argument structure
+    cmd = ["kubectl"]
+
+    # Add each argument, preserving structure that might have spaces or special chars
+    for arg in args:
+        cmd.append(arg)
+
+    console_manager.print_processing(f"Running: {' '.join(cmd)}")
+
+    # Run the command, preserving the argument structure
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+            return f"Error: {e.stderr}"
+        return f"Error: Command failed with exit code {e.returncode}"
 
 
 def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
@@ -417,42 +535,73 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     import subprocess
     import tempfile
 
-    # Create a temporary file with the YAML content
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as temp:
-        temp.write(yaml_content)
-        temp_path = temp.name
+    # Check if this is a stdin pipe command (kubectl ... -f -)
+    is_stdin_command = False
+    for i, arg in enumerate(args):
+        if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
+            is_stdin_command = True
+            break
 
-    try:
-        # For create commands, we need to use the -f flag correctly
-        if args[0] == "create":
-            # Include args except the command, which is at index [0]
-            # Add -f flag for the YAML file
-            cmd = ["kubectl", "create"]
-            # Add any other args that might have been provided
-            if len(args) > 1:
-                cmd.extend(args[1:])
-            cmd.extend(["-f", temp_path])
-        else:
-            # For other commands that accept YAML, keep the original args
-            # but ensure they don't include -f which will be added separately
-            filtered_args = [
-                arg for arg in args if arg != "-f" and not arg.startswith("-f=")
-            ]
-            cmd = ["kubectl", *filtered_args, "-f", temp_path]
-
+    if is_stdin_command:
+        # For commands like kubectl create -f -, use Popen with stdin
+        cmd = ["kubectl", *args]
         console_manager.print_processing(f"Running: {' '.join(cmd)}")
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        output = proc.stdout
-        if proc.returncode != 0:
-            raise Exception(
-                proc.stderr or f"Command failed with exit code {proc.returncode}"
-            )
-        return output
-    finally:
-        # Clean up the temporary file
-        import os
 
-        os.unlink(temp_path)
+        # Use bytes mode for Popen to avoid encoding issues
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,  # Use bytes mode
+        )
+
+        # Encode the YAML content to bytes
+        yaml_bytes = yaml_content.encode("utf-8")
+        stdout_bytes, stderr_bytes = process.communicate(input=yaml_bytes)
+
+        # Decode the output back to strings
+        stdout = stdout_bytes.decode("utf-8")
+        stderr = stderr_bytes.decode("utf-8")
+
+        if process.returncode != 0:
+            raise Exception(
+                stderr or f"Command failed with exit code {process.returncode}"
+            )
+
+        return stdout
+    else:
+        # For other commands, use a temporary file as before
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as temp:
+            temp.write(yaml_content)
+            temp_path = temp.name
+
+        try:
+            # For create commands that might be using --from-literal or similar flags
+            # just pass the arguments as is and add the -f flag
+            cmd = ["kubectl", *args]
+
+            # Only add -f if we have YAML content and it's not already in the args
+            if yaml_content and not any(
+                arg == "-f" or arg.startswith("-f=") for arg in args
+            ):
+                cmd.extend(["-f", temp_path])
+
+            console_manager.print_processing(f"Running: {' '.join(cmd)}")
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = proc.stdout
+            if proc.returncode != 0:
+                raise Exception(
+                    proc.stderr or f"Command failed with exit code {proc.returncode}"
+                )
+            return output
+        finally:
+            # Clean up the temporary file
+            import os
+
+            os.unlink(temp_path)
 
 
 def configure_output_flags(
@@ -514,45 +663,3 @@ def configure_output_flags(
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
     )
-
-
-def handle_command_with_options(
-    cmd: list[str],
-    show_raw_output: bool | None = None,
-    yaml: bool | None = None,
-    json: bool | None = None,
-    vibe: bool | None = None,
-    show_vibe: bool | None = None,
-    model: str | None = None,
-    show_kubectl: bool | None = None,
-    config: Config | None = None,
-) -> tuple[str, bool]:
-    """Handle command with output options.
-
-    Args:
-        cmd: Command to run
-        show_raw_output: Whether to show raw output
-        yaml: Whether to use yaml output
-        json: Whether to use json output
-        vibe: Whether to vibe the output
-        show_vibe: Whether to show vibe output
-        model: Model to use for vibe
-        show_kubectl: Whether to show kubectl commands
-        config: Config object
-
-    Returns:
-        Tuple of output and vibe status
-    """
-    # Configure output flags
-    output_flags = configure_output_flags(
-        show_raw_output, yaml, json, vibe, show_vibe, model, show_kubectl
-    )
-
-    # Run the command
-    output = run_kubectl(cmd, capture=True, config=config)
-
-    # Ensure we have a string
-    if output is None:
-        output = ""
-
-    return output, output_flags.show_vibe
