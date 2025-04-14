@@ -366,3 +366,20 @@ def mock_memory() -> Generator[MagicMock, None, None]:
         mock_include_memory.side_effect = lambda prompt_func: prompt_func()
 
         yield mock_update_memory
+
+
+@pytest.fixture(autouse=True)
+def no_coroutine_warnings() -> Generator[None, None, None]:
+    """Suppress RuntimeWarning about coroutines never being awaited."""
+    import warnings
+
+    # Save original filters as a list
+    original_filters = list(warnings.filters)
+
+    # Suppress coroutine warnings using the specific filter pattern
+    warnings.filterwarnings("ignore", message="coroutine '.*' was never awaited")
+
+    yield
+
+    # Restore original filters
+    warnings.filters = original_filters
