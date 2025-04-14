@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] - 2024-05-22
+## [0.3.1] - 2025-04-14
 
 ### Added
 - K8s-sandbox example with challenge-based learning for Kubernetes
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolved line length errors in command handling
 - Added tests/__init__.py to fix MyPy module detection
 
-## [0.3.0] - 2025-05-01
+## [0.3.0] - 2025-04-12
 
 ### Added
 - `show-kubectl` flag for controlling kubectl command display
