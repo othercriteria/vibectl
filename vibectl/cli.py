@@ -40,6 +40,7 @@ from .prompt import (
     PLAN_ROLLOUT_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
+    PLAN_WAIT_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     delete_resource_prompt,
@@ -54,6 +55,7 @@ from .prompt import (
     scale_resource_prompt,
     version_prompt,
     vibe_autonomous_prompt,
+    wait_resource_prompt,
 )
 from .utils import handle_exception
 
@@ -1575,6 +1577,78 @@ def resume(
             output=output,
             output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
+        )
+    except Exception as e:
+        handle_exception(e)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+def wait(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+) -> None:
+    """Wait for a specific condition on one or more resources."""
+    try:
+        # Configure output flags
+        output_flags = configure_output_flags(
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Special case for vibe command
+        if resource == "vibe":
+            if len(args) < 1:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+
+            request = " ".join(args)
+            try:
+                handle_vibe_request(
+                    request=request,
+                    command="wait",
+                    plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
+                    summary_prompt_func=wait_resource_prompt,
+                    output_flags=output_flags,
+                )
+            except Exception as e:
+                handle_exception(e)
+            return
+
+        # Handle standard command
+        handle_standard_command(
+            command="wait",
+            resource=resource,
+            args=args,
+            output_flags=output_flags,
+            summary_prompt_func=wait_resource_prompt,
         )
     except Exception as e:
         handle_exception(e)

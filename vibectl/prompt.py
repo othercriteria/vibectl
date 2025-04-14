@@ -1051,3 +1051,66 @@ Focus on common syntax issues or kubectl command structure problems.
 
 Keep your response under 400 tokens.
 """
+
+
+# Template for planning kubectl wait commands
+PLAN_WAIT_PROMPT = """Given this natural language request for waiting on Kubernetes
+resources, determine the appropriate kubectl wait command arguments.
+
+Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or 'wait' in the output
+- Include any necessary flags (--for, --timeout, -n, etc.)
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'
+
+Example inputs and outputs:
+
+Input: "wait for the deployment my-app to be ready"
+Output:
+deployment/my-app
+--for=condition=Available
+
+Input: "wait until the pod nginx becomes ready with 5 minute timeout"
+Output:
+pod/nginx
+--for=condition=Ready
+--timeout=5m
+
+Input: "wait for all jobs in billing namespace to complete"
+Output:
+jobs
+--all
+-n
+billing
+--for=condition=Complete
+
+Here's the request:
+
+{request}"""
+
+
+# Template for summarizing 'kubectl wait' output
+def wait_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl wait output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The wait resource prompt template with current formatting instructions
+    """
+    return f"""Summarize this kubectl wait output.
+Focus on whether the wait condition was met, how long it took, and any issues.
+
+{get_formatting_instructions()}
+
+Example format:
+[bold]Deployment my-app[/bold] [green]condition met[/green]
+in [italic]10 seconds[/italic]
+[yellow]Waiting for more pods to be ready[/yellow]
+[red]Timeout reached[/red] waiting for [bold]pod/nginx[/bold]
+
+Here's the output:
+
+{{output}}"""

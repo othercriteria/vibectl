@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - New `port-forward` command with enhanced monitoring and visualization (WIP)
-- New `wait` command with progress tracking for blocking operations (WIP)
+- New `wait` command for waiting on specific conditions in Kubernetes
+  - Basic implementation with support for all standard kubectl wait functionality
+  - Support for vibe-based natural language requests
+  - Rich output formatting with status indicators
 - Proxy layer for analyzing traffic through port-forward connections (WIP)
 - Rich terminal UI for displaying live status of blocking operations (WIP)
 - Traffic metrics collection for improved troubleshooting (WIP)
