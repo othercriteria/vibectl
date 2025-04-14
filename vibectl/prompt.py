@@ -61,7 +61,7 @@ def create_planning_prompt(
     """Create a standard planning prompt for kubectl commands.
 
     Args:
-        command: The kubectl command (get, describe, logs, etc.)
+        command: The kubectl command (get, describe, etc.)
         description: Description of what the prompt is for
         examples: List of input/output example tuples
         flags: Common flags for this command
@@ -586,24 +586,35 @@ PLAN_WAIT_PROMPT = create_planning_prompt(
 
 # Template for summarizing 'kubectl wait' output
 def wait_resource_prompt() -> str:
-    """Get the prompt template for summarizing kubectl wait output.
-
-    Includes current datetime information for timestamp context.
+    """Get the prompt template for summarizing kubectl wait output with current
+    datetime.
 
     Returns:
         str: The wait resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize wait condition results.",
-        focus_points=["condition status", "elapsed time", "issues"],
+        description="Summarize this kubectl wait output.",
+        focus_points=[
+            "whether resources met their conditions",
+            "timing information",
+            "any errors or issues",
+        ],
         example_format=[
-            "[bold]Deployment my-app[/bold] [green]condition met[/green]",
-            "in [italic]10 seconds[/italic]",
-            "[yellow]Waiting for more pods to be ready[/yellow]",
-            "[red]Timeout reached[/red] waiting for [bold]pod/nginx[/bold]",
+            (
+                "[bold]pod/nginx[/bold] in [blue]default namespace[/blue] "
+                "now [green]Ready[/green]"
+            ),
+            (
+                "[bold]Deployment/app[/bold] successfully rolled out after "
+                "[italic]35s[/italic]"
+            ),
+            (
+                "[red]Timed out[/red] waiting for "
+                "[bold]StatefulSet/database[/bold] to be ready"
+            ),
         ],
     )
-    return prompt_template.format(output="{output}")
+    return prompt_template
 
 
 # Template for planning kubectl rollout commands
@@ -1063,3 +1074,66 @@ Next steps: Create the first pod or deployment using a YAML manifest
 Here's the output:
 
 {{output}}"""
+
+
+# Template for planning kubectl port-forward commands
+PLAN_PORT_FORWARD_PROMPT = create_planning_prompt(
+    command="port-forward",
+    description=(
+        "port-forward connections to kubernetes resources. IMPORTANT: "
+        "1) Resource name MUST be the first argument, "
+        "2) followed by port specifications, "
+        "3) then any flags. Do NOT include 'kubectl' or '--kubeconfig' in "
+        "your response."
+    ),
+    examples=[
+        ("forward port 8080 of pod nginx to my local 8080", "pod/nginx\n8080:8080"),
+        (
+            "connect to the redis service port 6379 on local port 6380",
+            "service/redis\n6380:6379",
+        ),
+        (
+            "forward deployment webserver port 80 to my local 8000",
+            "deployment/webserver\n8000:80",
+        ),
+        (
+            "proxy my local 5000 to port 5000 on the api pod in namespace test",
+            "pod/api\n5000:5000\n--namespace\ntest",
+        ),
+        (
+            "forward ports with the app running on namespace production",
+            "pod/app\n8080:80\n--namespace\nproduction",
+        ),
+    ],
+    flags="--namespace, --address, --pod-running-timeout",
+)
+
+
+# Template for summarizing 'kubectl port-forward' output
+def port_forward_prompt() -> str:
+    """Get the prompt template for summarizing kubectl port-forward output with
+    current datetime.
+
+    Returns:
+        str: The port-forward prompt template with current formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize this kubectl port-forward output.",
+        focus_points=[
+            "connection status",
+            "port mappings",
+            "any errors or issues",
+        ],
+        example_format=[
+            (
+                "[green]Connected[/green] to [bold]pod/nginx[/bold] "
+                "in [blue]default namespace[/blue]"
+            ),
+            "Forwarding from [bold]127.0.0.1:8080[/bold] -> [bold]8080[/bold]",
+            (
+                "[red]Error[/red] forwarding to [bold]service/database[/bold]: "
+                "[red]connection refused[/red]"
+            ),
+        ],
+    )
+    return prompt_template

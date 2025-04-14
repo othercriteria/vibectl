@@ -187,6 +187,34 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
 
 
 @pytest.fixture
+def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
+    """Fixture providing patched run_kubectl function specifically for CLI tests."""
+    with patch("vibectl.cli.run_kubectl") as mock:
+        # Set up default mock behavior
+        mock.return_value = "test output"
+
+        # Helper for setting up error responses
+        def set_error_response(stderr: str = "test error") -> None:
+            """Configure mock to return an error response."""
+            mock.return_value = (
+                f"Error: {stderr}" if stderr else "Error: Command failed"
+            )
+
+        # Add the helper method to the mock
+        mock.set_error_response = set_error_response
+
+        yield mock
+
+
+@pytest.fixture
+def mock_handle_output_for_cli() -> Generator[Mock, None, None]:
+    """Fixture providing patched handle_command_output function specifically
+    for CLI tests."""
+    with patch("vibectl.cli.handle_command_output") as mock:
+        yield mock
+
+
+@pytest.fixture
 def test_config(tmp_path: Path) -> Config:
     """Create a test configuration instance with a temporary directory.
 

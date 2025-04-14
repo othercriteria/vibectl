@@ -11,7 +11,6 @@ import pytest
 
 from vibectl.command_handler import (
     _execute_command_with_complex_args,
-    _filter_kubeconfig_flags,
     _parse_command_args,
     _process_command_string,
     handle_command_output,
@@ -93,36 +92,6 @@ def test_parse_command_args_special_characters() -> None:
     args = _parse_command_args("get pods app-*")
     assert len(args) == 3
     assert args[-1] == "app-*"
-
-
-def test_filter_kubeconfig_flags_special_cases() -> None:
-    """Test kubeconfig flag filtering with special cases."""
-    # Test with multiple kubeconfig flags
-    args = [
-        "get",
-        "pods",
-        "--kubeconfig",
-        "/path/to/config",
-        "--kubeconfig",
-        "/another/path",
-    ]
-    filtered = _filter_kubeconfig_flags(args)
-    assert filtered == ["get", "pods"]
-
-    # Test with kubeconfig flags at beginning
-    args = ["--kubeconfig", "/path/to/config", "get", "pods"]
-    filtered = _filter_kubeconfig_flags(args)
-    assert filtered == ["get", "pods"]
-
-    # Test with kubeconfig flags at end
-    args = ["get", "pods", "--kubeconfig", "/path/to/config"]
-    filtered = _filter_kubeconfig_flags(args)
-    assert filtered == ["get", "pods"]
-
-    # Test with equals sign format
-    args = ["get", "pods", "--kubeconfig=/path/to/config"]
-    filtered = _filter_kubeconfig_flags(args)
-    assert filtered == ["get", "pods"]
 
 
 def test_execute_command_with_complex_args_edge_cases() -> None:
@@ -259,8 +228,8 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
             output_flags=output_flags,
         )
 
-        # Verify note was printed with the error message
-        mock_console.print_note.assert_called_once()
+        # Verify error was printed
+        mock_console.print_error.assert_called_once_with(error_msg)
 
         # Verify handle_command_output was not called
         mock_handle_output.assert_not_called()

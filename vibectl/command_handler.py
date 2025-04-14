@@ -58,7 +58,8 @@ def run_kubectl(
         # Build the full command
         kubectl_cmd = ["kubectl"]
 
-        # Add the command arguments first, to ensure kubeconfig is AFTER the main command
+        # Add the command arguments first, to ensure kubeconfig is AFTER the main
+        # command
         kubectl_cmd.extend(cmd)
 
         # Add kubeconfig AFTER the main command to avoid errors
@@ -856,7 +857,8 @@ def handle_port_forward_with_live_display(
     args: tuple[str, ...],
     output_flags: OutputFlags,
 ) -> None:
-    """Handle port-forward command with a live display showing connection status and ports.
+    """Handle port-forward command with a live display showing connection status
+    and ports.
 
     Args:
         resource: Resource to forward ports for
@@ -876,7 +878,10 @@ def handle_port_forward_with_live_display(
     )
 
     # Create the command for display
-    display_text = f"Forwarding {resource} port [bold]{remote_port}[/] to localhost:[bold]{local_port}[/]"
+    display_text = (
+        f"Forwarding {resource} port [bold]{remote_port}[/] "
+        f"to localhost:[bold]{local_port}[/]"
+    )
 
     # Track start time for elapsed time display
     start_time = time.time()
@@ -896,21 +901,21 @@ def handle_port_forward_with_live_display(
             cmd_args.extend(args_list)
 
         # Full kubectl command
-        full_cmd = ["kubectl"]
+        kubectl_cmd = ["kubectl"]
 
         # Add kubeconfig if set
         cfg = Config()
         kubeconfig = cfg.get("kubeconfig")
         if kubeconfig:
-            full_cmd.extend(["--kubeconfig", str(kubeconfig)])
+            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
 
         # Add the port-forward command args
-        full_cmd.extend(cmd_args)
+        kubectl_cmd.extend(cmd_args)
 
         # Create a process to run kubectl port-forward
         # This process will keep running until cancelled
         process = await asyncio.create_subprocess_exec(
-            *full_cmd,
+            *kubectl_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1059,7 +1064,8 @@ def handle_port_forward_with_live_display(
 
     # Show final message with elapsed time
     console_manager.print_note(
-        f"\n[bold]Port-forward session ended after [italic]{elapsed_time:.1f}s[/italic][/bold]"
+        f"\n[bold]Port-forward session ended after "
+        f"[italic]{elapsed_time:.1f}s[/italic][/bold]"
     )
 
     # Update memory with the port-forward information

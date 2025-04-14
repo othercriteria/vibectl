@@ -8,20 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- New `port-forward` command with enhanced monitoring and visualization (WIP)
+- New `port-forward` command for forwarding Kubernetes service ports to local system
+  - Basic implementation with support for all standard kubectl port-forward functionality
+  - Rich progress display showing connection status and elapsed time
+  - Support for vibe-based natural language requests
 - New `wait` command for waiting on specific conditions in Kubernetes
   - Basic implementation with support for all standard kubectl wait functionality
   - Support for vibe-based natural language requests
-- Proxy layer for analyzing traffic through port-forward connections (WIP)
-- Traffic metrics collection for improved troubleshooting (WIP)
-- Extended options for port selection and service discovery (WIP)
-- Background execution mode for long-running operations (WIP)
+- Advanced port-forward features planned for future implementation:
+  - Proxy layer for analyzing traffic through port-forward connections (Future)
+  - Traffic metrics collection for improved troubleshooting (Future)
+  - Extended options for port selection and service discovery (Future)
+  - Background execution mode for long-running operations (Future)
 
 ### Changed
-- Switched to asyncio for `wait` command implementation
+- Switched to asyncio for both `wait` and `port-forward` command implementation
   - Improves scalability for future features
   - Enables non-blocking progress displays
-  - Prepares for more complex asynchronous operations in port-forward
+  - Prepares for more complex asynchronous operations
 
 ### Fixed
 - Fixed tests for the `wait` command's live display feature

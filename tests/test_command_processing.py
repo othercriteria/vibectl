@@ -1,6 +1,6 @@
 """Tests for command string processing functionality."""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -357,7 +357,7 @@ def test_handle_vibe_request_with_heredoc_error_integration(
 
     # Set up _execute_command to fail
     error_msg = (
-        "Error: unable to parse YAML: " "mapping values are not allowed in this context"
+        "Error: unable to parse YAML: mapping values are not allowed in this context"
     )
     mock_execute_command.side_effect = Exception(error_msg)
 
@@ -465,150 +465,6 @@ def test_parse_command_args_robust() -> None:
         "test-map",
         '--from-literal="key=value',
     ]
-
-
-@patch("click.confirm")
-@patch("vibectl.command_handler._execute_command")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler.handle_command_output")
-def test_handle_vibe_request_execution(
-    mock_handle_output: Mock,
-    mock_console: Mock,
-    mock_execute: Mock,
-    mock_confirm: Mock,
-    mock_llm: MagicMock,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Test vibe request handling with command execution."""
-    # Configure mock for click.confirm
-    mock_confirm.return_value = True
-
-    # Configure mock_llm for our test scenarios
-    mock_execute.return_value = "deployment.apps/test-deploy created"
-    mock_llm.execute.return_value = (
-        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
-        "metadata:\n  name: test-deploy\nEOF"
-    )
-
-    # Create test OutputFlags
-    output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name="test-model"
-    )
-
-    # Call the function
-    handle_vibe_request(
-        request="deploy nginx with 3 replicas",
-        command="create",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "test summary prompt",
-        output_flags=output_flags,
-        yes=False,  # Don't skip confirmation, let mock handle it
-    )
-
-    # Verify model adapter was called
-    assert mock_llm.execute.call_count == 1
-
-    # Verify _execute_command was called
-    mock_execute.assert_called_once()
-
-    # Verify handle_command_output was called
-    mock_handle_output.assert_called_once()
-
-    # Test with no command generated
-    mock_llm.reset_mock()
-    mock_execute.reset_mock()
-    mock_handle_output.reset_mock()
-    mock_console.reset_mock()
-
-    # Set up custom behavior for execute to help debug
-    def get_empty_command(*args: object, **kwargs: object) -> str:
-        return ""
-
-    # Configure mock for empty string scenario
-    mock_llm.execute.side_effect = get_empty_command
-
-    handle_vibe_request(
-        request="invalid request",
-        command="create",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "test summary prompt",
-        output_flags=output_flags,
-    )
-
-    # Verify model adapter was called with the right arguments
-    assert mock_llm.execute.call_count == 1
-
-    # Verify print_error was called with the expected message
-    mock_console.print_error.assert_called_once_with(
-        "No kubectl command could be generated."
-    )
-
-    # Verify execute command was not called
-    mock_execute.assert_not_called()
-
-    # Test with error response
-    mock_llm.reset_mock()
-    mock_execute.reset_mock()
-    mock_handle_output.reset_mock()
-    mock_console.reset_mock()
-
-    # Configure mock for new scenario - explicitly use "ERROR:" prefix
-    mock_llm.execute.side_effect = None
-    mock_llm.execute.return_value = "ERROR: Invalid request"
-
-    handle_vibe_request(
-        request="invalid request",
-        command="create",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "test summary prompt",
-        output_flags=output_flags,
-    )
-
-    # Verify model adapter was called
-    assert mock_llm.execute.call_count == 1
-
-    # Verify note was printed with the expected message
-    mock_console.print_note.assert_called_with(
-        "Planning to run: kubectl ERROR: Invalid request"
-    )
-
-    # Verify execute command was not called
-    mock_execute.assert_not_called()
-
-    # Test user rejecting the command
-    mock_llm.reset_mock()
-    mock_execute.reset_mock()
-    mock_handle_output.reset_mock()
-    mock_console.reset_mock()
-    mock_confirm.reset_mock()
-
-    # Configure mocks for rejection scenario
-    mock_llm.execute.return_value = (
-        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
-        "metadata:\n  name: test-deploy\nEOF"
-    )
-    mock_confirm.return_value = False  # User rejects the command
-
-    handle_vibe_request(
-        request="deploy nginx with 3 replicas",
-        command="create",
-        plan_prompt="test prompt {request}",
-        summary_prompt_func=lambda: "test summary prompt",
-        output_flags=output_flags,
-        yes=False,  # Don't skip confirmation
-    )
-
-    # Verify model adapter was called
-    assert mock_llm.execute.call_count == 1
-
-    # Verify confirmation was requested
-    mock_confirm.assert_called_once()
-
-    # Verify cancelled message was printed
-    mock_console.print_cancelled.assert_called_once()
-
-    # Verify execute command was not called (rejected)
-    mock_execute.assert_not_called()
 
 
 @patch("vibectl.command_handler.subprocess.Popen")

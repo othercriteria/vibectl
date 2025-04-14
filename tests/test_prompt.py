@@ -31,6 +31,7 @@ from vibectl.prompt import (
     PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
+    PLAN_PORT_FORWARD_PROMPT,
     PLAN_VERSION_PROMPT,
     cluster_info_prompt,
     create_recovery_prompt,
@@ -43,6 +44,7 @@ from vibectl.prompt import (
     logs_prompt,
     memory_fuzzy_update_prompt,
     memory_update_prompt,
+    port_forward_prompt,
     recovery_prompt,
     refresh_datetime,
     rollout_general_prompt,
@@ -412,3 +414,30 @@ def test_vibe_autonomous_prompt() -> None:
     assert "rich.Console() markup syntax" in result
     assert "Next steps:" in result
     assert "{output}" in result
+
+
+def test_wait_resource_prompt() -> None:
+    """Test wait_resource_prompt has correct format."""
+    prompt = wait_resource_prompt()
+    assert "Summarize this kubectl wait output" in prompt
+    assert "whether resources met their conditions" in prompt
+    assert "{output}" in prompt
+
+
+def test_port_forward_prompt() -> None:
+    """Test port_forward_prompt has correct format."""
+    prompt = port_forward_prompt()
+    assert "Summarize this kubectl port-forward output" in prompt
+    assert "connection status" in prompt
+    assert "port mappings" in prompt
+    assert "{output}" in prompt
+
+
+def test_plan_port_forward_prompt() -> None:
+    """Test PLAN_PORT_FORWARD_PROMPT has correct format."""
+    assert (
+        "port-forward connections to kubernetes resources" in PLAN_PORT_FORWARD_PROMPT
+    )
+    assert "Return ONLY the list of arguments" in PLAN_PORT_FORWARD_PROMPT
+    assert "Do not include 'kubectl'" in PLAN_PORT_FORWARD_PROMPT
+    assert "{request}" in PLAN_PORT_FORWARD_PROMPT
