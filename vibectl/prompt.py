@@ -193,10 +193,11 @@ def get_resource_prompt() -> str:
         str: The get resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl output focusing on key information,\nnotable patterns, and potential issues.",
+        description="Summarize this kubectl output.",
         focus_points=["key information", "notable patterns", "potential issues"],
         example_format=[
-            "[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]",
+            "[bold]3 pods[/bold] in [blue]default namespace[/blue], all "
+            "[green]Running[/green]",
             "[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]",
             "[yellow]Warning: 2 pods have high restart counts[/yellow]",
         ],
@@ -214,11 +215,12 @@ def describe_resource_prompt() -> str:
         str: The describe resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl describe output.\nFocus only on the most important details and any issues that need attention.\nKeep the response under 200 words.",
-        focus_points=["most important details", "issues that need attention"],
+        description="Summarize this kubectl describe output. Limit to 200 words.",
+        focus_points=["key details", "issues needing attention"],
         example_format=[
             "[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green]",
-            "[yellow]Readiness probe failing[/yellow], [italic]last restart 2h ago[/italic]",
+            "[yellow]Readiness probe failing[/yellow], "
+            "[italic]last restart 2h ago[/italic]",
             "[red]OOMKilled 3 times in past day[/red]",
         ],
     )
@@ -235,8 +237,14 @@ def logs_prompt() -> str:
         str: The logs prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Analyze these container logs and provide a concise summary.\nFocus on key events, patterns, errors, and notable state changes.\nIf the logs are truncated, mention this in your summary.",
-        focus_points=["key events", "patterns", "errors", "notable state changes"],
+        description="Analyze these container logs concisely.",
+        focus_points=[
+            "key events",
+            "patterns",
+            "errors",
+            "state changes",
+            "note if truncated",
+        ],
         example_format=[
             "[bold]Container startup[/bold] at [italic]2024-03-20 10:15:00[/italic]",
             "[green]Successfully connected[/green] to [blue]database[/blue]",
@@ -407,15 +415,17 @@ def cluster_info_prompt() -> str:
         str: The cluster info prompt with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Analyze this Kubernetes cluster-info output and provide a\ncomprehensive but concise summary.",
+        description="Analyze cluster-info output.",
         focus_points=[
             "cluster version",
             "control plane components",
             "add-ons",
-            "notable details or potential issues",
+            "notable details",
+            "potential issues",
         ],
         example_format=[
-            "[bold]Kubernetes v1.26.3[/bold] cluster running on [blue]Google Kubernetes Engine[/blue]",
+            "[bold]Kubernetes v1.26.3[/bold] cluster running on "
+            "[blue]Google Kubernetes Engine[/blue]",
             "[green]Control plane healthy[/green] at [italic]https://10.0.0.1:6443[/italic]",
             "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
             "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
@@ -434,7 +444,7 @@ def version_prompt() -> str:
         str: The version prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Interpret this Kubernetes version information in a human-friendly way.\nHighlight important details like version compatibility, deprecation notices,\nor update recommendations.",
+        description="Interpret Kubernetes version details in a human-friendly way.",
         focus_points=[
             "version compatibility",
             "deprecation notices",
@@ -460,17 +470,25 @@ def events_prompt() -> str:
         str: The events prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Analyze these Kubernetes events and provide a concise summary.\nFocus on recent events, patterns, warnings, and notable occurrences.\nGroup related events and highlight potential issues.",
-        focus_points=["recent events", "patterns", "warnings", "notable occurrences"],
+        description="Analyze these Kubernetes events concisely.",
+        focus_points=[
+            "recent events",
+            "patterns",
+            "warnings",
+            "notable issues",
+            "group related events",
+        ],
         example_format=[
             "[bold]12 events[/bold] in the last [italic]10 minutes[/italic]",
-            "[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], [bold]nginx-2[/bold]",
+            "[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], "
+            "[bold]nginx-2[/bold]",
             "[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold]",
             "[italic]5 minutes ago[/italic]",
-            "[red]OOMKilled[/red] events for [bold]db-pod[/bold], [italic]happened 3 times[/italic]",
+            "[red]OOMKilled[/red] events for [bold]db-pod[/bold], "
+            "[italic]happened 3 times[/italic]",
         ],
     )
-    # Note: keep the pragme comment for test coverage
+    # Note: keep the pragma comment for test coverage
     formatted = prompt_template.format(output="{output}")
     return formatted + "  # pragma: no cover - tested in other prompt functions"
 
@@ -496,10 +514,11 @@ def delete_resource_prompt() -> str:
         str: The delete resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl delete output focusing on key information,\nwhich resources were deleted, and any potential issues or warnings.",
-        focus_points=["which resources were deleted", "potential issues or warnings"],
+        description="Summarize kubectl delete results.",
+        focus_points=["resources deleted", "potential issues", "warnings"],
         example_format=[
-            "[bold]3 pods[/bold] successfully deleted from [blue]default namespace[/blue]",
+            "[bold]3 pods[/bold] successfully deleted from "
+            "[blue]default namespace[/blue]",
             "[yellow]Warning: Some resources are still terminating[/yellow]",
         ],
     )
@@ -532,12 +551,8 @@ def scale_resource_prompt() -> str:
         str: The scale resource prompt template with formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl scale output focusing on what changed\nand the current state after scaling. Highlight any issues or noteworthy details.",
-        focus_points=[
-            "what changed",
-            "current state after scaling",
-            "issues or noteworthy details",
-        ],
+        description="Summarize scaling operation results.",
+        focus_points=["changes made", "current state", "issues or concerns"],
         example_format=[
             "[bold]deployment/nginx[/bold] scaled to [green]3 replicas[/green]",
             "[yellow]Warning: Scale operation might take time to complete[/yellow]",
@@ -579,12 +594,8 @@ def wait_resource_prompt() -> str:
         str: The wait resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl wait output.\nFocus on whether the wait condition was met, how long it took, and any issues.",
-        focus_points=[
-            "whether the wait condition was met",
-            "how long it took",
-            "any issues",
-        ],
+        description="Summarize wait condition results.",
+        focus_points=["condition status", "elapsed time", "issues"],
         example_format=[
             "[bold]Deployment my-app[/bold] [green]condition met[/green]",
             "in [italic]10 seconds[/italic]",
@@ -629,11 +640,12 @@ def create_resource_prompt() -> str:
         str: The create resource prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize the result of creating Kubernetes resources.\nFocus on what was created and any issues that need attention.",
-        focus_points=["what was created", "issues that need attention"],
+        description="Summarize resource creation results.",
+        focus_points=["resources created", "issues or concerns"],
         example_format=[
             "Created [bold]nginx-pod[/bold] in [blue]default namespace[/blue]",
-            "[green]Successfully created[/green] with [italic]default resource limits[/italic]",
+            "[green]Successfully created[/green] with "
+            "[italic]default resource limits[/italic]",
             "[yellow]Note: No liveness probe configured[/yellow]",
         ],
     )
@@ -650,10 +662,11 @@ def rollout_status_prompt() -> str:
         str: The rollout status prompt template with formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl rollout status output, focusing on current\nprogress, completion status, and any issues or delays.",
-        focus_points=["current progress", "completion status", "issues or delays"],
+        description="Summarize rollout status.",
+        focus_points=["progress", "completion status", "issues or delays"],
         example_format=[
-            "[bold]deployment/frontend[/bold] rollout [green]successfully completed[/green]",
+            "[bold]deployment/frontend[/bold] rollout "
+            "[green]successfully completed[/green]",
             "[yellow]Still waiting for 2/5 replicas[/yellow]",
             "[italic]Rollout started 5 minutes ago[/italic]",
         ],
@@ -671,7 +684,7 @@ def rollout_history_prompt() -> str:
         str: The rollout history prompt template with formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl rollout history output, highlighting key\nrevisions, important changes, and patterns across revisions.",
+        description="Summarize rollout history.",
         focus_points=[
             "key revisions",
             "important changes",
@@ -694,8 +707,8 @@ def rollout_general_prompt() -> str:
         str: The rollout general prompt template with current formatting instructions
     """
     prompt_template = create_summary_prompt(
-        description="Summarize this kubectl rollout command output.\nFocus on the key information about the rollout operation.",
-        focus_points=["key information about the rollout operation"],
+        description="Summarize rollout command results.",
+        focus_points=["key operation details"],
         example_format=[
             "[bold]Deployment rollout[/bold] [green]successful[/green]",
             "[blue]Updates applied[/blue] to [bold]my-deployment[/bold]",
@@ -724,7 +737,7 @@ def create_memory_prompt(
         [f"- {instruction}" for instruction in instructions]
     )
 
-    return f"""You are an AI assistant maintaining a memory state for a \
+    return f"""You are an AI assistant maintaining a memory state for a
 Kubernetes CLI tool.
 The memory contains essential context to help you better assist with future requests.
 
@@ -733,9 +746,8 @@ Current memory:
 
 {prompt_type}
 
-Based on this new information, update the memory to maintain the most \
-relevant context.
-Focus on cluster state, conditions, and configurations that will help with \
+Based on this new information, update the memory to maintain the most relevant context.
+Focus on cluster state, conditions, and configurations that will help with
 future requests.
 Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
 Only include things actually observed from the output, no speculation or generalization.
@@ -743,9 +755,9 @@ Only include things actually observed from the output, no speculation or general
 IMPORTANT:
 {formatted_instructions}
 
-IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
-in your response. Just provide the direct memory content itself with \
-no additional labels or headers."""
+IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings in
+your response.
+Just provide the direct memory content itself with no additional labels or headers."""
 
 
 def create_recovery_prompt(
@@ -826,8 +838,9 @@ Your interpretation of the output:
         "this is still crucial information. Update the memory to include the fact that "
         "the specified resources don't exist in the queried context or namespace.",
         'If the command output contains an error (starts with "Error:"), this is '
-        "extremely important information. Always incorporate the exact error into memory "
-        "to prevent repeating failed commands and to help guide future operations.",
+        "extremely important information. Always incorporate the exact error "
+        "into memory to prevent repeating failed commands and to help guide "
+        "future operations.",
     ]
 
     # Get the base template
@@ -864,21 +877,24 @@ def memory_fuzzy_update_prompt(
 {update_text}
 ```
 
-Based on this new information, update the memory to integrate this information while preserving other important existing context."""
+Based on this new information, update the memory to integrate this information while
+preserving other important existing context."""
 
     # Special instructions for this memory prompt type
     instructions = [
         "Integrate the new information seamlessly with existing memory",
         "Prioritize recent information when space is limited",
         "Remove outdated or less important information if needed",
-        'Do NOT include any prefixes like "Updated memory:" or headings in your response',
-        "Just provide the direct memory content itself with no additional labels or headers",
+        'Do NOT include any prefixes like "Updated memory:" or headings in '
+        "your response",
+        "Just provide the direct memory content itself with no additional labels "
+        "or headers",
     ]
 
     # Get the base template
     base_template = create_memory_prompt("fuzzy_update", instructions, max_chars)
 
-    # Insert the current memory and fuzzy-specific content with more explicit text to match tests
+    # Insert current memory and fuzzy-specific content with explicit text to match tests
     return base_template.format(current_memory=current_memory).replace(
         "fuzzy_update", fuzzy_section
     )
@@ -1020,20 +1036,17 @@ def vibe_autonomous_prompt() -> str:
         str: The autonomous command generation prompt
     """
     return f"""Analyze this kubectl command output and provide a concise summary.
-Focus on the state of the resources, any issues detected, and suggest logical
-next steps.
+Focus on the state of the resources, issues detected, and suggest logical next steps.
 
 If the output indicates "Command returned no output" or "No resources found",
 this is still valuable information! It means the requested resources don't exist
-in the specified namespace or context. Include this fact in your interpretation
-and suggest appropriate next steps (e.g., creating resources, checking namespace,
-confirming context, etc.).
+in the specified namespace or context. Include this fact and suggest appropriate
+next steps (checking namespace, creating resources, etc.).
 
-When suggesting next steps that involve creating resources with complex data:
-- Suggest using YAML manifest approaches rather than inline flags like --from-literal
-- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line
-  text), recommend explicit YAML creation using kubectl create/apply -f
-- Avoid suggesting command line arguments with quoted content when possible
+For resources with complex data:
+- Suggest YAML manifest approaches over inline flags
+- For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
+- Avoid suggesting command line arguments with quoted content
 
 {get_formatting_instructions()}
 
@@ -1043,9 +1056,9 @@ Example format:
 [yellow]Note: database pod has high CPU usage[/yellow]
 Next steps: Consider checking logs for database pod or scaling the deployment
 
-For empty output examples:
+For empty output:
 [yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
-Next steps: Create the first pod or deployment in this namespace using a YAML manifest
+Next steps: Create the first pod or deployment using a YAML manifest
 
 Here's the output:
 
