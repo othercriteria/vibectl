@@ -41,9 +41,9 @@ RUN usermod -aG docker sandbox
 RUN mkdir -p /home/sandbox/challenge /home/sandbox/.kube /home/sandbox/vibectl-src
 RUN chown -R sandbox:sandbox /home/sandbox
 
-# Create startup script early (rarely changes)
-COPY --chown=sandbox:sandbox examples/k8s-sandbox/start.sh /home/sandbox/start.sh
-RUN chmod +x /home/sandbox/start.sh
+# Copy sandbox-entrypoint.sh script and make it executable
+COPY examples/k8s-sandbox/sandbox-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
 # Switch to the non-root user
 USER sandbox
@@ -79,5 +79,5 @@ ENV PATH="/home/sandbox/.venv/bin:${PATH}"
 HEALTHCHECK --interval=10s --timeout=10s --start-period=120s --retries=15 \
     CMD test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 || exit 1
 
-# Start the challenge
-CMD ["/home/sandbox/start.sh"]
+# Set the entrypoint to the sandbox-entrypoint script
+ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]

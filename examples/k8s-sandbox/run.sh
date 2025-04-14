@@ -89,7 +89,7 @@ cleanup() {
 
   # Force remove any straggling kind-related containers
   echo "🐳 Checking for leftover containers..."
-  for container in $(docker ps -a --filter "name=ctf-cluster" -q 2>/dev/null); do
+  for container in $(docker ps -a --filter "name=ctf-cluster" --filter "name=k8s-" -q 2>/dev/null); do
     echo "Removing container: $container"
     docker rm -f "$container" 2>/dev/null || true
   done
@@ -97,6 +97,10 @@ cleanup() {
   # Remove any sandbox-related networks
   echo "🔌 Cleaning up networks..."
   docker network rm kind k8s-sandbox_ctf-network 2>/dev/null || true
+
+  # Remove any docker volumes
+  echo "🗂️ Cleaning up volumes..."
+  docker volume rm k8s-sandbox_status-volume 2>/dev/null || true
 
   echo "✅ Cleanup completed"
 }

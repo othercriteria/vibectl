@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "🚀 Starting K8S Sandbox CTF Challenge..."
+echo "🚀 Starting K8S CTF Sandbox Environment..."
 
 # Check if VIBECTL_ANTHROPIC_API_KEY is set
 if [ -z "$VIBECTL_ANTHROPIC_API_KEY" ]; then
@@ -195,26 +195,6 @@ else
   vibectl config set show_kubectl false
 fi
 
-# Start vibectl in autonomous mode with auto-confirmation
-echo "🤖 Starting vibectl in autonomous mode..."
-echo "📝 CTF challenge has begun! Monitoring ports indicated in ACTIVE_PORTS: $ACTIVE_PORTS"
-
-# Simple function to run vibectl vibe with auto-confirmation and error handling
-run_vibectl() {
-  # Run vibectl with --yes for auto-confirmation
-  echo "🔄 Running vibectl vibe..."
-
-  # Capture output for debugging but don't let errors crash the container
-  if ! vibectl vibe --yes 2>&1; then
-    ERROR_CODE=$?
-    echo "⚠️ vibectl exited with error code $ERROR_CODE - restarting in 5 seconds"
-    # We could add more recovery steps here if needed
-    sleep 5
-  else
-    echo "✅ vibectl session completed normally"
-  fi
-}
-
 # Function to maintain connectivity to the k8s cluster
 check_k8s_health() {
   if ! kubectl get nodes >/dev/null 2>&1; then
@@ -229,38 +209,59 @@ check_k8s_health() {
   fi
 }
 
-# Function to check if poller is still running and if not, exit with a success message
-check_poller_status() {
-  # Check if the poller container is still running
-  if ! docker ps | grep -q "k8s-poller"; then
-    # Get the exit code of the poller
-    POLLER_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' k8s-poller 2>/dev/null || echo "-1")
+# Main loop that keeps the sandbox running
+echo "🔄 Starting sandbox execution..."
 
-    if [ "$POLLER_EXIT_CODE" = "0" ]; then
-      echo "🏆 Poller has exited with success (exit code 0) - Challenge COMPLETE!"
-      echo "🎉 CTF Sandbox challenge completed successfully. Terminating sandbox."
-      exit 0
-    else
-      echo "⚠️ Poller has exited with code $POLLER_EXIT_CODE - continuing in case of restart..."
-    fi
-  fi
+# Update status file for the overseer
+STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
+mkdir -p "$STATUS_DIR"
+SANDBOX_STATUS_FILE="$STATUS_DIR/sandbox_status.json"
+
+# Initialize sandbox status
+cat > "$SANDBOX_STATUS_FILE" <<EOF
+{
+  "sandbox_started_at": "$(date -Iseconds)",
+  "status": "running",
+  "challenge_difficulty": "$CHALLENGE_DIFFICULTY",
+  "active_ports": "$ACTIVE_PORTS"
 }
-
-# Main loop that keeps the sandbox running even if vibectl crashes
-echo "🔄 Starting main sandbox loop..."
+EOF
 
 while true; do
+  # Check if the challenge has been completed
+  COMPLETION_FILE="$STATUS_DIR/challenge_complete.json"
+  if [ -f "$COMPLETION_FILE" ]; then
+    MESSAGE=$(jq -r '.message' "$COMPLETION_FILE" 2>/dev/null || echo "Challenge complete!")
+    echo "🏆 $MESSAGE"
+    echo "✅ CTF Challenge completed successfully. Exiting gracefully."
+    exit 0
+  fi
+
   # Check cluster health before running vibectl
   check_k8s_health
 
-  # Check if poller has completed
-  check_poller_status
+  # Run vibectl with auto-confirmation
+  echo "🔄 Running vibectl vibe..."
 
-  # Run vibectl with error handling
-  run_vibectl
+  # Capture output but don't let errors crash the container
+  if ! vibectl vibe --yes 2>&1; then
+    ERROR_CODE=$?
+    echo "⚠️ vibectl exited with code $ERROR_CODE - retrying in 5 seconds"
+    sleep 5
+  fi
 
-  # Always sleep between attempts to avoid thrashing
+  # Update status
+  cat > "$SANDBOX_STATUS_FILE" <<EOF
+{
+  "sandbox_started_at": "$(date -Iseconds)",
+  "status": "running",
+  "challenge_difficulty": "$CHALLENGE_DIFFICULTY",
+  "active_ports": "$ACTIVE_PORTS",
+  "last_updated": "$(date -Iseconds)",
+  "last_status": "vibectl_session_completed"
+}
+EOF
+
+  # Brief pause before next attempt
   sleep 5
-
-  echo "♻️ Restarting vibectl - sandbox container remains running"
 done

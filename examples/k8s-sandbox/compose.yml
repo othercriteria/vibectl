@@ -24,19 +24,22 @@ services:
       - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
       # Add the control plane container name for direct port access
       - KIND_CONTAINER=ctf-cluster-control-plane
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw  # Mount docker socket for Kind with explicit rw
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
     networks:
       - ctf-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 || exit 1"]
+      test: ["CMD", "sh", "-c", "test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 && kubectl --kubeconfig=/tmp/kind-kubeconfig get pods -n kube-system | grep -E 'kube-apiserver|coredns' | grep -q Running || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 15
       start_period: 120s
-    # TODO: Implement sandbox termination at the Docker Compose level
-    # Instead of having sandbox container check poller exit code in code, use Docker Compose
-    # depends_on with "condition: service_completed_successfully" once Docker Compose v2.2+ becomes standard
+    # Let the overseer handle shutdown/coordination instead of directly checking poller exit code
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
 
   poller:
     container_name: k8s-poller
@@ -58,14 +61,43 @@ services:
       - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
       # Share the KIND_CONTAINER env var (critical for detection)
       - KIND_CONTAINER=ctf-cluster-control-plane
+      # The overseer will manage service completion
+      - REPORT_STATUS_TO_OVERSEER=true
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw  # Needed to access Docker API for finding containers
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
     networks:
       - ctf-network
-    # TODO: Implement depends_on with exit_code_from
-    # This feature is available in newer Docker Compose versions
-    # Would allow sandbox to terminate when poller exits successfully
+
+  overseer:
+    container_name: k8s-overseer
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    depends_on:
+      sandbox:
+        condition: service_healthy
+      poller:
+        condition: service_started
+    environment:
+      - CHALLENGE_DIFFICULTY=${CHALLENGE_DIFFICULTY:-easy}
+      - ACTIVE_PORTS=${ACTIVE_PORTS:-30001}
+      - MIN_RUNTIME_SECONDS=60
+      - SUCCESS_VERIFICATION_COUNT=2
+      - POLL_INTERVAL_SECONDS=10
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # For container management
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
 
 networks:
   ctf-network:
     driver: bridge
+
+volumes:
+  status-volume:  # Named volume for shared status - Docker manages permissions
