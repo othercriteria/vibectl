@@ -10,11 +10,17 @@ while [[ $# -gt 0 ]]; do
       CHALLENGE_DIFFICULTY="$2"
       shift 2
       ;;
+    --verbose|-v)
+      export VIBECTL_VERBOSE=true
+      echo "ℹ️ Verbose mode enabled"
+      shift
+      ;;
     --help|-h)
       echo "Usage: $0 [options]"
       echo "Options:"
       echo "  --difficulty, -d LEVEL   Set the challenge difficulty (easy, medium, hard)"
       echo "                           Default: easy"
+      echo "  --verbose, -v            Enable verbose output in vibectl"
       echo "  --help, -h               Show this help message"
       exit 0
       ;;
@@ -117,12 +123,16 @@ fi
 export DOCKER_GID
 export CHALLENGE_DIFFICULTY
 export ACTIVE_PORTS
+export VIBECTL_VERBOSE
 
 # Set up trap to catch interrupts and exit signals
 trap cleanup EXIT SIGINT SIGTERM
 
 echo "🚀 Starting the K8S Sandbox with Docker GID: $DOCKER_GID and Challenge Difficulty: $CHALLENGE_DIFFICULTY"
 echo "📡 Active ports: $ACTIVE_PORTS"
+if [ "$VIBECTL_VERBOSE" = "true" ]; then
+  echo "📝 Verbose mode: enabled"
+fi
 
 # Run docker compose with explicit file specification
 docker compose -f compose.yml up --build

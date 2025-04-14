@@ -16,6 +16,7 @@ services:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
       - CHALLENGE_DIFFICULTY=${CHALLENGE_DIFFICULTY:-easy}
+      - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
       # Fixed internal ports for simplicity
       - NODE_PORT_1=30001
       - NODE_PORT_2=30002

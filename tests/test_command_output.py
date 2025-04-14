@@ -9,6 +9,7 @@ import pytest
 
 from vibectl.command_handler import (
     DEFAULT_MODEL,
+    DEFAULT_SHOW_KUBECTL,
     DEFAULT_SHOW_RAW_OUTPUT,
     DEFAULT_SHOW_VIBE,
     DEFAULT_WARN_NO_OUTPUT,
@@ -296,6 +297,42 @@ def test_configure_output_flags_both_flags() -> None:
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_WARN_NO_OUTPUT
     assert output_flags.model_name == "model-xyz-1.2.3"
+
+
+def test_configure_output_flags_with_show_kubectl() -> None:
+    """Test configure_output_flags with show_kubectl flag."""
+    # Test with show_kubectl set to True
+    output_flags = configure_output_flags(show_kubectl=True)
+    assert output_flags.show_kubectl is True
+
+    # Test with show_kubectl set to False
+    output_flags = configure_output_flags(show_kubectl=False)
+    assert output_flags.show_kubectl is False
+
+
+@patch("vibectl.command_handler.Config")
+def test_configure_output_flags_with_show_kubectl_from_config(
+    mock_config_class: MagicMock,
+) -> None:
+    """Test configure_output_flags uses show_kubectl from config when not specified."""
+    # Mock Config to return True for show_kubectl
+    mock_config = Mock()
+    mock_config.get.side_effect = (
+        lambda key, default: True if key == "show_kubectl" else default
+    )
+    mock_config_class.return_value = mock_config
+
+    # Call with no show_kubectl flag - should use config value
+    output_flags = configure_output_flags()
+    assert output_flags.show_kubectl is True
+    mock_config.get.assert_any_call("show_kubectl", DEFAULT_SHOW_KUBECTL)
+
+    # Reset mock
+    mock_config.reset_mock()
+
+    # Call with explicit show_kubectl flag - should override config
+    output_flags = configure_output_flags(show_kubectl=False)
+    assert output_flags.show_kubectl is False
 
 
 @patch("vibectl.command_handler.get_model_adapter")

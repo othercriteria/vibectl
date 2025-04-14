@@ -56,6 +56,12 @@ You can select the difficulty level when running the sandbox:
 # Run with hard difficulty
 ./run.sh --difficulty hard
 
+# Run with verbose output (shows kubectl commands and raw output)
+./run.sh --verbose
+
+# Run with both options
+./run.sh --difficulty medium --verbose
+
 # See all available options
 ./run.sh --help
 ```
@@ -67,6 +73,8 @@ The sandbox runs two containers:
 - **poller**: Monitors solution progress on the active ports based on difficulty level
 
 The poller will check if the flags are accessible at the expected ports and only monitor the ports relevant to the selected difficulty level.
+
+When running with the `--verbose` flag, vibectl will show the raw output and kubectl commands being executed, making it easier to debug and understand what's happening.
 
 ## Cleaning Up
 
@@ -102,3 +110,4 @@ You can configure the sandbox using these environment variables:
 - `VIBECTL_ANTHROPIC_API_KEY`: Your Anthropic API key (required)
 - `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet)
 - `CHALLENGE_DIFFICULTY`: Set difficulty level (easy, medium, hard) as alternative to --difficulty flag
+- `VIBECTL_VERBOSE`: Set to true to enable verbose output (equivalent to --verbose flag)

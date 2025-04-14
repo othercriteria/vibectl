@@ -184,18 +184,28 @@ export ACTIVE_PORTS
 
 # Set vibectl memory with the challenges
 vibectl memory set "$CHALLENGE_MEMORY"
-echo "Memory set"
+
+# Configure output options based on verbose mode
+if [ "$VIBECTL_VERBOSE" = "true" ]; then
+  echo "📝 Verbose mode enabled: showing raw output and kubectl commands"
+  vibectl config set show_raw_output true
+  vibectl config set show_kubectl true
+else
+  vibectl config set show_raw_output false
+  vibectl config set show_kubectl false
+fi
 
 # Start vibectl in autonomous mode with auto-confirmation
 echo "🤖 Starting vibectl in autonomous mode..."
 echo "📝 CTF challenge has begun! Monitoring ports indicated in ACTIVE_PORTS: $ACTIVE_PORTS"
 
-# Simple function to run vibectl vibe with yes for auto-confirmation and error handling
+# Simple function to run vibectl vibe with auto-confirmation and error handling
 run_vibectl() {
-  # Run vibectl with yes to auto-confirm
+  # Run vibectl with --yes for auto-confirmation
   echo "🔄 Running vibectl vibe..."
+
   # Capture output for debugging but don't let errors crash the container
-  if ! yes | vibectl vibe 2>&1; then
+  if ! vibectl vibe --yes 2>&1; then
     ERROR_CODE=$?
     echo "⚠️ vibectl exited with error code $ERROR_CODE - restarting in 5 seconds"
     # We could add more recovery steps here if needed

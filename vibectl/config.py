@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     "use_emoji": True,
     "show_raw_output": False,
     "show_vibe": True,
+    "show_kubectl": False,  # Show kubectl commands when they are executed
     "model": "claude-3.7-sonnet",
     "memory_enabled": True,
     "memory_max_chars": 500,
@@ -46,6 +47,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "use_emoji": bool,
     "show_raw_output": bool,
     "show_vibe": bool,
+    "show_kubectl": bool,
     "warn_no_output": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
