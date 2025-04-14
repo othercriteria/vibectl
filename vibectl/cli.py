@@ -1744,6 +1744,7 @@ def port_forward(
                     plan_prompt=include_memory_in_prompt(PLAN_PORT_FORWARD_PROMPT),
                     summary_prompt_func=port_forward_prompt,
                     output_flags=output_flags,
+                    live_display=live_display,
                 )
             except Exception as e:
                 handle_exception(e)

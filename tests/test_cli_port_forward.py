@@ -248,18 +248,45 @@ def test_port_forward_vibe_request(
         == "forward port 8080 of nginx pod to my local 8080"
     )
     assert mock_handle_vibe.call_args[1]["command"] == "port-forward"
+    # Check that live_display is True by default
+    assert mock_handle_vibe.call_args[1]["live_display"] is True
+
+
+@patch("vibectl.cli.handle_vibe_request")
+def test_port_forward_vibe_with_live_display_flag(
+    mock_handle_vibe: MagicMock, cli_runner: CliRunner, mock_memory: Mock
+) -> None:
+    """Test port-forward vibe command with explicit live display flag."""
+    # Test with --live-display flag
+    result = cli_runner.invoke(
+        cli,
+        ["port-forward", "vibe", "forward port 8080 of nginx pod", "--live-display"],
+    )
+    assert result.exit_code == 0
+    mock_handle_vibe.assert_called_once()
+    assert mock_handle_vibe.call_args[1]["live_display"] is True
+    mock_handle_vibe.reset_mock()
+
+    # Test with --no-live-display flag
+    result = cli_runner.invoke(
+        cli,
+        ["port-forward", "vibe", "forward port 8080 of nginx pod", "--no-live-display"],
+    )
+    assert result.exit_code == 0
+    mock_handle_vibe.assert_called_once()
+    assert mock_handle_vibe.call_args[1]["live_display"] is False
 
 
 def test_port_forward_vibe_no_request(
     cli_runner: CliRunner, mock_console: Mock, mock_memory: Mock
 ) -> None:
-    """Test port-forward command with vibe but no request."""
-    # Invoke CLI with missing request
+    """Test port-forward vibe command with no request."""
+    # Invoke CLI with vibe but no request
     result = cli_runner.invoke(cli, ["port-forward", "vibe"])
 
-    # Check results
-    assert result.exit_code == 1  # Should exit with error
-    mock_console.print_error.assert_called_with("Missing request after 'vibe'")
+    # Check results - should exit with error
+    assert result.exit_code == 1
+    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
 
 
 def test_port_forward_with_live_display(

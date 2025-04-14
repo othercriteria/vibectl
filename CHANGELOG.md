@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed tests for the `wait` command's live display feature
   - Properly mocked CLI and command handler modules
   - Resolved issues with asyncio coroutines in tests
+- Fixed `port-forward vibe` command to use live display with connection status
+  - Now shows the same live progress display as direct resource port-forward
+  - Supports both `--live-display` and `--no-live-display` flags
 
 ## [0.3.1] - 2024-05-22
 

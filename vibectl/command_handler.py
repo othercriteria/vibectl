@@ -208,6 +208,7 @@ def handle_vibe_request(
     output_flags: OutputFlags,
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
+    live_display: bool = True,  # Add parameter for live display
 ) -> None:
     """Handle a request to execute a kubectl command based on a natural language query.
 
@@ -219,6 +220,7 @@ def handle_vibe_request(
         output_flags: Output configuration flags
         yes: Whether to bypass confirmation prompts
         autonomous_mode: Whether this is operating in autonomous mode
+        live_display: Whether to use live display for commands like port-forward
 
     Returns:
         None
@@ -266,6 +268,17 @@ def handle_vibe_request(
             # If confirmation needed, ask now
             if needs_confirm and not click.confirm("Execute this command?"):
                 console_manager.print_cancelled()
+                return
+
+            # For port-forward commands, use the live display handler if enabled
+            if command == "port-forward" and live_display and len(args) >= 1:
+                resource = args[0]
+                port_args = args[1:] if len(args) > 1 else ()
+                handle_port_forward_with_live_display(
+                    resource=resource,
+                    args=tuple(port_args),
+                    output_flags=output_flags,
+                )
                 return
 
             # Execute the command and get output
