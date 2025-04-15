@@ -299,6 +299,9 @@ Important:
   * PREFER creating a YAML file with '---' separator instead of inline --from-literal
     arguments
   * If --from-literal must be used, ensure values are properly quoted
+- For multiple resources in a single manifest:
+  * Separate each document with '---' on a line by itself with NO INDENTATION
+  * Every YAML document must start with '---' on a line by itself
 
 Example inputs and outputs:
 
@@ -306,6 +309,7 @@ Input: "create an nginx hello world pod"
 Output:
 -n
 default
+---
 ---
 apiVersion: v1
 kind: Pod
@@ -325,6 +329,7 @@ Output:
 -n
 default
 ---
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -337,6 +342,7 @@ Input: "create a deployment with 3 nginx replicas in prod namespace"
 Output:
 -n
 prod
+---
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -359,6 +365,40 @@ spec:
         image: nginx:latest
         ports:
         - containerPort: 80
+
+Input: "create frontend and backend pods for my application"
+Output:
+-n
+default
+---
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  labels:
+    app: myapp
+    component: frontend
+spec:
+  containers:
+  - name: frontend
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: myapp
+    component: backend
+spec:
+  containers:
+  - name: backend
+    image: redis:latest
+    ports:
+    - containerPort: 6379
 
 Here's the request:
 
@@ -909,32 +949,32 @@ preserving other important existing context."""
 
 
 # Template for planning autonomous vibe commands
-PLAN_VIBE_PROMPT = """You are an AI assistant managing a Kubernetes cluster.
-Based on the current memory context and request (inputs), plan the next kubectl
+PLAN_VIBE_PROMPT = """You are an AI assistant delegated to work in a Kubernetes cluster.
+Based on the current memory context and request (inputs), plan a single next kubectl
 command to execute.
 
-Important:
+Syntax requirements (follow these STRICTLY):
 - Return ONLY the command arguments
 - Do not include 'kubectl' in the output
-- If more information is needed, use discovery commands
-- If the request is unclear but memory has context, use memory to guide your decision
-- If no context exists, start with basic discovery commands like 'cluster-info'
-- In the absence of any specific state change to make, focus on gathering information
 - If the request is invalid, impossible, or incoherent, return 'ERROR: <reason>'
 - If the planned command is disruptive to the cluster or contrary to the user's
   overall intent, return 'ERROR: not executing <command> because <reason>'
+- For creating resources with complex data (HTML, strings with spaces, etc.):
+  * PREFER using YAML manifests with 'create -f -' approach
+  * If command-line flags like --from-literal must be used, ensure correct quoting
+  * For multiple resources, separate each YAML document with '---' on its own
+    line with NO INDENTATION
+  * Every YAML document must start with '---' on a line by itself with no indentation
+- Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
+- Each multi-line command should be explicit about line continuation with newlines
+
+Guidance:
+- In the absence of any specific state change to make, focus on gathering information
 - If previous commands returned empty results or summarized recovery information,
   use this to intelligently progress to the next logical step (e.g., checking other
   namespaces, trying different resource types, or suggesting resource creation)
 - After discovering empty namespaces or absent resources, progress by creating
   needed resources rather than repeatedly checking
-
-Command Structure Guidelines:
-- For creating resources with complex data (HTML, strings with spaces, etc.):
-  * PREFER using YAML manifests with 'create -f -' approach
-  * If command-line flags like --from-literal must be used, ensure correct quoting
-- Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
-- Each multi-line command should be explicit about line continuation with newlines
 
 Example inputs and outputs:
 
@@ -949,10 +989,15 @@ Request: "help me troubleshoot"
 Output:
 describe pod -l app=database
 
-Memory: <empty>
-Request: <empty>
+Memory: ""
+Request: ""
 Output:
 cluster-info
+
+Memory: "We have deployed pod 'foo'."
+Request: "Tear down the current pod and create a new one"
+Output:
+delete pod foo
 
 Memory: "We are working on deploying a three-tier application. We've created a
 frontend deployment."
@@ -965,6 +1010,7 @@ Checked for pods but found none in the sandbox namespace."
 Request: "keep building the nginx demo"
 Output:
 create -f - << EOF
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -987,18 +1033,38 @@ spec:
         - containerPort: 80
 EOF
 
-Memory: "We need to create a configmap with HTML content in the 'web' namespace."
-Request: "create the configmap for the nginx website"
+Memory: "We need to create multiple resources for our application."
+Request: "create the frontend and backend pods"
 Output:
 create -f - << EOF
+---
 apiVersion: v1
-kind: ConfigMap
+kind: Pod
 metadata:
-  name: nginx-html
-  namespace: web
-data:
-  index.html: |
-    <html><body><h1>Welcome to Nginx</h1><p>This is a demo website.</p></body></html>
+  name: frontend
+  labels:
+    app: myapp
+    component: frontend
+spec:
+  containers:
+  - name: frontend
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: myapp
+    component: backend
+spec:
+  containers:
+  - name: backend
+    image: redis:latest
+    ports:
+    - containerPort: 6379
 EOF
 
 Here's the current memory context and request:

@@ -583,8 +583,18 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     Returns:
         Output of the command
     """
+    import re
     import subprocess
     import tempfile
+
+    # Fix multi-document YAML formatting issues
+    # Ensure document separators are at the beginning of lines with no indentation
+    # This addresses "mapping values are not allowed in this context" errors
+    yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
+
+    # Ensure each document starts with --- including the first one if it doesn't already
+    if not yaml_content.lstrip().startswith("---"):
+        yaml_content = "---\n" + yaml_content
 
     # Check if this is a stdin pipe command (kubectl ... -f -)
     is_stdin_command = False
