@@ -3,29 +3,67 @@ set -e
 
 echo "🚀 Starting K8S CTF Sandbox Environment..."
 
-# Check if VIBECTL_ANTHROPIC_API_KEY is set
+# Check if VIBECTL_ANTHROPIC_API_KEY is set (fail fast)
 if [ -z "$VIBECTL_ANTHROPIC_API_KEY" ]; then
   echo "❌ ERROR: VIBECTL_ANTHROPIC_API_KEY environment variable is not set."
   echo "Please provide the API key when running the sandbox."
   exit 1
 fi
 
-# Check if VIBECTL_MODEL is set, default to claude-3.7-sonnet if not
-if [ -z "$VIBECTL_MODEL" ]; then
-  export VIBECTL_MODEL="claude-3.7-sonnet"
-  echo "ℹ️ VIBECTL_MODEL not set, defaulting to $VIBECTL_MODEL"
+# The status directory is shared between containers
+STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
+mkdir -p "$STATUS_DIR" || echo "⚠️ Could not create status directory - it may already exist"
+# Make sure the directory has the right permissions - don't fail if this doesn't work
+chmod 777 "$STATUS_DIR" 2>/dev/null || echo "⚠️ Could not change status directory permissions - continuing anyway"
+CONFIG_FILE="$STATUS_DIR/challenge_config.sh"
+CONFIG_JSON="$STATUS_DIR/challenge_config.json"
+
+# Wait for overseer to create the configuration file
+echo "⏳ Waiting for challenge configuration from overseer..."
+TIMEOUT=30
+ATTEMPTS=0
+while [[ $ATTEMPTS -lt $TIMEOUT ]]; do
+  if [ -f "$CONFIG_FILE" ] && [ -f "$CONFIG_JSON" ]; then
+    echo "✅ Challenge configuration found."
+    break
+  fi
+
+  ATTEMPTS=$((ATTEMPTS + 1))
+  sleep 1
+  if [[ $((ATTEMPTS % 5)) -eq 0 ]]; then
+    echo "Still waiting for challenge configuration... ($ATTEMPTS seconds)"
+  fi
+done
+
+if [[ $ATTEMPTS -eq $TIMEOUT ]]; then
+  echo "❌ ERROR: Timed out waiting for challenge configuration."
+  echo "The overseer must be running and generating configuration before the sandbox starts."
+  exit 1
 fi
 
-# Check which challenge difficulty to use (default to easy)
-if [ -z "$CHALLENGE_DIFFICULTY" ]; then
-  export CHALLENGE_DIFFICULTY="easy"
-  echo "ℹ️ CHALLENGE_DIFFICULTY not set, defaulting to $CHALLENGE_DIFFICULTY"
+# Get configuration directly from the JSON file instead of sourcing the shell file
+echo "📝 Loading configuration from JSON..."
+CHALLENGE_DIFFICULTY=$(jq -r '.challenge_difficulty' "$CONFIG_JSON")
+ACTIVE_PORTS=$(jq -r '.active_ports | join(",")' "$CONFIG_JSON")
+NODE_PORT_1=$(jq -r '.ports | keys | .[0]' "$CONFIG_JSON")
+NODE_PORT_2=$(jq -r '.ports | keys | .[1]' "$CONFIG_JSON")
+NODE_PORT_3=$(jq -r '.ports | keys | .[2]' "$CONFIG_JSON")
+EXPECTED_FLAG_1=$(jq -r ".ports.\"$NODE_PORT_1\".expected_flag" "$CONFIG_JSON")
+EXPECTED_FLAG_2=$(jq -r ".ports.\"$NODE_PORT_2\".expected_flag" "$CONFIG_JSON")
+EXPECTED_FLAG_3=$(jq -r ".ports.\"$NODE_PORT_3\".expected_flag" "$CONFIG_JSON")
+VERIFICATION_COUNT=$(jq -r '.verification_count' "$CONFIG_JSON")
+RUNTIME_MINUTES=$(jq -r '.runtime_minutes' "$CONFIG_JSON")
+POLL_INTERVAL_SECONDS=$(jq -r '.poll_interval_seconds' "$CONFIG_JSON")
+CHALLENGE_TEXT=$(jq -r '.challenge_text' "$CONFIG_JSON")
+
+# Fail fast if configuration is incorrect or incomplete
+if [ -z "$CHALLENGE_TEXT" ]; then
+  echo "❌ ERROR: Challenge text is not defined in configuration."
+  echo "Make sure the overseer is correctly generating the configuration file."
+  exit 1
 fi
 
-# Explicitly export API keys for all relevant tools - set both versions to ensure compatibility
-# Environment variables are the most reliable way to set these across different tools
-export VIBECTL_ANTHROPIC_API_KEY="$VIBECTL_ANTHROPIC_API_KEY"
-export ANTHROPIC_API_KEY="$VIBECTL_ANTHROPIC_API_KEY"
+echo "🧠 Setting up vibectl with the challenge task..."
 
 # Set up LLM tool API keys directly
 echo "🔑 Setting up LLM tool API keys..."
@@ -50,9 +88,6 @@ EOF
 chmod 600 "$LLM_KEYS_PATH"
 echo "✅ LLM API key set via direct file configuration"
 
-# Set up OpenAI key as an empty value to avoid errors
-export OPENAI_API_KEY=""
-
 # Check Docker socket permissions
 if ! docker ps >/dev/null 2>&1; then
   echo "❌ ERROR: Cannot access Docker socket. Permission denied."
@@ -63,11 +98,6 @@ fi
 # Clean up any previous clusters
 echo "🧹 Cleaning up any previous kind clusters..."
 kind delete cluster --name ctf-cluster 2>/dev/null || true
-
-# Define fixed internal ports - these are the nodePort values inside the cluster
-NODE_PORT_1=${NODE_PORT_1:-30001}
-NODE_PORT_2=${NODE_PORT_2:-30002}
-NODE_PORT_3=${NODE_PORT_3:-30003}
 
 # Create a basic kind cluster without port mappings
 echo "⚙️ Creating Kind Kubernetes cluster..."
@@ -129,67 +159,10 @@ fi
 echo "🔍 Verifying cluster status..."
 kubectl cluster-info
 
-# Set vibectl config to increase memory limit
-echo "📝 Configuring vibectl memory limit..."
-vibectl config set memory_max_chars 1000
-
-# Configure vibectl model
-echo "🔧 Configuring vibectl model..."
+# Set vibectl config (from environment variables provided by Docker Compose)
+echo "📝 Configuring vibectl..."
+vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1000}
 vibectl config set model "$VIBECTL_MODEL"
-
-# Initialize the challenge based on selected difficulty
-echo "🧠 Setting up vibectl memory with CTF challenges (Difficulty: $CHALLENGE_DIFFICULTY)..."
-
-if [ "$CHALLENGE_DIFFICULTY" == "easy" ]; then
-  # Easy challenge - just create a single service
-  CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete this task:
-
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
-  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.)."
-
-  # Determine which ports to monitor based on active challenges
-  ACTIVE_PORTS="${NODE_PORT_1}"
-  echo "🏆 Running EASY challenge mode - monitoring port ${NODE_PORT_1}"
-
-elif [ "$CHALLENGE_DIFFICULTY" == "medium" ]; then
-  # Medium challenge - create two services
-  CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
-
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
-  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
-
-  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed
-  on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load
-  (hint: multiple replicas)."
-
-  # Determine which ports to monitor based on active challenges
-  ACTIVE_PORTS="${NODE_PORT_1},${NODE_PORT_2}"
-  echo "🏆 Running MEDIUM challenge mode - monitoring ports ${NODE_PORT_1} and ${NODE_PORT_2}"
-
-else
-  # Hard (default) challenge - create all three services
-  CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
-
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
-  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
-
-  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed
-  on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load
-  (hint: multiple replicas).
-
-  3. Create a service that returns 'CTF-FLAG-3: CHALLENGE_COMPLETE' text when accessed
-  on port ${NODE_PORT_3}. For this service, use a ConfigMap to store the flag text."
-
-  # Determine which ports to monitor based on active challenges
-  ACTIVE_PORTS="${NODE_PORT_1},${NODE_PORT_2},${NODE_PORT_3}"
-  echo "🏆 Running HARD challenge mode - monitoring all ports: ${NODE_PORT_1}, ${NODE_PORT_2}, and ${NODE_PORT_3}"
-fi
-
-# Export active ports for the poller
-export ACTIVE_PORTS
-
-# Set vibectl memory with the challenges
-vibectl memory set "$CHALLENGE_MEMORY"
 
 # Configure output options based on verbose mode
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
@@ -200,6 +173,11 @@ else
   vibectl config set show_raw_output false
   vibectl config set show_kubectl false
 fi
+
+echo "🏆 Starting challenge - setting up Kubernetes environment..."
+
+# Use the challenge text from the configuration
+vibectl memory set "$CHALLENGE_TEXT"
 
 # Function to maintain connectivity to the k8s cluster
 check_k8s_health() {
@@ -219,8 +197,6 @@ check_k8s_health() {
 echo "🔄 Starting sandbox execution..."
 
 # Update status file for the overseer
-STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
-mkdir -p "$STATUS_DIR"
 SANDBOX_STATUS_FILE="$STATUS_DIR/sandbox_status.json"
 
 # Initialize sandbox status
@@ -228,8 +204,7 @@ cat > "$SANDBOX_STATUS_FILE" <<EOF
 {
   "sandbox_started_at": "$(date -Iseconds)",
   "status": "running",
-  "challenge_difficulty": "$CHALLENGE_DIFFICULTY",
-  "active_ports": "$ACTIVE_PORTS"
+  "last_updated": "$(date -Iseconds)"
 }
 EOF
 
@@ -266,10 +241,7 @@ while true; do
 {
   "sandbox_started_at": "$(date -Iseconds)",
   "status": "running",
-  "challenge_difficulty": "$CHALLENGE_DIFFICULTY",
-  "active_ports": "$ACTIVE_PORTS",
-  "last_updated": "$(date -Iseconds)",
-  "last_status": "vibectl_session_completed"
+  "last_updated": "$(date -Iseconds)"
 }
 EOF
 

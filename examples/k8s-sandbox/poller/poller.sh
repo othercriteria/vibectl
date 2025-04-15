@@ -16,116 +16,107 @@ NC='\033[0m' # No Color
 
 # Status directory shared with overseer
 STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
-mkdir -p "$STATUS_DIR"
+mkdir -p "$STATUS_DIR" || echo -e "${YELLOW}⚠️ Could not create status directory - it may already exist${NC}"
 POLLER_STATUS_FILE="$STATUS_DIR/poller_status.json"
+CONFIG_FILE="$STATUS_DIR/challenge_config.sh"
+CONFIG_JSON="$STATUS_DIR/challenge_config.json"
 
-# Initialize flags - they'll be set based on active ports
-FLAG1_ACTIVE=false
-FLAG2_ACTIVE=false
-FLAG3_ACTIVE=false
+# Wait for overseer to create the configuration file
+echo "⏳ Waiting for challenge configuration from overseer..."
+TIMEOUT=30
+ATTEMPTS=0
+while [[ $ATTEMPTS -lt $TIMEOUT ]]; do
+  if [ -f "$CONFIG_FILE" ] && [ -f "$CONFIG_JSON" ]; then
+    echo "✅ Challenge configuration found."
+    break
+  fi
 
-FLAG1_FOUND=false
-FLAG2_FOUND=false
-FLAG3_FOUND=false
+  ATTEMPTS=$((ATTEMPTS + 1))
+  sleep 1
+  if [[ $((ATTEMPTS % 5)) -eq 0 ]]; then
+    echo "Still waiting for challenge configuration... ($ATTEMPTS seconds)"
+  fi
+done
 
-# Determine which challenges are active based on ACTIVE_PORTS
-if [ -z "$ACTIVE_PORTS" ]; then
-  echo "⚠️ ACTIVE_PORTS not set, assuming all challenges are active"
-  ACTIVE_PORTS="${PORT_1},${PORT_2},${PORT_3}"
+if [[ $ATTEMPTS -eq $TIMEOUT ]]; then
+  echo "❌ ERROR: Timed out waiting for challenge configuration."
+  echo "The overseer must be running and generating configuration before the poller starts."
+  exit 1
 fi
 
+# Get configuration directly from the JSON file
+echo -e "${BLUE}📝 Loading configuration from JSON...${NC}"
+CHALLENGE_DIFFICULTY=$(jq -r '.challenge_difficulty' "$CONFIG_JSON")
+ACTIVE_PORTS=$(jq -r '.active_ports | join(",")' "$CONFIG_JSON")
+NODE_PORT_1=$(jq -r '.ports | keys | .[0]' "$CONFIG_JSON")
+NODE_PORT_2=$(jq -r '.ports | keys | .[1]' "$CONFIG_JSON")
+NODE_PORT_3=$(jq -r '.ports | keys | .[2]' "$CONFIG_JSON")
+EXPECTED_FLAG_1=$(jq -r ".ports.\"$NODE_PORT_1\".expected_flag" "$CONFIG_JSON")
+EXPECTED_FLAG_2=$(jq -r ".ports.\"$NODE_PORT_2\".expected_flag" "$CONFIG_JSON")
+EXPECTED_FLAG_3=$(jq -r ".ports.\"$NODE_PORT_3\".expected_flag" "$CONFIG_JSON")
+VERIFICATION_COUNT=$(jq -r '.verification_count' "$CONFIG_JSON")
+RUNTIME_MINUTES=$(jq -r '.runtime_minutes' "$CONFIG_JSON")
+POLL_INTERVAL_SECONDS=$(jq -r '.poll_interval_seconds' "$CONFIG_JSON")
+
+# For convenience, assign variables used in the original script
+PORT_1=$NODE_PORT_1
+PORT_2=$NODE_PORT_2
+PORT_3=$NODE_PORT_3
+
+echo "🚩 Using expected flags:"
+echo "  - Flag 1: $EXPECTED_FLAG_1 on port $PORT_1"
+echo "  - Flag 2: $EXPECTED_FLAG_2 on port $PORT_2"
+echo "  - Flag 3: $EXPECTED_FLAG_3 on port $PORT_3"
 echo "🔍 Monitoring ports: $ACTIVE_PORTS"
 
-# Parse active ports and set active flags
-if [[ "$ACTIVE_PORTS" == *"$PORT_1"* ]]; then
-  FLAG1_ACTIVE=true
-  echo "✅ Challenge 1 (Port $PORT_1) is active"
-else
-  echo "ℹ️ Challenge 1 (Port $PORT_1) is not active in this difficulty level"
-  # Mark as found so we don't check for it
-  FLAG1_FOUND=true
-fi
+# Initialize flags based on challenge configuration
+declare -A FLAGS_ACTIVE
+declare -A FLAGS_FOUND
+declare -A PORT_TO_EXPECTED_FLAG
+declare -A PORT_SUCCESS_COUNT  # Track success count for each port
 
-if [[ "$ACTIVE_PORTS" == *"$PORT_2"* ]]; then
-  FLAG2_ACTIVE=true
-  echo "✅ Challenge 2 (Port $PORT_2) is active"
-else
-  echo "ℹ️ Challenge 2 (Port $PORT_2) is not active in this difficulty level"
-  # Mark as found so we don't check for it
-  FLAG2_FOUND=true
-fi
+# Associate ports with flags and initialize active/found status
+PORT_TO_EXPECTED_FLAG[$PORT_1]="$EXPECTED_FLAG_1"
+PORT_TO_EXPECTED_FLAG[$PORT_2]="$EXPECTED_FLAG_2"
+PORT_TO_EXPECTED_FLAG[$PORT_3]="$EXPECTED_FLAG_3"
 
-if [[ "$ACTIVE_PORTS" == *"$PORT_3"* ]]; then
-  FLAG3_ACTIVE=true
-  echo "✅ Challenge 3 (Port $PORT_3) is active"
-else
-  echo "ℹ️ Challenge 3 (Port $PORT_3) is not active in this difficulty level"
-  # Mark as found so we don't check for it
-  FLAG3_FOUND=true
-fi
+# Set active flag based on whether the port is in the active ports list
+for port in $PORT_1 $PORT_2 $PORT_3; do
+  if [[ "$ACTIVE_PORTS" == *"$port"* ]]; then
+    FLAGS_ACTIVE[$port]=true
+    FLAGS_FOUND[$port]=false
+    PORT_SUCCESS_COUNT[$port]=0  # Initialize success count
+    echo "✅ Challenge for port $port is active"
+  else
+    FLAGS_ACTIVE[$port]=false
+    FLAGS_FOUND[$port]=true  # Mark as found since we don't need to check it
+    PORT_SUCCESS_COUNT[$port]=$VERIFICATION_COUNT  # Set to max
+    echo "ℹ️ Challenge for port $port is not active in this difficulty level"
+  fi
+done
 
 # Function to print status
 print_status() {
   echo -e "${BLUE}=== CTF Challenge Status ===${NC}"
 
-  if ! $FLAG1_ACTIVE; then
-    echo -e "Challenge 1: ${GRAY}NOT ACTIVE${NC}"
-  elif $FLAG1_FOUND; then
-    echo -e "Challenge 1: ${GREEN}COMPLETED ✅${NC}"
-  else
-    echo -e "Challenge 1: ${RED}PENDING ❌${NC}"
-  fi
-
-  if ! $FLAG2_ACTIVE; then
-    echo -e "Challenge 2: ${GRAY}NOT ACTIVE${NC}"
-  elif $FLAG2_FOUND; then
-    echo -e "Challenge 2: ${GREEN}COMPLETED ✅${NC}"
-  else
-    echo -e "Challenge 2: ${RED}PENDING ❌${NC}"
-  fi
-
-  if ! $FLAG3_ACTIVE; then
-    echo -e "Challenge 3: ${GRAY}NOT ACTIVE${NC}"
-  elif $FLAG3_FOUND; then
-    echo -e "Challenge 3: ${GREEN}COMPLETED ✅${NC}"
-  else
-    echo -e "Challenge 3: ${RED}PENDING ❌${NC}"
-  fi
+  for port in $PORT_1 $PORT_2 $PORT_3; do
+    local port_number="${port##*_}"
+    if [[ "${FLAGS_ACTIVE[$port]}" != "true" ]]; then
+      echo -e "Port $port: ${GRAY}NOT ACTIVE${NC}"
+    elif [[ "${FLAGS_FOUND[$port]}" == "true" ]]; then
+      echo -e "Port $port: ${GREEN}COMPLETED ✅${NC}"
+    else
+      echo -e "Port $port: ${RED}PENDING (${PORT_SUCCESS_COUNT[$port]}/${VERIFICATION_COUNT}) ❌${NC}"
+    fi
+  done
 
   echo -e "${BLUE}=========================${NC}"
-}
-
-# Find the sandbox container ID
-find_sandbox_container() {
-  # If TARGET_HOST is set and valid, use it directly
-  if [ -n "$TARGET_HOST" ] && docker ps --format '{{.Names}}' | grep -q "^${TARGET_HOST}$"; then
-    echo "$TARGET_HOST"
-    return 0
-  fi
-
-  # Fallback to pattern matching if the explicit name isn't found
-  # Try different naming patterns that Docker Compose might use
-  local container_id
-
-  container_id=$(docker ps | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | awk '{print $1}' | head -1)
-
-  if [ -z "$container_id" ]; then
-    # If no container ID found, try to get container name
-    container_id=$(docker ps --format '{{.Names}}' | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | head -1)
-
-    if [ -z "$container_id" ]; then
-      echo "Error: Could not find sandbox container"
-      return 1
-    fi
-  fi
-
-  echo "$container_id"
 }
 
 # Function to check if the service is ready
 check_service() {
   local port=$1
-  local expected_flag=$2
+  local expected_flag=${PORT_TO_EXPECTED_FLAG[$port]}
   local container_id
 
   container_id=$(find_sandbox_container) || return 1
@@ -193,23 +184,58 @@ check_service() {
   fi
 }
 
+# Find the sandbox container ID
+find_sandbox_container() {
+  # If TARGET_HOST is set and valid, use it directly
+  if [ -n "$TARGET_HOST" ] && docker ps --format '{{.Names}}' | grep -q "^${TARGET_HOST}$"; then
+    echo "$TARGET_HOST"
+    return 0
+  fi
+
+  # Fallback to pattern matching if the explicit name isn't found
+  # Try different naming patterns that Docker Compose might use
+  local container_id
+
+  container_id=$(docker ps | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | awk '{print $1}' | head -1)
+
+  if [ -z "$container_id" ]; then
+    # If no container ID found, try to get container name
+    container_id=$(docker ps --format '{{.Names}}' | grep -E "(k8s-sandbox|vibectl.*sandbox|sandbox)" | grep -v "poller" | head -1)
+
+    if [ -z "$container_id" ]; then
+      echo "Error: Could not find sandbox container"
+      return 1
+    fi
+  fi
+
+  echo "$container_id"
+}
+
 # Update status for overseer
 update_status() {
   local all_complete=$1
 
-  # Create status JSON with current state
-  cat > "$POLLER_STATUS_FILE" << EOF
-{
-  "last_updated": "$(date -Iseconds)",
-  "flag1_active": $FLAG1_ACTIVE,
-  "flag1_found": $FLAG1_FOUND,
-  "flag2_active": $FLAG2_ACTIVE,
-  "flag2_found": $FLAG2_FOUND,
-  "flag3_active": $FLAG3_ACTIVE,
-  "flag3_found": $FLAG3_FOUND,
-  "all_complete": $all_complete
-}
-EOF
+  # Create a JSON object with the current state
+  local json_data='{'
+  json_data+='"last_updated": "'$(date -Iseconds)'",'
+  json_data+='"verification_count": '$VERIFICATION_COUNT','
+
+  # Add status for each port
+  for port in $PORT_1 $PORT_2 $PORT_3; do
+    local active="${FLAGS_ACTIVE[$port]}"
+    local found="${FLAGS_FOUND[$port]}"
+    local success_count="${PORT_SUCCESS_COUNT[$port]}"
+    json_data+='"port_'$port'_active": '$active','
+    json_data+='"port_'$port'_found": '$found','
+    json_data+='"port_'$port'_success_count": '$success_count','
+  done
+
+  # Add all_complete flag
+  json_data+='"all_complete": '$all_complete
+  json_data+='}'
+
+  # Write to status file
+  echo "$json_data" > "$POLLER_STATUS_FILE" 2>/dev/null || echo -e "${YELLOW}⚠️ Could not write to status file ${POLLER_STATUS_FILE}${NC}"
 }
 
 # Wait for the sandbox to be ready
@@ -242,36 +268,38 @@ while true; do
   fi
   CHECK_COUNT=$((CHECK_COUNT + 1))
 
-  # Check active challenges
-  if $FLAG1_ACTIVE && ! $FLAG1_FOUND; then
-    if check_service "$PORT_1" "$EXPECTED_FLAG_1"; then
-      echo -e "${GREEN}FLAG 1 FOUND! 🎉${NC}"
-      FLAG1_FOUND=true
-      print_status
-    fi
-  fi
+  # Check all active ports
+  for port in $PORT_1 $PORT_2 $PORT_3; do
+    if [[ "${FLAGS_ACTIVE[$port]}" == "true" ]] && [[ "${FLAGS_FOUND[$port]}" != "true" ]]; then
+      if check_service "$port"; then
+        # Increment success count for this port
+        PORT_SUCCESS_COUNT[$port]=$((PORT_SUCCESS_COUNT[$port] + 1))
+        echo -e "${GREEN}Port $port check ${PORT_SUCCESS_COUNT[$port]}/${VERIFICATION_COUNT} successful${NC}"
 
-  if $FLAG2_ACTIVE && ! $FLAG2_FOUND; then
-    if check_service "$PORT_2" "$EXPECTED_FLAG_2"; then
-      echo -e "${GREEN}FLAG 2 FOUND! 🎉${NC}"
-      FLAG2_FOUND=true
-      print_status
+        # Check if we've reached the verification threshold
+        if [ "${PORT_SUCCESS_COUNT[$port]}" -ge "$VERIFICATION_COUNT" ]; then
+          echo -e "${GREEN}FLAG for port $port VERIFIED! (${PORT_SUCCESS_COUNT[$port]}/${VERIFICATION_COUNT}) 🎉${NC}"
+          FLAGS_FOUND[$port]=true
+          print_status
+        fi
+      else
+        # Reset counter on failure
+        if [ -n "${PORT_SUCCESS_COUNT[$port]}" ] && [ "${PORT_SUCCESS_COUNT[$port]}" -gt 0 ]; then
+          echo -e "${YELLOW}Reset port $port check count after failure${NC}"
+          PORT_SUCCESS_COUNT[$port]=0
+        fi
+      fi
     fi
-  fi
-
-  if $FLAG3_ACTIVE && ! $FLAG3_FOUND; then
-    if check_service "$PORT_3" "$EXPECTED_FLAG_3"; then
-      echo -e "${GREEN}FLAG 3 FOUND! 🎉${NC}"
-      FLAG3_FOUND=true
-      print_status
-    fi
-  fi
+  done
 
   # Check if all active challenges are complete
   ALL_COMPLETE=true
-  if $FLAG1_ACTIVE && ! $FLAG1_FOUND; then ALL_COMPLETE=false; fi
-  if $FLAG2_ACTIVE && ! $FLAG2_FOUND; then ALL_COMPLETE=false; fi
-  if $FLAG3_ACTIVE && ! $FLAG3_FOUND; then ALL_COMPLETE=false; fi
+  for port in $PORT_1 $PORT_2 $PORT_3; do
+    if [[ "${FLAGS_ACTIVE[$port]}" == "true" ]] && [[ "${FLAGS_FOUND[$port]}" != "true" ]]; then
+      ALL_COMPLETE=false
+      break
+    fi
+  done
 
   # Update status file for the overseer
   update_status $ALL_COMPLETE

@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     docker.io \
     iputils-ping \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy our script
