@@ -986,7 +986,6 @@ frontend deployment."
 Input: "keep working on the application deployment"
 Output:
 get deployment frontend -o yaml
-NOTE: Will examine frontend configuration to help determine next steps
 
 Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
 Checked for pods but found none in the sandbox namespace."
@@ -1014,7 +1013,6 @@ spec:
         ports:
         - containerPort: 80
 EOF
-NOTE: Creating nginx deployment as first step in building the demo
 
 Memory: "We need to create a configmap with HTML content in the 'web' namespace."
 Input: "create the configmap for the nginx website"
@@ -1029,7 +1027,6 @@ data:
   index.html: |
     <html><body><h1>Welcome to Nginx</h1><p>This is a demo website.</p></body></html>
 EOF
-NOTE: Creating configmap with HTML content for the nginx website
 
 Here's the current memory context and request:
 
