@@ -940,11 +940,11 @@ Based on the current memory context and request, plan the next kubectl command
 to execute.
 
 Important:
-- Return ONLY the kubectl command to execute, formatted as shown in examples
-- Include the full command with 'kubectl' and all necessary arguments
+- Return ONLY the command arguments, one per line
+- Do not include 'kubectl' in the output
 - If more information is needed, use discovery commands
 - If the request is unclear but memory has context, use memory to guide your decision
-- If no context exists, start with basic discovery commands like 'kubectl cluster-info'
+- If no context exists, start with basic discovery commands like 'cluster-info'
 - In the absence of any specific instruction or context, focus on gathering information
   before making changes
 - If the command is potentially destructive, add a note about the impact
@@ -957,11 +957,11 @@ Important:
 
 Command Structure Guidelines:
 - For creating resources with complex data (HTML, strings with spaces, etc.):
-  * PREFER using YAML manifests with 'kubectl create -f <file.yaml>' approach
+  * PREFER using YAML manifests with 'create -f -' approach
   * If command-line flags like --from-literal must be used, ensure correct quoting
 - Avoid spaces in resource names when possible
 - Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
-- Each multi-line command should be explicit about line continuation with backslashes
+- Each multi-line command should be explicit about line continuation with newlines
 
 Example inputs and outputs:
 
@@ -969,30 +969,30 @@ Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
 'backend' services."
 Input: "check if everything is healthy"
 Output:
-kubectl get pods -n app
+get pods -n app
 
 Memory: "We need to debug why the database pod keeps crashing."
 Input: "help me troubleshoot"
 Output:
-kubectl describe pod -l app=database
+describe pod -l app=database
 
 Memory: <empty>
 Input: <empty>
 Output:
-kubectl cluster-info
+cluster-info
 
 Memory: "We are working on deploying a three-tier application. We've created a
 frontend deployment."
 Input: "keep working on the application deployment"
 Output:
-kubectl get deployment frontend -o yaml
+get deployment frontend -o yaml
 NOTE: Will examine frontend configuration to help determine next steps
 
 Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
 Checked for pods but found none in the sandbox namespace."
 Input: "keep building the nginx demo"
 Output:
-kubectl create -f - << EOF
+create -f - << EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1019,7 +1019,7 @@ NOTE: Creating nginx deployment as first step in building the demo
 Memory: "We need to create a configmap with HTML content in the 'web' namespace."
 Input: "create the configmap for the nginx website"
 Output:
-kubectl create -f - << EOF
+create -f - << EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:

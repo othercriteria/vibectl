@@ -264,14 +264,26 @@ def handle_vibe_request(
             # Create a display command for user feedback
             display_cmd = _create_display_command(args, yaml_content)
 
-            # Check if we need confirmation or if show_kubectl is enabled
+            # Check if we need confirmation
             needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
+
+            # For autonomous mode vibe commands, strip the 'command' from the
+            # displayed and executed commands
+            should_strip_command = autonomous_mode and command == "vibe"
+
+            # Command to display to the user
+            cmd_for_display = command if not should_strip_command else ""
 
             # Show command if show_kubectl is True or confirmation needed
             if output_flags.show_kubectl or needs_confirm:
-                console_manager.print_note(
-                    f"Planning to run: kubectl {command} {display_cmd}"
-                )
+                if should_strip_command:
+                    console_manager.print_note(
+                        f"Planning to run: kubectl {display_cmd}"
+                    )
+                else:
+                    console_manager.print_note(
+                        f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
+                    )
 
             # If confirmation needed, ask now
             if needs_confirm and not click.confirm("Execute this command?"):
@@ -291,7 +303,12 @@ def handle_vibe_request(
 
             # Execute the command and get output
             try:
-                output = _execute_command([command, *args], yaml_content)
+                # For autonomous mode vibe commands, don't include the 'vibe'
+                # command name
+                cmd_for_execution = (
+                    [command, *args] if not should_strip_command else args
+                )
+                output = _execute_command(cmd_for_execution, yaml_content)
             except Exception as cmd_error:
                 # Provide a more helpful error message and recovery suggestions
                 error_message = f"Command execution error: {cmd_error}"
@@ -305,10 +322,8 @@ def handle_vibe_request(
                     # Use the recovery_prompt from prompt.py
                     prompt = recovery_prompt(display_cmd, str(cmd_error))
                     recovery_suggestions = model_adapter.execute(model, prompt)
-                    # Don't print the raw recovery suggestions to the user
-                    # console_manager.print_vibe(recovery_suggestions)
 
-                    # Instead, just note that we're including recovery info in memory
+                    # Note that we're including recovery info in memory
                     console_manager.print_note(
                         "Recovery suggestions added to memory context"
                     )
@@ -320,11 +335,17 @@ def handle_vibe_request(
                     pass
 
                 # Process the output for memory update (don't return early)
+                # For autonomous mode, don't include 'vibe' in the command description
+                command_for_output = (
+                    f"{cmd_for_display} {display_cmd}"
+                    if cmd_for_display
+                    else display_cmd
+                )
                 handle_command_output(
                     output=output,
                     output_flags=output_flags,
                     summary_prompt_func=summary_prompt_func,
-                    command=display_cmd,
+                    command=command_for_output,
                 )
                 return
         except ValueError as ve:
@@ -337,11 +358,15 @@ def handle_vibe_request(
             console_manager.print_note("Command returned no output")
 
         # Process the output regardless
+        # For autonomous mode, don't include 'vibe' in the command description
+        command_for_output = (
+            f"{cmd_for_display} {display_cmd}" if cmd_for_display else display_cmd
+        )
         handle_command_output(
             output=output or "No resources found.",
             output_flags=output_flags,
             summary_prompt_func=summary_prompt_func,
-            command=display_cmd,
+            command=command_for_output,
         )
     except Exception as e:
         # Print error but don't exit the process for non-critical errors
@@ -367,7 +392,6 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
     Returns:
         Tuple of (command arguments, YAML content or None)
     """
-
     # Check for heredoc syntax (create -f - << EOF)
     if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
         # Find the start of the heredoc

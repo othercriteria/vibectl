@@ -345,3 +345,93 @@ def test_handle_vibe_request_with_dangerous_commands(
     # Test safe commands
     test_command("get pods", False)
     test_command("describe pod my-pod", False)
+
+
+def test_handle_vibe_request_autonomous_mode(
+    mock_model_adapter: MagicMock,
+) -> None:
+    """Test handle_vibe_request in autonomous mode with 'vibe' command.
+
+    This test specifically checks that when autonomous_mode is True and
+    command is 'vibe', we don't include 'vibe' in the kubectl command.
+    """
+    # Configure model adapter to return a valid command string
+    mock_model_adapter.return_value.execute.return_value = "get pods -n sandbox"
+
+    # Configure output flags
+    output_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=True,
+        show_kubectl=True,
+        warn_no_output=False,
+        model_name="test-model",
+    )
+
+    # Mock console manager to check prompt
+    with (
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch("vibectl.command_handler._execute_command") as mock_execute_command,
+        patch("vibectl.command_handler.click.confirm", return_value=True),
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Call handle_vibe_request in autonomous mode with 'vibe' command
+        handle_vibe_request(
+            request="check pods",
+            command="vibe",
+            plan_prompt="Plan {request}",
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+            autonomous_mode=True,
+        )
+
+        # Verify console manager was called with a message NOT including 'vibe'
+        # Should be 'Planning to run: kubectl get pods -n sandbox'
+        # NOT 'Planning to run: kubectl vibe get pods -n sandbox'
+        assert mock_console.print_note.called
+        note_calls = mock_console.print_note.call_args_list
+        assert len(note_calls) > 0
+        # Get the first argument of the first call
+        note_text = note_calls[0][0][0]
+        assert note_text == "Planning to run: kubectl get pods -n sandbox"
+
+        # Verify execute_command was called WITHOUT including 'vibe'
+        mock_execute_command.assert_called_once()
+        args, _ = mock_execute_command.call_args
+
+        # Check that args does not contain 'vibe' and does contain 'get'
+        assert "vibe" not in args[0]
+        assert "get" in args[0]
+
+    # Configure model adapter to return command with 'vibe' to ensure it's removed
+    mock_model_adapter.return_value.execute.return_value = "vibe get pods -n sandbox"
+
+    # Reset mocks
+    mock_console.reset_mock()
+    mock_execute_command.reset_mock()
+
+    with (
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch("vibectl.command_handler._execute_command") as mock_execute_command,
+        patch("vibectl.command_handler.click.confirm", return_value=True),
+        patch("vibectl.command_handler.handle_command_output"),
+    ):
+        # Call handle_vibe_request again
+        handle_vibe_request(
+            request="check pods",
+            command="vibe",
+            plan_prompt="Plan {request}",
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+            autonomous_mode=True,
+        )
+
+        # Verify console manager was called with the correct message
+        assert mock_console.print_note.called
+        note_calls = mock_console.print_note.call_args_list
+        assert len(note_calls) > 0
+        # Get the first argument of the first call
+        note_text = note_calls[0][0][0]
+        # Expecting "Planning to run: kubectl vibe get pods -n sandbox"
+        # But we should check that it doesn't have "vibe vibe" (double vibe)
+        assert "Planning to run: kubectl " in note_text
+        assert "vibe vibe" not in note_text

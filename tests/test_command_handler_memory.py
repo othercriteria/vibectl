@@ -168,12 +168,55 @@ def test_handle_vibe_request_updates_memory_on_error(
             yes=True,  # Skip confirmation
         )
 
+    # Process the output for memory update (don't return early)
+    mock_handle_output.assert_called_once()
+    call_args = mock_handle_output.call_args[1]
+    assert "output" in call_args
+    assert "Error:" in call_args["output"]
+    assert "command" in call_args
+
+    # We expect the command to be "get get pods" - the first "get" is from the command,
+    # and the "get pods" is from the display command
+    assert call_args["command"] == "get get pods"
+
+    # Now test with autonomous_mode=True and command="vibe" to verify
+    # the fix works correctly for the special case
+    mock_handle_output.reset_mock()
+
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute,
+        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler._process_command_string") as mock_process,
+        patch("vibectl.command_handler._parse_command_args") as mock_parse,
+        patch("vibectl.command_handler._create_display_command") as mock_display,
+    ):
+        # Set up mocks
+        mock_process.return_value = ("get pods", None)
+        mock_parse.return_value = ["get", "pods"]
+        mock_display.return_value = "get pods"
+        mock_execute.side_effect = Exception("Command execution failed")
+
+        # Call handle_vibe_request with autonomous_mode=True and command="vibe"
+        handle_vibe_request(
+            request="Show me the pods",
+            command="vibe",
+            plan_prompt="Plan how to {command} {request}",
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+            yes=True,  # Skip confirmation
+            autonomous_mode=True,  # Enable autonomous mode
+        )
+
     # Verify handle_command_output was called with error output
     mock_handle_output.assert_called_once()
     call_args = mock_handle_output.call_args[1]
     assert "output" in call_args
     assert "Error:" in call_args["output"]
     assert "command" in call_args
+
+    # In autonomous mode with command="vibe", we expect just "get pods"
+    # without "vibe" prefixed
     assert call_args["command"] == "get pods"
 
 

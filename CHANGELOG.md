@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improves scalability for future features
   - Enables non-blocking progress displays
   - Prepares for more complex asynchronous operations
+- Updated PLAN_VIBE_PROMPT to not include 'kubectl' in its output
+  - Makes it consistent with other prompts
+  - Simplifies command handling in code
+- Removed command cleaning logic that stripped 'kubectl' and 'vibe' prefixes
+  - Relying on clean output from updated prompts instead of defensive code
+  - Simplified command handling with fewer edge cases
+  - Updated tests to reflect the expectation of clean command output
 
 ### Fixed
 - Fixed tests for the `wait` command's live display feature
@@ -36,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `port-forward vibe` command to use live display with connection status
   - Now shows the same live progress display as direct resource port-forward
   - Supports both `--live-display` and `--no-live-display` flags
+- Fixed `vibectl vibe` command execution to not include 'vibe' in the executed kubectl command
+  - Resolves the error "unknown command 'vibe' for 'kubectl'"
+  - Properly strips the 'vibe' command in autonomous mode
+  - Updated tests to verify the correct behavior
 
 ## [0.3.1] - 2024-05-22
 
