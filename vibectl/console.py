@@ -142,8 +142,9 @@ class ConsoleManager:
     def print_no_proxy_warning(self) -> None:
         """Print information about missing proxy configuration."""
         self.print_warning(
-            "Traffic monitoring is not enabled. To enable traffic statistics and monitoring:\n"
-            "1. Set intermediate_port_range in your config: vibectl config set intermediate_port_range 10000-11000\n"
+            "Traffic monitoring disabled. To enable statistics and monitoring:\n"
+            "1. Set intermediate_port_range in your config:\n"
+            "   vibectl config set intermediate_port_range 10000-11000\n"
             "2. Use port-forward with a port mapping (e.g., 8080:80)\n"
             "\nTo suppress this message: vibectl config set warn_no_proxy false"
         )

@@ -1097,7 +1097,7 @@ def handle_port_forward_with_live_display(
                             if "traffic" in line_str.lower():
                                 stats.traffic_monitoring_enabled = True
                                 # Extract bytes sent/received if available
-                                # This is a placeholder - actual parsing would depend on output format
+                                # Parsing depends on the output format
                                 if "sent" in line_str.lower():
                                     sent_match = re.search(
                                         r"sent (\d+)", line_str.lower()
@@ -1128,11 +1128,14 @@ def handle_port_forward_with_live_display(
                 if connected:
                     if proxy:
                         # Show traffic stats in the description when using proxy
+                        bytes_sent = stats.bytes_sent
+                        bytes_received = stats.bytes_received
                         progress.update(
                             task_id,
                             description=(
                                 f"{display_text} - [green]Connected[/green] "
-                                f"([cyan]↑{stats.bytes_sent}B[/] [magenta]↓{stats.bytes_received}B[/])"
+                                f"([cyan]↑{bytes_sent}B[/] "
+                                f"[magenta]↓{bytes_received}B[/])"
                             ),
                         )
                     else:

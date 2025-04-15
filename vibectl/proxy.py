@@ -62,7 +62,7 @@ class TcpProxy:
             local_port: The local port to listen on
             target_host: The target host to forward to (usually localhost)
             target_port: The target port to forward to
-            stats: Statistics object to update (should have bytes_received and bytes_sent fields)
+            stats: Statistics object that tracks bytes_received and bytes_sent
             stats_callback: Optional callback function to call when stats are updated
         """
         self.local_port = local_port
@@ -117,7 +117,8 @@ class TcpProxy:
             )
         except Exception as e:
             logger.error(
-                f"Failed to connect to target {self.target_host}:{self.target_port}: {e}"
+                f"Failed to connect to target {self.target_host}:"
+                f"{self.target_port}: {e}"
             )
             client_writer.close()
             return

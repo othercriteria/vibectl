@@ -276,15 +276,17 @@ def test_handle_client(
         return None
 
     # Apply patches within the test function
-    with patch.object(proxy, "_proxy_data", side_effect=mock_proxy_data):
-        with patch("asyncio.create_task", side_effect=lambda x: x):
-            # Call handle_client
-            asyncio.run(
-                proxy._handle_client(
-                    mock_asyncio_components["client_reader"],
-                    mock_asyncio_components["client_writer"],
-                )
+    with (
+        patch.object(proxy, "_proxy_data", side_effect=mock_proxy_data),
+        patch("asyncio.create_task", side_effect=lambda x: x),
+    ):
+        # Call handle_client
+        asyncio.run(
+            proxy._handle_client(
+                mock_asyncio_components["client_reader"],
+                mock_asyncio_components["client_writer"],
             )
+        )
 
     # Verify connections were made to target
     mock_open_connection.assert_called_once_with("127.0.0.1", 9090)
