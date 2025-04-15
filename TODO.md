@@ -62,6 +62,14 @@ Implement enhanced functionality for port-forward command in the future:
   - Usage patterns
   - Suggestions for troubleshooting or optimization
 
+## Port-Forward Display Improvements
+- Implement display of amount of data transferred in both directions
+- Add visualization of current active connections
+- Create visual indication of traffic activity in real-time
+
+## Documentation and Examples
+- Add comprehensive documentation and examples for port-forward and wait commands
+
 ## Future Rich Display Improvements for Wait Command
 Consider implementing rich progress displays for the wait command in the future:
 - Add animated waiting indicators with elapsed time tracking
