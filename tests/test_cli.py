@@ -1470,3 +1470,33 @@ def test_cli_no_warning_for_config_command(
     # Verify no warning was displayed for config command
     mock_console.print_warning.assert_not_called()
     assert result.exit_code == 0
+
+
+@patch("vibectl.cli.Config")
+def test_warn_no_proxy_config(mock_config_class: Mock, cli_runner: CliRunner) -> None:
+    """Test setting and unsetting warn_no_proxy configuration."""
+    mock_config = Mock()
+    mock_config_class.return_value = mock_config
+
+    # Test setting to false
+    result = cli_runner.invoke(cli, ["config", "set", "warn_no_proxy", "false"])
+    assert result.exit_code == 0
+    mock_config.set.assert_called_with("warn_no_proxy", "false")
+    mock_config.save.assert_called()
+
+    # Reset mock for next test
+    mock_config.reset_mock()
+
+    # Test setting to true
+    result = cli_runner.invoke(cli, ["config", "set", "warn_no_proxy", "true"])
+    assert result.exit_code == 0
+    mock_config.set.assert_called_with("warn_no_proxy", "true")
+    mock_config.save.assert_called()
+
+    # Reset mock for next test
+    mock_config.reset_mock()
+
+    # Test unsetting (should revert to default of True)
+    result = cli_runner.invoke(cli, ["config", "unset", "warn_no_proxy"])
+    assert result.exit_code == 0
+    mock_config.unset.assert_called_with("warn_no_proxy")

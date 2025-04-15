@@ -6,6 +6,8 @@ to reduce duplication across CLI commands.
 """
 
 import asyncio
+import random
+import re
 import subprocess
 import sys
 import time
@@ -13,16 +15,22 @@ from collections.abc import Callable
 from contextlib import suppress
 
 import click
+import yaml
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
+from rich.table import Table
 
 from .config import Config
 from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
-from .prompt import recovery_prompt, wait_resource_prompt
+from .prompt import port_forward_prompt, recovery_prompt, wait_resource_prompt
+from .proxy import StatsProtocol, TcpProxy, start_proxy_server, stop_proxy_server
 from .types import OutputFlags
 from .utils import handle_exception
+
+# Export Table for testing
+__all__ = ["Table"]
 
 # Constants for output flags
 DEFAULT_MODEL = "claude-3.7-sonnet"
@@ -666,6 +674,9 @@ def configure_output_flags(
     # Get warn_no_output setting - default to True (do warn when no output)
     warn_no_output = config.get("warn_no_output", DEFAULT_WARN_NO_OUTPUT)
 
+    # Get warn_no_proxy setting - default to True (do warn when proxy not configured)
+    warn_no_proxy = config.get("warn_no_proxy", True)
+
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
     # Get show_kubectl setting - default to False
@@ -681,6 +692,7 @@ def configure_output_flags(
         warn_no_output=warn_no_output,
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
+        warn_no_proxy=warn_no_proxy,
     )
 
 
@@ -865,6 +877,47 @@ def handle_wait_with_live_display(
         console_manager.console.print(message)
 
 
+class ConnectionStats(StatsProtocol):
+    """Track connection statistics for port-forward sessions."""
+
+    def __init__(self) -> None:
+        """Initialize connection statistics."""
+        self.current_status = "Connecting"  # Current connection status
+        self.connections_attempted = 0  # Number of connection attempts
+        self.successful_connections = 0  # Number of successful connections
+        self.bytes_sent = 0  # Bytes sent through connection
+        self.bytes_received = 0  # Bytes received through connection
+        self.elapsed_connected_time = 0.0  # Time in seconds connection was active
+        self.traffic_monitoring_enabled = False  # Whether traffic stats are available
+        self.using_proxy = False  # Whether connection is going through proxy
+        self.error_messages: list[str] = []  # List of error messages encountered
+        self._last_activity_time = time.time()  # Timestamp of last activity
+
+    @property
+    def last_activity(self) -> float:
+        """Get the timestamp of the last activity."""
+        return self._last_activity_time
+
+    @last_activity.setter
+    def last_activity(self, value: float) -> None:
+        """Set the timestamp of the last activity."""
+        self._last_activity_time = value
+
+
+def has_port_mapping(port_mapping: str) -> bool:
+    """Check if a valid port mapping is provided.
+
+    Args:
+        port_mapping: The port mapping string to check
+
+    Returns:
+        True if a valid port mapping with format "local:remote" is provided
+    """
+    return ":" in port_mapping and all(
+        part.isdigit() for part in port_mapping.split(":")
+    )
+
+
 def handle_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
@@ -899,6 +952,48 @@ def handle_port_forward_with_live_display(
     # Track start time for elapsed time display
     start_time = time.time()
 
+    # Create a stats object to track connection information
+    stats = ConnectionStats()
+
+    # Check if traffic monitoring is enabled via intermediate port range
+    cfg = Config()
+    intermediate_port_range = cfg.get("intermediate_port_range")
+    use_proxy = False
+    proxy_port = None
+
+    # Check if a port mapping was provided (required for proxy)
+    has_valid_port_mapping = has_port_mapping(port_mapping)
+
+    if intermediate_port_range and has_valid_port_mapping:
+        try:
+            # Parse the port range
+            min_port, max_port = map(int, intermediate_port_range.split("-"))
+
+            # Get a random port in the range
+            proxy_port = random.randint(min_port, max_port)
+
+            # Enable proxy mode
+            use_proxy = True
+            stats.using_proxy = True
+            stats.traffic_monitoring_enabled = True
+
+            console_manager.print_note(
+                f"Traffic monitoring enabled via proxy on port {proxy_port}"
+            )
+        except (ValueError, AttributeError) as e:
+            console_manager.print_error(
+                f"Invalid intermediate_port_range format: {intermediate_port_range}. "
+                f"Expected format: 'min-max'. Error: {e}"
+            )
+            use_proxy = False
+    elif (
+        not intermediate_port_range
+        and has_valid_port_mapping
+        and output_flags.warn_no_proxy
+    ):
+        # Show warning about missing proxy configuration when port mapping is provided
+        console_manager.print_no_proxy_warning()
+
     # Create a subprocess to run kubectl port-forward
     # We'll use asyncio to manage this process and update the display
     async def run_port_forward() -> asyncio.subprocess.Process:
@@ -909,6 +1004,15 @@ def handle_port_forward_with_live_display(
         # Make sure we have valid args - check for resource pattern first
         args_list = list(args)
 
+        # If using proxy, modify the port mapping argument to use proxy_port
+        if use_proxy and proxy_port is not None:
+            # Find and replace the port mapping argument
+            for i, arg in enumerate(args_list):
+                if ":" in arg and all(part.isdigit() for part in arg.split(":")):
+                    # Replace with proxy port:remote port
+                    args_list[i] = f"{proxy_port}:{remote_port}"
+                    break
+
         # Add remaining arguments
         if args_list:
             cmd_args.extend(args_list)
@@ -917,7 +1021,6 @@ def handle_port_forward_with_live_display(
         kubectl_cmd = ["kubectl"]
 
         # Add kubeconfig if set
-        cfg = Config()
         kubeconfig = cfg.get("kubeconfig")
         if kubeconfig:
             kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
@@ -933,15 +1036,22 @@ def handle_port_forward_with_live_display(
             stderr=asyncio.subprocess.PIPE,
         )
 
+        # Increment connection attempts counter
+        stats.connections_attempted += 1
+
         # Return reference to the process
         return process
 
     # Update the progress display with connection status
     async def update_progress(
-        task_id: TaskID, progress: Progress, process: asyncio.subprocess.Process
+        task_id: TaskID,
+        progress: Progress,
+        process: asyncio.subprocess.Process,
+        proxy: TcpProxy | None = None,
     ) -> None:
         """Update the progress display with connection status and data."""
         connected = False
+        connection_start_time = None
 
         try:
             # Keep updating until cancelled
@@ -954,16 +1064,62 @@ def handle_port_forward_with_live_display(
                         line_str = line.decode("utf-8").strip()
                         if "Forwarding from" in line_str:
                             connected = True
+                            stats.current_status = "Connected"
+                            stats.successful_connections += 1
+                            if connection_start_time is None:
+                                connection_start_time = time.time()
+
+                            # Attempt to parse traffic information if available
+                            if "traffic" in line_str.lower():
+                                stats.traffic_monitoring_enabled = True
+                                # Extract bytes sent/received if available
+                                # This is a placeholder - actual parsing would depend on output format
+                                if "sent" in line_str.lower():
+                                    sent_match = re.search(
+                                        r"sent (\d+)", line_str.lower()
+                                    )
+                                    if sent_match:
+                                        stats.bytes_sent += int(sent_match.group(1))
+                                if "received" in line_str.lower():
+                                    received_match = re.search(
+                                        r"received (\d+)", line_str.lower()
+                                    )
+                                    if received_match:
+                                        stats.bytes_received += int(
+                                            received_match.group(1)
+                                        )
+
+                # Update stats from proxy if enabled
+                if proxy and connected:
+                    # Update stats from the proxy server
+                    stats.bytes_sent = proxy.stats.bytes_sent
+                    stats.bytes_received = proxy.stats.bytes_received
+                    stats.traffic_monitoring_enabled = True
+
+                # Update connection time if connected
+                if connected and connection_start_time is not None:
+                    stats.elapsed_connected_time = time.time() - connection_start_time
 
                 # Update the description based on connection status
                 if connected:
-                    progress.update(
-                        task_id,
-                        description=f"{display_text} - [green]Connected[/green]",
-                    )
+                    if proxy:
+                        # Show traffic stats in the description when using proxy
+                        progress.update(
+                            task_id,
+                            description=(
+                                f"{display_text} - [green]Connected[/green] "
+                                f"([cyan]↑{stats.bytes_sent}B[/] [magenta]↓{stats.bytes_received}B[/])"
+                            ),
+                        )
+                    else:
+                        progress.update(
+                            task_id,
+                            description=f"{display_text} - [green]Connected[/green]",
+                        )
                 else:
                     # Check if the process is still running
                     if process.returncode is not None:
+                        stats.current_status = "Disconnected"
                         progress.update(
                             task_id,
                             description=f"{display_text} - [red]Disconnected[/red]",
@@ -981,6 +1137,7 @@ def handle_port_forward_with_live_display(
 
         except asyncio.CancelledError:
             # Final update before cancellation
+            stats.current_status = "Cancelled"
             progress.update(
                 task_id,
                 description=f"{display_text} - [yellow]Cancelled[/yellow]",
@@ -1003,37 +1160,52 @@ def handle_port_forward_with_live_display(
         # Define the main async routine
         async def main() -> None:
             """Main async routine that runs port-forward and updates progress."""
-            # Start the port-forward process
-            process = await run_port_forward()
-
-            # Start updating the progress display
-            progress_task = asyncio.create_task(
-                update_progress(task_id, progress, process)
-            )
+            proxy = None
 
             try:
-                # Keep running until user interrupts with Ctrl+C
-                await process.wait()
+                # Start proxy server if traffic monitoring is enabled
+                if use_proxy and proxy_port is not None:
+                    proxy = await start_proxy_server(
+                        local_port=int(local_port), target_port=proxy_port, stats=stats
+                    )
 
-                # If we get here, the process completed or errored
-                if process.returncode != 0:
-                    # Read error output
-                    stderr = await process.stderr.read() if process.stderr else b""
-                    error_msg = stderr.decode("utf-8").strip()
-                    console_manager.print_error(f"Port-forward error: {error_msg}")
+                # Start the port-forward process
+                process = await run_port_forward()
 
-            except asyncio.CancelledError:
-                # User cancelled, terminate the process
-                process.terminate()
-                await process.wait()
-                raise
+                # Start updating the progress display
+                progress_task = asyncio.create_task(
+                    update_progress(task_id, progress, process, proxy)
+                )
+
+                try:
+                    # Keep running until user interrupts with Ctrl+C
+                    await process.wait()
+
+                    # If we get here, the process completed or errored
+                    if process.returncode != 0:
+                        # Read error output
+                        stderr = await process.stderr.read() if process.stderr else b""
+                        error_msg = stderr.decode("utf-8").strip()
+                        stats.error_messages.append(error_msg)
+                        console_manager.print_error(f"Port-forward error: {error_msg}")
+
+                except asyncio.CancelledError:
+                    # User cancelled, terminate the process
+                    process.terminate()
+                    await process.wait()
+                    raise
+
+                finally:
+                    # Cancel the progress task
+                    if not progress_task.done():
+                        progress_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await asyncio.wait_for(progress_task, timeout=0.5)
 
             finally:
-                # Cancel the progress task
-                if not progress_task.done():
-                    progress_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await asyncio.wait_for(progress_task, timeout=0.5)
+                # Clean up proxy server if it was started
+                if proxy:
+                    await stop_proxy_server(proxy)
 
         # Set up event loop and run the async code
         created_new_loop = False
@@ -1057,14 +1229,18 @@ def handle_port_forward_with_live_display(
 
         except KeyboardInterrupt:
             # Handle Ctrl+C gracefully
+            stats.current_status = "Cancelled (User)"
             console_manager.print_note("\nPort-forward cancelled by user")
 
         except asyncio.CancelledError:
             # Handle cancellation
+            stats.current_status = "Cancelled"
             console_manager.print_note("\nPort-forward cancelled")
 
         except Exception as e:
             # Handle other errors
+            stats.current_status = "Error"
+            stats.error_messages.append(str(e))
             console_manager.print_error(f"\nPort-forward error: {e!s}")
 
         finally:
@@ -1081,11 +1257,97 @@ def handle_port_forward_with_live_display(
         f"[italic]{elapsed_time:.1f}s[/italic][/bold]"
     )
 
-    # Update memory with the port-forward information
+    # Create and display a table with connection statistics
+    table = Table(title=f"Port-forward {resource} Connection Summary")
+
+    # Add columns
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    # Add rows with connection statistics
+    table.add_row("Status", stats.current_status)
+    table.add_row("Resource", resource)
+    table.add_row("Port Mapping", f"localhost:{local_port} → {remote_port}")
+    table.add_row("Duration", f"{elapsed_time:.1f}s")
+    table.add_row("Connected Time", f"{stats.elapsed_connected_time:.1f}s")
+    table.add_row("Connection Attempts", str(stats.connections_attempted))
+    table.add_row("Successful Connections", str(stats.successful_connections))
+
+    # Add proxy information if enabled
+    if stats.using_proxy:
+        table.add_row("Traffic Monitoring", "Enabled")
+        table.add_row("Proxy Mode", "Active")
+
+    # Add traffic information if available
+    if stats.traffic_monitoring_enabled:
+        table.add_row("Data Sent", f"{stats.bytes_sent} bytes")
+        table.add_row("Data Received", f"{stats.bytes_received} bytes")
+
+    # Add any error messages
+    if stats.error_messages:
+        table.add_row("Errors", "\n".join(stats.error_messages))
+
+    # Display the table
+    console_manager.console.print(table)
+
+    # Prepare forward info for memory
     forward_info = f"Port-forward {resource} {port_mapping} ran for {elapsed_time:.1f}s"
+
+    # Create command string for memory
+    command_str = f"port-forward {resource} {' '.join(args)}"
+
+    # If vibe output is enabled, generate a summary using the LLM
+    vibe_output = ""
+    if output_flags.show_vibe:
+        try:
+            # Get the prompt function
+            summary_prompt_func = port_forward_prompt
+
+            # Get LLM summary of the port-forward session
+            model_adapter = get_model_adapter()
+            model = model_adapter.get_model(output_flags.model_name)
+
+            # Create detailed info for the prompt
+            detailed_info = {
+                "resource": resource,
+                "port_mapping": port_mapping,
+                "local_port": local_port,
+                "remote_port": remote_port,
+                "duration": f"{elapsed_time:.1f}s",
+                "command": command_str,
+                "status": stats.current_status,
+                "connected_time": f"{stats.elapsed_connected_time:.1f}s",
+                "connection_attempts": stats.connections_attempted,
+                "successful_connections": stats.successful_connections,
+                "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
+                "using_proxy": stats.using_proxy,
+                "bytes_sent": stats.bytes_sent,
+                "bytes_received": stats.bytes_received,
+                "errors": stats.error_messages,
+            }
+
+            # Format as YAML for the prompt
+            detailed_yaml = yaml.safe_dump(detailed_info, default_flow_style=False)
+
+            # Get the prompt template and format it
+            summary_prompt = summary_prompt_func()
+            prompt = summary_prompt.format(output=detailed_yaml, command=command_str)
+
+            # Execute the prompt to get a summary
+            vibe_output = model_adapter.execute(model, prompt)
+
+            # Display the vibe output
+            if vibe_output:
+                console_manager.print_vibe(vibe_output)
+
+        except Exception as e:
+            # Don't let errors in vibe generation break the command
+            console_manager.print_error(f"Error generating summary: {e}")
+
+    # Update memory with the port-forward information
     update_memory(
-        f"port-forward {resource} {' '.join(args)}",
+        command_str,
         forward_info,
-        "",  # Empty vibe output
+        vibe_output,  # Now using the generated vibe output
         output_flags.model_name,
     )

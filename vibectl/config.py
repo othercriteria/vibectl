@@ -19,7 +19,9 @@ DEFAULT_CONFIG = {
     "memory_enabled": True,
     "memory_max_chars": 500,
     "warn_no_output": True,
+    "warn_no_proxy": True,  # Show warning when intermediate_port_range is not set
     "colored_output": True,
+    "intermediate_port_range": None,  # Port range for intermediary port-forwarding
     # Model Key Configuration Section
     "model_keys": {
         "openai": None,  # API key for OpenAI models
@@ -49,12 +51,17 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "show_vibe": bool,
     "show_kubectl": bool,
     "warn_no_output": bool,
+    "warn_no_proxy": bool,
     "model": str,
     "custom_instructions": (str, type(None)),
     "memory": (str, type(None)),
     "memory_enabled": bool,
     "memory_max_chars": int,
     "colored_output": bool,
+    "intermediate_port_range": (
+        str,
+        type(None),
+    ),  # Format: "min-max" (e.g., "10000-20000") or None to disable
     "model_keys": dict,
     "model_key_files": dict,
 }

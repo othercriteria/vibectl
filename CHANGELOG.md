@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Basic implementation with support for all standard kubectl port-forward functionality
   - Rich progress display showing connection status and elapsed time
   - Support for vibe-based natural language requests
+  - Notification for users when traffic monitoring via proxy is not configured
+  - Suppressible warning via `warn_no_proxy` configuration option
 - New `wait` command for waiting on specific conditions in Kubernetes
   - Basic implementation with support for all standard kubectl wait functionality
   - Support for vibe-based natural language requests
