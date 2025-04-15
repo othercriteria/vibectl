@@ -214,10 +214,10 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
         model_name="test-model",
     )
 
-    # Mock console manager and note
+    # Mock console manager and update_memory
     with (
         patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
     ):
         # Call handle_vibe_request with error response
         handle_vibe_request(
@@ -231,8 +231,13 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
         # Verify error was printed
         mock_console.print_error.assert_called_once_with(error_msg)
 
-        # Verify handle_command_output was not called
-        mock_handle_output.assert_not_called()
+        # Verify memory was updated
+        mock_update_memory.assert_called_once()
+
+        # Verify memory update was noted
+        mock_console.print_note.assert_called_once_with(
+            "Planning error added to memory context"
+        )
 
 
 def test_handle_vibe_request_command_parser_error(

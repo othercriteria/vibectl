@@ -248,7 +248,23 @@ def handle_vibe_request(
 
         # Check if the response is an error message
         if kubectl_cmd.startswith("ERROR:"):
-            # TODO: Make sure this makes it into memory
+            # Extract error message (remove "ERROR: " prefix)
+            error_message = kubectl_cmd[7:].strip()
+
+            # Update memory with planning error
+            command_for_output = f"{command} vibe {request}"
+            error_output = f"Error: {error_message}"
+
+            # Call update_memory function to add planning error to memory
+            update_memory(
+                command=command_for_output,
+                command_output=error_output,
+                vibe_output=kubectl_cmd,
+                model_name=output_flags.model_name,
+            )
+
+            # Note that we're including error info in memory
+            console_manager.print_note("Planning error added to memory context")
 
             # Don't try to run the error as a command
             console_manager.print_error(kubectl_cmd)
