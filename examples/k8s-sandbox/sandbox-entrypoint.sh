@@ -144,9 +144,8 @@ if [ "$CHALLENGE_DIFFICULTY" == "easy" ]; then
   # Easy challenge - just create a single service
   CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete this task:
 
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
-
-  This is a simple challenge to test your basic k8s skills. Once you complete this challenge, you'll be ready for more complex tasks!"
+  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
+  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.)."
 
   # Determine which ports to monitor based on active challenges
   ACTIVE_PORTS="${NODE_PORT_1}"
@@ -156,9 +155,12 @@ elif [ "$CHALLENGE_DIFFICULTY" == "medium" ]; then
   # Medium challenge - create two services
   CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
 
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
+  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
+  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
 
-  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load (hint: multiple replicas)."
+  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed
+  on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load
+  (hint: multiple replicas)."
 
   # Determine which ports to monitor based on active challenges
   ACTIVE_PORTS="${NODE_PORT_1},${NODE_PORT_2}"
@@ -168,11 +170,15 @@ else
   # Hard (default) challenge - create all three services
   CHALLENGE_MEMORY="You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
 
-  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
+  1. Create a service that returns 'CTF-FLAG-1: K8S_MASTER' text when accessed
+  on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
 
-  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load (hint: multiple replicas).
+  2. Create a service that returns 'CTF-FLAG-2: VIBECTL_PRO' text when accessed
+  on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load
+  (hint: multiple replicas).
 
-  3. Create a service that returns 'CTF-FLAG-3: CHALLENGE_COMPLETE' text when accessed on port ${NODE_PORT_3}. For this service, use a ConfigMap to store the flag text."
+  3. Create a service that returns 'CTF-FLAG-3: CHALLENGE_COMPLETE' text when accessed
+  on port ${NODE_PORT_3}. For this service, use a ConfigMap to store the flag text."
 
   # Determine which ports to monitor based on active challenges
   ACTIVE_PORTS="${NODE_PORT_1},${NODE_PORT_2},${NODE_PORT_3}"
@@ -242,6 +248,11 @@ while true; do
 
   # Run vibectl with auto-confirmation
   echo "🔄 Running vibectl vibe..."
+
+  # Show vibectl memory in verbose mode
+  if [ "$VIBECTL_VERBOSE" = "true" ]; then
+    vibectl memory show
+  fi
 
   # Capture output but don't let errors crash the container
   if ! vibectl vibe --yes 2>&1; then

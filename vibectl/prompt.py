@@ -771,34 +771,31 @@ your response.
 Just provide the direct memory content itself with no additional labels or headers."""
 
 
-def create_recovery_prompt(
-    recovery_instructions: list[str], token_limit: int = 400
-) -> str:
-    """Create a standard recovery prompt template.
+# Update the recovery_prompt function to use the helper function
+def recovery_prompt(command: str, error: str, token_limit: int = 400) -> str:
+    """Get the prompt template for generating recovery suggestions when a command fails.
 
     Args:
-        recovery_instructions: List of instructions for recovery
+        command: The kubectl command that failed
+        error: The error message
         token_limit: Maximum tokens for the response
 
     Returns:
-        str: Base template for recovery prompts
+        str: The recovery prompt template
     """
-    formatted_instructions = "\n\n".join(
-        [f"- {instruction}" for instruction in recovery_instructions]
-    )
-
     return f"""
 The following kubectl command failed with an error:
-kubectl {{command}}
+kubectl {command}
 
-Error: {{error}}
+Error:
+```
+{error}
+```
 
-Explain the error in simple terms and provide 2-3 alternative approaches to
+- Explain the error in simple terms and provide 2-3 alternative approaches to
 fix the issue.
-
-{formatted_instructions}
-
-Keep your response under {token_limit} tokens.
+- Focus on common syntax issues or kubectl command structure problems
+- Keep your response under {token_limit} tokens.
 """
 
 
@@ -911,55 +908,31 @@ preserving other important existing context."""
     )
 
 
-# Update the recovery_prompt function to use the helper function
-def recovery_prompt(command: str, error: str) -> str:
-    """Get the prompt template for generating recovery suggestions when a command fails.
-
-    Args:
-        command: The kubectl command that failed
-        error: The error message
-
-    Returns:
-        str: The recovery prompt template
-    """
-    # Special instructions for recovery
-    instructions = [
-        "Focus on common syntax issues or kubectl command structure problems"
-    ]
-
-    # Get the base template
-    base_template = create_recovery_prompt(instructions)
-
-    # Format with the specific command and error
-    return base_template.format(command=command, error=error)
-
-
 # Template for planning autonomous vibe commands
 PLAN_VIBE_PROMPT = """You are an AI assistant managing a Kubernetes cluster.
-Based on the current memory context and request, plan the next kubectl command
-to execute.
+Based on the current memory context and request (inputs), plan the next kubectl
+command to execute.
 
 Important:
-- Return ONLY the command arguments, one per line
+- Return ONLY the command arguments
 - Do not include 'kubectl' in the output
 - If more information is needed, use discovery commands
 - If the request is unclear but memory has context, use memory to guide your decision
 - If no context exists, start with basic discovery commands like 'cluster-info'
-- In the absence of any specific instruction or context, focus on gathering information
-  before making changes
-- If the command is potentially destructive, add a note about the impact
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-- If previous commands returned empty results, use that information to intelligently
-  progress to the next logical step (e.g., checking other namespaces, trying different
-  resource types, or suggesting resource creation)
-- After discovering empty namespaces or no pods/resources, progress to create
-  needed resources rather than repeatedly checking empty resources
+- In the absence of any specific state change to make, focus on gathering information
+- If the request is invalid, impossible, or incoherent, return 'ERROR: <reason>'
+- If the planned command is disruptive to the cluster or contrary to the user's
+  overall intent, return 'ERROR: not executing <command> because <reason>'
+- If previous commands returned empty results or summarized recovery information,
+  use this to intelligently progress to the next logical step (e.g., checking other
+  namespaces, trying different resource types, or suggesting resource creation)
+- After discovering empty namespaces or absent resources, progress by creating
+  needed resources rather than repeatedly checking
 
 Command Structure Guidelines:
 - For creating resources with complex data (HTML, strings with spaces, etc.):
   * PREFER using YAML manifests with 'create -f -' approach
   * If command-line flags like --from-literal must be used, ensure correct quoting
-- Avoid spaces in resource names when possible
 - Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
 - Each multi-line command should be explicit about line continuation with newlines
 
@@ -967,29 +940,29 @@ Example inputs and outputs:
 
 Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
 'backend' services."
-Input: "check if everything is healthy"
+Request: "check if everything is healthy"
 Output:
 get pods -n app
 
 Memory: "We need to debug why the database pod keeps crashing."
-Input: "help me troubleshoot"
+Request: "help me troubleshoot"
 Output:
 describe pod -l app=database
 
 Memory: <empty>
-Input: <empty>
+Request: <empty>
 Output:
 cluster-info
 
 Memory: "We are working on deploying a three-tier application. We've created a
 frontend deployment."
-Input: "keep working on the application deployment"
+Request: "keep working on the application deployment"
 Output:
 get deployment frontend -o yaml
 
 Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
 Checked for pods but found none in the sandbox namespace."
-Input: "keep building the nginx demo"
+Request: "keep building the nginx demo"
 Output:
 create -f - << EOF
 apiVersion: apps/v1
@@ -1015,7 +988,7 @@ spec:
 EOF
 
 Memory: "We need to create a configmap with HTML content in the 'web' namespace."
-Input: "create the configmap for the nginx website"
+Request: "create the configmap for the nginx website"
 Output:
 create -f - << EOF
 apiVersion: v1
@@ -1030,9 +1003,10 @@ EOF
 
 Here's the current memory context and request:
 
-{memory_context}
-
-Request: {request}"""
+Memory: "{memory_context}"
+Request: "{request}"
+Output:
+"""
 
 
 # Template for summarizing vibe autonomous command output

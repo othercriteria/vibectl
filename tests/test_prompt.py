@@ -34,7 +34,6 @@ from vibectl.prompt import (
     PLAN_PORT_FORWARD_PROMPT,
     PLAN_VERSION_PROMPT,
     cluster_info_prompt,
-    create_recovery_prompt,
     create_resource_prompt,
     delete_resource_prompt,
     describe_resource_prompt,
@@ -377,30 +376,21 @@ def test_recovery_prompt() -> None:
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
 
+    # Test with default token limit
     result = recovery_prompt(command, error)
 
     # Check basic structure
     assert len(result) > 100  # Should be reasonably sized
     assert f"kubectl {command}" in result
-    assert f"Error: {error}" in result
+    assert f"Error:\n```\n{error}\n```" in result
     assert "Explain the error in simple terms" in result
     assert "alternative approaches" in result
+    assert "Keep your response under 400 tokens" in result
 
-
-def test_create_recovery_prompt() -> None:
-    """Test creation of recovery prompt template."""
-    instructions = ["Test instruction 1", "Test instruction 2"]
+    # Test with custom token limit
     token_limit = 500
-
-    result = create_recovery_prompt(instructions, token_limit)
-
-    # Check basic structure
-    assert len(result) > 100  # Should be reasonably sized
-    assert "kubectl {command}" in result
-    assert "Error: {error}" in result
-    assert "Test instruction 1" in result
-    assert "Test instruction 2" in result
-    assert f"Keep your response under {token_limit} tokens" in result
+    result_custom = recovery_prompt(command, error, token_limit)
+    assert f"Keep your response under {token_limit} tokens" in result_custom
 
 
 def test_vibe_autonomous_prompt() -> None:
