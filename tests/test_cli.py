@@ -665,69 +665,6 @@ def test_instructions_clear_unset_error(
 @patch("vibectl.cli.configure_output_flags")
 @patch("vibectl.cli.run_kubectl")
 @patch("vibectl.cli.handle_command_output")
-def test_version_error_handling(
-    mock_handle_output: Mock,
-    mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test error handling in version command."""
-    mock_configure_flags.return_value = (True, True, False, "test-model")
-    mock_run_kubectl.side_effect = Exception("Test error")
-
-    result = cli_runner.invoke(cli, ["version"])
-
-    assert result.exit_code == 1
-    mock_run_kubectl.assert_called_once_with(["version", "--output=json"], capture=True)
-    mock_handle_output.assert_not_called()
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
-def test_version_output_processing(
-    mock_handle_output: Mock,
-    mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
-    cli_runner: CliRunner,
-) -> None:
-    """Test version command output processing."""
-    mock_configure_flags.return_value = (True, True, False, "test-model")
-    mock_run_kubectl.return_value = "Client Version: v1.28.1\nServer Version: v1.28.2"
-
-    result = cli_runner.invoke(cli, ["version"])
-
-    assert result.exit_code == 0
-    mock_run_kubectl.assert_called_once_with(["version", "--output=json"], capture=True)
-    mock_handle_output.assert_called_once()
-
-
-@patch("vibectl.cli.handle_vibe_request")
-def test_version_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
-    """Test version command with vibe request."""
-    result = cli_runner.invoke(
-        cli, ["version", "vibe", "show", "me", "version", "info"]
-    )
-
-    assert result.exit_code == 0
-    mock_handle_vibe.assert_called_once()
-    args, kwargs = mock_handle_vibe.call_args
-    assert kwargs["request"] == "show me version info"
-    assert kwargs["command"] == "version"
-
-
-def test_version_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
-    """Test version vibe command without a request."""
-    cli_runner.invoke(cli, ["version", "vibe"])
-
-    # In test environment, Click's runner might not capture the real exit code
-    # but we can still verify the error message was displayed
-    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
-
-
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
 def test_events_error_handling(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,

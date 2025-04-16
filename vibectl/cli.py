@@ -41,7 +41,6 @@ from .console import console_manager
 from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
-    PLAN_CLUSTER_INFO_PROMPT,
     PLAN_DELETE_PROMPT,
     PLAN_EVENTS_PROMPT,
     PLAN_LOGS_PROMPT,
@@ -59,7 +58,6 @@ from .prompt import (
     rollout_history_prompt,
     rollout_status_prompt,
     scale_resource_prompt,
-    version_prompt,
     vibe_autonomous_prompt,
 )
 from .types import handle_result
@@ -749,63 +747,19 @@ def version(
     unfreeze_memory: bool = False,  # Accept for decorator compatibility
     show_kubectl: bool | None = None,  # Accept for decorator compatibility
 ) -> None:
-    """Show Kubernetes version information.
+    """Show Kubernetes version information."""
+    from vibectl.subcommands.version_cmd import run_version_command
 
-    Provides human-friendly interpretation of kubectl version details, highlighting
-    compatibility status, potential upgrade recommendations, and significant version
-    differences.
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-        # Configure memory flags (for consistency, even if not used)
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if args and args[0] == "vibe":
-            if len(args) < 2:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            request = " ".join(args[1:])
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="version",
-                    plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
-                    summary_prompt_func=version_prompt,
-                    output_flags=output_flags,
-                )
-            except Exception as e:
-                handle_exception(e)
-            return
-
-        # For standard version command with no args, run kubectl version
-        try:
-            output = run_kubectl(["version", "--output=json"], capture=True)
-
-            if not output:
-                console_manager.print_note("kubectl version information not available")
-                return
-
-            # Handle output display based on flags
-            handle_command_output(
-                output=output,
-                output_flags=output_flags,
-                summary_prompt_func=version_prompt,
-            )
-        except Exception as e:
-            handle_exception(e)
-    except Exception as e:
-        handle_exception(e)
-        # This is unreachable due to sys.exit in handle_exception, but makes the type
-        # checker happy
-        return None
+    result = run_version_command(
+        args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
+    )
+    handle_result(result)
 
 
 @cli.command()
@@ -841,7 +795,7 @@ def cluster_info(
             handle_vibe_request(
                 request=request,
                 command="cluster-info",
-                plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
+                plan_prompt=PLAN_VIBE_PROMPT,
                 summary_prompt_func=cluster_info_prompt,
                 output_flags=output_flags,
             )
