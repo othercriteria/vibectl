@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from click.testing import CliRunner
 
-import vibectl
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
 
@@ -303,6 +302,7 @@ def test_wait_with_live_display_asyncio(
 ) -> None:
     """Test wait command with live display using asyncio."""
     from unittest.mock import patch
+
     from vibectl.subcommands import wait_cmd as wait_cmd_module
 
     result_value = "pod/nginx condition met"
@@ -327,6 +327,7 @@ def test_wait_with_live_display_error_asyncio(
 ) -> None:
     """Test wait command with live display handling errors using asyncio."""
     from unittest.mock import patch
+
     from vibectl.subcommands import wait_cmd as wait_cmd_module
 
     error_response = "Error: timed out waiting for the condition"

@@ -5,7 +5,7 @@ Contains common type definitions used across the application.
 """
 
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 
 
 @dataclass
@@ -21,18 +21,22 @@ class OutputFlags:
         True  # Flag to control warnings about missing proxy configuration
     )
 
+
 # Structured result types for subcommands
 @dataclass
 class Success:
     message: str = ""
     data: Any | None = None
 
+
 @dataclass
 class Error:
     error: str
     exception: Exception | None = None
 
-Result = Union[Success, Error]
+
+Result = Success | Error
+
 
 def handle_result(result: Result) -> None:
     """
@@ -42,12 +46,10 @@ def handle_result(result: Result) -> None:
     import sys
 
     from vibectl.console import console_manager
+
     if isinstance(result, Success):
         sys.exit(0)
     elif isinstance(result, Error):
         if result.error:
             console_manager.print_error(result.error)
         sys.exit(1)
-
-def ResultType() -> Success | Error:
-    return None

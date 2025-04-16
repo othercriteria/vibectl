@@ -83,6 +83,17 @@ actions:
         fi
       fi
 
+      # If --no-verify is used, require (wip) in the commit message
+      if [[ "$*" == *"--no-verify"* ]]; then
+        if ! git diff --cached --quiet; then
+          COMMIT_MSG=$(git var GIT_COMMITTER_IDENT >/dev/null 2>&1; git log -1 --pretty=%B)
+          if ! echo "$COMMIT_MSG" | grep -q "(wip)"; then
+            echo "Error: Commits made with --no-verify must include (wip) in the commit message."
+            exit 1
+          fi
+        fi
+      fi
+
       # Defer to commit-message rule for message formatting
       # The placeholder values will be filled by the commit-message rule
       git commit -m "{type}: {concise description}"
@@ -98,12 +109,19 @@ actions:
           Feature PRs must include CHANGELOG.md updates.
           See the changelog and feature-worktrees rules for details.
 
+      - pattern: "(?i)--no-verify(?!.*\(wip\))"
+        message: |
+          Commits made with --no-verify must include (wip) in the commit message.
+          This signals that the commit is a work in progress and may not pass all checks.
+
   - type: suggest
     message: |
       ## Autonomous Commit Guidelines
 
       Always run `git add` to stage all intended changes before committing.
       Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail, unless bypassed with `--no-verify` (not recommended for main).
+
+      If you use `--no-verify`, your commit message **must** include `(wip)` to indicate work in progress.
 
       Your changes will be committed with these checks:
 
@@ -141,4 +159,4 @@ criteria:
 
 metadata:
   priority: critical
-  version: 2.1
+  version: 2.2
