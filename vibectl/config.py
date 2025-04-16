@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
         "anthropic": None,  # Path to file containing Anthropic API key
         "ollama": None,  # Path to file containing Ollama API key (if needed)
     },
+    "log_level": "WARNING",  # Default log level for logging
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -64,6 +65,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     ),  # Format: "min-max" (e.g., "10000-20000") or None to disable
     "model_keys": dict,
     "model_key_files": dict,
+    "log_level": str,  # Log level for logging
 }
 
 # Valid values for specific keys

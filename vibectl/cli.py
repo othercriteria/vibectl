@@ -29,6 +29,7 @@ from .command_handler import (
 )
 from .config import Config
 from .console import console_manager
+from .logutil import init_logging, logger
 from .memory import clear_memory, disable_memory, enable_memory, get_memory, set_memory
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
@@ -75,17 +76,21 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+# --- CLI Group ---
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
+    init_logging()
+    logger.info("vibectl CLI started")
     # Initialize the console manager with the configured theme
     try:
         cfg = Config()
         theme_name = cfg.get("theme", "default")
         console_manager.set_theme(theme_name)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to set theme: {e}")
         # Fallback to default in case of any issues (helpful for tests)
         pass
 
@@ -95,9 +100,11 @@ def cli(ctx: click.Context) -> None:
     validation_warning = validate_model_key_on_startup(model_name)
     if validation_warning and ctx.invoked_subcommand not in ["config", "help"]:
         console_manager.print_warning(validation_warning)
+        logger.warning(f"Model validation warning: {validation_warning}")
 
     # Show welcome message if no subcommand is invoked
     if ctx.invoked_subcommand is None:
+        logger.info("No subcommand invoked; showing welcome message.")
         console_manager.print("Checking cluster vibes...")
         console_manager.print_vibe_welcome()
 
