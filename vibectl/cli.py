@@ -7,7 +7,6 @@ more intuitive while preserving access to raw kubectl output when needed.
 """
 
 import datetime
-import subprocess
 import sys
 
 import click
@@ -38,7 +37,6 @@ from .prompt import (
     PLAN_DELETE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_EVENTS_PROMPT,
-    PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
     PLAN_ROLLOUT_PROMPT,
@@ -50,7 +48,6 @@ from .prompt import (
     delete_resource_prompt,
     describe_resource_prompt,
     events_prompt,
-    get_resource_prompt,
     logs_prompt,
     memory_fuzzy_update_prompt,
     port_forward_prompt,
@@ -62,6 +59,7 @@ from .prompt import (
     vibe_autonomous_prompt,
     wait_resource_prompt,
 )
+from .types import handle_result
 from .utils import handle_exception
 
 # Constants
@@ -138,47 +136,18 @@ def get(
     unfreeze_memory: bool,
 ) -> None:
     """Get resources in a concise format."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if resource == "vibe":
-            if len(args) < 1:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            request = " ".join(args)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="get",
-                    plan_prompt=include_memory_in_prompt(PLAN_GET_PROMPT),
-                    summary_prompt_func=get_resource_prompt,
-                    output_flags=output_flags,
-                )
-            except Exception as e:
-                handle_exception(e)
-            return
-
-        # Handle standard command
-        handle_standard_command(
-            command="get",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=get_resource_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    from vibectl.subcommands.get_cmd import run_get_command
+    result = run_get_command(
+        resource,
+        args,
+        show_raw_output,
+        show_vibe,
+        show_kubectl,
+        model,
+        freeze_memory,
+        unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.command()
@@ -439,7 +408,7 @@ def delete(
         handle_exception(e)
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def just(args: tuple) -> None:
     """Pass commands directly to kubectl.
@@ -451,49 +420,9 @@ def just(args: tuple) -> None:
     Example:
         vibectl just get pods  # equivalent to: kubectl get pods
     """
-    try:
-        if not args:
-            console_manager.print_error("Usage: vibectl just <kubectl commands>")
-            sys.exit(1)
-
-        # Build kubectl command with args
-        cmd = ["kubectl"]
-
-        # Add kubeconfig if configured
-        cfg = Config()
-        kubeconfig = cfg.get("kubeconfig")
-        if kubeconfig:
-            cmd.extend(["--kubeconfig", str(kubeconfig)])
-
-        # Add the user's arguments
-        cmd.extend(args)
-
-        # Run the command
-        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
-        if result.stdout:
-            # Print standard output
-            console_manager.print_raw(result.stdout)
-        if result.stderr:
-            # Print error output if any
-            console_manager.print_error(result.stderr)
-    except (
-        FileNotFoundError
-    ):  # pragma: no cover - kubectl not found is difficult to test reliably
-        console_manager.print_error("kubectl not found in PATH")
-        sys.exit(1)
-    except (
-        subprocess.CalledProcessError
-    ) as e:  # pragma: no cover - specific exit codes are difficult to test
-        if e.stderr:
-            console_manager.print_error(f"Error: {e.stderr}")
-        else:
-            console_manager.print_error(
-                f"Error: Command failed with exit code {e.returncode}"
-            )
-        sys.exit(1)
-    except Exception as e:  # pragma: no cover - general exception catch for robustness
-        console_manager.print_error(f"Error: {e!s}")
-        sys.exit(1)
+    from vibectl.subcommands.just_cmd import run_just_command
+    result = run_just_command(args)
+    handle_result(result)
 
 
 @cli.group()

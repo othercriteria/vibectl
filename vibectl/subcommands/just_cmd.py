@@ -1,8 +1,10 @@
-from vibectl.types import Success, Error, Result
-from vibectl.logutil import logger
-from vibectl.console import console_manager
-from vibectl.config import Config
 import subprocess
+
+from vibectl.config import Config
+from vibectl.console import console_manager
+from vibectl.logutil import logger
+from vibectl.types import Error, Result, Success
+
 
 def run_just_command(args: tuple) -> Result:
     """
@@ -48,4 +50,4 @@ def run_just_command(args: tuple) -> Result:
     except Exception as e:
         console_manager.print_error(f"Error: {e!s}")
         logger.error(f"Unexpected error in 'just' subcommand: {e!s}")
-        return Error(error="Exception in 'just' subcommand", exception=e) 
+        return Error(error="Exception in 'just' subcommand", exception=e)

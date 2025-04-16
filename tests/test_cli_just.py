@@ -3,11 +3,13 @@
 Fixtures used are provided by conftest.py and fixtures.py.
 """
 
+import subprocess
+from unittest.mock import Mock, patch
+
 import pytest
 from click.testing import CliRunner
-from unittest.mock import Mock, patch
+
 from vibectl.cli import cli
-import subprocess
 
 
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
@@ -79,4 +81,4 @@ def test_just_called_process_error_no_stderr(
     mock_subprocess_run.side_effect = error
     result = cli_runner.invoke(cli, ["just", "get", "pods"])
     assert result.exit_code == 1
-    assert "Error: Command failed with exit code 1" in result.output 
+    assert "Error: Command failed with exit code 1" in result.output

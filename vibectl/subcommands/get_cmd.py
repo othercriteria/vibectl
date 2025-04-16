@@ -1,21 +1,19 @@
-import sys
-from dataclasses import dataclass
-from typing import Any, Union, Optional
-from vibectl.logutil import logger
-from vibectl.console import console_manager
 from vibectl.cli import (
-    configure_output_flags,
     configure_memory_flags,
+    configure_output_flags,
+    handle_vibe_request,
 )
 from vibectl.command_handler import handle_standard_command
+from vibectl.console import console_manager
+from vibectl.logutil import logger
+from vibectl.memory import include_memory_in_prompt
 from vibectl.prompt import (
     PLAN_GET_PROMPT,
     get_resource_prompt,
 )
+from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
-from vibectl.cli import handle_vibe_request
-from vibectl.memory import include_memory_in_prompt
-from vibectl.types import Success, Error, Result
+
 
 def run_get_command(
     resource: str,
@@ -75,4 +73,4 @@ def run_get_command(
     except Exception as e:
         logger.error(f"Error in 'get' subcommand: {e}")
         handle_exception(e)
-        return Error(error="Exception in 'get' subcommand", exception=e) 
+        return Error(error="Exception in 'get' subcommand", exception=e)

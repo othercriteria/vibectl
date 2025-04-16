@@ -3,9 +3,10 @@
 Fixtures used are provided by conftest.py and fixtures.py.
 """
 
-import pytest
-from click.testing import CliRunner
 from unittest.mock import Mock, patch
+
+from click.testing import CliRunner
+
 from vibectl.cli import cli
 
 
@@ -97,4 +98,4 @@ def test_get_with_show_kubectl_flag(
         assert result.exit_code == 0
         cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
 
-# Add any additional get subcommand tests here as needed 
+# Add any additional get subcommand tests here as needed
