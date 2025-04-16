@@ -7,46 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2025-04-15
+
 ### Added
-- New `port-forward` command for forwarding Kubernetes service ports to local system
-  - Basic implementation with support for all standard kubectl port-forward functionality
-  - Rich progress display showing connection status and elapsed time
-  - Support for vibe-based natural language requests
-  - Notification for users when traffic monitoring via proxy is not configured
-  - Suppressible warning via `warn_no_proxy` configuration option
-- New `wait` command for waiting on specific conditions in Kubernetes
-  - Basic implementation with support for all standard kubectl wait functionality
-  - Support for vibe-based natural language requests
-- Advanced port-forward features planned for future implementation:
-  - Proxy layer for analyzing traffic through port-forward connections (Future)
-  - Traffic metrics collection for improved troubleshooting (Future)
-  - Extended options for port selection and service discovery (Future)
-  - Background execution mode for long-running operations (Future)
+- New `port-forward` command for Kubernetes service port forwarding
+  - Supports standard kubectl port-forward functionality
+  - Features rich progress display with connection status
+  - Includes vibe-based natural language request support
+  - Provides configurable proxy monitoring warnings
+- New `wait` command for Kubernetes condition monitoring
+  - Supports standard kubectl wait functionality
+  - Includes vibe-based natural language request support
 
 ### Changed
-- Switched to asyncio for both `wait` and `port-forward` command implementation
-  - Improves scalability for future features
-  - Enables non-blocking progress displays
-  - Prepares for more complex asynchronous operations
-- Updated PLAN_VIBE_PROMPT to not include 'kubectl' in its output
-  - Makes it consistent with other prompts
-  - Simplifies command handling in code
-- Removed command cleaning logic that stripped 'kubectl' and 'vibe' prefixes
-  - Relying on clean output from updated prompts instead of defensive code
-  - Simplified command handling with fewer edge cases
-  - Updated tests to reflect the expectation of clean command output
+- Implemented asyncio for `wait` and `port-forward` commands
+  - Enables non-blocking progress displays and improves scalability
+- Updated PLAN_VIBE_PROMPT to generate cleaner output
+- Simplified command handling by removing prefix stripping logic
 
 ### Fixed
-- Fixed tests for the `wait` command's live display feature
-  - Properly mocked CLI and command handler modules
-  - Resolved issues with asyncio coroutines in tests
-- Fixed `port-forward vibe` command to use live display with connection status
-  - Now shows the same live progress display as direct resource port-forward
-  - Supports both `--live-display` and `--no-live-display` flags
-- Fixed `vibectl vibe` command execution to not include 'vibe' in the executed kubectl command
-  - Resolves the error "unknown command 'vibe' for 'kubectl'"
-  - Properly strips the 'vibe' command in autonomous mode
-  - Updated tests to verify the correct behavior
+- Fixed `wait` command test suite for live display features
+- Improved `port-forward vibe` command to show proper connection status
+- Resolved `vibectl vibe` execution to prevent "unknown command" errors
 
 ## [0.3.1] - 2025-04-14
 
