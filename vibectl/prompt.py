@@ -21,6 +21,103 @@ def refresh_datetime() -> str:
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def format_examples(examples: list[tuple[str, str]]) -> str:
+    """Format a list of input/output examples into a consistent string format.
+
+    Args:
+        examples: List of tuples where each tuple contains (input_text, output_text)
+
+    Returns:
+        str: Formatted examples string
+    """
+    formatted_examples = "Example inputs and outputs:\n\n"
+    for input_text, output_text in examples:
+        formatted_examples += f'Input: "{input_text}"\n'
+        formatted_examples += f"Output:\n{output_text}\n\n"
+    return formatted_examples.rstrip()
+
+
+def get_command_directives() -> str:
+    """Get the standard directives for kubectl command planning prompts.
+
+    Returns:
+        str: Formatted directives for command planning
+    """
+    return """Important:
+- Return ONLY the list of arguments, one per line
+- Do not include 'kubectl' or '{command}' in the output
+- Include any necessary flags ({flags})
+- Use standard kubectl syntax and conventions
+- If the request is unclear, use reasonable defaults
+- If the request is invalid or impossible, return 'ERROR: <reason>'"""
+
+
+def create_planning_prompt(
+    command: str,
+    description: str,
+    examples: list[tuple[str, str]],
+    flags: str = "-n, --selector, etc.",
+) -> str:
+    """Create a standard planning prompt for kubectl commands.
+
+    Args:
+        command: The kubectl command (get, describe, etc.)
+        description: Description of what the prompt is for
+        examples: List of input/output example tuples
+        flags: Common flags for this command
+
+    Returns:
+        str: Formatted planning prompt template
+    """
+    directives = get_command_directives().format(command=command, flags=flags)
+    formatted_examples = format_examples(examples)
+
+    return f"""Given this natural language request for {description},
+determine the appropriate kubectl {command} command arguments.
+
+{directives}
+
+{formatted_examples}
+
+Here's the request:
+
+{{request}}"""
+
+
+def create_summary_prompt(
+    description: str,
+    focus_points: list[str],
+    example_format: list[str],
+) -> str:
+    """Create a standard summary prompt for kubectl command output.
+
+    Args:
+        description: Description of what to summarize
+        focus_points: List of what to focus on in the summary
+        example_format: List of lines showing the expected output format
+
+    Returns:
+        str: Formatted summary prompt with formatting instructions
+    """
+    focus_text = "\n".join([f"- {point}" for point in focus_points])
+    formatted_example = "\n".join(example_format)
+
+    # Get the formatting instructions directly
+    formatting_instructions = get_formatting_instructions()
+
+    return f"""{description}
+Focus on {focus_text}.
+
+{formatting_instructions}
+
+Example format:
+{formatted_example}
+
+Here's the output:
+
+{{output}}"""
+
+
 # Common formatting instructions for all prompts
 def get_formatting_instructions(config: Config | None = None) -> str:
     """Get formatting instructions with current datetime.
@@ -77,38 +174,15 @@ with matched closing tags:
 
 
 # Template for planning kubectl get commands
-PLAN_GET_PROMPT = """Given this natural language request for Kubernetes resources,
-determine the appropriate kubectl get command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'get' in the output
-- Include any necessary flags (-n, --selector, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "show me pods in kube-system"
-Output:
-pods
--n
-kube-system
-
-Input: "get pods with app=nginx label"
-Output:
-pods
---selector=app=nginx
-
-Input: "show me all pods in every namespace"
-Output:
-pods
---all-namespaces
-
-Here's the request:
-
-{request}"""
+PLAN_GET_PROMPT = create_planning_prompt(
+    command="get",
+    description="Kubernetes resources",
+    examples=[
+        ("show me pods in kube-system", "pods\n-n\nkube-system"),
+        ("get pods with app=nginx label", "pods\n--selector=app=nginx"),
+        ("show me all pods in every namespace", "pods\n--all-namespaces"),
+    ],
+)
 
 
 # Template for summarizing 'kubectl get' output
@@ -118,19 +192,17 @@ def get_resource_prompt() -> str:
     Returns:
         str: The get resource prompt template with current formatting instructions
     """
-    return f"""Summarize this kubectl output focusing on key information,
-notable patterns, and potential issues.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]
-[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
-[yellow]Warning: 2 pods have high restart counts[/yellow]
-
-Here's the output:
-
-{{output}}"""
+    prompt_template = create_summary_prompt(
+        description="Summarize this kubectl output.",
+        focus_points=["key information", "notable patterns", "potential issues"],
+        example_format=[
+            "[bold]3 pods[/bold] in [blue]default namespace[/blue], all "
+            "[green]Running[/green]",
+            "[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]",
+            "[yellow]Warning: 2 pods have high restart counts[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
 # Template for summarizing 'kubectl describe' output
@@ -142,20 +214,17 @@ def describe_resource_prompt() -> str:
     Returns:
         str: The describe resource prompt template with current formatting instructions
     """
-    return f"""Summarize this kubectl describe output.
-Focus only on the most important details and any issues that need attention.
-Keep the response under 200 words.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green]
-[yellow]Readiness probe failing[/yellow], [italic]last restart 2h ago[/italic]
-[red]OOMKilled 3 times in past day[/red]
-
-Here's the output:
-
-{{output}}"""
+    prompt_template = create_summary_prompt(
+        description="Summarize this kubectl describe output. Limit to 200 words.",
+        focus_points=["key details", "issues needing attention"],
+        example_format=[
+            "[bold]nginx-pod[/bold] in [blue]default[/blue]: [green]Running[/green]",
+            "[yellow]Readiness probe failing[/yellow], "
+            "[italic]last restart 2h ago[/italic]",
+            "[red]OOMKilled 3 times in past day[/red]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
 # Template for summarizing 'kubectl logs' output
@@ -167,91 +236,52 @@ def logs_prompt() -> str:
     Returns:
         str: The logs prompt template with current formatting instructions
     """
-    return f"""Analyze these container logs and provide a concise summary.
-Focus on key events, patterns, errors, and notable state changes.
-If the logs are truncated, mention this in your summary.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]Container startup[/bold] at [italic]2024-03-20 10:15:00[/italic]
-[green]Successfully connected[/green] to [blue]database[/blue]
-[yellow]Slow query detected[/yellow] [italic]10s ago[/italic]
-[red]3 connection timeouts[/red] in past minute
-
-Here's the output:
-
-{{output}}"""
+    prompt_template = create_summary_prompt(
+        description="Analyze these container logs concisely.",
+        focus_points=[
+            "key events",
+            "patterns",
+            "errors",
+            "state changes",
+            "note if truncated",
+        ],
+        example_format=[
+            "[bold]Container startup[/bold] at [italic]2024-03-20 10:15:00[/italic]",
+            "[green]Successfully connected[/green] to [blue]database[/blue]",
+            "[yellow]Slow query detected[/yellow] [italic]10s ago[/italic]",
+            "[red]3 connection timeouts[/red] in past minute",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
 # Template for planning kubectl describe commands
-PLAN_DESCRIBE_PROMPT = """Given this natural language request for Kubernetes
-resource details, determine the appropriate kubectl describe command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'describe' in the output
-- Include any necessary flags (-n, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "tell me about the nginx pod"
-Output:
-pod
-nginx
-
-Input: "describe the deployment in kube-system namespace"
-Output:
-deployment
--n
-kube-system
-
-Input: "show me details of all pods with app=nginx"
-Output:
-pods
---selector=app=nginx
-
-Here's the request:
-
-{request}"""
-
+PLAN_DESCRIBE_PROMPT = create_planning_prompt(
+    command="describe",
+    description="Kubernetes resource details",
+    examples=[
+        ("tell me about the nginx pod", "pod\nnginx"),
+        (
+            "describe the deployment in kube-system namespace",
+            "deployment\n-n\nkube-system",
+        ),
+        ("show me details of all pods with app=nginx", "pods\n--selector=app=nginx"),
+    ],
+)
 
 # Template for planning kubectl logs commands
-PLAN_LOGS_PROMPT = """Given this natural language request for Kubernetes logs,
-determine the appropriate kubectl logs command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'logs' in the output
-- Include any necessary flags (-n, -c, --tail, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "show me logs from the nginx pod"
-Output:
-pod/nginx
-
-Input: "get logs from the api container in my-app pod"
-Output:
-pod/my-app
--c
-api
-
-Input: "show me the last 100 lines from all pods with app=nginx"
-Output:
---selector=app=nginx
---tail=100
-
-Here's the request:
-
-{request}"""
-
+PLAN_LOGS_PROMPT = create_planning_prompt(
+    command="logs",
+    description="Kubernetes logs",
+    examples=[
+        ("show me logs from the nginx pod", "pod/nginx"),
+        ("get logs from the api container in my-app pod", "pod/my-app\n-c\napi"),
+        (
+            "show me the last 100 lines from all pods with app=nginx",
+            "--selector=app=nginx\n--tail=100",
+        ),
+    ],
+)
 
 # Template for planning kubectl create commands
 PLAN_CREATE_PROMPT = """Given this natural language request to create Kubernetes
@@ -269,6 +299,9 @@ Important:
   * PREFER creating a YAML file with '---' separator instead of inline --from-literal
     arguments
   * If --from-literal must be used, ensure values are properly quoted
+- For multiple resources in a single manifest:
+  * Separate each document with '---' on a line by itself with NO INDENTATION
+  * Every YAML document must start with '---' on a line by itself
 
 Example inputs and outputs:
 
@@ -276,6 +309,7 @@ Input: "create an nginx hello world pod"
 Output:
 -n
 default
+---
 ---
 apiVersion: v1
 kind: Pod
@@ -295,6 +329,7 @@ Output:
 -n
 default
 ---
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -307,6 +342,7 @@ Input: "create a deployment with 3 nginx replicas in prod namespace"
 Output:
 -n
 prod
+---
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -330,96 +366,83 @@ spec:
         ports:
         - containerPort: 80
 
+Input: "create frontend and backend pods for my application"
+Output:
+-n
+default
+---
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  labels:
+    app: myapp
+    component: frontend
+spec:
+  containers:
+  - name: frontend
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: myapp
+    component: backend
+spec:
+  containers:
+  - name: backend
+    image: redis:latest
+    ports:
+    - containerPort: 6379
+
 Here's the request:
 
 {request}"""
 
 
 # Template for planning kubectl version commands
-PLAN_VERSION_PROMPT = """Given this natural language request for Kubernetes
-version information, determine the appropriate kubectl version command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'version' in the output
-- Include any necessary flags (--output, --short, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults (like --output=json)
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "show version in json format"
-Output:
---output=json
-
-Input: "get client version only"
-Output:
---client=true
---output=json
-
-Input: "show version in yaml"
-Output:
---output=yaml
-
-Here's the request:
-
-{request}"""
-
-
-# Template for summarizing 'kubectl create' output
-def create_resource_prompt() -> str:
-    """Get the prompt template for summarizing kubectl create output.
-
-    Includes current datetime information for timestamp context.
-
-    Returns:
-        str: The create resource prompt template with current formatting instructions
-    """
-    return f"""Summarize the result of creating Kubernetes resources.
-Focus on what was created and any issues that need attention.
-
-{get_formatting_instructions()}
-
-Example format:
-Created [bold]nginx-pod[/bold] in [blue]default namespace[/blue]
-[green]Successfully created[/green] with [italic]default resource limits[/italic]
-[yellow]Note: No liveness probe configured[/yellow]
-
-Here's the output:
-
-{{output}}"""
-
+PLAN_VERSION_PROMPT = create_planning_prompt(
+    command="version",
+    description="Kubernetes version information",
+    examples=[
+        ("show version in json format", "--output=json"),
+        ("get client version only", "--client=true\n--output=json"),
+        ("show version in yaml", "--output=yaml"),
+    ],
+    flags="--output, --short, etc.",
+)
 
 # Template for planning kubectl cluster-info commands
-PLAN_CLUSTER_INFO_PROMPT = """Given this natural language request for Kubernetes
-cluster information, determine the appropriate kubectl cluster-info command arguments.
+PLAN_CLUSTER_INFO_PROMPT = create_planning_prompt(
+    command="cluster-info",
+    description="Kubernetes cluster information",
+    examples=[
+        ("show cluster info", "dump"),
+        ("show basic cluster info", ""),
+        ("show detailed cluster info", "dump"),
+    ],
+    flags="--context, etc.",
+)
 
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'cluster-info' in the output
-- Include any necessary flags (--context, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "show cluster info"
-Output:
-dump
-
-Input: "show basic cluster info"
-Output:
-
-
-Input: "show detailed cluster info"
-Output:
-dump
-
-Here's the request:
-
-{request}"""
+# Template for planning kubectl events commands
+PLAN_EVENTS_PROMPT = create_planning_prompt(
+    command="get events",
+    description="Kubernetes events",
+    examples=[
+        ("show events in default namespace", "-n\ndefault"),
+        (
+            "get events for pod nginx",
+            "--field-selector=involvedObject.name=nginx,involvedObject.kind=Pod",
+        ),
+        ("show all events in all namespaces", "--all-namespaces"),
+    ],
+    flags="-n, --field-selector, --sort-by, etc.",
+)
 
 
 # Template for summarizing 'kubectl cluster-info' output
@@ -431,22 +454,24 @@ def cluster_info_prompt() -> str:
     Returns:
         str: The cluster info prompt with current formatting instructions
     """
-    return f"""Analyze this Kubernetes cluster-info output and provide a
-comprehensive but concise summary.
-Focus on cluster version, control plane components, add-ons, and any
-notable details or potential issues.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]Kubernetes v1.26.3[/bold] cluster running on [blue]Google Kubernetes Engine[/blue]
-[green]Control plane healthy[/green] at [italic]https://10.0.0.1:6443[/italic]
-[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active
-[yellow]Warning: Dashboard not secured with RBAC[/yellow]
-
-Here's the output:
-
-{{output}}"""
+    prompt_template = create_summary_prompt(
+        description="Analyze cluster-info output.",
+        focus_points=[
+            "cluster version",
+            "control plane components",
+            "add-ons",
+            "notable details",
+            "potential issues",
+        ],
+        example_format=[
+            "[bold]Kubernetes v1.26.3[/bold] cluster running on "
+            "[blue]Google Kubernetes Engine[/blue]",
+            "[green]Control plane healthy[/green] at [italic]https://10.0.0.1:6443[/italic]",
+            "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
+            "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
 # Template for summarizing 'kubectl version' output
@@ -458,52 +483,21 @@ def version_prompt() -> str:
     Returns:
         str: The version prompt template with current formatting instructions
     """
-    return f"""Interpret this Kubernetes version information in a human-friendly way.
-Highlight important details like version compatibility, deprecation notices,
-or update recommendations.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]Kubernetes v1.26.3[/bold] client and [bold]v1.25.4[/bold] server
-[green]Compatible versions[/green] with [italic]patch available[/italic]
-[blue]Server components[/blue] all [green]up-to-date[/green]
-[yellow]Client will be deprecated in 3 months[/yellow]
-
-Here's the version information:
-{{output}}"""
-
-
-# Template for planning kubectl events commands
-PLAN_EVENTS_PROMPT = """Given this natural language request for Kubernetes events,
-determine the appropriate kubectl get events command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'get events' in the output
-- Include any necessary flags (-n, --field-selector, --sort-by, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "show events in default namespace"
-Output:
--n
-default
-
-Input: "get events for pod nginx"
-Output:
---field-selector=involvedObject.name=nginx,involvedObject.kind=Pod
-
-Input: "show all events in all namespaces"
-Output:
---all-namespaces
-
-Here's the request:
-
-{request}"""
+    prompt_template = create_summary_prompt(
+        description="Interpret Kubernetes version details in a human-friendly way.",
+        focus_points=[
+            "version compatibility",
+            "deprecation notices",
+            "update recommendations",
+        ],
+        example_format=[
+            "[bold]Kubernetes v1.26.3[/bold] client and [bold]v1.25.4[/bold] server",
+            "[green]Compatible versions[/green] with [italic]patch available[/italic]",
+            "[blue]Server components[/blue] all [green]up-to-date[/green]",
+            "[yellow]Client will be deprecated in 3 months[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
 # Template for summarizing 'kubectl events' output
@@ -515,24 +509,337 @@ def events_prompt() -> str:
     Returns:
         str: The events prompt template with current formatting instructions
     """
-    return f"""Analyze these Kubernetes events and provide a concise summary.
-Focus on recent events, patterns, warnings, and notable occurrences.
-Group related events and highlight potential issues.
+    prompt_template = create_summary_prompt(
+        description="Analyze these Kubernetes events concisely.",
+        focus_points=[
+            "recent events",
+            "patterns",
+            "warnings",
+            "notable issues",
+            "group related events",
+        ],
+        example_format=[
+            "[bold]12 events[/bold] in the last [italic]10 minutes[/italic]",
+            "[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], "
+            "[bold]nginx-2[/bold]",
+            "[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold]",
+            "[italic]5 minutes ago[/italic]",
+            "[red]OOMKilled[/red] events for [bold]db-pod[/bold], "
+            "[italic]happened 3 times[/italic]",
+        ],
+    )
+    # Note: keep the pragma comment for test coverage
+    formatted = prompt_template.format(output="{output}")
+    return formatted + "  # pragma: no cover - tested in other prompt functions"
 
-{get_formatting_instructions()}  # pragma: no cover - tested in other prompt functions
 
-Example format:
-[bold]12 events[/bold] in the last [italic]10 minutes[/italic]
-[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], [bold]nginx-2[/bold]
-[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold]
-[italic]5 minutes ago[/italic]
-[red]OOMKilled[/red] events for [bold]db-pod[/bold], [italic]happened 3 times[/italic]
+# Template for planning kubectl delete commands
+PLAN_DELETE_PROMPT = create_planning_prompt(
+    command="delete",
+    description="Kubernetes resources",
+    examples=[
+        ("delete the nginx pod", "pod\nnginx"),
+        ("remove deployment in kube-system namespace", "deployment\n-n\nkube-system"),
+        ("delete all pods with app=nginx", "pods\n--selector=app=nginx"),
+    ],
+    flags="-n, --grace-period, etc.",
+)
 
-Here's the output:
 
-{{output}}"""
+# Template for summarizing 'kubectl delete' output
+def delete_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl delete output.
+
+    Returns:
+        str: The delete resource prompt template with current formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize kubectl delete results.",
+        focus_points=["resources deleted", "potential issues", "warnings"],
+        example_format=[
+            "[bold]3 pods[/bold] successfully deleted from "
+            "[blue]default namespace[/blue]",
+            "[yellow]Warning: Some resources are still terminating[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
 
 
+# Template for planning kubectl scale commands
+PLAN_SCALE_PROMPT = create_planning_prompt(
+    command="scale",
+    description="scaling Kubernetes resources",
+    examples=[
+        ("scale deployment nginx to 3 replicas", "deployment/nginx\n--replicas=3"),
+        (
+            "increase the redis statefulset to 5 replicas in the cache namespace",
+            "statefulset/redis\n--replicas=5\n-n\ncache",
+        ),
+        ("scale down the api deployment", "deployment/api\n--replicas=1"),
+    ],
+    flags="--replicas, -n, etc.",
+)
+
+
+# Template for summarizing 'kubectl scale' output
+def scale_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl scale output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The scale resource prompt template with formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize scaling operation results.",
+        focus_points=["changes made", "current state", "issues or concerns"],
+        example_format=[
+            "[bold]deployment/nginx[/bold] scaled to [green]3 replicas[/green]",
+            "[yellow]Warning: Scale operation might take time to complete[/yellow]",
+            "[blue]Namespace: default[/blue]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
+
+
+# Template for planning kubectl wait commands
+PLAN_WAIT_PROMPT = create_planning_prompt(
+    command="wait",
+    description="waiting on Kubernetes resources",
+    examples=[
+        (
+            "wait for the deployment my-app to be ready",
+            "deployment/my-app\n--for=condition=Available",
+        ),
+        (
+            "wait until the pod nginx becomes ready with 5 minute timeout",
+            "pod/nginx\n--for=condition=Ready\n--timeout=5m",
+        ),
+        (
+            "wait for all jobs in billing namespace to complete",
+            "jobs\n--all\n-n\nbilling\n--for=condition=Complete",
+        ),
+    ],
+    flags="--for, --timeout, -n, etc.",
+)
+
+
+# Template for summarizing 'kubectl wait' output
+def wait_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl wait output with current
+    datetime.
+
+    Returns:
+        str: The wait resource prompt template with current formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize this kubectl wait output.",
+        focus_points=[
+            "whether resources met their conditions",
+            "timing information",
+            "any errors or issues",
+        ],
+        example_format=[
+            (
+                "[bold]pod/nginx[/bold] in [blue]default namespace[/blue] "
+                "now [green]Ready[/green]"
+            ),
+            (
+                "[bold]Deployment/app[/bold] successfully rolled out after "
+                "[italic]35s[/italic]"
+            ),
+            (
+                "[red]Timed out[/red] waiting for "
+                "[bold]StatefulSet/database[/bold] to be ready"
+            ),
+        ],
+    )
+    return prompt_template
+
+
+# Template for planning kubectl rollout commands
+PLAN_ROLLOUT_PROMPT = create_planning_prompt(
+    command="rollout",
+    description="managing Kubernetes rollouts",
+    examples=[
+        ("check status of deployment nginx", "status\ndeployment/nginx"),
+        (
+            "rollback frontend deployment to revision 2",
+            "undo\ndeployment/frontend\n--to-revision=2",
+        ),
+        (
+            "pause the rollout of my-app deployment in production namespace",
+            "pause\ndeployment/my-app\n-n\nproduction",
+        ),
+        (
+            "restart all deployments in default namespace",
+            "restart\ndeployment\n-l\napp",
+        ),
+        ("show history of statefulset/redis", "history\nstatefulset/redis"),
+    ],
+    flags="-n, --revision, etc.",
+)
+
+
+# Template for summarizing 'kubectl create' output
+def create_resource_prompt() -> str:
+    """Get the prompt template for summarizing kubectl create output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The create resource prompt template with current formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize resource creation results.",
+        focus_points=["resources created", "issues or concerns"],
+        example_format=[
+            "Created [bold]nginx-pod[/bold] in [blue]default namespace[/blue]",
+            "[green]Successfully created[/green] with "
+            "[italic]default resource limits[/italic]",
+            "[yellow]Note: No liveness probe configured[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
+
+
+# Template for summarizing 'kubectl rollout status' output
+def rollout_status_prompt() -> str:
+    """Get the prompt template for summarizing kubectl rollout status output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The rollout status prompt template with formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize rollout status.",
+        focus_points=["progress", "completion status", "issues or delays"],
+        example_format=[
+            "[bold]deployment/frontend[/bold] rollout "
+            "[green]successfully completed[/green]",
+            "[yellow]Still waiting for 2/5 replicas[/yellow]",
+            "[italic]Rollout started 5 minutes ago[/italic]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
+
+
+# Template for summarizing 'kubectl rollout history' output
+def rollout_history_prompt() -> str:
+    """Get the prompt template for summarizing kubectl rollout history output.
+
+    Includes current datetime information for timestamp context.
+
+    Returns:
+        str: The rollout history prompt template with formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize rollout history.",
+        focus_points=[
+            "key revisions",
+            "important changes",
+            "patterns across revisions",
+        ],
+        example_format=[
+            "[bold]deployment/app[/bold] has [blue]5 revision history[/blue]",
+            "[green]Current active: revision 5[/green] (deployed 2 hours ago)",
+            "[yellow]Revision 3 had frequent restarts[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
+
+
+# Template for summarizing other rollout command outputs
+def rollout_general_prompt() -> str:
+    """Get the prompt template for summarizing kubectl rollout output.
+
+    Returns:
+        str: The rollout general prompt template with current formatting instructions
+    """
+    prompt_template = create_summary_prompt(
+        description="Summarize rollout command results.",
+        focus_points=["key operation details"],
+        example_format=[
+            "[bold]Deployment rollout[/bold] [green]successful[/green]",
+            "[blue]Updates applied[/blue] to [bold]my-deployment[/bold]",
+            "[yellow]Warning: rollout took longer than expected[/yellow]",
+        ],
+    )
+    return prompt_template.format(output="{output}")
+
+
+def create_memory_prompt(
+    prompt_type: str,
+    instructions: list[str],
+    max_chars: int = 500,
+) -> str:
+    """Create a standard memory-related prompt with consistent formatting.
+
+    Args:
+        prompt_type: The type of memory prompt (update, fuzzy_update)
+        instructions: Special instructions for this memory prompt type
+        max_chars: Maximum characters for memory
+
+    Returns:
+        str: Base template for memory-related prompts
+    """
+    formatted_instructions = "\n".join(
+        [f"- {instruction}" for instruction in instructions]
+    )
+
+    return f"""You are an AI assistant maintaining a memory state for a
+Kubernetes CLI tool.
+The memory contains essential context to help you better assist with future requests.
+
+Current memory:
+{{current_memory}}
+
+{prompt_type}
+
+Based on this new information, update the memory to maintain the most relevant context.
+Focus on cluster state, conditions, and configurations that will help with
+future requests.
+Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
+Only include things actually observed from the output, no speculation or generalization.
+
+IMPORTANT:
+{formatted_instructions}
+
+IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings in
+your response.
+Just provide the direct memory content itself with no additional labels or headers."""
+
+
+# Update the recovery_prompt function to use the helper function
+def recovery_prompt(command: str, error: str, token_limit: int = 400) -> str:
+    """Get the prompt template for generating recovery suggestions when a command fails.
+
+    Args:
+        command: The kubectl command that failed
+        error: The error message
+        token_limit: Maximum tokens for the response
+
+    Returns:
+        str: The recovery prompt template
+    """
+    return f"""
+The following kubectl command failed with an error:
+kubectl {command}
+
+Error:
+```
+{error}
+```
+
+- Explain the error in simple terms and provide 2-3 alternative approaches to
+fix the issue.
+- Focus on common syntax issues or kubectl command structure problems
+- Keep your response under {token_limit} tokens.
+"""
+
+
+# Update the memory_update_prompt function to use the helper function
 def memory_update_prompt(
     command: str,
     command_output: str,
@@ -557,14 +864,8 @@ def memory_update_prompt(
     current_memory = get_memory(cfg)
     max_chars = cfg.get("memory_max_chars", 500)
 
-    return f"""You are an AI assistant maintaining a memory state for a \
-Kubernetes CLI tool.
-The memory contains essential context to help you better assist with future requests.
-
-Current memory:
-{current_memory}
-
-The user just ran this command:
+    # Define the special type-specific content
+    command_section = f"""The user just ran this command:
 ```
 {command}
 ```
@@ -577,30 +878,29 @@ Command output:
 Your interpretation of the output:
 ```
 {vibe_output}
-```
+```"""
 
-Based on this new information, update the memory to maintain the most \
-relevant context.
-Focus on cluster state, conditions, and configurations that will help with \
-future requests.
+    # Special instructions for this memory prompt type
+    instructions = [
+        'If the command output was empty or indicates "No resources found", '
+        "this is still crucial information. Update the memory to include the fact that "
+        "the specified resources don't exist in the queried context or namespace.",
+        'If the command output contains an error (starts with "Error:"), this is '
+        "extremely important information. Always incorporate the exact error "
+        "into memory to prevent repeating failed commands and to help guide "
+        "future operations.",
+    ]
 
-IMPORTANT:
-1. If the command output was empty or indicates "No resources found", \
-this is still crucial information. Update the memory to include the fact that \
-the specified resources don't exist in the queried context or namespace.
+    # Get the base template
+    base_template = create_memory_prompt("update", instructions, max_chars)
 
-2. If the command output contains an error (starts with "Error:"), this is \
-extremely important information. Always incorporate the exact error into memory \
-to prevent repeating failed commands and to help guide future operations.
-
-Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
-Only include things actually observed from the output, no speculation or generalization.
-
-IMPORTANT: Do NOT include any prefixes like "Updated memory:" or headings \
-in your response. Just provide the direct memory content itself with \
-no additional labels or headers."""
+    # Insert the current memory and command-specific content
+    return base_template.format(current_memory=current_memory).replace(
+        "update", command_section
+    )
 
 
+# Update the memory_fuzzy_update_prompt function to include the expected text
 def memory_fuzzy_update_prompt(
     current_memory: str,
     update_text: str,
@@ -619,329 +919,98 @@ def memory_fuzzy_update_prompt(
     cfg = config or Config()
     max_chars = cfg.get("memory_max_chars", 500)
 
-    return f"""You are an AI assistant maintaining a memory state for a \
-Kubernetes CLI tool.
-The memory contains essential context to help you better assist with future requests.
-
-Current memory:
-{current_memory}
-
-The user wants to update the memory with this new information:
+    # Define the special type-specific content
+    fuzzy_section = f"""The user wants to update the memory with this new information:
 ```
 {update_text}
 ```
 
-Based on this new information, update the memory to integrate this information \
-while preserving other important existing context.
-Focus on cluster state, conditions, and configurations that will help with \
-future requests.
-Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
-
-IMPORTANT:
-- Integrate the new information seamlessly with existing memory
-- Prioritize recent information when space is limited
-- Remove outdated or less important information if needed
-- Do NOT include any prefixes like "Updated memory:" or headings in your response
-- Just provide the direct memory content itself with no additional labels or headers
-"""
-
-
-# Template for planning kubectl delete commands
-PLAN_DELETE_PROMPT = """Given this natural language request to delete Kubernetes
-resources, determine the appropriate kubectl delete command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'delete' in the output
-- Include any necessary flags (-n, --grace-period, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "delete the nginx pod"
-Output:
-pod
-nginx
-
-Input: "remove deployment in kube-system namespace"
-Output:
-deployment
--n
-kube-system
-
-Input: "delete all pods with app=nginx"
-Output:
-pods
---selector=app=nginx
-
-Here's the request:
-
-{request}"""
-
-
-# Template for summarizing 'kubectl delete' output
-def delete_resource_prompt() -> str:
-    """Get the prompt template for summarizing kubectl delete output.
-
-    Returns:
-        str: The delete resource prompt template with current formatting instructions
-    """
-    return f"""Summarize this kubectl delete output focusing on key information,
-which resources were deleted, and any potential issues or warnings.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]3 pods[/bold] successfully deleted from [blue]default namespace[/blue]
-[yellow]Warning: Some resources are still terminating[/yellow]
-
-Here's the output:
-
-{{output}}"""
-
-
-# Template for planning kubectl scale commands
-PLAN_SCALE_PROMPT = """Given this natural language request for scaling Kubernetes
-resources, determine the appropriate kubectl scale command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'scale' in the output
-- Include any necessary flags (--replicas, -n, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "scale deployment nginx to 3 replicas"
-Output:
-deployment/nginx
---replicas=3
-
-Input: "increase the redis statefulset to 5 replicas in the cache namespace"
-Output:
-statefulset/redis
---replicas=5
--n
-cache
-
-Input: "scale down the api deployment"
-Output:
-deployment/api
---replicas=1
-
-Here's the request:
-
-{request}"""
-
-
-# Template for summarizing 'kubectl scale' output
-def scale_resource_prompt() -> str:
-    """Get the prompt template for summarizing kubectl scale output.
-
-    Includes current datetime information for timestamp context.
-
-    Returns:
-        str: The scale resource prompt template with formatting instructions
-    """
-    return f"""Summarize this kubectl scale output focusing on what changed
-and the current state after scaling. Highlight any issues or noteworthy details.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]deployment/nginx[/bold] scaled to [green]3 replicas[/green]
-[yellow]Warning: Scale operation might take time to complete[/yellow]
-[blue]Namespace: default[/blue]
-
-Here's the output:
-
-{{output}}"""
-
-
-# Template for planning kubectl rollout commands
-PLAN_ROLLOUT_PROMPT = """Given this natural language request for managing Kubernetes
-rollouts, determine the appropriate kubectl rollout command arguments.
-
-Important:
-- Return ONLY the list of arguments, one per line
-- Do not include 'kubectl' or 'rollout' in the output
-- The first argument should be the subcommand (status, history, undo,
-  restart, pause, resume)
-- Include any necessary flags (-n, --revision, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-
-Example inputs and outputs:
-
-Input: "check status of deployment nginx"
-Output:
-status
-deployment/nginx
-
-Input: "rollback frontend deployment to revision 2"
-Output:
-undo
-deployment/frontend
---to-revision=2
-
-Input: "pause the rollout of my-app deployment in production namespace"
-Output:
-pause
-deployment/my-app
--n
-production
-
-Input: "restart all deployments in default namespace"
-Output:
-restart
-deployment
--l
-app
-
-Input: "show history of statefulset/redis"
-Output:
-history
-statefulset/redis
-
-Here's the request:
-
-{request}"""
-
-
-# Template for summarizing 'kubectl rollout status' output
-def rollout_status_prompt() -> str:
-    """Get the prompt template for summarizing kubectl rollout status output.
-
-    Includes current datetime information for timestamp context.
-
-    Returns:
-        str: The rollout status prompt template with formatting instructions
-    """
-    return f"""Summarize this kubectl rollout status output, focusing on current
-progress, completion status, and any issues or delays.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]deployment/frontend[/bold] rollout [green]successfully completed[/green]
-[yellow]Still waiting for 2/5 replicas[/yellow]
-[italic]Rollout started 5 minutes ago[/italic]
-
-Here's the output:
-
-{{output}}"""
-
-
-# Template for summarizing 'kubectl rollout history' output
-def rollout_history_prompt() -> str:
-    """Get the prompt template for summarizing kubectl rollout history output.
-
-    Includes current datetime information for timestamp context.
-
-    Returns:
-        str: The rollout history prompt template with formatting instructions
-    """
-    return f"""Summarize this kubectl rollout history output, highlighting key
-revisions, important changes, and patterns across revisions.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]deployment/app[/bold] has [blue]5 revision history[/blue]
-[green]Current active: revision 5[/green] (deployed 2 hours ago)
-[yellow]Revision 3 had frequent restarts[/yellow]
-
-Here's the output:
-
-{{output}}"""
-
-
-# Template for summarizing other rollout command outputs
-def rollout_general_prompt() -> str:
-    """Get the prompt template for summarizing kubectl rollout output.
-
-    Returns:
-        str: The rollout general prompt template with current formatting instructions
-    """
-    return f"""Summarize this kubectl rollout command output.
-Focus on the key information about the rollout operation.
-
-{get_formatting_instructions()}
-
-Example format:
-[bold]Deployment rollout[/bold] [green]successful[/green]
-[blue]Updates applied[/blue] to [bold]my-deployment[/bold]
-[yellow]Warning: rollout took longer than expected[/yellow]
-
-Here's the output:
-
-{{output}}"""
+Based on this new information, update the memory to integrate this information while
+preserving other important existing context."""
+
+    # Special instructions for this memory prompt type
+    instructions = [
+        "Integrate the new information seamlessly with existing memory",
+        "Prioritize recent information when space is limited",
+        "Remove outdated or less important information if needed",
+        'Do NOT include any prefixes like "Updated memory:" or headings in '
+        "your response",
+        "Just provide the direct memory content itself with no additional labels "
+        "or headers",
+    ]
+
+    # Get the base template
+    base_template = create_memory_prompt("fuzzy_update", instructions, max_chars)
+
+    # Insert current memory and fuzzy-specific content with explicit text to match tests
+    return base_template.format(current_memory=current_memory).replace(
+        "fuzzy_update", fuzzy_section
+    )
 
 
 # Template for planning autonomous vibe commands
-PLAN_VIBE_PROMPT = """You are an AI assistant managing a Kubernetes cluster.
-Based on the current memory context and request, plan the next kubectl command
-to execute.
+PLAN_VIBE_PROMPT = """You are an AI assistant delegated to work in a Kubernetes cluster.
+Based on the current memory context and request (inputs), plan a single next kubectl
+command to execute.
 
-Important:
-- Return ONLY the kubectl command to execute, formatted as shown in examples
-- Include the full command with 'kubectl' and all necessary arguments
-- If more information is needed, use discovery commands
-- If the request is unclear but memory has context, use memory to guide your decision
-- If no context exists, start with basic discovery commands like 'kubectl cluster-info'
-- In the absence of any specific instruction or context, focus on gathering information
-  before making changes
-- If the command is potentially destructive, add a note about the impact
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-- If previous commands returned empty results, use that information to intelligently
-  progress to the next logical step (e.g., checking other namespaces, trying different
-  resource types, or suggesting resource creation)
-- After discovering empty namespaces or no pods/resources, progress to create
-  needed resources rather than repeatedly checking empty resources
-
-Command Structure Guidelines:
+Syntax requirements (follow these STRICTLY):
+- Return ONLY the command arguments
+- Do not include 'kubectl' in the output
+- If the request is invalid, impossible, or incoherent, return 'ERROR: <reason>'
+- If the planned command is disruptive to the cluster or contrary to the user's
+  overall intent, return 'ERROR: not executing <command> because <reason>'
 - For creating resources with complex data (HTML, strings with spaces, etc.):
-  * PREFER using YAML manifests with 'kubectl create -f <file.yaml>' approach
+  * PREFER using YAML manifests with 'create -f -' approach
   * If command-line flags like --from-literal must be used, ensure correct quoting
-- Avoid spaces in resource names when possible
+  * For multiple resources, separate each YAML document with '---' on its own
+    line with NO INDENTATION
+  * Every YAML document must start with '---' on a line by itself with no indentation
 - Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
-- Each multi-line command should be explicit about line continuation with backslashes
+- Each multi-line command should be explicit about line continuation with newlines
+
+Guidance:
+- In the absence of any specific state change to make, focus on gathering information
+- If previous commands returned empty results or summarized recovery information,
+  use this to intelligently progress to the next logical step (e.g., checking other
+  namespaces, trying different resource types, or suggesting resource creation)
+- After discovering empty namespaces or absent resources, progress by creating
+  needed resources rather than repeatedly checking
 
 Example inputs and outputs:
 
 Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
 'backend' services."
-Input: "check if everything is healthy"
+Request: "check if everything is healthy"
 Output:
-kubectl get pods -n app
+get pods -n app
 
 Memory: "We need to debug why the database pod keeps crashing."
-Input: "help me troubleshoot"
+Request: "help me troubleshoot"
 Output:
-kubectl describe pod -l app=database
+describe pod -l app=database
 
-Memory: <empty>
-Input: <empty>
+Memory: ""
+Request: ""
 Output:
-kubectl cluster-info
+cluster-info
+
+Memory: "We have deployed pod 'foo'."
+Request: "Tear down the current pod and create a new one"
+Output:
+delete pod foo
 
 Memory: "We are working on deploying a three-tier application. We've created a
 frontend deployment."
-Input: "keep working on the application deployment"
+Request: "keep working on the application deployment"
 Output:
-kubectl get deployment frontend -o yaml
-NOTE: Will examine frontend configuration to help determine next steps
+get deployment frontend -o yaml
 
 Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
 Checked for pods but found none in the sandbox namespace."
-Input: "keep building the nginx demo"
+Request: "keep building the nginx demo"
 Output:
-kubectl create -f - << EOF
+create -f - << EOF
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -963,28 +1032,47 @@ spec:
         ports:
         - containerPort: 80
 EOF
-NOTE: Creating nginx deployment as first step in building the demo
 
-Memory: "We need to create a configmap with HTML content in the 'web' namespace."
-Input: "create the configmap for the nginx website"
+Memory: "We need to create multiple resources for our application."
+Request: "create the frontend and backend pods"
 Output:
-kubectl create -f - << EOF
+create -f - << EOF
+---
 apiVersion: v1
-kind: ConfigMap
+kind: Pod
 metadata:
-  name: nginx-html
-  namespace: web
-data:
-  index.html: |
-    <html><body><h1>Welcome to Nginx</h1><p>This is a demo website.</p></body></html>
+  name: frontend
+  labels:
+    app: myapp
+    component: frontend
+spec:
+  containers:
+  - name: frontend
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: myapp
+    component: backend
+spec:
+  containers:
+  - name: backend
+    image: redis:latest
+    ports:
+    - containerPort: 6379
 EOF
-NOTE: Creating configmap with HTML content for the nginx website
 
 Here's the current memory context and request:
 
-{memory_context}
-
-Request: {request}"""
+Memory: "{memory_context}"
+Request: "{request}"
+Output:
+"""
 
 
 # Template for summarizing vibe autonomous command output
@@ -996,20 +1084,17 @@ def vibe_autonomous_prompt() -> str:
         str: The autonomous command generation prompt
     """
     return f"""Analyze this kubectl command output and provide a concise summary.
-Focus on the state of the resources, any issues detected, and suggest logical
-next steps.
+Focus on the state of the resources, issues detected, and suggest logical next steps.
 
 If the output indicates "Command returned no output" or "No resources found",
 this is still valuable information! It means the requested resources don't exist
-in the specified namespace or context. Include this fact in your interpretation
-and suggest appropriate next steps (e.g., creating resources, checking namespace,
-confirming context, etc.).
+in the specified namespace or context. Include this fact and suggest appropriate
+next steps (checking namespace, creating resources, etc.).
 
-When suggesting next steps that involve creating resources with complex data:
-- Suggest using YAML manifest approaches rather than inline flags like --from-literal
-- For ConfigMaps, Secrets, or other resources with complex content (HTML, multi-line
-  text), recommend explicit YAML creation using kubectl create/apply -f
-- Avoid suggesting command line arguments with quoted content when possible
+For resources with complex data:
+- Suggest YAML manifest approaches over inline flags
+- For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
+- Avoid suggesting command line arguments with quoted content
 
 {get_formatting_instructions()}
 
@@ -1019,35 +1104,73 @@ Example format:
 [yellow]Note: database pod has high CPU usage[/yellow]
 Next steps: Consider checking logs for database pod or scaling the deployment
 
-For empty output examples:
+For empty output:
 [yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
-Next steps: Create the first pod or deployment in this namespace using a YAML manifest
+Next steps: Create the first pod or deployment using a YAML manifest
 
 Here's the output:
 
 {{output}}"""
 
 
-def recovery_prompt(command: str, error: str) -> str:
-    """Get the prompt template for generating recovery suggestions when a command fails.
+# Template for planning kubectl port-forward commands
+PLAN_PORT_FORWARD_PROMPT = create_planning_prompt(
+    command="port-forward",
+    description=(
+        "port-forward connections to kubernetes resources. IMPORTANT: "
+        "1) Resource name MUST be the first argument, "
+        "2) followed by port specifications, "
+        "3) then any flags. Do NOT include 'kubectl' or '--kubeconfig' in "
+        "your response."
+    ),
+    examples=[
+        ("forward port 8080 of pod nginx to my local 8080", "pod/nginx\n8080:8080"),
+        (
+            "connect to the redis service port 6379 on local port 6380",
+            "service/redis\n6380:6379",
+        ),
+        (
+            "forward deployment webserver port 80 to my local 8000",
+            "deployment/webserver\n8000:80",
+        ),
+        (
+            "proxy my local 5000 to port 5000 on the api pod in namespace test",
+            "pod/api\n5000:5000\n--namespace\ntest",
+        ),
+        (
+            "forward ports with the app running on namespace production",
+            "pod/app\n8080:80\n--namespace\nproduction",
+        ),
+    ],
+    flags="--namespace, --address, --pod-running-timeout",
+)
 
-    Args:
-        command: The kubectl command that failed
-        error: The error message
+
+# Template for summarizing 'kubectl port-forward' output
+def port_forward_prompt() -> str:
+    """Get the prompt template for summarizing kubectl port-forward output with
+    current datetime.
 
     Returns:
-        str: The recovery prompt template
+        str: The port-forward prompt template with current formatting instructions
     """
-    return f"""
-The following kubectl command failed with an error:
-kubectl {command}
-
-Error: {error}
-
-Explain the error in simple terms and provide 2-3 alternative approaches to
-fix the issue.
-
-Focus on common syntax issues or kubectl command structure problems.
-
-Keep your response under 400 tokens.
-"""
+    prompt_template = create_summary_prompt(
+        description="Summarize this kubectl port-forward output.",
+        focus_points=[
+            "connection status",
+            "port mappings",
+            "any errors or issues",
+        ],
+        example_format=[
+            (
+                "[green]Connected[/green] to [bold]pod/nginx[/bold] "
+                "in [blue]default namespace[/blue]"
+            ),
+            "Forwarding from [bold]127.0.0.1:8080[/bold] -> [bold]8080[/bold]",
+            (
+                "[red]Error[/red] forwarding to [bold]service/database[/bold]: "
+                "[red]connection refused[/red]"
+            ),
+        ],
+    )
+    return prompt_template

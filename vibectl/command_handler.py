@@ -5,18 +5,32 @@ Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
 """
 
+import asyncio
+import random
+import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable
+from contextlib import suppress
+
+import click
+import yaml
+from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
+from rich.table import Table
 
 from .config import Config
 from .console import console_manager
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
-from .prompt import recovery_prompt
+from .prompt import port_forward_prompt, recovery_prompt, wait_resource_prompt
+from .proxy import StatsProtocol, TcpProxy, start_proxy_server, stop_proxy_server
 from .types import OutputFlags
 from .utils import handle_exception
+
+# Export Table for testing
+__all__ = ["Table"]
 
 # Constants for output flags
 DEFAULT_MODEL = "claude-3.7-sonnet"
@@ -32,45 +46,59 @@ output_processor = OutputProcessor()
 def run_kubectl(
     cmd: list[str], capture: bool = False, config: Config | None = None
 ) -> str | None:
-    """Run kubectl command with configured kubeconfig.
+    """Run kubectl command and capture output.
 
     Args:
-        cmd: The kubectl command arguments
+        cmd: List of command arguments
         capture: Whether to capture and return output
-        config: Optional Config instance to use (for testing)
+        config: Optional Config instance to use
+
+    Returns:
+        Command output if capture=True, None otherwise
     """
-    # Use provided config or create new one
-    cfg = config or Config()
-
-    # Start with base command
-    full_cmd = ["kubectl"]
-
-    # Add kubeconfig if set
-    kubeconfig = cfg.get("kubeconfig")
-    if kubeconfig:
-        full_cmd.extend(["--kubeconfig", str(kubeconfig)])
-
-    # Add the rest of the command
-    full_cmd.extend(cmd)
-
-    # Run command
     try:
-        result = subprocess.run(full_cmd, capture_output=True, text=True, check=True)
+        # Get a Config instance if not provided
+        cfg = config or Config()
+
+        # Get the kubeconfig path from config
+        kubeconfig = cfg.get("kubeconfig")
+
+        # Build the full command
+        kubectl_cmd = ["kubectl"]
+
+        # Add the command arguments first, to ensure kubeconfig is AFTER the main
+        # command
+        kubectl_cmd.extend(cmd)
+
+        # Add kubeconfig AFTER the main command to avoid errors
+        if kubeconfig:
+            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+
+        # Execute the command
+        result = subprocess.run(
+            kubectl_cmd,
+            capture_output=capture,
+            check=False,
+            text=True,
+            encoding="utf-8",
+        )
+
+        # Check for errors
+        if result.returncode != 0:
+            error_message = result.stderr.strip() if capture else "Command failed"
+            if not error_message:
+                error_message = f"Command failed with exit code {result.returncode}"
+            raise Exception(error_message)
+
+        # Return output if capturing
         if capture:
-            return result.stdout
+            return result.stdout.strip()
         return None
-    except subprocess.CalledProcessError as e:
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
-        if capture:
-            # Return the error message as part of the output so it can be processed
-            # by command handlers and included in memory
-            return (
-                f"Error: {e.stderr}"
-                if e.stderr
-                else f"Error: Command failed with exit code {e.returncode}"
-            )
-        return None
+    except FileNotFoundError:
+        raise Exception("kubectl not found. Please install it and try again.") from None
+    except Exception as e:
+        # Re-raise with the original error message
+        raise Exception(str(e)) from e
 
 
 def handle_standard_command(
@@ -188,6 +216,7 @@ def handle_vibe_request(
     output_flags: OutputFlags,
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
+    live_display: bool = True,  # Add parameter for live display
 ) -> None:
     """Handle a request to execute a kubectl command based on a natural language query.
 
@@ -199,6 +228,7 @@ def handle_vibe_request(
         output_flags: Output configuration flags
         yes: Whether to bypass confirmation prompts
         autonomous_mode: Whether this is operating in autonomous mode
+        live_display: Whether to use live display for commands like port-forward
 
     Returns:
         None
@@ -211,9 +241,6 @@ def handle_vibe_request(
             model, plan_prompt.format(request=request, command=command)
         )
 
-        # Strip any backticks that might be around the command
-        kubectl_cmd = kubectl_cmd.strip().strip("`").strip()
-
         # If no command was generated, inform the user and exit
         if not kubectl_cmd:
             console_manager.print_error("No kubectl command could be generated.")
@@ -221,8 +248,26 @@ def handle_vibe_request(
 
         # Check if the response is an error message
         if kubectl_cmd.startswith("ERROR:"):
+            # Extract error message (remove "ERROR: " prefix)
+            error_message = kubectl_cmd[7:].strip()
+
+            # Update memory with planning error
+            command_for_output = f"{command} vibe {request}"
+            error_output = f"Error: {error_message}"
+
+            # Call update_memory function to add planning error to memory
+            update_memory(
+                command=command_for_output,
+                command_output=error_output,
+                vibe_output=kubectl_cmd,
+                model_name=output_flags.model_name,
+            )
+
+            # Note that we're including error info in memory
+            console_manager.print_note("Planning error added to memory context")
+
             # Don't try to run the error as a command
-            console_manager.print_note(f"Planning to run: kubectl {kubectl_cmd}")
+            console_manager.print_error(kubectl_cmd)
             return
 
         try:
@@ -235,24 +280,51 @@ def handle_vibe_request(
             # Create a display command for user feedback
             display_cmd = _create_display_command(args, yaml_content)
 
-            # Check if we need confirmation or if show_kubectl is enabled
+            # Check if we need confirmation
             needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
+
+            # For autonomous mode vibe commands, strip the 'command' from the
+            # displayed and executed commands
+            should_strip_command = autonomous_mode and command == "vibe"
+
+            # Command to display to the user
+            cmd_for_display = command if not should_strip_command else ""
 
             # Show command if show_kubectl is True or confirmation needed
             if output_flags.show_kubectl or needs_confirm:
-                console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+                if should_strip_command:
+                    console_manager.print_note(
+                        f"Planning to run: kubectl {display_cmd}"
+                    )
+                else:
+                    console_manager.print_note(
+                        f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
+                    )
 
             # If confirmation needed, ask now
-            if needs_confirm:
-                import click
+            if needs_confirm and not click.confirm("Execute this command?"):
+                console_manager.print_cancelled()
+                return
 
-                if not click.confirm("Execute this command?"):
-                    console_manager.print_cancelled()
-                    return
+            # For port-forward commands, use the live display handler if enabled
+            if command == "port-forward" and live_display and len(args) >= 1:
+                resource = args[0]
+                port_args = args[1:] if len(args) > 1 else ()
+                handle_port_forward_with_live_display(
+                    resource=resource,
+                    args=tuple(port_args),
+                    output_flags=output_flags,
+                )
+                return
 
             # Execute the command and get output
             try:
-                output = _execute_command(args, yaml_content)
+                # For autonomous mode vibe commands, don't include the 'vibe'
+                # command name
+                cmd_for_execution = (
+                    [command, *args] if not should_strip_command else args
+                )
+                output = _execute_command(cmd_for_execution, yaml_content)
             except Exception as cmd_error:
                 # Provide a more helpful error message and recovery suggestions
                 error_message = f"Command execution error: {cmd_error}"
@@ -266,7 +338,11 @@ def handle_vibe_request(
                     # Use the recovery_prompt from prompt.py
                     prompt = recovery_prompt(display_cmd, str(cmd_error))
                     recovery_suggestions = model_adapter.execute(model, prompt)
-                    console_manager.print_vibe(recovery_suggestions)
+
+                    # Note that we're including recovery info in memory
+                    console_manager.print_note(
+                        "Recovery suggestions added to memory context"
+                    )
 
                     # Include recovery suggestions in output for memory
                     output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
@@ -275,11 +351,17 @@ def handle_vibe_request(
                     pass
 
                 # Process the output for memory update (don't return early)
+                # For autonomous mode, don't include 'vibe' in the command description
+                command_for_output = (
+                    f"{cmd_for_display} {display_cmd}"
+                    if cmd_for_display
+                    else display_cmd
+                )
                 handle_command_output(
                     output=output,
                     output_flags=output_flags,
                     summary_prompt_func=summary_prompt_func,
-                    command=display_cmd,
+                    command=command_for_output,
                 )
                 return
         except ValueError as ve:
@@ -292,11 +374,15 @@ def handle_vibe_request(
             console_manager.print_note("Command returned no output")
 
         # Process the output regardless
+        # For autonomous mode, don't include 'vibe' in the command description
+        command_for_output = (
+            f"{cmd_for_display} {display_cmd}" if cmd_for_display else display_cmd
+        )
         handle_command_output(
             output=output or "No resources found.",
             output_flags=output_flags,
             summary_prompt_func=summary_prompt_func,
-            command=display_cmd,
+            command=command_for_output,
         )
     except Exception as e:
         # Print error but don't exit the process for non-critical errors
@@ -371,40 +457,21 @@ def _parse_command_args(cmd_args: str) -> list[str]:
         # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
         args = cmd_args.split()
 
-    # Remove 'kubectl' prefix if the model included it
-    if args and args[0].lower() == "kubectl":
-        args = args[1:]
-
-    # Filter out any kubeconfig flags that might be present
-    # as they should be handled by run_kubectl, not included directly
-    return _filter_kubeconfig_flags(args)
+    return args
 
 
 def _filter_kubeconfig_flags(args: list[str]) -> list[str]:
     """Filter out kubeconfig flags from the command arguments.
 
+    This is a stub function left for backward compatibility.
+
     Args:
         args: List of command arguments
 
     Returns:
-        Filtered list of arguments without kubeconfig flags
+        The same list of arguments unchanged
     """
-    filtered_args = []
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        # Skip --kubeconfig and its value
-        if arg == "--kubeconfig" and i < len(args) - 1:
-            i += 2  # Skip this flag and its value
-            continue
-        # Skip --kubeconfig=value style
-        if arg.startswith("--kubeconfig="):
-            i += 1
-            continue
-        filtered_args.append(arg)
-        i += 1
-
-    return filtered_args
+    return args
 
 
 def _create_display_command(args: list[str], yaml_content: str | None) -> str:
@@ -532,8 +599,18 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
     Returns:
         Output of the command
     """
+    import re
     import subprocess
     import tempfile
+
+    # Fix multi-document YAML formatting issues
+    # Ensure document separators are at the beginning of lines with no indentation
+    # This addresses "mapping values are not allowed in this context" errors
+    yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
+
+    # Ensure each document starts with --- including the first one if it doesn't already
+    if not yaml_content.lstrip().startswith("---"):
+        yaml_content = "---\n" + yaml_content
 
     # Check if this is a stdin pipe command (kubectl ... -f -)
     is_stdin_command = False
@@ -647,6 +724,9 @@ def configure_output_flags(
     # Get warn_no_output setting - default to True (do warn when no output)
     warn_no_output = config.get("warn_no_output", DEFAULT_WARN_NO_OUTPUT)
 
+    # Get warn_no_proxy setting - default to True (do warn when proxy not configured)
+    warn_no_proxy = config.get("warn_no_proxy", True)
+
     model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
 
     # Get show_kubectl setting - default to False
@@ -662,4 +742,665 @@ def configure_output_flags(
         warn_no_output=warn_no_output,
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
+        warn_no_proxy=warn_no_proxy,
+    )
+
+
+def handle_wait_with_live_display(
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+) -> None:
+    """Handle wait command with a live spinner and elapsed time display.
+
+    Args:
+        resource: Resource to wait for
+        args: Command line arguments
+        output_flags: Output configuration flags
+    """
+    # Extract the condition from args for display
+    condition = "condition"
+    for arg in args:
+        if arg.startswith("--for="):
+            condition = arg[6:]
+            break
+
+    # Create the command for display
+    display_text = f"Waiting for {resource} to meet {condition}"
+
+    # Track start time to calculate total duration
+    start_time = time.time()
+
+    # This is our async function to run the kubectl wait command
+    async def async_run_wait_command() -> str | None:
+        """Run kubectl wait command asynchronously."""
+        # Build command list
+        cmd_args = ["wait", resource]
+        if args:
+            cmd_args.extend(args)
+
+        # Execute the command in a separate thread to avoid blocking the event loop
+        # We use asyncio.to_thread to run the blocking kubectl call in a thread pool
+        return await asyncio.to_thread(run_kubectl, cmd_args, capture=True)
+
+    # Create a coroutine to update the progress display continuously
+    async def update_progress(task_id: TaskID, progress: Progress) -> None:
+        """Update the progress display regularly."""
+        try:
+            # Keep updating at a frequent interval until cancelled
+            while True:
+                progress.update(task_id)
+                # Very small sleep interval for smoother animation
+                # (20-30 updates per second)
+                await asyncio.sleep(0.03)
+        except asyncio.CancelledError:
+            # Handle cancellation gracefully by doing a final update
+            progress.update(task_id)
+            return
+
+    # Create a more visually appealing progress display
+    with Progress(
+        SpinnerColumn(),
+        TimeElapsedColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        console=console_manager.console,
+        transient=True,
+        refresh_per_second=30,  # Higher refresh rate for smoother animation
+    ) as progress:
+        # Add a wait task
+        task_id = progress.add_task(description=display_text, total=None)
+
+        # Define the async main routine that coordinates the wait operation
+        async def main() -> str | None:
+            """Main async routine that runs the wait command and updates progress."""
+            # Start updating the progress display in a separate task
+            progress_task = asyncio.create_task(update_progress(task_id, progress))
+
+            # Force at least one update to ensure spinner visibility
+            await asyncio.sleep(0.1)
+
+            try:
+                # Run the wait command
+                result = await async_run_wait_command()
+
+                # Give the progress display time to show completion
+                # (avoids abrupt disappearance)
+                await asyncio.sleep(0.5)
+
+                # Cancel the progress update task
+                if not progress_task.done():
+                    progress_task.cancel()
+                    # Wait for the task to actually cancel
+                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                        await asyncio.wait_for(progress_task, timeout=0.5)
+
+                return result
+            except Exception as e:
+                # Ensure we cancel the progress task on errors
+                if not progress_task.done():
+                    progress_task.cancel()
+                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                        await asyncio.wait_for(progress_task, timeout=0.5)
+
+                # Propagate the exception
+                raise e
+
+        # Set up loop and run the async code
+        result = None
+        created_new_loop = False
+        loop = None
+        wait_success = False  # Track if wait completed successfully
+
+        try:
+            # Get or create an event loop in a resilient way
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're in a running loop context, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    created_new_loop = True
+            except RuntimeError:
+                # If we can't get a loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                created_new_loop = True
+
+            # Run our main coroutine in the event loop
+            result = loop.run_until_complete(main())
+            wait_success = True  # Mark as successful if we get here
+
+        except asyncio.CancelledError:
+            # Handle user interrupts (like Ctrl+C)
+            console_manager.print_note("Wait operation cancelled")
+            return
+
+        finally:
+            # Clean up the progress display
+            progress.stop()
+
+            # If we created a new loop, close it to prevent asyncio warnings
+            if created_new_loop and loop is not None:
+                loop.close()
+
+    # Calculate elapsed time regardless of output
+    elapsed_time = time.time() - start_time
+
+    # Handle the command output if any
+    if result:
+        # Display success message with duration
+        console_manager.console.print(
+            f"[bold green]✓[/] Wait completed in [bold]{elapsed_time:.2f}s[/]"
+        )
+
+        # Add a small visual separator before the output
+        if output_flags.show_raw or output_flags.show_vibe:
+            console_manager.console.print()
+
+        handle_command_output(
+            output=result,
+            output_flags=output_flags,
+            summary_prompt_func=wait_resource_prompt,
+            command=f"wait {resource} {' '.join(args)}",
+        )
+    elif wait_success:
+        # If wait completed successfully but there's no output to display
+        success_message = (
+            f"[bold green]✓[/] {resource} now meets condition '[bold]{condition}[/]' "
+            f"(completed in [bold]{elapsed_time:.2f}s[/])"
+        )
+        console_manager.console.print(success_message)
+
+        # Add a small note if no output will be shown
+        if not output_flags.show_raw and not output_flags.show_vibe:
+            message = (
+                "\nNo output display enabled. Use --show-raw-output or "
+                "--show-vibe to see details."
+            )
+            console_manager.console.print(message)
+    else:
+        # If there was an issue but we didn't raise an exception
+        message = (
+            f"[bold yellow]![/] Wait operation completed with no result "
+            f"after [bold]{elapsed_time:.2f}s[/]"
+        )
+        console_manager.console.print(message)
+
+
+class ConnectionStats(StatsProtocol):
+    """Track connection statistics for port-forward sessions."""
+
+    def __init__(self) -> None:
+        """Initialize connection statistics."""
+        self.current_status = "Connecting"  # Current connection status
+        self.connections_attempted = 0  # Number of connection attempts
+        self.successful_connections = 0  # Number of successful connections
+        self.bytes_sent = 0  # Bytes sent through connection
+        self.bytes_received = 0  # Bytes received through connection
+        self.elapsed_connected_time = 0.0  # Time in seconds connection was active
+        self.traffic_monitoring_enabled = False  # Whether traffic stats are available
+        self.using_proxy = False  # Whether connection is going through proxy
+        self.error_messages: list[str] = []  # List of error messages encountered
+        self._last_activity_time = time.time()  # Timestamp of last activity
+
+    @property
+    def last_activity(self) -> float:
+        """Get the timestamp of the last activity."""
+        return self._last_activity_time
+
+    @last_activity.setter
+    def last_activity(self, value: float) -> None:
+        """Set the timestamp of the last activity."""
+        self._last_activity_time = value
+
+
+def has_port_mapping(port_mapping: str) -> bool:
+    """Check if a valid port mapping is provided.
+
+    Args:
+        port_mapping: The port mapping string to check
+
+    Returns:
+        True if a valid port mapping with format "local:remote" is provided
+    """
+    return ":" in port_mapping and all(
+        part.isdigit() for part in port_mapping.split(":")
+    )
+
+
+def handle_port_forward_with_live_display(
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+) -> None:
+    """Handle port-forward command with a live display showing connection status
+    and ports.
+
+    Args:
+        resource: Resource to forward ports for
+        args: Command line arguments including port specifications
+        output_flags: Output configuration flags
+    """
+    # Extract port mapping from args for display
+    port_mapping = "port"
+    for arg in args:
+        if ":" in arg and all(part.isdigit() for part in arg.split(":")):
+            port_mapping = arg
+            break
+
+    # Format local and remote ports for display
+    local_port, remote_port = (
+        port_mapping.split(":") if ":" in port_mapping else (port_mapping, port_mapping)
+    )
+
+    # Create the command for display
+    display_text = (
+        f"Forwarding {resource} port [bold]{remote_port}[/] "
+        f"to localhost:[bold]{local_port}[/]"
+    )
+
+    # Track start time for elapsed time display
+    start_time = time.time()
+
+    # Create a stats object to track connection information
+    stats = ConnectionStats()
+
+    # Check if traffic monitoring is enabled via intermediate port range
+    cfg = Config()
+    intermediate_port_range = cfg.get("intermediate_port_range")
+    use_proxy = False
+    proxy_port = None
+
+    # Check if a port mapping was provided (required for proxy)
+    has_valid_port_mapping = has_port_mapping(port_mapping)
+
+    if intermediate_port_range and has_valid_port_mapping:
+        try:
+            # Parse the port range
+            min_port, max_port = map(int, intermediate_port_range.split("-"))
+
+            # Get a random port in the range
+            proxy_port = random.randint(min_port, max_port)
+
+            # Enable proxy mode
+            use_proxy = True
+            stats.using_proxy = True
+            stats.traffic_monitoring_enabled = True
+
+            console_manager.print_note(
+                f"Traffic monitoring enabled via proxy on port {proxy_port}"
+            )
+        except (ValueError, AttributeError) as e:
+            console_manager.print_error(
+                f"Invalid intermediate_port_range format: {intermediate_port_range}. "
+                f"Expected format: 'min-max'. Error: {e}"
+            )
+            use_proxy = False
+    elif (
+        not intermediate_port_range
+        and has_valid_port_mapping
+        and output_flags.warn_no_proxy
+    ):
+        # Show warning about missing proxy configuration when port mapping is provided
+        console_manager.print_no_proxy_warning()
+
+    # Create a subprocess to run kubectl port-forward
+    # We'll use asyncio to manage this process and update the display
+    async def run_port_forward() -> asyncio.subprocess.Process:
+        """Run the port-forward command and capture output."""
+        # Build command list
+        cmd_args = ["port-forward", resource]
+
+        # Make sure we have valid args - check for resource pattern first
+        args_list = list(args)
+
+        # If using proxy, modify the port mapping argument to use proxy_port
+        if use_proxy and proxy_port is not None:
+            # Find and replace the port mapping argument
+            for i, arg in enumerate(args_list):
+                if ":" in arg and all(part.isdigit() for part in arg.split(":")):
+                    # Replace with proxy port:remote port
+                    args_list[i] = f"{proxy_port}:{remote_port}"
+                    break
+
+        # Add remaining arguments
+        if args_list:
+            cmd_args.extend(args_list)
+
+        # Full kubectl command
+        kubectl_cmd = ["kubectl"]
+
+        # Add kubeconfig if set
+        kubeconfig = cfg.get("kubeconfig")
+        if kubeconfig:
+            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+
+        # Add the port-forward command args
+        kubectl_cmd.extend(cmd_args)
+
+        # Create a process to run kubectl port-forward
+        # This process will keep running until cancelled
+        process = await asyncio.create_subprocess_exec(
+            *kubectl_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        # Increment connection attempts counter
+        stats.connections_attempted += 1
+
+        # Return reference to the process
+        return process
+
+    # Update the progress display with connection status
+    async def update_progress(
+        task_id: TaskID,
+        progress: Progress,
+        process: asyncio.subprocess.Process,
+        proxy: TcpProxy | None = None,
+    ) -> None:
+        """Update the progress display with connection status and data."""
+        connected = False
+        connection_start_time = None
+
+        try:
+            # Keep updating until cancelled
+            while True:
+                # Check if process has output ready
+                if process.stdout:
+                    line = await process.stdout.readline()
+                    if line:
+                        # Got output, update connection status
+                        line_str = line.decode("utf-8").strip()
+                        if "Forwarding from" in line_str:
+                            connected = True
+                            stats.current_status = "Connected"
+                            stats.successful_connections += 1
+                            if connection_start_time is None:
+                                connection_start_time = time.time()
+
+                            # Attempt to parse traffic information if available
+                            if "traffic" in line_str.lower():
+                                stats.traffic_monitoring_enabled = True
+                                # Extract bytes sent/received if available
+                                # Parsing depends on the output format
+                                if "sent" in line_str.lower():
+                                    sent_match = re.search(
+                                        r"sent (\d+)", line_str.lower()
+                                    )
+                                    if sent_match:
+                                        stats.bytes_sent += int(sent_match.group(1))
+                                if "received" in line_str.lower():
+                                    received_match = re.search(
+                                        r"received (\d+)", line_str.lower()
+                                    )
+                                    if received_match:
+                                        stats.bytes_received += int(
+                                            received_match.group(1)
+                                        )
+
+                # Update stats from proxy if enabled
+                if proxy and connected:
+                    # Update stats from the proxy server
+                    stats.bytes_sent = proxy.stats.bytes_sent
+                    stats.bytes_received = proxy.stats.bytes_received
+                    stats.traffic_monitoring_enabled = True
+
+                # Update connection time if connected
+                if connected and connection_start_time is not None:
+                    stats.elapsed_connected_time = time.time() - connection_start_time
+
+                # Update the description based on connection status
+                if connected:
+                    if proxy:
+                        # Show traffic stats in the description when using proxy
+                        bytes_sent = stats.bytes_sent
+                        bytes_received = stats.bytes_received
+                        progress.update(
+                            task_id,
+                            description=(
+                                f"{display_text} - [green]Connected[/green] "
+                                f"([cyan]↑{bytes_sent}B[/] "
+                                f"[magenta]↓{bytes_received}B[/])"
+                            ),
+                        )
+                    else:
+                        progress.update(
+                            task_id,
+                            description=f"{display_text} - [green]Connected[/green]",
+                        )
+                else:
+                    # Check if the process is still running
+                    if process.returncode is not None:
+                        stats.current_status = "Disconnected"
+                        progress.update(
+                            task_id,
+                            description=f"{display_text} - [red]Disconnected[/red]",
+                        )
+                        break
+
+                    # Still establishing connection
+                    progress.update(
+                        task_id,
+                        description=f"{display_text} - Connecting...",
+                    )
+
+                # Small sleep for smooth updates
+                await asyncio.sleep(0.1)
+
+        except asyncio.CancelledError:
+            # Final update before cancellation
+            stats.current_status = "Cancelled"
+            progress.update(
+                task_id,
+                description=f"{display_text} - [yellow]Cancelled[/yellow]",
+            )
+
+    # Create progress display
+    with Progress(
+        SpinnerColumn(),
+        TimeElapsedColumn(),
+        TextColumn("{task.description}"),
+        console=console_manager.console,
+        transient=False,  # We want to keep this visible
+        refresh_per_second=10,
+    ) as progress:
+        # Add port-forward task
+        task_id = progress.add_task(
+            description=f"{display_text} - Starting...", total=None
+        )
+
+        # Define the main async routine
+        async def main() -> None:
+            """Main async routine that runs port-forward and updates progress."""
+            proxy = None
+
+            try:
+                # Start proxy server if traffic monitoring is enabled
+                if use_proxy and proxy_port is not None:
+                    proxy = await start_proxy_server(
+                        local_port=int(local_port), target_port=proxy_port, stats=stats
+                    )
+
+                # Start the port-forward process
+                process = await run_port_forward()
+
+                # Start updating the progress display
+                progress_task = asyncio.create_task(
+                    update_progress(task_id, progress, process, proxy)
+                )
+
+                try:
+                    # Keep running until user interrupts with Ctrl+C
+                    await process.wait()
+
+                    # If we get here, the process completed or errored
+                    if process.returncode != 0:
+                        # Read error output
+                        stderr = await process.stderr.read() if process.stderr else b""
+                        error_msg = stderr.decode("utf-8").strip()
+                        stats.error_messages.append(error_msg)
+                        console_manager.print_error(f"Port-forward error: {error_msg}")
+
+                except asyncio.CancelledError:
+                    # User cancelled, terminate the process
+                    process.terminate()
+                    await process.wait()
+                    raise
+
+                finally:
+                    # Cancel the progress task
+                    if not progress_task.done():
+                        progress_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await asyncio.wait_for(progress_task, timeout=0.5)
+
+            finally:
+                # Clean up proxy server if it was started
+                if proxy:
+                    await stop_proxy_server(proxy)
+
+        # Set up event loop and run the async code
+        created_new_loop = False
+        loop = None
+
+        try:
+            # Get or create an event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    created_new_loop = True
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                created_new_loop = True
+
+            # Run the main coroutine
+            loop.run_until_complete(main())
+
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            stats.current_status = "Cancelled (User)"
+            console_manager.print_note("\nPort-forward cancelled by user")
+
+        except asyncio.CancelledError:
+            # Handle cancellation
+            stats.current_status = "Cancelled"
+            console_manager.print_note("\nPort-forward cancelled")
+
+        except Exception as e:
+            # Handle other errors
+            stats.current_status = "Error"
+            stats.error_messages.append(str(e))
+            console_manager.print_error(f"\nPort-forward error: {e!s}")
+
+        finally:
+            # Clean up
+            if created_new_loop and loop is not None:
+                loop.close()
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+
+    # Show final message with elapsed time
+    console_manager.print_note(
+        f"\n[bold]Port-forward session ended after "
+        f"[italic]{elapsed_time:.1f}s[/italic][/bold]"
+    )
+
+    # Create and display a table with connection statistics
+    table = Table(title=f"Port-forward {resource} Connection Summary")
+
+    # Add columns
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    # Add rows with connection statistics
+    table.add_row("Status", stats.current_status)
+    table.add_row("Resource", resource)
+    table.add_row("Port Mapping", f"localhost:{local_port} → {remote_port}")
+    table.add_row("Duration", f"{elapsed_time:.1f}s")
+    table.add_row("Connected Time", f"{stats.elapsed_connected_time:.1f}s")
+    table.add_row("Connection Attempts", str(stats.connections_attempted))
+    table.add_row("Successful Connections", str(stats.successful_connections))
+
+    # Add proxy information if enabled
+    if stats.using_proxy:
+        table.add_row("Traffic Monitoring", "Enabled")
+        table.add_row("Proxy Mode", "Active")
+
+    # Add traffic information if available
+    if stats.traffic_monitoring_enabled:
+        table.add_row("Data Sent", f"{stats.bytes_sent} bytes")
+        table.add_row("Data Received", f"{stats.bytes_received} bytes")
+
+    # Add any error messages
+    if stats.error_messages:
+        table.add_row("Errors", "\n".join(stats.error_messages))
+
+    # Display the table
+    console_manager.console.print(table)
+
+    # Prepare forward info for memory
+    forward_info = f"Port-forward {resource} {port_mapping} ran for {elapsed_time:.1f}s"
+
+    # Create command string for memory
+    command_str = f"port-forward {resource} {' '.join(args)}"
+
+    # If vibe output is enabled, generate a summary using the LLM
+    vibe_output = ""
+    if output_flags.show_vibe:
+        try:
+            # Get the prompt function
+            summary_prompt_func = port_forward_prompt
+
+            # Get LLM summary of the port-forward session
+            model_adapter = get_model_adapter()
+            model = model_adapter.get_model(output_flags.model_name)
+
+            # Create detailed info for the prompt
+            detailed_info = {
+                "resource": resource,
+                "port_mapping": port_mapping,
+                "local_port": local_port,
+                "remote_port": remote_port,
+                "duration": f"{elapsed_time:.1f}s",
+                "command": command_str,
+                "status": stats.current_status,
+                "connected_time": f"{stats.elapsed_connected_time:.1f}s",
+                "connection_attempts": stats.connections_attempted,
+                "successful_connections": stats.successful_connections,
+                "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
+                "using_proxy": stats.using_proxy,
+                "bytes_sent": stats.bytes_sent,
+                "bytes_received": stats.bytes_received,
+                "errors": stats.error_messages,
+            }
+
+            # Format as YAML for the prompt
+            detailed_yaml = yaml.safe_dump(detailed_info, default_flow_style=False)
+
+            # Get the prompt template and format it
+            summary_prompt = summary_prompt_func()
+            prompt = summary_prompt.format(output=detailed_yaml, command=command_str)
+
+            # Execute the prompt to get a summary
+            vibe_output = model_adapter.execute(model, prompt)
+
+            # Display the vibe output
+            if vibe_output:
+                console_manager.print_vibe(vibe_output)
+
+        except Exception as e:
+            # Don't let errors in vibe generation break the command
+            console_manager.print_error(f"Error generating summary: {e}")
+
+    # Update memory with the port-forward information
+    update_memory(
+        command_str,
+        forward_info,
+        vibe_output,  # Now using the generated vibe output
+        output_flags.model_name,
     )

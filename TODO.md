@@ -23,6 +23,61 @@
 - Add benchmarking tests for model loading times
 - Implement metrics collection for model usage and performance
 
+## Port-Forward Enhanced Functionality
+
+Implement enhanced functionality for port-forward command in the future:
+
+- Add a proxy layer between kubectl port-forward and local connections to:
+  - Monitor and log all traffic passing through the forwarded connection
+  - Classify traffic patterns for inclusion in vibe output
+  - Detect and report connection issues or errors
+  - Provide statistics on connection usage over time
+  - Allow traffic manipulation or inspection on demand
+
+- Add convenience options beyond standard kubectl:
+  - Support for forwarding multiple ports in a single command
+  - Automatic service discovery based on app labels
+  - Automatic selection of available local ports
+  - Integration with memory to remember commonly used forwards
+  - Background mode with daemon capabilities
+
+## Port-Forward Observability and Debugging
+
+- Capture metrics during port-forward sessions:
+  - Response times
+  - Connection latency
+  - Data transfer rates
+  - Error patterns
+  - Connection attempts
+
+- Provide enhanced debugging for port-forwarding:
+  - Connection lifecycle visualization
+  - Protocol-aware traffic summaries
+  - Detection of common issues (timeouts, connection resets)
+  - Correlation with pod events and container status
+
+- Integrate all captured information into the vibe output to provide context about:
+  - Service performance characteristics
+  - Potential issues detected
+  - Usage patterns
+  - Suggestions for troubleshooting or optimization
+
+## Port-Forward Display Improvements
+- Implement display of amount of data transferred in both directions
+- Add visualization of current active connections
+- Create visual indication of traffic activity in real-time
+
+## Documentation and Examples
+- Add comprehensive documentation and examples for port-forward and wait commands
+
+## Future Rich Display Improvements for Wait Command
+Consider implementing rich progress displays for the wait command in the future:
+- Add animated waiting indicators with elapsed time tracking
+- Show live status updates as resources are checked
+- Integrate with logs to provide context during waiting
+- Support multi-resource dependencies and detailed progress tracking
+- Ensure proper unit testing strategy for complex terminal UI elements
+
 ## Future MCP Integration
 While full [Model Context Protocol](https://github.com/modelcontextprotocol/python-sdk) implementation is out of scope currently, future work should:
 

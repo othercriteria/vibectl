@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     netcat-openbsd \
     iproute2 \
     procps \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install kubectl directly from the binary release

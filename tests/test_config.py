@@ -112,6 +112,28 @@ def test_config_set_show_kubectl(test_config: MockConfig) -> None:
     assert test_config.get("show_kubectl") is False
 
 
+def test_config_set_warn_no_proxy(test_config: MockConfig) -> None:
+    """Test setting warn_no_proxy configuration value."""
+    # Default should be True
+    assert test_config.get("warn_no_proxy", True) is True
+
+    # Set warn_no_proxy to false
+    test_config.set("warn_no_proxy", False)
+    assert test_config.get("warn_no_proxy") is False
+
+    # Set warn_no_proxy to true
+    test_config.set("warn_no_proxy", True)
+    assert test_config.get("warn_no_proxy") is True
+
+    # Test string conversion to boolean
+    test_config.set("warn_no_proxy", "false")
+    assert test_config.get("warn_no_proxy") is False
+
+    # Unset should reset to default (True)
+    test_config.unset("warn_no_proxy")
+    assert test_config.get("warn_no_proxy", True) is True
+
+
 def test_config_set_invalid_boolean(test_config: MockConfig) -> None:
     """Test setting invalid boolean value."""
     with pytest.raises(ValueError, match="Invalid boolean value"):

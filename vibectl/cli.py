@@ -21,8 +21,10 @@ from . import __version__
 from .command_handler import (
     configure_output_flags,
     handle_command_output,
+    handle_port_forward_with_live_display,
     handle_standard_command,
     handle_vibe_request,
+    handle_wait_with_live_display,
     run_kubectl,
 )
 from .config import Config
@@ -37,9 +39,11 @@ from .prompt import (
     PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
+    PLAN_PORT_FORWARD_PROMPT,
     PLAN_ROLLOUT_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
+    PLAN_WAIT_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     delete_resource_prompt,
@@ -48,12 +52,14 @@ from .prompt import (
     get_resource_prompt,
     logs_prompt,
     memory_fuzzy_update_prompt,
+    port_forward_prompt,
     rollout_general_prompt,
     rollout_history_prompt,
     rollout_status_prompt,
     scale_resource_prompt,
     version_prompt,
     vibe_autonomous_prompt,
+    wait_resource_prompt,
 )
 from .utils import handle_exception
 
@@ -1576,6 +1582,197 @@ def resume(
             output_flags=output_flags,
             summary_prompt_func=rollout_general_prompt,
         )
+    except Exception as e:
+        handle_exception(e)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option(
+    "--live-display/--no-live-display",
+    is_flag=True,
+    default=True,
+    help="Show a live spinner with elapsed time during waiting",
+)
+def wait(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    live_display: bool = True,
+) -> None:
+    """Wait for a specific condition on one or more resources.
+
+    Shows a live spinner with elapsed time while waiting for resources
+    to meet their specified conditions.
+    """
+    try:
+        # Configure output flags
+        output_flags = configure_output_flags(
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Special case for vibe command
+        if resource == "vibe":
+            if len(args) < 1:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+
+            request = " ".join(args)
+            try:
+                handle_vibe_request(
+                    request=request,
+                    command="wait",
+                    plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
+                    summary_prompt_func=wait_resource_prompt,
+                    output_flags=output_flags,
+                )
+            except Exception as e:
+                handle_exception(e)
+            return
+
+        # Handle command with live display
+        if live_display:
+            handle_wait_with_live_display(
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+            )
+        else:
+            # Standard command without live display
+            handle_standard_command(
+                command="wait",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=wait_resource_prompt,
+            )
+    except Exception as e:
+        handle_exception(e)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
+@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@click.option(
+    "--show-kubectl/--no-show-kubectl",
+    is_flag=True,
+    default=None,
+    help="Show the kubectl command being executed",
+)
+@click.option("--model", default=None, help="The LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option(
+    "--live-display/--no-live-display",
+    is_flag=True,
+    default=True,
+    help="Show a live display with connection status during port forwarding",
+)
+def port_forward(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    live_display: bool = True,
+) -> None:
+    """Forward one or more local ports to a pod, service, or deployment.
+
+    Shows a live display with connection status and elapsed time while
+    forwarding ports between your local system and Kubernetes resources.
+    """
+    try:
+        # Configure output flags
+        output_flags = configure_output_flags(
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
+        )
+
+        # Configure memory flags
+        configure_memory_flags(freeze_memory, unfreeze_memory)
+
+        # Special case for vibe command
+        if resource == "vibe":
+            if len(args) < 1:
+                console_manager.print_error("Missing request after 'vibe'")
+                sys.exit(1)
+
+            # Combine all arguments as the vibe request
+            request = " ".join(args)
+            try:
+                handle_vibe_request(
+                    request=request,
+                    command="port-forward",
+                    plan_prompt=include_memory_in_prompt(PLAN_PORT_FORWARD_PROMPT),
+                    summary_prompt_func=port_forward_prompt,
+                    output_flags=output_flags,
+                    live_display=live_display,
+                )
+            except Exception as e:
+                handle_exception(e)
+            return
+
+        # Handle command with live display
+        if live_display:
+            handle_port_forward_with_live_display(
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+            )
+        else:
+            # Standard command without live display
+            # Construct the kubectl command
+            cmd_args = ["port-forward", resource]
+            # Add any other arguments
+            if args:
+                cmd_args.extend(args)
+
+            # Use run_kubectl and handle_command_output directly for better testability
+            output = run_kubectl(cmd_args)
+            handle_command_output(
+                output=output or "No output from command.",
+                output_flags=output_flags,
+                summary_prompt_func=port_forward_prompt,
+                command=f"port-forward {resource} {' '.join(args)}",
+            )
     except Exception as e:
         handle_exception(e)
 

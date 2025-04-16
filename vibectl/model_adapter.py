@@ -264,10 +264,7 @@ class LLMModelAdapter(ModelAdapter):
         """
         provider = self._determine_provider_from_model(model_name)
         if not provider:
-            return (
-                f"Unknown model provider for '{model_name}'. "
-                f"Key validation skipped."
-            )
+            return f"Unknown model provider for '{model_name}'. Key validation skipped."
 
         # Ollama models often don't need a key for local usage
         if provider == "ollama":
@@ -313,8 +310,7 @@ class LLMModelAdapter(ModelAdapter):
             )
         else:
             prefix = (
-                f"Warning: No API key found for {provider} "
-                f"models like '{model_name}'. "
+                f"Warning: No API key found for {provider} models like '{model_name}'. "
             )
 
         instructions = (

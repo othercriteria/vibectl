@@ -16,3 +16,6 @@ class OutputFlags:
     warn_no_output: bool
     model_name: str
     show_kubectl: bool = False  # Flag to control showing kubectl commands
+    warn_no_proxy: bool = (
+        True  # Flag to control warnings about missing proxy configuration
+    )
