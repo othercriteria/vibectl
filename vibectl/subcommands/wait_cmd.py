@@ -28,7 +28,8 @@ def run_wait_command(
     Returns a Result (Success or Error).
     """
     logger.info(
-        f"Invoking 'wait' subcommand with resource: {resource}, args: {args}, live_display: {live_display}"
+        f"Invoking 'wait' subcommand with resource: {resource}, args: {args}, "
+        f"live_display: {live_display}"
     )
     try:
         output_flags = configure_output_flags(
@@ -72,7 +73,9 @@ def run_wait_command(
             )
             logger.info(f"Completed wait with live display for resource: {resource}")
             return Success(
-                message=f"Completed wait with live display for resource: {resource}"
+                message=(
+                    f"Completed wait with live display for resource: {resource}"
+                )
             )
         else:
             # Standard command without live display
@@ -84,9 +87,13 @@ def run_wait_command(
                 output_flags=output_flags,
                 summary_prompt_func=wait_resource_prompt,
             )
-            logger.info(f"Completed standard wait command for resource: {resource}")
+            logger.info(
+                f"Completed standard wait command for resource: {resource}"
+            )
             return Success(
-                message=f"Completed standard wait command for resource: {resource}"
+                message=(
+                    f"Completed standard wait command for resource: {resource}"
+                )
             )
     except Exception as e:
         logger.error(f"Error in 'wait' subcommand: {e}")

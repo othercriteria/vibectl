@@ -122,24 +122,6 @@ def mock_console(monkeypatch: Any) -> Generator[MagicMock, None, None]:
         yield mock
 
 
-@pytest.fixture
-def mock_wait_live_display() -> Generator[MagicMock, None, None]:
-    """Mock handle_wait_with_live_display for live display tests."""
-    # We need to patch the function where it's used in cli.py
-    # This requires patching at the import level in cli.py
-    original_func = vibectl.cli.handle_wait_with_live_display
-    mock_func = MagicMock()
-
-    # Replace the function in the CLI module
-    vibectl.cli.handle_wait_with_live_display = mock_func
-
-    try:
-        yield mock_func
-    finally:
-        # Restore the original function after the test
-        vibectl.cli.handle_wait_with_live_display = original_func
-
-
 def test_wait_basic(
     cli_runner: CliRunner,
     mock_run_kubectl_for_cli: MagicMock,
@@ -321,7 +303,6 @@ def test_wait_with_live_display_asyncio(
 ) -> None:
     """Test wait command with live display using asyncio."""
     from unittest.mock import patch
-
     from vibectl.subcommands import wait_cmd as wait_cmd_module
 
     result_value = "pod/nginx condition met"
@@ -330,7 +311,7 @@ def test_wait_with_live_display_asyncio(
     with patch.object(
         wait_cmd_module, "handle_wait_with_live_display", return_value=None
     ) as mock_wait_live_display:
-        result = cli_runner.invoke(
+        cli_runner.invoke(
             cli, ["wait", "pod/nginx", "--for=condition=Ready", "--live-display"]
         )
         mock_wait_live_display.assert_called_once()
@@ -346,7 +327,6 @@ def test_wait_with_live_display_error_asyncio(
 ) -> None:
     """Test wait command with live display handling errors using asyncio."""
     from unittest.mock import patch
-
     from vibectl.subcommands import wait_cmd as wait_cmd_module
 
     error_response = "Error: timed out waiting for the condition"
@@ -355,7 +335,7 @@ def test_wait_with_live_display_error_asyncio(
     with patch.object(
         wait_cmd_module, "handle_wait_with_live_display", return_value=None
     ) as mock_wait_live_display:
-        result = cli_runner.invoke(
+        cli_runner.invoke(
             cli,
             [
                 "wait",

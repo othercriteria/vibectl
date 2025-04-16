@@ -50,4 +50,4 @@ def handle_result(result: Result) -> None:
         sys.exit(1)
 
 def ResultType() -> Success | Error:
-    pass
+    return None

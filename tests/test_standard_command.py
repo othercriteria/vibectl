@@ -271,7 +271,7 @@ def test_handle_standard_command_output_error(
 
 @patch("vibectl.command_handler.subprocess.run")
 def test_handle_standard_command_logs(
-    mock_subprocess_run,
+    mock_subprocess_run: Any,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
     mock_console: Mock,
