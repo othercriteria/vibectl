@@ -163,12 +163,13 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
+def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
     """Provide common mocks required for CLI tests to prevent unmocked calls."""
     with (
         patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
         patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe,
+        patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe_cli,
+        patch("vibectl.subcommands.get_cmd.handle_vibe_request") as mock_handle_vibe_get,
     ):
         # Default to successful output
         mock_run_kubectl.return_value = "test output"
@@ -183,7 +184,13 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
         # Add the helper method to the mock
         mock_run_kubectl.set_error_response = set_error_response
 
-        yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
+        # Remove the shared side effect; let each mock be independent
+        yield (
+            mock_run_kubectl,
+            mock_handle_output,
+            mock_handle_vibe_cli,
+            mock_handle_vibe_get,
+        )
 
 
 @pytest.fixture

@@ -269,7 +269,9 @@ def test_handle_standard_command_output_error(
         assert str(args[0]) == "Output handling failed"
 
 
+@patch("vibectl.command_handler.subprocess.run")
 def test_handle_standard_command_logs(
+    mock_subprocess_run,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
     mock_console: Mock,
@@ -284,7 +286,10 @@ def test_handle_standard_command_logs(
     with (
         patch.object(command_handler, "OutputProcessor") as mock_output_processor,
         patch.object(command_handler, "get_model_adapter") as mock_get_adapter,
-        # patch.object(command_handler, "update_memory") as mock_update_memory,
+        patch.object(command_handler.OutputProcessor, "process_auto", return_value=("processed output", False)),
+        patch.object(command_handler.console_manager, "print_raw"),
+        patch.object(command_handler.console_manager, "print_vibe"),
+        patch.object(command_handler, "update_memory"),
     ):
         # Setup output processor
         processor_instance = Mock()
@@ -301,7 +306,7 @@ def test_handle_standard_command_logs(
         mock_result = Mock()
         mock_result.returncode = 0
         mock_result.stdout = "test output"
-        mock_subprocess.return_value = mock_result
+        mock_subprocess_run.return_value = mock_result
 
         # Run command
         command_handler.handle_standard_command(
@@ -323,7 +328,7 @@ def test_handle_standard_command_logs(
         )
 
         # Now test error case
-        mock_subprocess.side_effect = Exception("test error")
+        mock_subprocess_run.side_effect = Exception("test error")
         mock_command_handler_logger.reset_mock()
         command_handler.handle_standard_command(
             command="get",
@@ -339,3 +344,8 @@ def test_handle_standard_command_logs(
             and call[0][2] == "pods"
             for call in mock_command_handler_logger.error.call_args_list
         )
+
+    result = mock_subprocess.call_args[0][0]
+    assert (
+        result.exit_code == 0
+    )  # Should exit with success code for standard command

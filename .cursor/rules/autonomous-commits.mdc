@@ -22,6 +22,8 @@ filters:
 actions:
   - type: commit
     command: |
+      # Always run git add to stage all intended changes before committing.
+      # Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail, unless bypassed with --no-verify (not recommended for main).
       # Check for untracked .mdc files in .cursor/rules
       UNTRACKED_RULES=$(git ls-files --others --exclude-standard .cursor/rules/*.mdc)
       if [ -n "$UNTRACKED_RULES" ]; then
@@ -99,6 +101,9 @@ actions:
   - type: suggest
     message: |
       ## Autonomous Commit Guidelines
+
+      Always run `git add` to stage all intended changes before committing.
+      Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail, unless bypassed with `--no-verify` (not recommended for main).
 
       Your changes will be committed with these checks:
 

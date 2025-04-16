@@ -9,9 +9,8 @@ should use appropriate mocking to prevent real calls to:
 For most CLI tests, use the cli_test_mocks fixture which provides all three.
 """
 
-import subprocess
 from collections.abc import Generator
-from unittest.mock import ANY, MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -254,7 +253,9 @@ def test_get_with_show_kubectl_flag(
 ) -> None:
     """Test get command with show_kubectl flag."""
     with (
-        patch("vibectl.cli.configure_output_flags") as mock_configure_flags,
+        patch(
+            "vibectl.subcommands.get_cmd.configure_output_flags"
+        ) as mock_configure_flags,
         patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
         patch("vibectl.command_handler.handle_command_output"),
     ):
@@ -293,7 +294,9 @@ def test_get_with_no_show_kubectl_flag(
 ) -> None:
     """Test get command with no-show-kubectl flag."""
     with (
-        patch("vibectl.cli.configure_output_flags") as mock_configure_flags,
+        patch(
+            "vibectl.subcommands.get_cmd.configure_output_flags"
+        ) as mock_configure_flags,
         patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
         patch("vibectl.command_handler.handle_command_output"),
     ):
@@ -325,24 +328,25 @@ def test_get_with_no_show_kubectl_flag(
         assert kwargs["show_kubectl"] is False
 
 
-@patch("vibectl.cli.handle_vibe_request")
-def test_get_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
+@patch("vibectl.subcommands.get_cmd.handle_vibe_request")
+def test_get_vibe_request(mock_handle_vibe_get: Mock, cli_runner: CliRunner) -> None:
     """Test get command with vibe request."""
     result = cli_runner.invoke(cli, ["get", "vibe", "show", "me", "all", "pods"])
-
     assert result.exit_code == 0
-    mock_handle_vibe.assert_called_once()
-    args, kwargs = mock_handle_vibe.call_args
+    mock_handle_vibe_get.assert_called_once()
+    args, kwargs = mock_handle_vibe_get.call_args
     assert kwargs["request"] == "show me all pods"
     assert kwargs["command"] == "get"
 
 
 def test_get_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
     """Test get vibe command without a request."""
-    result = cli_runner.invoke(cli, ["get", "vibe"])
-
-    assert result.exit_code == 1
-    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
+    with patch("vibectl.console.console_manager") as mock_console_manager:
+        result = cli_runner.invoke(cli, ["get", "vibe"])
+        assert result.exit_code == 1
+        mock_console_manager.print_error.assert_called_once_with(
+            "Missing request after 'vibe'"
+        )
 
 
 def test_get_error_handling(cli_runner: CliRunner, mock_run_kubectl: Mock) -> None:
@@ -482,7 +486,6 @@ def test_logs_truncation_warning(
 def test_logs_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
     """Test logs command with vibe request."""
     result = cli_runner.invoke(cli, ["logs", "vibe", "show", "me", "pod", "logs"])
-
     assert result.exit_code == 0
     mock_handle_vibe.assert_called_once()
     args, kwargs = mock_handle_vibe.call_args
@@ -659,87 +662,6 @@ def test_create_error_handling(
     result = cli_runner.invoke(cli, ["create", "pod", "my-pod"])
 
     assert result.exit_code == 1  # Should exit with error code
-
-
-@patch("subprocess.run")
-@patch("vibectl.cli.Config")
-def test_just_basic(mock_config: Mock, mock_subprocess_run: Mock) -> None:
-    """Test basic just command functionality."""
-    mock_config.return_value.get.return_value = None  # No kubeconfig set
-    result = CliRunner().invoke(cli, ["just", "get", "pods"])
-    assert result.exit_code == 0
-    mock_subprocess_run.assert_called_once_with(
-        ["kubectl", "get", "pods"], check=True, text=True, capture_output=True
-    )
-
-
-@patch("subprocess.run")
-@patch("vibectl.cli.Config")
-def test_just_with_kubeconfig(mock_config: Mock, mock_subprocess_run: Mock) -> None:
-    """Test just command with kubeconfig."""
-    mock_config.return_value.get.return_value = "/path/to/kubeconfig"
-    result = CliRunner().invoke(cli, ["just", "get", "pods"])
-    assert result.exit_code == 0
-    mock_subprocess_run.assert_called_once_with(
-        ["kubectl", "--kubeconfig", "/path/to/kubeconfig", "get", "pods"],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-
-
-def test_just_no_args(cli_runner: CliRunner, mock_console: Mock) -> None:
-    """Test just command without arguments."""
-    result = cli_runner.invoke(cli, ["just"])
-
-    assert result.exit_code == 1
-    mock_console.print_error.assert_called_once_with(
-        "Usage: vibectl just <kubectl commands>"
-    )
-
-
-@patch("subprocess.run")
-@patch("vibectl.cli.Config")
-def test_just_kubectl_not_found(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
-) -> None:
-    """Test just command when kubectl is not found."""
-    mock_subprocess_run.side_effect = FileNotFoundError()
-
-    result = cli_runner.invoke(cli, ["just", "get", "pods"])
-
-    assert result.exit_code == 1
-    assert "kubectl not found in PATH" in result.output
-
-
-@patch("subprocess.run")
-@patch("vibectl.cli.Config")
-def test_just_called_process_error_with_stderr(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
-) -> None:
-    """Test just command with CalledProcessError and stderr."""
-    error = subprocess.CalledProcessError(1, ["kubectl"], stderr="test error")
-    mock_subprocess_run.side_effect = error
-
-    result = cli_runner.invoke(cli, ["just", "get", "pods"])
-
-    assert result.exit_code == 1
-    assert "Error: test error" in result.output
-
-
-@patch("subprocess.run")
-@patch("vibectl.cli.Config")
-def test_just_called_process_error_no_stderr(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
-) -> None:
-    """Test just command with CalledProcessError but no stderr."""
-    error = subprocess.CalledProcessError(1, ["kubectl"], stderr="")
-    mock_subprocess_run.side_effect = error
-
-    result = cli_runner.invoke(cli, ["just", "get", "pods"])
-
-    assert result.exit_code == 1
-    assert "Error: Command failed with exit code 1" in result.output
 
 
 @patch("vibectl.cli.Config")
@@ -1156,238 +1078,6 @@ def test_vibe_command_with_explicit_request(
     assert "Planning how to: scale deployment app to 3 replicas" in result.output
 
 
-def test_get_vibe_basic(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test basic get vibe command."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(cli, ["get", "vibe", "pods"], catch_exceptions=False)
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods",
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
-def test_get_vibe_with_output_flags(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test get vibe command with output flags."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=True,
-        show_vibe=False,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(
-            cli, ["get", "vibe", "pods", "--raw", "--no-vibe"], catch_exceptions=False
-        )
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods --raw --no-vibe",
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
-def test_get_vibe_with_model_flag(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test get vibe command with model flag."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance with test-model
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",  # This is set by the test
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(
-            cli,
-            ["get", "vibe", "pods", "--model", "test-model"],
-            catch_exceptions=False,
-        )
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods",  # Model flag is handled separately
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
-def test_get_vibe_with_no_output_flags(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test get vibe command with no output flags."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=False,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(
-            cli,
-            ["get", "vibe", "pods", "--no-raw", "--no-vibe"],
-            catch_exceptions=False,
-        )
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods --no-raw --no-vibe",
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
-def test_get_vibe_with_env_flags(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test get vibe command with environment flags."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(cli, ["get", "vibe", "pods"], catch_exceptions=False)
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods",
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
-def test_get_vibe_with_default_flags(
-    cli_runner: CliRunner, mock_config: Mock, cli_test_mocks: tuple[Mock, Mock, Mock]
-) -> None:
-    """Test get vibe command with default flags."""
-    # Setup mocks
-    mock_run_kubectl, mock_handle_output, mock_handle_vibe = cli_test_mocks
-    mock_configure_flags = Mock()
-
-    # Return OutputFlags instance
-    from vibectl.command_handler import OutputFlags
-
-    mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="model-xyz-1.2.3",
-    )
-
-    # Execute the command
-    with patch("vibectl.cli.configure_output_flags", mock_configure_flags):
-        result = cli_runner.invoke(cli, ["get", "vibe", "pods"], catch_exceptions=False)
-
-    # Assert based on exit code and function calls
-    assert result.exit_code == 0
-    # handle_vibe_request is called instead of run_kubectl directly
-    mock_handle_vibe.assert_called_once_with(
-        request="pods",
-        command="get",
-        plan_prompt=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_configure_flags.return_value,
-    )
-    # These should not be called for vibe requests
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
-
-
 @patch("vibectl.cli.validate_model_key_on_startup")
 @patch("vibectl.cli.console_manager")
 @patch("vibectl.cli.Config")
@@ -1500,3 +1190,71 @@ def test_warn_no_proxy_config(mock_config_class: Mock, cli_runner: CliRunner) ->
     result = cli_runner.invoke(cli, ["config", "unset", "warn_no_proxy"])
     assert result.exit_code == 0
     mock_config.unset.assert_called_with("warn_no_proxy")
+
+
+@patch("vibectl.subcommands.just_cmd.subprocess.run")
+@patch("vibectl.subcommands.just_cmd.Config")
+def test_just_passthrough_dash_n_after_resource(
+    mock_config: Mock, mock_subprocess_run: Mock
+) -> None:
+    """Test 'just' passthrough: vibectl just get pods -n sandbox"""
+    mock_config.return_value.get.return_value = None
+    result = CliRunner().invoke(cli, ["just", "get", "pods", "-n", "sandbox"])
+    assert result.exit_code == 0
+    mock_subprocess_run.assert_called_once_with(
+        ["kubectl", "get", "pods", "-n", "sandbox"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+@patch("vibectl.subcommands.just_cmd.subprocess.run")
+@patch("vibectl.subcommands.just_cmd.Config")
+def test_just_passthrough_dash_n_before_resource(
+    mock_config: Mock, mock_subprocess_run: Mock
+) -> None:
+    """Test 'just' passthrough: vibectl just -n sandbox get pods"""
+    mock_config.return_value.get.return_value = None
+    result = CliRunner().invoke(cli, ["just", "-n", "sandbox", "get", "pods"])
+    assert result.exit_code == 0
+    mock_subprocess_run.assert_called_once_with(
+        ["kubectl", "-n", "sandbox", "get", "pods"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+@patch("vibectl.subcommands.just_cmd.subprocess.run")
+@patch("vibectl.subcommands.just_cmd.Config")
+def test_just_passthrough_dash_n_between_resource(
+    mock_config: Mock, mock_subprocess_run: Mock
+) -> None:
+    """Test 'just' passthrough: vibectl just get -n sandbox pods"""
+    mock_config.return_value.get.return_value = None
+    result = CliRunner().invoke(cli, ["just", "get", "-n", "sandbox", "pods"])
+    assert result.exit_code == 0
+    mock_subprocess_run.assert_called_once_with(
+        ["kubectl", "get", "-n", "sandbox", "pods"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+@patch("vibectl.subcommands.just_cmd.subprocess.run")
+@patch("vibectl.subcommands.just_cmd.Config")
+def test_just_passthrough_namespace_long_flag(
+    mock_config: Mock, mock_subprocess_run: Mock
+) -> None:
+    """Test 'just' passthrough: vibectl just get pods --namespace sandbox"""
+    mock_config.return_value.get.return_value = None
+    result = CliRunner().invoke(cli, ["just", "get", "pods", "--namespace", "sandbox"])
+    assert result.exit_code == 0
+    mock_subprocess_run.assert_called_once_with(
+        ["kubectl", "get", "pods", "--namespace", "sandbox"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
