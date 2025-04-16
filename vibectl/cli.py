@@ -58,7 +58,6 @@ from .prompt import (
     rollout_history_prompt,
     rollout_status_prompt,
     scale_resource_prompt,
-    vibe_autonomous_prompt,
 )
 from .types import handle_result
 from .utils import handle_exception
@@ -617,56 +616,20 @@ def vibe(
     unfreeze_memory: bool = False,
     yes: bool = False,
 ) -> None:
-    """Execute autonomous Kubernetes operations guided by memory and planning.
+    """Execute autonomous Kubernetes operations guided by memory and planning."""
+    from vibectl.subcommands.vibe_cmd import run_vibe_command
 
-    Analyzes cluster state, memory context, and user request to determine and
-    execute appropriate kubectl commands. With no arguments, it will use memory
-    and general Kubernetes knowledge to guide operations.
-
-    Examples:
-        vibectl vibe "create a deployment for nginx with 3 replicas"
-        vibectl vibe "check if all pods are running"
-        vibectl vibe "fix the issues with the frontend service"
-        vibectl vibe
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Get memory
-        memory_context = get_memory() or ""
-
-        # Handle empty request case
-        if not request:
-            request = ""
-            console_manager.print_processing(
-                "Planning next steps based on memory context..."
-            )
-        else:
-            console_manager.print_processing(f"Planning how to: {request}")
-
-        # Autonomous vibe command - plan_prompt already includes memory directly
-        handle_vibe_request(
-            request=request,
-            command="vibe",
-            plan_prompt=PLAN_VIBE_PROMPT.format(
-                memory_context=memory_context, request=request
-            ),
-            summary_prompt_func=vibe_autonomous_prompt,
-            output_flags=output_flags,
-            yes=yes,
-            autonomous_mode=True,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_vibe_command(
+        request=request,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        yes=yes,
+    )
+    handle_result(result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
