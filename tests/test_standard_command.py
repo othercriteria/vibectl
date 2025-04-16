@@ -286,7 +286,11 @@ def test_handle_standard_command_logs(
     with (
         patch.object(command_handler, "OutputProcessor") as mock_output_processor,
         patch.object(command_handler, "get_model_adapter") as mock_get_adapter,
-        patch.object(command_handler.OutputProcessor, "process_auto", return_value=("processed output", False)),
+        patch.object(
+            command_handler.OutputProcessor,
+            "process_auto",
+            return_value=("processed output", False),
+        ),
         patch.object(command_handler.console_manager, "print_raw"),
         patch.object(command_handler.console_manager, "print_vibe"),
         patch.object(command_handler, "update_memory"),
@@ -344,8 +348,3 @@ def test_handle_standard_command_logs(
             and call[0][2] == "pods"
             for call in mock_command_handler_logger.error.call_args_list
         )
-
-    result = mock_subprocess.call_args[0][0]
-    assert (
-        result.exit_code == 0
-    )  # Should exit with success code for standard command

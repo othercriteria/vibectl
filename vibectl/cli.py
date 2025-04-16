@@ -14,7 +14,16 @@ import llm
 from rich.panel import Panel
 from rich.table import Table
 
-from vibectl.memory import include_memory_in_prompt
+from vibectl.memory import (
+    clear_memory,
+    configure_memory_flags,
+    disable_memory,
+    enable_memory,
+    get_memory,
+    include_memory_in_prompt,
+    set_memory,
+)
+from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
 from .command_handler import (
@@ -23,13 +32,11 @@ from .command_handler import (
     handle_port_forward_with_live_display,
     handle_standard_command,
     handle_vibe_request,
-    handle_wait_with_live_display,
     run_kubectl,
 )
 from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
-from .memory import clear_memory, disable_memory, enable_memory, get_memory, set_memory
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
@@ -42,7 +49,6 @@ from .prompt import (
     PLAN_ROLLOUT_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
-    PLAN_WAIT_PROMPT,
     cluster_info_prompt,
     create_resource_prompt,
     delete_resource_prompt,
@@ -57,7 +63,6 @@ from .prompt import (
     scale_resource_prompt,
     version_prompt,
     vibe_autonomous_prompt,
-    wait_resource_prompt,
 )
 from .types import handle_result
 from .utils import handle_exception
@@ -137,6 +142,7 @@ def get(
 ) -> None:
     """Get resources in a concise format."""
     from vibectl.subcommands.get_cmd import run_get_command
+
     result = run_get_command(
         resource,
         args,
@@ -421,6 +427,7 @@ def just(args: tuple) -> None:
         vibectl just get pods  # equivalent to: kubectl get pods
     """
     from vibectl.subcommands.just_cmd import run_just_command
+
     result = run_just_command(args)
     handle_result(result)
 
@@ -1094,27 +1101,6 @@ def scale(
         handle_exception(e)
 
 
-def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
-    """Configure memory behavior based on flags.
-
-    Args:
-        freeze: Whether to disable memory updates for this command
-        unfreeze: Whether to enable memory updates for this command
-
-    Raises:
-        ValueError: If both freeze and unfreeze are specified
-    """
-    if freeze and unfreeze:
-        raise ValueError("Cannot specify both --freeze-memory and --unfreeze-memory")
-
-    cfg = Config()
-
-    if freeze:
-        disable_memory(cfg)
-    elif unfreeze:
-        enable_memory(cfg)
-
-
 @cli.group(
     invoke_without_command=True, context_settings={"ignore_unknown_options": True}
 )
@@ -1562,55 +1548,18 @@ def wait(
     Shows a live spinner with elapsed time while waiting for resources
     to meet their specified conditions.
     """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if resource == "vibe":
-            if len(args) < 1:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            request = " ".join(args)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="wait",
-                    plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
-                    summary_prompt_func=wait_resource_prompt,
-                    output_flags=output_flags,
-                )
-            except Exception as e:
-                handle_exception(e)
-            return
-
-        # Handle command with live display
-        if live_display:
-            handle_wait_with_live_display(
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-            )
-        else:
-            # Standard command without live display
-            handle_standard_command(
-                command="wait",
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-                summary_prompt_func=wait_resource_prompt,
-            )
-    except Exception as e:
-        handle_exception(e)
+    result = run_wait_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        live_display=live_display,
+    )
+    handle_result(result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})

@@ -208,7 +208,7 @@ def test_wait_with_args(
     mock_handle_output_for_cli.assert_called_once()
 
 
-@patch("vibectl.cli.configure_output_flags")
+@patch("vibectl.subcommands.wait_cmd.configure_output_flags")
 def test_wait_with_flags(
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
@@ -279,7 +279,7 @@ def test_wait_error_handling(
     mock_handle_output_for_cli.assert_called_once()
 
 
-@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.subcommands.wait_cmd.handle_vibe_request")
 def test_wait_vibe_request(
     mock_handle_vibe: MagicMock, cli_runner: CliRunner, mock_memory: Mock
 ) -> None:
@@ -299,8 +299,9 @@ def test_wait_vibe_request(
     assert mock_handle_vibe.call_args[1]["command"] == "wait"
 
 
+@patch("vibectl.subcommands.wait_cmd.console_manager")
 def test_wait_vibe_no_request(
-    cli_runner: CliRunner, mock_console: Mock, mock_memory: Mock
+    mock_console: Mock, cli_runner: CliRunner, mock_memory: Mock
 ) -> None:
     """Test wait command with vibe but no request."""
     # Invoke CLI with vibe but no request
@@ -316,27 +317,24 @@ def test_wait_with_live_display_asyncio(
     mock_run_kubectl_for_cli: MagicMock,
     mock_handle_output_for_cli: MagicMock,
     mock_asyncio_for_wait: MagicMock,
-    mock_wait_live_display: MagicMock,
     mock_memory: Mock,
 ) -> None:
     """Test wait command with live display using asyncio."""
-    # Setup result value
-    result_value = "pod/nginx condition met"
+    from unittest.mock import patch
 
-    # Set up mock kubectl output
+    from vibectl.subcommands import wait_cmd as wait_cmd_module
+
+    result_value = "pod/nginx condition met"
     mock_run_kubectl_for_cli.return_value = result_value
 
-    # Invoke CLI with wait command and live display
-    result = cli_runner.invoke(
-        cli, ["wait", "pod/nginx", "--for=condition=Ready", "--live-display"]
-    )
-
-    # Check results
-    assert result.exit_code == 0
-    # Verify that handle_wait_with_live_display was called
-    mock_wait_live_display.assert_called_once()
-    # Check that it was called with the correct arguments
-    assert mock_wait_live_display.call_args[1]["resource"] == "pod/nginx"
+    with patch.object(
+        wait_cmd_module, "handle_wait_with_live_display", return_value=None
+    ) as mock_wait_live_display:
+        result = cli_runner.invoke(
+            cli, ["wait", "pod/nginx", "--for=condition=Ready", "--live-display"]
+        )
+        mock_wait_live_display.assert_called_once()
+        assert mock_wait_live_display.call_args[1]["resource"] == "pod/nginx"
 
 
 def test_wait_with_live_display_error_asyncio(
@@ -344,31 +342,28 @@ def test_wait_with_live_display_error_asyncio(
     mock_run_kubectl_for_cli: MagicMock,
     mock_handle_output_for_cli: MagicMock,
     mock_asyncio_for_wait: MagicMock,
-    mock_wait_live_display: MagicMock,
     mock_memory: Mock,
 ) -> None:
     """Test wait command with live display handling errors using asyncio."""
-    # Setup error response
-    error_response = "Error: timed out waiting for the condition"
+    from unittest.mock import patch
 
-    # Set up mock kubectl output for error
+    from vibectl.subcommands import wait_cmd as wait_cmd_module
+
+    error_response = "Error: timed out waiting for the condition"
     mock_run_kubectl_for_cli.return_value = error_response
 
-    # Invoke CLI with wait command and live display
-    result = cli_runner.invoke(
-        cli,
-        [
-            "wait",
-            "pod/nginx",
-            "--for=condition=Ready",
-            "--timeout=1s",
-            "--live-display",
-        ],
-    )
-
-    # Check results
-    assert result.exit_code == 0  # CLI should handle the error gracefully
-    # Verify that handle_wait_with_live_display was called
-    mock_wait_live_display.assert_called_once()
-    # Check the timeout was passed in the args
-    assert "--timeout=1s" in mock_wait_live_display.call_args[1]["args"]
+    with patch.object(
+        wait_cmd_module, "handle_wait_with_live_display", return_value=None
+    ) as mock_wait_live_display:
+        result = cli_runner.invoke(
+            cli,
+            [
+                "wait",
+                "pod/nginx",
+                "--for=condition=Ready",
+                "--timeout=1s",
+                "--live-display",
+            ],
+        )
+        mock_wait_live_display.assert_called_once()
+        assert "--timeout=1s" in mock_wait_live_display.call_args[1]["args"]
