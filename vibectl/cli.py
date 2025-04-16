@@ -1007,36 +1007,20 @@ def status(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Show the status of a rollout.
-
-    Examples:
-        vibectl rollout status deployment/nginx
-        vibectl rollout status deployment frontend -n app
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Run the command
-        cmd = ["rollout", "status", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_status_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    """Show the status of a rollout."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    cmd = ["rollout", "status", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_status_prompt,
+    )
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1053,37 +1037,20 @@ def history(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Show the rollout history.
-
-    Examples:
-        vibectl rollout history deployment/nginx
-        vibectl rollout history deployment frontend -n app
-        vibectl rollout history deployment/frontend --revision=2
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Run the command
-        cmd = ["rollout", "history", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_history_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    """Show the rollout history."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    cmd = ["rollout", "history", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_history_prompt,
+    )
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1102,46 +1069,27 @@ def undo(
     show_kubectl: bool | None = None,
     yes: bool = False,
 ) -> None:
-    """Undo a rollout.
-
-    Examples:
-        vibectl rollout undo deployment/nginx
-        vibectl rollout undo deployment frontend -n app
-        vibectl rollout undo deployment/frontend --to-revision=2
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    """Undo a rollout."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    if not yes:
+        confirmation_message = (
+            f"Are you sure you want to undo the rollout for {resource}?"
         )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle confirmation for undo operation
-        if not yes:
-            confirmation_message = (
-                f"Are you sure you want to undo the rollout for {resource}?"
-            )
-            if not click.confirm(confirmation_message):
-                console_manager.print_note("Operation cancelled")
-                return
-
-        # Run the command
-        cmd = ["rollout", "undo", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
+        if not click.confirm(confirmation_message):
+            console_manager.print_note("Operation cancelled")
             return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_general_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    cmd = ["rollout", "undo", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_general_prompt,
+    )
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1158,37 +1106,20 @@ def restart(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Restart a resource.
-
-    Examples:
-        vibectl rollout restart deployment/nginx
-        vibectl rollout restart deployment frontend -n app
-        vibectl rollout restart deployment,statefulset -l app=frontend
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Run the command
-        cmd = ["rollout", "restart", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_general_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    """Restart a resource."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    cmd = ["rollout", "restart", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_general_prompt,
+    )
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1205,36 +1136,20 @@ def pause(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Pause a rollout.
-
-    Examples:
-        vibectl rollout pause deployment/nginx
-        vibectl rollout pause deployment frontend -n app
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Run the command
-        cmd = ["rollout", "pause", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_general_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    """Pause a rollout."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    cmd = ["rollout", "pause", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_general_prompt,
+    )
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1251,36 +1166,20 @@ def resume(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Resume a paused rollout.
-
-    Examples:
-        vibectl rollout resume deployment/nginx
-        vibectl rollout resume deployment frontend -n app
-    """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Run the command
-        cmd = ["rollout", "resume", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=rollout_general_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    """Resume a paused rollout."""
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+    )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
+    cmd = ["rollout", "resume", resource, *args]
+    output = run_kubectl(cmd, capture=True)
+    if not output:
+        return
+    handle_command_output(
+        output=output,
+        output_flags=output_flags,
+        summary_prompt_func=rollout_general_prompt,
+    )
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1426,9 +1325,13 @@ def handle_result(result: Result) -> None:
 
 
 def main() -> None:
-    """Run the CLI application."""
+    """
+    Run the CLI application.
+    Unhandled exceptions are shown as user-friendly errors.
+    Tracebacks are only shown if VIBECTL_TRACEBACK=1 or log level is DEBUG.
+    """
     try:
-        exit_code = cli()
+        exit_code = cli(standalone_mode=False)
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         console_manager.print_keyboard_interrupt()

@@ -5,8 +5,11 @@ Contains reusable helper functions used across the application.
 """
 
 import json
+import logging
+import os
 import subprocess
 import sys
+import traceback
 
 from rich.console import Console
 
@@ -16,16 +19,20 @@ error_console = Console(stderr=True)
 
 
 def handle_exception(e: Exception, exit_on_error: bool = True) -> None:
-    """Handle exceptions with nice error messages.
-
-    Args:
-        e: Exception to handle
-        exit_on_error: Whether to exit the process
-
-    Returns:
-        None if exit_on_error is False, otherwise this function never returns
+    """
+    Handle exceptions with nice error messages.
+    Optionally print tracebacks if VIBECTL_TRACEBACK=1 or log level is DEBUG.
     """
     error_console.print(f"[bold red]Error:[/] {e!s}")
+
+    # Optionally print traceback if VIBECTL_TRACEBACK=1 or log level is DEBUG
+    show_traceback = (
+        os.environ.get("VIBECTL_TRACEBACK") == "1"
+        or logging.getLogger().getEffectiveLevel() <= logging.DEBUG
+    )
+    if show_traceback:
+        error_console.print("[red]Traceback (most recent call last):[/]")
+        traceback.print_exc()
 
     # Handle API key related errors
     if (

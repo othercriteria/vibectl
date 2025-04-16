@@ -90,7 +90,7 @@ def run_kubectl(
             error_message = result.stderr.strip() if capture else "Command failed"
             if not error_message:
                 error_message = f"Command failed with exit code {result.returncode}"
-            logger.error(f"kubectl command failed: {error_message}")
+            logger.debug(f"kubectl command failed: {error_message}")
             raise Exception(error_message)
 
         # Return output if capturing
@@ -99,10 +99,10 @@ def run_kubectl(
             return result.stdout.strip()
         return None
     except FileNotFoundError:
-        logger.error("kubectl not found. Please install it and try again.")
+        logger.debug("kubectl not found. Please install it and try again.")
         raise Exception("kubectl not found. Please install it and try again.") from None
     except Exception as e:
-        logger.error(f"Exception running kubectl: {e}")
+        logger.debug(f"Exception running kubectl: {e}", exc_info=True)
         raise Exception(str(e)) from e
 
 

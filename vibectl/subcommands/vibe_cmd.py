@@ -67,10 +67,10 @@ def run_vibe_command(
                 autonomous_mode=True,
             )
         except Exception as e:
-            logger.error(f"Error in handle_vibe_request: {e}")
+            logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
             return Error(error="Exception in handle_vibe_request", exception=e)
         logger.info("Completed 'vibe' subcommand.")
         return Success(message="Completed 'vibe' subcommand.")
     except Exception as e:
-        logger.error(f"Error in 'vibe' subcommand: {e}")
+        logger.error("Error in 'vibe' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'vibe' subcommand", exception=e)

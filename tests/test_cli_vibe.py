@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -176,7 +176,9 @@ def test_vibe_command_handle_vibe_request_exception() -> None:
 
         assert isinstance(result, Error)
         assert "Exception in handle_vibe_request" in result.error
-        mock_logger.error.assert_any_call("Error in handle_vibe_request: fail!")
+        mock_logger.error.assert_any_call(
+            "Error in handle_vibe_request: %s", ANY, exc_info=True
+        )
 
 
 def test_vibe_command_outer_exception() -> None:
@@ -198,7 +200,9 @@ def test_vibe_command_outer_exception() -> None:
 
         assert isinstance(result, Error)
         assert "Exception in 'vibe' subcommand" in result.error
-        mock_logger.error.assert_any_call("Error in 'vibe' subcommand: outer fail")
+        mock_logger.error.assert_any_call(
+            "Error in 'vibe' subcommand: %s", ANY, exc_info=True
+        )
 
 
 def test_vibe_command_logs_and_console_for_empty_request() -> None:
