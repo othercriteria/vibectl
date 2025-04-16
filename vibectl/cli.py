@@ -8,6 +8,7 @@ more intuitive while preserving access to raw kubectl output when needed.
 
 import datetime
 import sys
+from collections.abc import Callable
 
 import click
 import llm
@@ -79,12 +80,90 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# --- CLI Group ---
+# --- Common Option Decorator ---
+def common_command_options(
+    include_show_kubectl: bool = False,
+    include_live_display: bool = False,
+    include_yes: bool = False,
+) -> Callable:
+    """Decorator to DRY out common CLI options for subcommands."""
+
+    def decorator(f: Callable) -> Callable:
+        options = [
+            click.option(
+                "--show-raw-output/--no-show-raw-output", is_flag=True, default=None
+            ),
+            click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None),
+            click.option("--model", default=None, help="The LLM model to use"),
+            click.option(
+                "--freeze-memory",
+                is_flag=True,
+                help="Prevent memory updates for this command",
+            ),
+            click.option(
+                "--unfreeze-memory",
+                is_flag=True,
+                help="Enable memory updates for this command",
+            ),
+        ]
+        if include_show_kubectl:
+            options.append(
+                click.option(
+                    "--show-kubectl/--no-show-kubectl",
+                    is_flag=True,
+                    default=None,
+                    help="Show the kubectl command being executed",
+                )
+            )
+        if include_live_display:
+            options.append(
+                click.option(
+                    "--live-display/--no-live-display",
+                    is_flag=True,
+                    default=True,
+                    help="Show a live spinner with elapsed time during waiting",
+                )
+            )
+        if include_yes:
+            options.append(
+                click.option(
+                    "--yes", "-y", is_flag=True, help="Skip confirmation prompt"
+                )
+            )
+        for option in reversed(options):
+            f = option(f)
+        return f
+
+    return decorator
+
+
+# --- CLI Group with Global Options ---
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    default=None,
+    help="Set the logging level for all commands.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Shortcut for --log-level=DEBUG.",
+)
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
+    # Set logging level from CLI flags
+    import os
+
+    if verbose:
+        os.environ["VIBECTL_LOG_LEVEL"] = "DEBUG"
+    elif log_level:
+        os.environ["VIBECTL_LOG_LEVEL"] = log_level.upper()
     init_logging()
     logger.info("vibectl CLI started")
     # Initialize the console manager with the configured theme
@@ -115,30 +194,16 @@ def cli(ctx: click.Context) -> None:
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option(
-    "--show-kubectl/--no-show-kubectl",
-    is_flag=True,
-    default=None,
-    help="Show the kubectl command being executed",
-)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def get(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
     from vibectl.subcommands.get_cmd import run_get_command
@@ -159,15 +224,7 @@ def get(
 @cli.command()
 @click.argument("resource")
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def describe(
     resource: str,
     args: tuple,
@@ -176,6 +233,7 @@ def describe(
     model: str | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     try:
@@ -218,15 +276,7 @@ def describe(
 @cli.command()
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def logs(
     resource: str,
     args: tuple,
@@ -235,6 +285,7 @@ def logs(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
     try:
@@ -289,15 +340,7 @@ def logs(
 @cli.command()
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def create(
     resource: str,
     args: tuple,
@@ -306,6 +349,7 @@ def create(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Create a resource."""
     try:
@@ -352,16 +396,7 @@ def create(
 @cli.command()
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@common_command_options(include_show_kubectl=True, include_yes=True)
 def delete(
     resource: str,
     args: tuple,
@@ -370,6 +405,7 @@ def delete(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
     yes: bool = False,
 ) -> None:
     """Delete a resource.
@@ -613,15 +649,12 @@ def theme_set(theme_name: str) -> None:
 
 @cli.command()
 @click.argument("request", required=False)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
+@common_command_options(include_show_kubectl=True)
 @click.option(
-    "--show-kubectl/--no-show-kubectl",
+    "--show-vibe/--no-show-vibe",
     is_flag=True,
     default=None,
-    help="Show the kubectl command being executed",
 )
-@click.option("--model", default=None, help="The LLM model to use")
 @click.option(
     "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
 )
@@ -693,15 +726,7 @@ def vibe(
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def events(
     args: tuple,
     show_raw_output: bool | None,
@@ -709,6 +734,7 @@ def events(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> int | None:
     """List events in the cluster."""
     try:
@@ -766,14 +792,15 @@ def events(
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
+@common_command_options(include_show_kubectl=True)
 def version(
     args: tuple,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    model: str | None,
+    show_raw_output: bool | None = None,
+    show_vibe: bool | None = None,
+    model: str | None = None,
+    freeze_memory: bool = False,  # Accept for decorator compatibility
+    unfreeze_memory: bool = False,  # Accept for decorator compatibility
+    show_kubectl: bool | None = None,  # Accept for decorator compatibility
 ) -> None:
     """Show Kubernetes version information.
 
@@ -784,8 +811,13 @@ def version(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
+        # Configure memory flags (for consistency, even if not used)
+        configure_memory_flags(freeze_memory, unfreeze_memory)
 
         # Special case for vibe command
         if args and args[0] == "vibe":
@@ -831,21 +863,27 @@ def version(
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
+@common_command_options(include_show_kubectl=True)
 def cluster_info(
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
+    freeze_memory: bool = False,  # Accept for decorator compatibility
+    unfreeze_memory: bool = False,  # Accept for decorator compatibility
+    show_kubectl: bool | None = None,  # Accept for decorator compatibility
 ) -> int | None:
     """Display cluster info."""
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
         )
+        # Configure memory flags (for consistency, even if not used)
+        configure_memory_flags(freeze_memory, unfreeze_memory)
 
         # Handle vibe command
         if args and args[0] == "vibe":
@@ -1031,15 +1069,7 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def scale(
     resource: str,
     args: tuple,
@@ -1048,6 +1078,7 @@ def scale(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Scale resources.
 
@@ -1105,15 +1136,7 @@ def scale(
     invoke_without_command=True, context_settings={"ignore_unknown_options": True}
 )
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 @click.pass_context
 def rollout(
     ctx: click.Context,
@@ -1123,6 +1146,7 @@ def rollout(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Manage rollouts of deployments, statefulsets, and daemonsets.
 
@@ -1179,15 +1203,7 @@ def rollout(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def status(
     resource: str,
     args: tuple,
@@ -1196,6 +1212,7 @@ def status(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Show the status of a rollout.
 
@@ -1232,15 +1249,7 @@ def status(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def history(
     resource: str,
     args: tuple,
@@ -1249,6 +1258,7 @@ def history(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Show the rollout history.
 
@@ -1286,15 +1296,7 @@ def history(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 def undo(
     resource: str,
@@ -1304,6 +1306,7 @@ def undo(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
     yes: bool = False,
 ) -> None:
     """Undo a rollout.
@@ -1351,15 +1354,7 @@ def undo(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def restart(
     resource: str,
     args: tuple,
@@ -1368,6 +1363,7 @@ def restart(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Restart a resource.
 
@@ -1405,15 +1401,7 @@ def restart(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def pause(
     resource: str,
     args: tuple,
@@ -1422,6 +1410,7 @@ def pause(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Pause a rollout.
 
@@ -1458,15 +1447,7 @@ def pause(
 @rollout.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 def resume(
     resource: str,
     args: tuple,
@@ -1475,6 +1456,7 @@ def resume(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Resume a paused rollout.
 
@@ -1511,21 +1493,7 @@ def resume(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option(
-    "--show-kubectl/--no-show-kubectl",
-    is_flag=True,
-    default=None,
-    help="Show the kubectl command being executed",
-)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 @click.option(
     "--live-display/--no-live-display",
     is_flag=True,
@@ -1565,21 +1533,7 @@ def wait(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output/--no-show-raw-output", is_flag=True, default=None)
-@click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None)
-@click.option(
-    "--show-kubectl/--no-show-kubectl",
-    is_flag=True,
-    default=None,
-    help="Show the kubectl command being executed",
-)
-@click.option("--model", default=None, help="The LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
+@common_command_options(include_show_kubectl=True)
 @click.option(
     "--live-display/--no-live-display",
     is_flag=True,
