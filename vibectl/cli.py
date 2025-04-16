@@ -43,7 +43,6 @@ from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_DELETE_PROMPT,
-    PLAN_DESCRIBE_PROMPT,
     PLAN_EVENTS_PROMPT,
     PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
@@ -52,7 +51,6 @@ from .prompt import (
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     delete_resource_prompt,
-    describe_resource_prompt,
     events_prompt,
     logs_prompt,
     memory_fuzzy_update_prompt,
@@ -235,41 +233,19 @@ def describe(
     show_kubectl: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
+    from vibectl.subcommands.describe_cmd import run_describe_command
 
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe case
-        if resource == "vibe":
-            if not args:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="describe",
-                plan_prompt=include_memory_in_prompt(PLAN_DESCRIBE_PROMPT),
-                summary_prompt_func=describe_resource_prompt,
-                output_flags=output_flags,
-            )
-            return
-
-        # Handle standard command
-        handle_standard_command(
-            command="describe",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=describe_resource_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_describe_command(
+        resource,
+        args,
+        show_raw_output,
+        show_vibe,
+        show_kubectl,
+        model,
+        freeze_memory,
+        unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.command()
