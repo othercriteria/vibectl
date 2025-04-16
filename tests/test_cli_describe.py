@@ -235,7 +235,6 @@ def test_run_describe_command_vibe_handle_vibe_request_exception(
     def fake_handle_vibe_request(**kwargs: object) -> None:
         raise Exception("fail")
 
-    fake_handle_exception = Mock()
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.configure_output_flags",
         fake_configure_output_flags,
@@ -247,15 +246,11 @@ def test_run_describe_command_vibe_handle_vibe_request_exception(
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.handle_vibe_request", fake_handle_vibe_request
     )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.handle_exception", fake_handle_exception
-    )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = run_describe_command(
         "vibe", ("foo",), None, None, None, None, False, False
     )
     assert isinstance(result, Error)
-    fake_handle_exception.assert_called_once()
 
 
 def test_run_describe_command_standard_command_exception(
@@ -272,7 +267,6 @@ def test_run_describe_command_standard_command_exception(
     def fake_handle_standard_command(**kwargs: object) -> None:
         raise Exception("fail")
 
-    fake_handle_exception = Mock()
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.configure_output_flags",
         fake_configure_output_flags,
@@ -285,15 +279,11 @@ def test_run_describe_command_standard_command_exception(
         "vibectl.subcommands.describe_cmd.handle_standard_command",
         fake_handle_standard_command,
     )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.handle_exception", fake_handle_exception
-    )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = run_describe_command(
         "pod", ("my-pod",), None, None, None, None, False, False
     )
     assert isinstance(result, Error)
-    fake_handle_exception.assert_called_once()
 
 
 def test_run_describe_command_configure_output_flags_exception(
@@ -304,20 +294,15 @@ def test_run_describe_command_configure_output_flags_exception(
     def fake_configure_output_flags(*a: object, **kw: object) -> None:
         raise Exception("fail")
 
-    fake_handle_exception = Mock()
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.configure_output_flags",
         fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.handle_exception", fake_handle_exception
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = run_describe_command(
         "pod", ("my-pod",), None, None, None, None, False, False
     )
     assert isinstance(result, Error)
-    fake_handle_exception.assert_called_once()
 
 
 def test_run_describe_command_configure_memory_flags_exception(
@@ -331,7 +316,6 @@ def test_run_describe_command_configure_memory_flags_exception(
     def fake_configure_memory_flags(*a: object, **kw: object) -> None:
         raise Exception("fail")
 
-    fake_handle_exception = Mock()
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.configure_output_flags",
         fake_configure_output_flags,
@@ -340,12 +324,8 @@ def test_run_describe_command_configure_memory_flags_exception(
         "vibectl.subcommands.describe_cmd.configure_memory_flags",
         fake_configure_memory_flags,
     )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.handle_exception", fake_handle_exception
-    )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = run_describe_command(
         "pod", ("my-pod",), None, None, None, None, False, False
     )
     assert isinstance(result, Error)
-    fake_handle_exception.assert_called_once()

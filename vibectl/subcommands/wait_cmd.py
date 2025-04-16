@@ -9,7 +9,6 @@ from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_wait_command(
@@ -58,7 +57,6 @@ def run_wait_command(
                 )
             except Exception as e:
                 logger.error(f"Error in handle_vibe_request: {e}")
-                handle_exception(e)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'wait' subcommand for vibe request.")
             return Success(message="Completed 'wait' subcommand for vibe request.")
@@ -91,5 +89,4 @@ def run_wait_command(
             )
     except Exception as e:
         logger.error(f"Error in 'wait' subcommand: {e}")
-        handle_exception(e)
         return Error(error="Exception in 'wait' subcommand", exception=e)

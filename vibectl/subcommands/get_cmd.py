@@ -12,7 +12,6 @@ from vibectl.prompt import (
     get_resource_prompt,
 )
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_get_command(
@@ -56,7 +55,6 @@ def run_get_command(
                 )
             except Exception as e:
                 logger.error(f"Error in handle_vibe_request: {e}")
-                handle_exception(e)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'get' subcommand for vibe request.")
             return Success(message="Completed 'get' subcommand for vibe request.")
@@ -72,5 +70,4 @@ def run_get_command(
         return Success(message=f"Completed 'get' subcommand for resource: {resource}")
     except Exception as e:
         logger.error(f"Error in 'get' subcommand: {e}")
-        handle_exception(e)
         return Error(error="Exception in 'get' subcommand", exception=e)

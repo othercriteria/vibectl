@@ -14,7 +14,6 @@ from vibectl.prompt import (
     describe_resource_prompt,
 )
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_describe_command(
@@ -60,7 +59,6 @@ def run_describe_command(
                 )
             except Exception as e:
                 logger.error(f"Error in handle_vibe_request: {e}")
-                handle_exception(e)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'describe' subcommand for vibe request.")
             return Success(message="Completed 'describe' subcommand for vibe request.")
@@ -78,5 +76,4 @@ def run_describe_command(
         )
     except Exception as e:
         logger.error(f"Error in 'describe' subcommand: {e}")
-        handle_exception(e)
         return Error(error="Exception in 'describe' subcommand", exception=e)

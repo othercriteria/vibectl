@@ -15,7 +15,6 @@ from vibectl.prompt import (
     create_resource_prompt,
 )
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_create_command(
@@ -59,7 +58,6 @@ def run_create_command(
                 )
             except Exception as e:
                 logger.error(f"Error in handle_vibe_request: {e}")
-                handle_exception(e)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'create' subcommand for vibe request.")
             return Success(message="Completed 'create' subcommand for vibe request.")
@@ -71,7 +69,6 @@ def run_create_command(
             output = run_kubectl(cmd, capture=True)
         except Exception as e:
             logger.error(f"Error running kubectl: {e}")
-            handle_exception(e)
             return Error(error="Exception running kubectl", exception=e)
 
         if not output:
@@ -86,7 +83,6 @@ def run_create_command(
             )
         except Exception as e:
             logger.error(f"Error in handle_command_output: {e}")
-            handle_exception(e)
             return Error(error="Exception in handle_command_output", exception=e)
 
         logger.info(f"Completed 'create' subcommand for resource: {resource}")
@@ -95,5 +91,4 @@ def run_create_command(
         )
     except Exception as e:
         logger.error(f"Error in 'create' subcommand: {e}")
-        handle_exception(e)
         return Error(error="Exception in 'create' subcommand", exception=e)
