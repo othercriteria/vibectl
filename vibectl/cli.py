@@ -42,7 +42,6 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_DELETE_PROMPT,
-    PLAN_EVENTS_PROMPT,
     PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
     PLAN_ROLLOUT_PROMPT,
@@ -50,7 +49,6 @@ from .prompt import (
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     delete_resource_prompt,
-    events_prompt,
     logs_prompt,
     memory_fuzzy_update_prompt,
     port_forward_prompt,
@@ -643,59 +641,20 @@ def events(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-) -> int | None:
+) -> None:
     """List events in the cluster."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
+    from vibectl.subcommands.events_cmd import run_events_command
 
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if args and args[0] == "vibe":
-            if len(args) < 2:
-                console_manager.print_error("Missing request after 'vibe'")
-                return 1
-            request = " ".join(args[1:])
-            handle_vibe_request(
-                request=request,
-                command="events",
-                plan_prompt=include_memory_in_prompt(PLAN_EVENTS_PROMPT),
-                summary_prompt_func=events_prompt,
-                output_flags=output_flags,
-            )
-            return 1
-
-        # For standard commands, run kubectl events
-        try:
-            cmd = ["events"]
-            cmd.extend(args)
-            output = run_kubectl(cmd, capture=True)
-
-            if not output:
-                console_manager.print_empty_output_message()
-                return 0
-
-            # Handle output display based on flags
-            try:
-                handle_command_output(
-                    output=output,
-                    output_flags=output_flags,
-                    summary_prompt_func=events_prompt,
-                )
-                return 0
-            except Exception as e:
-                handle_exception(e)
-                return 1
-        except Exception as e:
-            handle_exception(e)
-            return 1
-    except Exception as e:
-        handle_exception(e)
-        return 1
+    result = run_events_command(
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.command()

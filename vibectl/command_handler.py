@@ -19,7 +19,7 @@ import yaml
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-from .config import Config
+from .config import DEFAULT_CONFIG, Config
 from .console import console_manager
 from .logutil import logger as _logger
 from .memory import update_memory
@@ -36,11 +36,9 @@ logger = _logger
 __all__ = ["Table"]
 
 # Constants for output flags
-DEFAULT_MODEL = "claude-3.7-sonnet"
-DEFAULT_SHOW_RAW_OUTPUT = False
-DEFAULT_SHOW_VIBE = True
-DEFAULT_WARN_NO_OUTPUT = True
-DEFAULT_SHOW_KUBECTL = False
+# (DEFAULT_MODEL, DEFAULT_SHOW_RAW_OUTPUT, DEFAULT_SHOW_VIBE,
+#  DEFAULT_WARN_NO_OUTPUT, DEFAULT_SHOW_KUBECTL)
+# Use values from config.py's DEFAULT_CONFIG instead
 
 # Initialize output processor
 output_processor = OutputProcessor()
@@ -742,7 +740,7 @@ def configure_output_flags(
     show_raw = (
         show_raw_output
         if show_raw_output is not None
-        else config.get("show_raw_output", DEFAULT_SHOW_RAW_OUTPUT)
+        else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"])
     )
 
     show_vibe_output = (
@@ -750,22 +748,24 @@ def configure_output_flags(
         if show_vibe is not None
         else vibe
         if vibe is not None
-        else config.get("show_vibe", DEFAULT_SHOW_VIBE)
+        else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"])
     )
 
     # Get warn_no_output setting - default to True (do warn when no output)
-    warn_no_output = config.get("warn_no_output", DEFAULT_WARN_NO_OUTPUT)
+    warn_no_output = config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"])
 
     # Get warn_no_proxy setting - default to True (do warn when proxy not configured)
     warn_no_proxy = config.get("warn_no_proxy", True)
 
-    model_name = model if model is not None else config.get("model", DEFAULT_MODEL)
+    model_name = (
+        model if model is not None else config.get("model", DEFAULT_CONFIG["model"])
+    )
 
     # Get show_kubectl setting - default to False
     show_kubectl_commands = (
         show_kubectl
         if show_kubectl is not None
-        else config.get("show_kubectl", DEFAULT_SHOW_KUBECTL)
+        else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
     )
 
     return OutputFlags(
