@@ -4,7 +4,6 @@ from vibectl.command_handler import (
     handle_vibe_request,
     handle_wait_with_live_display,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
@@ -43,7 +42,6 @@ def run_wait_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in wait subcommand.")
                 return Error(error=msg)
             request = " ".join(args)

@@ -194,7 +194,9 @@ def test_run_describe_command_vibe(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "vibe" in called
 
 
-def test_run_describe_command_vibe_no_args(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_describe_command_vibe_no_args(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
     """Covers the 'vibe' path with no args (error)."""
 
     def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
@@ -203,7 +205,6 @@ def test_run_describe_command_vibe_no_args(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_configure_memory_flags(*a: object, **kw: object) -> None:
         pass
 
-    fake_console_manager = Mock()
     monkeypatch.setattr(
         "vibectl.subcommands.describe_cmd.configure_output_flags",
         fake_configure_output_flags,
@@ -212,13 +213,12 @@ def test_run_describe_command_vibe_no_args(monkeypatch: pytest.MonkeyPatch) -> N
         "vibectl.subcommands.describe_cmd.configure_memory_flags",
         fake_configure_memory_flags,
     )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.console_manager", fake_console_manager
-    )
-    monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = run_describe_command("vibe", (), None, None, None, None, False, False)
     assert isinstance(result, Error)
-    fake_console_manager.print_error.assert_called_once()
+    assert "Missing request after 'vibe'" in result.error
+    captured = capsys.readouterr()
+    assert "Missing request after 'vibe'" in captured.err
+    assert "Missing request after 'vibe'" not in captured.out
 
 
 def test_run_describe_command_vibe_handle_vibe_request_exception(

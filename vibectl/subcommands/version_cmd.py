@@ -9,7 +9,6 @@ from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_VERSION_PROMPT, version_prompt
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_version_command(
@@ -42,7 +41,6 @@ def run_version_command(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in version subcommand.")
                 return Error(error=msg)
             request = " ".join(args[1:])
@@ -56,7 +54,6 @@ def run_version_command(
                 )
             except Exception as e:
                 logger.error(f"Error in handle_vibe_request: {e}")
-                handle_exception(e)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'version' subcommand for vibe request.")
             return Success(message="Completed 'version' subcommand for vibe request.")
@@ -78,11 +75,9 @@ def run_version_command(
             )
         except Exception as e:
             logger.error(f"Error running kubectl version: {e}")
-            handle_exception(e)
             return Error(error="Exception running kubectl version", exception=e)
         logger.info("Completed 'version' subcommand.")
         return Success(message="Completed 'version' subcommand.")
     except Exception as e:
         logger.error(f"Error in 'version' subcommand: {e}")
-        handle_exception(e)
         return Error(error="Exception in 'version' subcommand", exception=e)

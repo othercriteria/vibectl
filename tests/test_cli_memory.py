@@ -104,10 +104,7 @@ def test_memory_clear_error(
         assert "error" in result.output.lower()
 
 
-@patch("vibectl.utils.handle_exception")
-def test_memory_config_error(
-    mock_handle_exception: Mock, cli_runner: CliRunner, mock_config: Mock
-) -> None:
+def test_memory_config_error(cli_runner: CliRunner, mock_config: Mock) -> None:
     """Test error handling for memory commands with config errors."""
     # Setup direct mock to throw an error
     with patch("vibectl.cli.get_memory") as mock_get_memory:

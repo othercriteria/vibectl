@@ -44,7 +44,6 @@ from .prompt import (
     PLAN_DELETE_PROMPT,
     PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
-    PLAN_ROLLOUT_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
@@ -57,7 +56,7 @@ from .prompt import (
     rollout_status_prompt,
     scale_resource_prompt,
 )
-from .types import handle_result
+from .types import Error, Result, Success
 from .utils import handle_exception
 
 # Constants
@@ -958,12 +957,10 @@ def scale(
 @cli.group(
     invoke_without_command=True, context_settings={"ignore_unknown_options": True}
 )
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(include_show_kubectl=True)
 @click.pass_context
 def rollout(
     ctx: click.Context,
-    args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
@@ -985,42 +982,15 @@ def rollout(
         vibectl rollout resume deployment/website
         vibectl rollout vibe "check status of the frontend deployment"
     """
+    # TODO: Add support of 'vibe' or catch-all logic at the group level
     if ctx.invoked_subcommand is not None:
-        # If a subcommand is used, we don't need to do anything here
         return
-
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe command
-        if args and args[0] == "vibe":
-            if len(args) < 2:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-            request = " ".join(args[1:])
-            handle_vibe_request(
-                request=request,
-                command="rollout",
-                plan_prompt=include_memory_in_prompt(PLAN_ROLLOUT_PROMPT),
-                summary_prompt_func=rollout_general_prompt,
-                output_flags=output_flags,
-            )
-            return
-
-        # For direct 'rollout' command with no recognized subcommand
-        console_manager.print_error(
-            "Missing subcommand for rollout. "
-            "Use one of: status, history, undo, restart, pause, resume"
-        )
-        sys.exit(1)
-    except Exception as e:
-        handle_exception(e)
+    # If no subcommand is provided, print error and exit
+    console_manager.print_error(
+        "Missing subcommand for rollout. "
+        "Use one of: status, history, undo, restart, pause, resume"
+    )
+    sys.exit(1)
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -1437,6 +1407,22 @@ def port_forward(
             )
     except Exception as e:
         handle_exception(e)
+
+
+def handle_result(result: Result) -> None:
+    """
+    Handle a Result (Success or Error): print errors and exit with the correct code.
+    Use in CLI handlers to reduce boilerplate.
+    """
+    if isinstance(result, Success):
+        sys.exit(0)
+    elif isinstance(result, Error):
+        if result.exception is not None:
+            handle_exception(result.exception)
+        elif result.error:
+            handle_exception(Exception(result.error))
+        else:
+            sys.exit(1)
 
 
 def main() -> None:

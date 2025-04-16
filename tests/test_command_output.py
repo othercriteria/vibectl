@@ -158,12 +158,13 @@ def test_handle_command_output_llm_error(
     )
 
     # Call the function and check for error handling
-    with patch("vibectl.command_handler.handle_exception"):
+    with pytest.raises(ValueError) as excinfo:
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "error test",  # Trigger error response
         )
+    assert "Test error" in str(excinfo.value)
 
 
 @patch("vibectl.command_handler.get_model_adapter")

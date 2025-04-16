@@ -56,17 +56,6 @@ def mock_handle_vibe_request() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def mock_handle_exception() -> Generator[Mock, None, None]:
-    """Mock the handle_exception function to prevent sys.exit during tests.
-
-    Returns:
-        Mock: Mocked handle_exception function.
-    """
-    with patch("vibectl.cli.handle_exception") as mock:
-        yield mock
-
-
-@pytest.fixture
 def mock_summary_prompt() -> Callable[[], str]:
     """Mock summary prompt function.
 

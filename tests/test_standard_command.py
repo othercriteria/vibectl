@@ -158,117 +158,6 @@ def test_handle_standard_command(
     prevent_exit.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_error(
-    mock_handle_exception: MagicMock,
-    mock_subprocess: MagicMock,
-    mock_llm: MagicMock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_summary_prompt: Callable[[], str],
-    standard_output_flags: OutputFlags,
-) -> None:
-    """Test error handling in standard command."""
-    # Set up error
-    mock_subprocess.side_effect = Exception("test error")
-
-    # Run command
-    handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=standard_output_flags,
-        summary_prompt_func=mock_summary_prompt,
-    )
-
-    # Verify kubectl was called and exception was handled
-    mock_subprocess.assert_called_once()
-    mock_handle_exception.assert_called_once()
-
-    # Verify model adapter was NOT called since command failed
-    mock_llm.execute.assert_not_called()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
-
-
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_no_output(
-    mock_handle_exception: MagicMock,
-    mock_subprocess: MagicMock,
-    mock_llm: MagicMock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_summary_prompt: Callable[[], str],
-    standard_output_flags: OutputFlags,
-) -> None:
-    """Test standard command handling with no output."""
-    # Set up mock to return no output but success return code
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_result.stderr = ""
-    mock_subprocess.return_value = mock_result
-
-    # Run command
-    handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=standard_output_flags,
-        summary_prompt_func=mock_summary_prompt,
-    )
-
-    # Verify no exception was handled - the command should exit early with no output
-    mock_handle_exception.assert_not_called()
-
-    # Verify model adapter was not called since there was no output
-    mock_llm.execute.assert_not_called()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
-
-
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_output_error(
-    mock_handle_exception: MagicMock,
-    mock_subprocess: MagicMock,
-    mock_llm: MagicMock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_summary_prompt: Callable[[], str],
-    standard_output_flags: OutputFlags,
-) -> None:
-    """Test error handling in standard command output processing."""
-    # Set up successful command
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_result.stderr = ""
-    mock_subprocess.return_value = mock_result
-
-    # Setup the handle_command_output to fail
-    mock_handle_command_output_error = Exception("Output handling failed")
-
-    with patch("vibectl.command_handler.handle_command_output") as mock_handle_output:
-        mock_handle_output.side_effect = mock_handle_command_output_error
-
-        # Run command
-        handle_standard_command(
-            command="get",
-            resource="pods",
-            args=(),
-            output_flags=standard_output_flags,
-            summary_prompt_func=mock_summary_prompt,
-        )
-
-        # Verify exception was handled
-        mock_handle_exception.assert_called_once()
-        args, kwargs = mock_handle_exception.call_args
-        assert isinstance(args[0], Exception)
-        assert str(args[0]) == "Output handling failed"
-
-
 @patch("vibectl.command_handler.subprocess.run")
 def test_handle_standard_command_logs(
     mock_subprocess_run: Any,
@@ -334,17 +223,12 @@ def test_handle_standard_command_logs(
         # Now test error case
         mock_subprocess_run.side_effect = Exception("test error")
         mock_command_handler_logger.reset_mock()
-        command_handler.handle_standard_command(
-            command="get",
-            resource="pods",
-            args=(),
-            output_flags=standard_output_flags,
-            summary_prompt_func=mock_summary_prompt,
-        )
-        # The error log now uses positional args, so check the call args
-        assert any(
-            call[0][0].startswith("Error handling standard command: ")
-            and call[0][1] == "get"
-            and call[0][2] == "pods"
-            for call in mock_command_handler_logger.error.call_args_list
-        )
+        with pytest.raises(Exception) as excinfo:
+            command_handler.handle_standard_command(
+                command="get",
+                resource="pods",
+                args=(),
+                output_flags=standard_output_flags,
+                summary_prompt_func=mock_summary_prompt,
+            )
+        assert "test error" in str(excinfo.value)

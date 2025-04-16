@@ -14,7 +14,6 @@ def run_just_command(args: tuple) -> Result:
     logger.info(f"Invoking 'just' subcommand with args: {args}")
     if not args:
         msg = "Usage: vibectl just <kubectl commands>"
-        console_manager.print_error(msg)
         logger.error("No arguments provided to 'just' subcommand.")
         return Error(error=msg)
     try:
@@ -34,17 +33,12 @@ def run_just_command(args: tuple) -> Result:
         return Success(message="kubectl command executed successfully.")
     except FileNotFoundError:
         msg = "kubectl not found in PATH"
-        console_manager.print_error(msg)
         logger.error(msg)
         return Error(error=msg)
     except subprocess.CalledProcessError as e:
         if e.stderr:
-            console_manager.print_error(f"Error: {e.stderr}")
             logger.error(f"kubectl error: {e.stderr}")
         else:
-            console_manager.print_error(
-                f"Error: Command failed with exit code {e.returncode}"
-            )
             logger.error(f"kubectl failed with exit code {e.returncode}")
         return Error(
             error=(
@@ -52,6 +46,5 @@ def run_just_command(args: tuple) -> Result:
             )
         )
     except Exception as e:
-        console_manager.print_error(f"Error: {e!s}")
         logger.error(f"Unexpected error in 'just' subcommand: {e!s}")
         return Error(error="Exception in 'just' subcommand", exception=e)

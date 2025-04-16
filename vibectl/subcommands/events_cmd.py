@@ -40,7 +40,6 @@ def run_events_command(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in events subcommand.")
                 return Error(error=msg)
             request = " ".join(args[1:])

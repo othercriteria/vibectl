@@ -36,20 +36,3 @@ class Error:
 
 
 Result = Success | Error
-
-
-def handle_result(result: Result) -> None:
-    """
-    Handle a Result (Success or Error): print errors and exit with the correct code.
-    Use in CLI handlers to reduce boilerplate.
-    """
-    import sys
-
-    from vibectl.console import console_manager
-
-    if isinstance(result, Success):
-        sys.exit(0)
-    elif isinstance(result, Error):
-        if result.error:
-            console_manager.print_error(result.error)
-        sys.exit(1)

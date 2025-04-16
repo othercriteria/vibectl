@@ -142,7 +142,6 @@ def test_scale_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in scale command."""
     with (
         patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_exception") as mock_handle_exception,
         patch("vibectl.cli.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
@@ -151,11 +150,11 @@ def test_scale_error_handling(cli_runner: CliRunner) -> None:
         mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute
-        _ = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
+        result = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the exception was handled
-        mock_handle_exception.assert_called_once()
+        # Assert error output or exit code
+        assert result.exit_code == 0
+        assert "Test error" in result.output
 
 
 def test_scale_with_kubectl_flags(cli_runner: CliRunner) -> None:

@@ -8,7 +8,6 @@ from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.prompt import PLAN_VIBE_PROMPT, vibe_autonomous_prompt
 from vibectl.types import Error, Result, Success
-from vibectl.utils import handle_exception
 
 
 def run_vibe_command(
@@ -69,11 +68,9 @@ def run_vibe_command(
             )
         except Exception as e:
             logger.error(f"Error in handle_vibe_request: {e}")
-            handle_exception(e, exit_on_error=exit_on_error)
             return Error(error="Exception in handle_vibe_request", exception=e)
         logger.info("Completed 'vibe' subcommand.")
         return Success(message="Completed 'vibe' subcommand.")
     except Exception as e:
         logger.error(f"Error in 'vibe' subcommand: {e}")
-        handle_exception(e, exit_on_error=exit_on_error)
         return Error(error="Exception in 'vibe' subcommand", exception=e)

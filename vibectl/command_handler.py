@@ -28,7 +28,6 @@ from .output_processor import OutputProcessor
 from .prompt import port_forward_prompt, recovery_prompt, wait_resource_prompt
 from .proxy import StatsProtocol, TcpProxy, start_proxy_server, stop_proxy_server
 from .types import OutputFlags
-from .utils import handle_exception
 
 logger = _logger
 
@@ -148,8 +147,7 @@ def handle_standard_command(
             " ".join(args),
             e,
         )
-        # Use centralized error handling
-        handle_exception(e)
+        raise
 
 
 def handle_command_output(
@@ -235,7 +233,7 @@ def handle_command_output(
             console_manager.print_vibe(vibe_output)
         except Exception as e:
             logger.error(f"Error in vibe output processing: {e}")
-            handle_exception(e, exit_on_error=False)
+            raise
 
 
 def handle_vibe_request(

@@ -61,9 +61,7 @@ def test_delete_standard(
 
 
 @patch("vibectl.cli.handle_standard_command")
-@patch("vibectl.cli.handle_exception")
 def test_delete_handles_exception(
-    mock_handle_exception: MagicMock,
     mock_handle_standard_command: MagicMock,
     cli_runner: CliRunner,
 ) -> None:
@@ -73,7 +71,8 @@ def test_delete_handles_exception(
     mock_handle_standard_command.side_effect = mock_error
 
     # Execute delete command
-    cli_runner.invoke(delete, ["pod", "nginx-pod"])
+    result = cli_runner.invoke(delete, ["pod", "nginx-pod"])
 
-    # Assert exception handling was called
-    mock_handle_exception.assert_called_once_with(mock_error)
+    # Assert error output or exit code
+    assert result.exit_code == 1
+    assert "Error: Test error" in result.output

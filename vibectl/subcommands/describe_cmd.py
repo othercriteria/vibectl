@@ -3,7 +3,6 @@ from vibectl.command_handler import (
     handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -45,7 +44,6 @@ def run_describe_command(
         if resource == "vibe":
             if not args:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in describe subcommand.")
                 return Error(error=msg)
             request = " ".join(args)

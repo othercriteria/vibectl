@@ -341,12 +341,10 @@ def test_get_vibe_request(mock_handle_vibe_get: Mock, cli_runner: CliRunner) -> 
 
 def test_get_vibe_no_request(cli_runner: CliRunner, mock_console: Mock) -> None:
     """Test get vibe command without a request."""
-    with patch("vibectl.console.console_manager") as mock_console_manager:
+    with patch("vibectl.console.console_manager"):
         result = cli_runner.invoke(cli, ["get", "vibe"])
         assert result.exit_code == 1
-        mock_console_manager.print_error.assert_called_once_with(
-            "Missing request after 'vibe'"
-        )
+        assert "Error: Missing request after 'vibe'" in result.output
 
 
 def test_get_error_handling(cli_runner: CliRunner, mock_run_kubectl: Mock) -> None:
@@ -512,8 +510,6 @@ def test_logs_error_handling(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command error handling."""
-    # Set up the return value for configure_output_flags to return
-    # an OutputFlags instance
     from vibectl.command_handler import OutputFlags
 
     mock_configure_flags.return_value = OutputFlags(
@@ -524,14 +520,9 @@ def test_logs_error_handling(
     )
     mock_run_kubectl.side_effect = Exception("Test error")
 
-    # Ensure exception handling works
-    with patch("vibectl.cli.handle_exception") as mock_handle_exception:
-        result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
-        mock_handle_exception.assert_called_once()
-
-    # Since we patched handle_exception, exit code should be 0
-    # as the exception is caught and handled
-    assert result.exit_code == 0
+    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+    assert result.exit_code == 1
+    assert "Error: Test error" in result.output
 
 
 @patch("vibectl.cli.Config")
@@ -696,7 +687,6 @@ def test_main_general_error(
         from vibectl.cli import main
 
         main()
-
     mock_handle_exception.assert_called_once_with(error)
     assert exc_info.value.code == 1
 

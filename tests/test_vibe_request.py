@@ -56,15 +56,12 @@ def test_handle_vibe_request_success(
     prevent_exit.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_empty_response(
-    mock_handle_exception: MagicMock,
+    mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
+    mock_output_flags_for_vibe_request: OutputFlags,
 ) -> None:
     """Test vibe request with empty response from planner."""
     # Set up empty response
@@ -87,26 +84,17 @@ def test_handle_vibe_request_empty_response(
     # This is printed directly to stderr, not via mock_console.print_error,
     # so we don't assert on it
 
-    # Verify handle_exception was not called
-    mock_handle_exception.assert_not_called()
-
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
 
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
 
-
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_error_response(
-    mock_handle_exception: MagicMock,
+    capsys: pytest.CaptureFixture,
+    mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
-    capsys: pytest.CaptureFixture,
 ) -> None:
     """Test vibe request with error response from planner."""
     # Set up error response
@@ -137,14 +125,11 @@ def test_handle_vibe_request_error_response(
     mock_run_kubectl.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_invalid_format(
-    mock_handle_exception: MagicMock,
+    mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    standard_output_flags: OutputFlags,
+    mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with invalid format from planner."""
@@ -163,17 +148,11 @@ def test_handle_vibe_request_invalid_format(
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=standard_output_flags,
+            output_flags=mock_output_flags_for_vibe_request,
         )
-
-    # Verify handle_exception was not called
-    mock_handle_exception.assert_not_called()
 
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
 
 
 def test_handle_vibe_request_no_output(
@@ -223,15 +202,13 @@ def test_handle_vibe_request_no_output(
     prevent_exit.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_llm_output_parsing(
-    mock_handle_exception: MagicMock,
+    mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    standard_output_flags: OutputFlags,
     mock_memory: MagicMock,
+    mock_output_flags_for_vibe_request: OutputFlags,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     """Test vibe request with LLM output that includes delimiter."""
     # Set up LLM response with delimiter - get commands will also be parsed for YAML now
@@ -256,15 +233,17 @@ def test_handle_vibe_request_llm_output_parsing(
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=standard_output_flags,
+            output_flags=mock_output_flags_for_vibe_request,
         )
 
     # Verify subprocess was called, and run_kubectl was not called directly
     mock_subprocess.assert_called_once()
     mock_run_kubectl.assert_not_called()
 
-    # Verify exception handler was not called
-    mock_handle_exception.assert_not_called()
+    # Capture the output and check for expected content
+    captured = capsys.readouterr()
+    assert "✨ Vibe check:" in captured.out
+    assert "Test response" in captured.out
 
 
 def test_handle_vibe_request_command_error(
@@ -332,9 +311,7 @@ def test_handle_vibe_request_command_error(
         sys.stderr = original_stderr
 
 
-@patch("vibectl.command_handler.handle_exception")
 def test_handle_vibe_request_error(
-    mock_handle_exception: MagicMock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: Mock,

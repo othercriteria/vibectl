@@ -68,7 +68,7 @@ def test_just_called_process_error_with_stderr(
     mock_subprocess_run.side_effect = error
     result = cli_runner.invoke(cli, ["just", "get", "pods"])
     assert result.exit_code == 1
-    assert "Error: test error" in result.output
+    assert "Error: kubectl error: test error" in result.output
 
 
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
@@ -81,4 +81,4 @@ def test_just_called_process_error_no_stderr(
     mock_subprocess_run.side_effect = error
     result = cli_runner.invoke(cli, ["just", "get", "pods"])
     assert result.exit_code == 1
-    assert "Error: Command failed with exit code 1" in result.output
+    assert "Error: kubectl failed with exit code 1" in result.output

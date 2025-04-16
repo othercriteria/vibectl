@@ -280,17 +280,16 @@ def test_wait_vibe_request(
     assert mock_handle_vibe.call_args[1]["command"] == "wait"
 
 
-@patch("vibectl.subcommands.wait_cmd.console_manager")
 def test_wait_vibe_no_request(
-    mock_console: Mock, cli_runner: CliRunner, mock_memory: Mock
+    cli_runner: CliRunner,
+    capsys: pytest.CaptureFixture,
+    mock_asyncio_for_wait: MagicMock,
 ) -> None:
-    """Test wait command with vibe but no request."""
-    # Invoke CLI with vibe but no request
-    result = cli_runner.invoke(cli, ["wait", "vibe"])
-
-    # Check results
-    assert result.exit_code == 1  # Missing request should exit with error
-    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
+    """Test that the wait command properly handles missing vibe request."""
+    result = cli_runner.invoke(cli, ["wait", "vibe"], input="\n")
+    assert result.exit_code == 1
+    # The error should be in the main output
+    assert "Missing request after 'vibe'" in result.output
 
 
 def test_wait_with_live_display_asyncio(

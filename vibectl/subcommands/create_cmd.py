@@ -4,7 +4,6 @@ from vibectl.command_handler import (
     handle_vibe_request,
     run_kubectl,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -44,7 +43,6 @@ def run_create_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in create subcommand.")
                 return Error(error=msg)
             request = " ".join(args)

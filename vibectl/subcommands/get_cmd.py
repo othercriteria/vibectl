@@ -4,7 +4,6 @@ from vibectl.cli import (
     handle_vibe_request,
 )
 from vibectl.command_handler import handle_standard_command
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import include_memory_in_prompt
 from vibectl.prompt import (
@@ -41,7 +40,6 @@ def run_get_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                console_manager.print_error(msg)
                 logger.error(msg + " in get subcommand.")
                 return Error(error=msg)
             request = " ".join(args)
