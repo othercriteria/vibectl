@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Basic structured logging to vibectl for improved observability and debugging
+- Configurable log level via config or VIBECTL_LOG_LEVEL environment variable
+- User-facing warnings and errors are surfaced via the console
+- Logging test pattern and fixtures for reliable assertions on log output
 - Planned: Add basic logging features to vibectl for improved observability and debugging (WIP)
 
 ## [0.3.2] - 2025-04-15

@@ -21,6 +21,7 @@ from rich.table import Table
 
 from .config import Config
 from .console import console_manager
+from .logutil import logger as _logger
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
@@ -28,6 +29,8 @@ from .prompt import port_forward_prompt, recovery_prompt, wait_resource_prompt
 from .proxy import StatsProtocol, TcpProxy, start_proxy_server, stop_proxy_server
 from .types import OutputFlags
 from .utils import handle_exception
+
+logger = _logger
 
 # Export Table for testing
 __all__ = ["Table"]
@@ -74,6 +77,8 @@ def run_kubectl(
         if kubeconfig:
             kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
 
+        logger.info(f"Running kubectl command: {' '.join(kubectl_cmd)}")
+
         # Execute the command
         result = subprocess.run(
             kubectl_cmd,
@@ -88,16 +93,19 @@ def run_kubectl(
             error_message = result.stderr.strip() if capture else "Command failed"
             if not error_message:
                 error_message = f"Command failed with exit code {result.returncode}"
+            logger.error(f"kubectl command failed: {error_message}")
             raise Exception(error_message)
 
         # Return output if capturing
         if capture:
+            logger.debug(f"kubectl command output: {result.stdout.strip()}")
             return result.stdout.strip()
         return None
     except FileNotFoundError:
+        logger.error("kubectl not found. Please install it and try again.")
         raise Exception("kubectl not found. Please install it and try again.") from None
     except Exception as e:
-        # Re-raise with the original error message
+        logger.error(f"Exception running kubectl: {e}")
         raise Exception(str(e)) from e
 
 
@@ -110,6 +118,7 @@ def handle_standard_command(
 ) -> None:
     """Handle a standard kubectl command with both raw and vibe output."""
     try:
+        logger.info(f"Handling standard command: {command} {resource} {' '.join(args)}")
         # Build command list
         cmd_args = [command, resource]
         if args:
@@ -118,6 +127,9 @@ def handle_standard_command(
         output = run_kubectl(cmd_args, capture=True)
 
         if not output:
+            logger.info(
+                f"No output from command: {command} {resource} {' '.join(args)}"
+            )
             return
 
         # Handle the output display based on the configured flags
@@ -127,7 +139,17 @@ def handle_standard_command(
             summary_prompt_func=summary_prompt_func,
             command=f"{command} {resource} {' '.join(args)}",
         )
+        logger.info(
+            f"Completed standard command: {command} {resource} {' '.join(args)}"
+        )
     except Exception as e:
+        logger.error(
+            "Error handling standard command: %s %s %s: %s",
+            command,
+            resource,
+            " ".join(args),
+            e,
+        )
         # Use centralized error handling
         handle_exception(e)
 
@@ -150,27 +172,32 @@ def handle_command_output(
         truncation_ratio: Ratio for truncating the output
         command: Optional command string that generated the output
     """
+    logger.debug(f"Handling command output for: {command}")
     # Show warning if no output will be shown and warning is enabled
     if (
         not output_flags.show_raw
         and not output_flags.show_vibe
         and output_flags.warn_no_output
     ):
+        logger.warning("No output will be shown due to output flags.")
         console_manager.print_no_output_warning()
 
     # Show raw output if requested
     if output_flags.show_raw:
+        logger.debug("Showing raw output.")
         console_manager.print_raw(output)
 
     # Show vibe output if requested
     vibe_output = ""
     if output_flags.show_vibe:
         try:
+            logger.debug("Processing output for vibe summary.")
             # Process output to avoid token limits
             processed_output, was_truncated = output_processor.process_auto(output)
 
             # Show truncation warning if needed
             if was_truncated:
+                logger.warning("Output was truncated for processing.")
                 console_manager.print_truncation_warning()
 
             # Get summary from LLM with processed output using model adapter
@@ -182,6 +209,7 @@ def handle_command_output(
                 if command
                 else summary_prompt.format(output=processed_output)
             )
+            logger.debug(f"Sending prompt to model: {prompt[:100]}...")
             vibe_output = model_adapter.execute(model, prompt)
 
             # Update memory if we have a command, regardless of vibe output
@@ -190,12 +218,14 @@ def handle_command_output(
 
             # Check for empty response
             if not vibe_output:
+                logger.info("Vibe output is empty.")
                 console_manager.print_empty_output_message()
                 return
 
             # Check for error response
             if vibe_output.startswith("ERROR:"):
                 error_message = vibe_output[7:].strip()  # Remove "ERROR: " prefix
+                logger.error(f"Vibe model returned error: {error_message}")
                 raise ValueError(error_message)
 
             # If raw output was also shown, add a newline to separate
@@ -203,8 +233,10 @@ def handle_command_output(
                 console_manager.console.print()
 
             # Display the summary
+            logger.debug("Displaying vibe summary output.")
             console_manager.print_vibe(vibe_output)
         except Exception as e:
+            logger.error(f"Error in vibe output processing: {e}")
             handle_exception(e, exit_on_error=False)
 
 

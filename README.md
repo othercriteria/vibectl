@@ -215,6 +215,35 @@ vibectl theme set dark
 
 For detailed API key management options, see [Model API Key Management](docs/MODEL_KEYS.md).
 
+### Logging
+
+vibectl now includes structured, configurable logging to improve observability and debugging.
+
+- **Log Levels:** Control verbosity via config or environment variable:
+  - `vibectl config set log_level INFO` (or DEBUG, WARNING, ERROR)
+  - Or set `VIBECTL_LOG_LEVEL=DEBUG` in your environment
+- **User-Facing Logs:**
+  - Warnings and errors are surfaced to the user via the console (with color and style)
+  - Info/debug logs are only shown in verbose/debug mode (future extension)
+- **No Duplicate Messages:**
+  - Normal operation only shows user-facing messages; verbose/debug mode can surface more logs
+- **Extensible:**
+  - Logging is designed for future support of file logging, JSON logs, etc.
+
+Example:
+```zsh
+# Set log level to DEBUG for troubleshooting
+export VIBECTL_LOG_LEVEL=DEBUG
+vibectl get pods
+```
+
+You can also set the log level permanently in your config:
+```zsh
+vibectl config set log_level DEBUG
+```
+
+See warnings and errors directly in your terminal, while info/debug logs are available for advanced troubleshooting.
+
 ### Custom Instructions
 
 You can customize how vibectl generates responses by setting custom instructions

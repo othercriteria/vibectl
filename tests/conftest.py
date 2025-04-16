@@ -411,3 +411,12 @@ def no_coroutine_warnings() -> Generator[None, None, None]:
 
     # Restore original filters
     warnings.filters = original_filters
+
+
+@pytest.fixture
+def mock_command_handler_logger() -> Generator[Mock, None, None]:
+    """Patch the logger in vibectl.command_handler for logging assertions."""
+    from vibectl import command_handler
+
+    with patch.object(command_handler, "logger") as mock_logger:
+        yield mock_logger

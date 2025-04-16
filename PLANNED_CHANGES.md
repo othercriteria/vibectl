@@ -25,3 +25,19 @@
 - Avoid logging sensitive data
 - Ensure logging does not break existing CLI output
 - Plan for future extensibility (e.g., file logging, JSON logs)
+
+## Logging Test Pattern (2024-05-xx)
+
+When testing logging output in command handler or other modules:
+- Use the `mock_command_handler_logger` fixture (from conftest.py) to patch and assert on log output.
+- This ensures fast, reliable, and consistent logging assertions.
+- For new modules, add a similar fixture to conftest.py and use it in tests.
+
+Example usage:
+```python
+# In your test function signature:
+def test_something(..., mock_command_handler_logger: Mock):
+    ...
+    # After running code
+    assert any("expected log message" in str(call) for call in mock_command_handler_logger.info.call_args_list)
+```

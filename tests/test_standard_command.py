@@ -267,3 +267,75 @@ def test_handle_standard_command_output_error(
         args, kwargs = mock_handle_exception.call_args
         assert isinstance(args[0], Exception)
         assert str(args[0]) == "Output handling failed"
+
+
+def test_handle_standard_command_logs(
+    mock_subprocess: MagicMock,
+    mock_llm: MagicMock,
+    mock_console: Mock,
+    prevent_exit: MagicMock,
+    mock_summary_prompt: Callable[[], str],
+    standard_output_flags: OutputFlags,
+    mock_command_handler_logger: Mock,
+) -> None:
+    """Test that handle_standard_command emits expected log messages."""
+    from vibectl import command_handler
+
+    with (
+        patch.object(command_handler, "OutputProcessor") as mock_output_processor,
+        patch.object(command_handler, "get_model_adapter") as mock_get_adapter,
+        # patch.object(command_handler, "update_memory") as mock_update_memory,
+    ):
+        # Setup output processor
+        processor_instance = Mock()
+        processor_instance.process_auto.return_value = ("processed output", False)
+        mock_output_processor.return_value = processor_instance
+
+        # Setup LLM
+        mock_model_adapter = mock_llm
+        mock_get_adapter.return_value = mock_model_adapter
+        mock_model_adapter.get_model.return_value = Mock()
+        mock_model_adapter.execute.return_value = "Summarized output"
+
+        # Setup subprocess to return success
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "test output"
+        mock_subprocess.return_value = mock_result
+
+        # Run command
+        command_handler.handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            output_flags=standard_output_flags,
+            summary_prompt_func=mock_summary_prompt,
+        )
+
+        # Check that info log for start and completion was called
+        assert any(
+            "Handling standard command: get pods" in str(call)
+            for call in mock_command_handler_logger.info.call_args_list
+        )
+        assert any(
+            "Completed standard command: get pods" in str(call)
+            for call in mock_command_handler_logger.info.call_args_list
+        )
+
+        # Now test error case
+        mock_subprocess.side_effect = Exception("test error")
+        mock_command_handler_logger.reset_mock()
+        command_handler.handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            output_flags=standard_output_flags,
+            summary_prompt_func=mock_summary_prompt,
+        )
+        # The error log now uses positional args, so check the call args
+        assert any(
+            call[0][0].startswith("Error handling standard command: ")
+            and call[0][1] == "get"
+            and call[0][2] == "pods"
+            for call in mock_command_handler_logger.error.call_args_list
+        )
