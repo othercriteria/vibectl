@@ -24,6 +24,7 @@ from vibectl.memory import (
     include_memory_in_prompt,
     set_memory,
 )
+from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
@@ -41,7 +42,6 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
-    PLAN_CREATE_PROMPT,
     PLAN_DELETE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_EVENTS_PROMPT,
@@ -51,7 +51,6 @@ from .prompt import (
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
-    create_resource_prompt,
     delete_resource_prompt,
     describe_resource_prompt,
     events_prompt,
@@ -352,45 +351,17 @@ def create(
     show_kubectl: bool | None = None,
 ) -> None:
     """Create a resource."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe command
-        if resource == "vibe":
-            if not args:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-            request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="create",
-                plan_prompt=include_memory_in_prompt(PLAN_CREATE_PROMPT),
-                summary_prompt_func=create_resource_prompt,
-                output_flags=output_flags,
-            )
-            return
-
-        # Regular create command
-        cmd = ["create", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=create_resource_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_create_command(
+        resource,
+        args,
+        show_raw_output,
+        show_vibe,
+        show_kubectl,
+        model,
+        freeze_memory,
+        unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.command()
