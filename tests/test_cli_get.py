@@ -18,7 +18,9 @@ def test_get_basic(
     """Test basic get command functionality."""
     with (
         patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
-        patch("vibectl.command_handler.handle_command_output") as cmd_mock_handle_output,
+        patch(
+            "vibectl.command_handler.handle_command_output"
+        ) as cmd_mock_handle_output,
     ):
         cmd_mock_run_kubectl.return_value = "test output"
         result = cli_runner.invoke(cli, ["get", "pods"])
@@ -35,12 +37,16 @@ def test_get_with_args(
     """Test get command with additional arguments."""
     with (
         patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
-        patch("vibectl.command_handler.handle_command_output") as cmd_mock_handle_output,
+        patch(
+            "vibectl.command_handler.handle_command_output"
+        ) as cmd_mock_handle_output,
     ):
         cmd_mock_run_kubectl.return_value = "test output"
         result = cli_runner.invoke(cli, ["get", "pods", "-n", "default"])
         assert result.exit_code == 0
-        cmd_mock_run_kubectl.assert_called_once_with(["get", "pods", "-n", "default"], capture=True)
+        cmd_mock_run_kubectl.assert_called_once_with(
+            ["get", "pods", "-n", "default"], capture=True
+        )
         cmd_mock_handle_output.assert_called_once()
 
 
@@ -97,5 +103,6 @@ def test_get_with_show_kubectl_flag(
         result = cli_runner.invoke(cli, ["get", "pods", "--show-kubectl"])
         assert result.exit_code == 0
         cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
+
 
 # Add any additional get subcommand tests here as needed
