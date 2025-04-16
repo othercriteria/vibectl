@@ -46,7 +46,11 @@ def run_just_command(args: tuple) -> Result:
                 f"Error: Command failed with exit code {e.returncode}"
             )
             logger.error(f"kubectl failed with exit code {e.returncode}")
-        return Error(error=f"kubectl failed with exit code {getattr(e, 'returncode', 'unknown')}")
+        return Error(
+            error=(
+                f"kubectl failed with exit code {getattr(e, 'returncode', 'unknown')}"
+            )
+        )
     except Exception as e:
         console_manager.print_error(f"Error: {e!s}")
         logger.error(f"Unexpected error in 'just' subcommand: {e!s}")

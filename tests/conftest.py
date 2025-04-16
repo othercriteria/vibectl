@@ -169,7 +169,9 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
         patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
         patch("vibectl.cli.handle_command_output") as mock_handle_output,
         patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe_cli,
-        patch("vibectl.subcommands.get_cmd.handle_vibe_request") as mock_handle_vibe_get,
+        patch(
+            "vibectl.subcommands.get_cmd.handle_vibe_request"
+        ) as mock_handle_vibe_get,
     ):
         # Default to successful output
         mock_run_kubectl.return_value = "test output"

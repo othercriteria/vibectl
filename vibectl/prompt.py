@@ -466,7 +466,8 @@ def cluster_info_prompt() -> str:
         example_format=[
             "[bold]Kubernetes v1.26.3[/bold] cluster running on "
             "[blue]Google Kubernetes Engine[/blue]",
-            "[green]Control plane healthy[/green] at [italic]https://10.0.0.1:6443[/italic]",
+            "[green]Control plane healthy[/green] at "
+            "[italic]https://10.0.0.1:6443[/italic]",
             "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
             "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
         ],

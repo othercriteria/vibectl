@@ -6,16 +6,28 @@
 - Integrate logging with existing CLI commands and error handling.
 
 ## Tasks
-- [ ] Decide on logging library (likely Python standard logging)
-- [ ] Add logger initialization to main entry point
-- [ ] Add logging to key operations (start, stop, errors, etc.)
-- [ ] Make log level configurable via CLI flag or environment variable
-- [ ] Add tests to verify logging output and error reporting
-- [ ] Update documentation to describe logging usage
-- [ ] Implement a custom logging.Handler that forwards WARNING and ERROR logs to console_manager for user visibility
-- [ ] Ensure normal operation only shows user-facing messages; verbose/debug mode can surface more logs
-- [ ] Do not duplicate messages between logger and console_manager unless in debug/verbose mode
-- [ ] Allow user to control log verbosity (config/env/CLI flag)
+- [x] Decide on logging library (Python standard logging)
+- [x] Add logger initialization to main entry point (`init_logging` in logutil.py, called from cli.py)
+- [x] Make log level configurable via CLI flag or environment variable (supports config and VIBECTL_LOG_LEVEL)
+- [x] Implement a custom logging.Handler that forwards WARNING and ERROR logs to console_manager for user visibility
+- [x] Add tests to verify logging output and error reporting (see test_logging.py, test_standard_command.py)
+- [x] Ensure normal operation only shows user-facing messages; verbose/debug mode can surface more logs (future extension planned)
+- [x] Do not duplicate messages between logger and console_manager unless in debug/verbose mode (handler logic prevents duplication)
+- [x] Allow user to control log verbosity (config/env/CLI flag)
+- [ ] Add logging to key operations (start, stop, errors, etc.) in all subcommands
+- [ ] Update documentation to describe logging usage (README, CLI help)
+
+### Subcommand Migration Progress
+- [x] Moved and updated: `just` (subcommands/just_cmd.py)
+- [x] Moved and updated: `wait` (subcommands/wait_cmd.py)
+- [x] Moved and updated: `get` (subcommands/get_cmd.py)
+- [ ] Remaining: migrate and update logging for other subcommands (list here as you go)
+
+## Next Steps / Foundational Changes
+- [ ] Add global CLI `--log-level` and `--verbose` flags to control logging level and verbosity for all commands
+- [ ] Ensure all error and exception paths consistently use logging (not just console_manager)
+- [ ] Consider if any additional shared logging utilities or patterns are needed before migrating more subcommands (e.g., context-aware log formatting, per-command loggers, etc.)
+- [ ] Plan for future extensibility (file logging, JSON logs, etc.) but keep current implementation simple
 
 ## Considerations
 - Keep logging and console_manager separate for clean architecture
