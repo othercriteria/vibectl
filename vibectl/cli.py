@@ -30,6 +30,7 @@ from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
+from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.subcommands.vibe_cmd import run_vibe_command
@@ -39,7 +40,6 @@ from . import __version__
 from .command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_port_forward_with_live_display,
     handle_standard_command,
     handle_vibe_request,
     run_kubectl,
@@ -50,13 +50,11 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_DELETE_PROMPT,
-    PLAN_PORT_FORWARD_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     delete_resource_prompt,
     memory_fuzzy_update_prompt,
-    port_forward_prompt,
     scale_resource_prompt,
 )
 from .types import Error, Result, Success
@@ -1208,64 +1206,18 @@ def port_forward(
     Shows a live display with connection status and elapsed time while
     forwarding ports between your local system and Kubernetes resources.
     """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if resource == "vibe":
-            if len(args) < 1:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            # Combine all arguments as the vibe request
-            request = " ".join(args)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="port-forward",
-                    plan_prompt=include_memory_in_prompt(PLAN_PORT_FORWARD_PROMPT),
-                    summary_prompt_func=port_forward_prompt,
-                    output_flags=output_flags,
-                    live_display=live_display,
-                )
-            except Exception as e:
-                handle_exception(e)
-            return
-
-        # Handle command with live display
-        if live_display:
-            handle_port_forward_with_live_display(
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-            )
-        else:
-            # Standard command without live display
-            # Construct the kubectl command
-            cmd_args = ["port-forward", resource]
-            # Add any other arguments
-            if args:
-                cmd_args.extend(args)
-
-            # Use run_kubectl and handle_command_output directly for better testability
-            output = run_kubectl(cmd_args)
-            handle_command_output(
-                output=output or "No output from command.",
-                output_flags=output_flags,
-                summary_prompt_func=port_forward_prompt,
-                command=f"port-forward {resource} {' '.join(args)}",
-            )
-    except Exception as e:
-        handle_exception(e)
+    result = run_port_forward_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        live_display=live_display,
+    )
+    handle_result(result)
 
 
 def handle_result(result: Result) -> None:

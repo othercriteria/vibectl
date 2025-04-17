@@ -1,33 +1,35 @@
 from vibectl.command_handler import (
     configure_output_flags,
+    handle_port_forward_with_live_display,
     handle_standard_command,
     handle_vibe_request,
-    handle_wait_with_live_display,
 )
 from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
-from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
+from vibectl.prompt import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_wait_command(
+def run_port_forward_command(
     resource: str,
     args: tuple,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
+    show_raw_output: bool | None = None,
+    show_vibe: bool | None = None,
+    show_kubectl: bool | None = None,
+    model: str | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
     live_display: bool = True,
+    exit_on_error: bool = True,
 ) -> Result:
     """
-    Implements the 'wait' subcommand logic, including logging and error handling.
+    Implements the 'port-forward' subcommand logic, including logging and
+    error handling.
     Returns a Result (Success or Error).
     """
     logger.info(
-        f"Invoking 'wait' subcommand with resource: {resource}, args: {args}, "
+        f"Invoking 'port-forward' subcommand with resource: {resource}, args: {args}, "
         f"live_display: {live_display}"
     )
     try:
@@ -43,7 +45,7 @@ def run_wait_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in wait subcommand.", exc_info=True)
+                logger.error(msg + " in port-forward subcommand.", exc_info=True)
                 console_manager.print_error(msg)
                 return Error(error=msg)
             request = " ".join(args)
@@ -52,55 +54,73 @@ def run_wait_command(
             try:
                 handle_vibe_request(
                     request=request,
-                    command="wait",
-                    plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
-                    summary_prompt_func=wait_resource_prompt,
+                    command="port-forward",
+                    plan_prompt=include_memory_in_prompt(PLAN_PORT_FORWARD_PROMPT),
+                    summary_prompt_func=port_forward_prompt,
                     output_flags=output_flags,
+                    live_display=live_display,
                 )
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'wait' subcommand for vibe request.")
-            return Success(message="Completed 'wait' subcommand for vibe request.")
+            logger.info("Completed 'port-forward' subcommand for vibe request.")
+            return Success(
+                message="Completed 'port-forward' subcommand for vibe request."
+            )
 
         # Handle command with live display
         if live_display:
-            logger.info(f"Handling wait with live display for resource: {resource}")
+            logger.info(
+                f"Handling port-forward with live display for resource: {resource}"
+            )
             try:
-                handle_wait_with_live_display(
+                handle_port_forward_with_live_display(
                     resource=resource,
                     args=args,
                     output_flags=output_flags,
                 )
             except Exception as e:
                 logger.error(
-                    "Error in handle_wait_with_live_display: %s", e, exc_info=True
+                    "Error in handle_port_forward_with_live_display: %s",
+                    e,
+                    exc_info=True,
                 )
                 return Error(
-                    error="Exception in handle_wait_with_live_display", exception=e
+                    error="Exception in handle_port_forward_with_live_display",
+                    exception=e,
                 )
-            logger.info(f"Completed wait with live display for resource: {resource}")
+            logger.info(
+                f"Completed port-forward with live display for resource: {resource}"
+            )
             return Success(
-                message=(f"Completed wait with live display for resource: {resource}")
+                message=(
+                    f"Completed port-forward with live display for resource: {resource}"
+                )
             )
         else:
             # Standard command without live display
-            logger.info(f"Handling standard wait command for resource: {resource}")
+            logger.info(
+                f"Handling standard port-forward command for resource: {resource}"
+            )
             try:
                 handle_standard_command(
-                    command="wait",
+                    command="port-forward",
                     resource=resource,
                     args=args,
                     output_flags=output_flags,
-                    summary_prompt_func=wait_resource_prompt,
+                    summary_prompt_func=port_forward_prompt,
                 )
             except Exception as e:
                 logger.error("Error in handle_standard_command: %s", e, exc_info=True)
                 return Error(error="Exception in handle_standard_command", exception=e)
-            logger.info(f"Completed standard wait command for resource: {resource}")
+            logger.info(
+                f"Completed standard port-forward command for resource: {resource}"
+            )
             return Success(
-                message=(f"Completed standard wait command for resource: {resource}")
+                message=(
+                    f"Completed standard port-forward command for resource: {resource}"
+                )
             )
     except Exception as e:
-        logger.error("Error in 'wait' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'wait' subcommand", exception=e)
+        logger.error("Error in 'port-forward' subcommand: %s", e, exc_info=True)
+        return Error(error="Exception in 'port-forward' subcommand", exception=e)
