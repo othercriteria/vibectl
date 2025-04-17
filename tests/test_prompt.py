@@ -376,7 +376,7 @@ def test_recovery_prompt() -> None:
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
 
-    # Test with default token limit
+    # Test with default max_chars
     result = recovery_prompt(command, error)
 
     # Check basic structure
@@ -385,12 +385,12 @@ def test_recovery_prompt() -> None:
     assert f"Error:\n```\n{error}\n```" in result
     assert "Explain the error in simple terms" in result
     assert "alternative approaches" in result
-    assert "Keep your response under 400 tokens" in result
+    assert "Keep your response under 1500 characters." in result
 
     # Test with custom token limit
-    token_limit = 500
-    result_custom = recovery_prompt(command, error, token_limit)
-    assert f"Keep your response under {token_limit} tokens" in result_custom
+    max_chars = 500
+    result_custom = recovery_prompt(command, error, max_chars)
+    assert f"Keep your response under {max_chars} characters." in result_custom
 
 
 def test_vibe_autonomous_prompt() -> None:

@@ -26,16 +26,17 @@
 - [x] Moved and updated: `events` (subcommands/events_cmd.py)
 - [x] Moved and updated: `version` (subcommands/version_cmd.py)
 - [x] Moved and updated: `vibe` (subcommands/vibe_cmd.py)
-- [ ] To migrate: `logs`, `delete`, `scale`, and all `rollout` subcommands (status, history, undo, restart, pause, resume; consider a single rollout_cmd.py)
+- [x] Moved and updated: `logs` (subcommands/vibe_cmd.py)
+- [ ] To migrate: `delete`, `scale`, and all `rollout` subcommands (status, history, undo, restart, pause, resume; consider a single rollout_cmd.py)
 
 ## Next Steps / Foundational Changes
-- [ ] Migrate `logs`, `delete`, `scale` subcommands to vibectl/subcommands/
+- [ ] Migrate `delete`, `scale` subcommands to vibectl/subcommands/
 - [ ] Migrate all `rollout` subcommands, likely as a single `rollout_cmd.py` for maintainability
 - [ ] Ensure all new subcommand modules have structured logging and error handling consistent with the new pattern
 - [ ] Update CLI to import and use the new subcommand modules
 - [ ] Remove old logic from cli.py after migration
 - [ ] Update documentation and tests as needed
-- [ ] Add global CLI `--log-level` and `--verbose` flags to control logging level and verbosity for all commands
+- [x] Add global CLI `--log-level` and `--verbose` flags to control logging level and verbosity for all commands
 - [ ] Ensure all error and exception paths consistently use logging (not just console_manager)
 - [ ] Consider if any additional shared logging utilities or patterns are needed before migrating more subcommands (e.g., context-aware log formatting, per-command loggers, etc.)
 - [ ] Plan for future extensibility (file logging, JSON logs, etc.) but keep current implementation simple

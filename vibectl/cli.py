@@ -1302,9 +1302,6 @@ def main() -> None:
         sys.exit(1)
     except Exception as e:
         handle_exception(e)
-        # This is unreachable due to sys.exit in handle_exception, but makes the type
-        # checker happy
-        return None
 
 
 if __name__ == "__main__":

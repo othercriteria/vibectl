@@ -801,8 +801,7 @@ Current memory:
 Based on this new information, update the memory to maintain the most relevant context.
 Focus on cluster state, conditions, and configurations that will help with
 future requests.
-Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
-Only include things actually observed from the output, no speculation or generalization.
+Be concise - memory is limited to {max_chars} characters.
 
 IMPORTANT:
 {formatted_instructions}
@@ -813,13 +812,13 @@ Just provide the direct memory content itself with no additional labels or heade
 
 
 # Update the recovery_prompt function to use the helper function
-def recovery_prompt(command: str, error: str, token_limit: int = 400) -> str:
+def recovery_prompt(command: str, error: str, max_chars: int = 1500) -> str:
     """Get the prompt template for generating recovery suggestions when a command fails.
 
     Args:
         command: The kubectl command that failed
         error: The error message
-        token_limit: Maximum tokens for the response
+        max_chars: Maximum characters for the response
 
     Returns:
         str: The recovery prompt template
@@ -836,7 +835,7 @@ Error:
 - Explain the error in simple terms and provide 2-3 alternative approaches to
 fix the issue.
 - Focus on common syntax issues or kubectl command structure problems
-- Keep your response under {token_limit} tokens.
+- Keep your response under {max_chars} characters.
 """
 
 

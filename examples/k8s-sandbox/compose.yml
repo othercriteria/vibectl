@@ -52,7 +52,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-$VIBECTL_ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
       - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
-      - VIBECTL_MEMORY_MAX_CHARS=${VIBECTL_MEMORY_MAX_CHARS:-1000}
+      - VIBECTL_MEMORY_MAX_CHARS=${VIBECTL_MEMORY_MAX_CHARS:-1500}
       # Status directory with full path to avoid permission issues
       - STATUS_DIR=/tmp/status
       # Add the control plane container name for direct port access

@@ -103,6 +103,3 @@ def test_get_with_show_kubectl_flag(
         result = cli_runner.invoke(cli, ["get", "pods", "--show-kubectl"])
         assert result.exit_code == 0
         cmd_mock_run_kubectl.assert_called_once_with(["get", "pods"], capture=True)
-
-
-# Add any additional get subcommand tests here as needed

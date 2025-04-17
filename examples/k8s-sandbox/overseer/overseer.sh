@@ -69,6 +69,11 @@ while true; do
   # Check if we've reached the end time or if all services are verified and we've run for the minimum time
   if [[ $CURRENT_TIME -ge $END_TIME ]]; then
     echo "Maximum runtime reached. Shutting down..."
+    cat > "${STATUS_DIR}/challenge_complete.json" <<EOF
+{
+  "message": "CTF challenge ended: time limit exceeded."
+}
+EOF
     exit 0
   elif [[ "${SERVICES_VERIFIED}" == "true" ]]; then
     # Calculate minimum runtime in seconds (25% of total runtime)
@@ -76,6 +81,11 @@ while true; do
 
     if [[ $CURRENT_TIME -ge $MIN_RUNTIME_SECONDS ]]; then
       echo "All services verified and minimum runtime reached. Shutting down..."
+      cat > "${STATUS_DIR}/challenge_complete.json" <<EOF
+{
+  "message": "CTF challenge ended: all services verified."
+}
+EOF
       exit 0
     else
       MINS_TO_MIN_RUNTIME=$(( (MIN_RUNTIME_SECONDS - CURRENT_TIME) / 60 ))

@@ -9,8 +9,6 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-# --- Logs tests begin here ---
-
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
@@ -167,6 +165,3 @@ def test_logs_error_handling(
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
     assert result.exit_code == 1
     assert "Error: Test error" in result.output
-
-
-# --- Logs tests end here ---
