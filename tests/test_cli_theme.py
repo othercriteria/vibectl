@@ -40,9 +40,7 @@ def test_theme_set_invalid_theme(mock_console: Mock, cli_runner: CliRunner) -> N
 
     result = cli_runner.invoke(cli, ["theme", "set", "invalid"])
     assert result.exit_code == 1
-    mock_console.print_error.assert_called_once_with(
-        "Invalid theme 'invalid'. Available themes: dark, light"
-    )
+    assert "Invalid theme 'invalid'. Available themes: dark, light" in result.output
 
 
 @patch("vibectl.cli.console_manager")

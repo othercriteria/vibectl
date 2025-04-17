@@ -17,15 +17,14 @@ from rich.table import Table
 
 from vibectl.memory import (
     clear_memory,
-    configure_memory_flags,
     disable_memory,
     enable_memory,
     get_memory,
-    include_memory_in_prompt,
     set_memory,
 )
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
+from vibectl.subcommands.delete_cmd import run_delete_command
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
@@ -39,20 +38,11 @@ from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
-from .command_handler import (
-    configure_output_flags,
-    handle_command_output,
-    handle_standard_command,
-    handle_vibe_request,
-    run_kubectl,
-)
 from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
-    PLAN_DELETE_PROMPT,
-    delete_resource_prompt,
     memory_fuzzy_update_prompt,
 )
 from .types import Error, Result, Success
@@ -68,11 +58,6 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
 # Current datetime for version command
 CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-# Ensure test/patch compatibility: assign to module namespace
-run_kubectl = run_kubectl
-handle_command_output = handle_command_output
-handle_vibe_request = handle_vibe_request
 
 
 # --- Common Option Decorator ---
@@ -318,41 +303,18 @@ def delete(
     Removes resources from the cluster.
     Use --yes or -y to skip confirmation prompt for non-interactive usage.
     """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe command
-        if resource == "vibe":
-            if not args:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-            request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="delete",
-                plan_prompt=include_memory_in_prompt(PLAN_DELETE_PROMPT),
-                summary_prompt_func=delete_resource_prompt,
-                output_flags=output_flags,
-                yes=yes,
-            )
-            return
-
-        # Handle standard command without confirmation
-        handle_standard_command(
-            command="delete",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=delete_resource_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_delete_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
+        yes=yes,
+    )
+    handle_result(result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -524,7 +486,7 @@ def list() -> None:
             console_manager.print(f"  - {theme_name}")
     except Exception as e:
         handle_exception(e)
-        sys.exit(1)
+        return
 
 
 @theme.command(name="set")
@@ -539,12 +501,13 @@ def theme_set(theme_name: str) -> None:
     try:
         # Verify theme exists
         available_themes = console_manager.get_available_themes()
-        if theme_name not in available_themes:  # pragma: no cover - tested separately
-            console_manager.print_error(
+        if theme_name not in available_themes:
+            msg = (
                 f"Invalid theme '{theme_name}'. Available themes: "
                 f"{', '.join(available_themes)}"
             )
-            sys.exit(1)
+            handle_result(Error(error=msg))
+            return
 
         # Save theme in config
         cfg = Config()
@@ -554,9 +517,9 @@ def theme_set(theme_name: str) -> None:
         # Apply theme
         console_manager.set_theme(theme_name)
         console_manager.print_success(f"Theme set to {theme_name}")
-    except Exception as e:  # pragma: no cover - general exception catch for robustness
+    except Exception as e:
         handle_exception(e)
-        sys.exit(1)
+        return
 
 
 @cli.command()

@@ -10,6 +10,7 @@ For most CLI tests, use the cli_test_mocks fixture which provides all three.
 """
 
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -23,18 +24,18 @@ from vibectl.cli import cli
 @pytest.fixture
 def mock_run_kubectl() -> Generator[Mock, None, None]:
     """Fixture providing a mocked run_kubectl function."""
-    with patch("vibectl.cli.run_kubectl") as mock:
+    with patch("vibectl.command_handler.run_kubectl") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_handle_command_output() -> Generator[Mock, None, None]:
     """Fixture providing a mocked handle_command_output function."""
-    with patch("vibectl.cli.handle_command_output") as mock:
+    with patch("vibectl.command_handler.handle_command_output") as mock:
         yield mock
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(scope="module")
 def patch_kubectl_and_llm() -> Generator[None, None, None]:
     """Global fixture to ensure kubectl and LLM calls are mocked.
 
@@ -43,14 +44,11 @@ def patch_kubectl_and_llm() -> Generator[None, None, None]:
     calls are properly mocked regardless of import path.
     """
     with (
-        patch("vibectl.cli.run_kubectl") as cli_mock_run_kubectl,
-        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as cli_mock_handle_output,
+        patch("vibectl.command_handler.run_kubectl") as cli_mock_run_kubectl,
         patch(
             "vibectl.command_handler.handle_command_output"
-        ) as cmd_mock_handle_output,
-        patch("vibectl.cli.handle_vibe_request") as cli_mock_handle_vibe,
-        patch("vibectl.command_handler.handle_vibe_request") as cmd_mock_handle_vibe,
+        ) as cli_mock_handle_output,
+        patch("vibectl.command_handler.handle_vibe_request") as cli_mock_handle_vibe,
         patch("vibectl.model_adapter.get_model_adapter") as mock_adapter,
     ):
         # Set up the model adapter mock
@@ -64,11 +62,10 @@ def patch_kubectl_and_llm() -> Generator[None, None, None]:
 
         # Set up kubectl mocks to return success by default
         cli_mock_run_kubectl.return_value = "kubectl result"
-        cmd_mock_run_kubectl.return_value = "kubectl result"
 
         # Set up handler mocks to work together
-        cli_mock_handle_output.side_effect = cmd_mock_handle_output
-        cli_mock_handle_vibe.side_effect = cmd_mock_handle_vibe
+        cli_mock_handle_output.side_effect = cli_mock_handle_output
+        cli_mock_handle_vibe.side_effect = cli_mock_handle_vibe
 
         yield
 
@@ -145,7 +142,7 @@ def test_get_basic(
     mock_handle_command_output: Mock,
 ) -> None:
     """Test basic get command functionality."""
-    # Note: This test mocks vibectl.cli.run_kubectl but in the CLI code,
+    # Note: This test mocks vibectl.command_handler.run_kubectl but in the CLI code,
     # vibectl.command_handler.run_kubectl is actually called.
     # We need to patch both to make this test reliable.
     with (
@@ -568,6 +565,9 @@ def test_cli_validates_model_key_on_startup(
     mock_console: Mock,
     mock_validate: Mock,
     cli_runner: CliRunner,
+    patch_kubectl_and_llm: Any,
+    mock_run_kubectl: Mock,
+    mock_handle_command_output: Mock,
 ) -> None:
     """Test that CLI validates model key on startup."""
     # Setup Config mock to return model name
@@ -596,6 +596,9 @@ def test_cli_no_warning_for_valid_key(
     mock_console: Mock,
     mock_validate: Mock,
     cli_runner: CliRunner,
+    patch_kubectl_and_llm: Any,
+    mock_run_kubectl: Mock,
+    mock_handle_command_output: Mock,
 ) -> None:
     """Test that CLI doesn't show warning for valid key."""
     # Setup Config mock to return model name

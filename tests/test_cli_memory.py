@@ -171,6 +171,7 @@ def test_memory_update(
         patch("vibectl.cli.get_memory") as mock_get_memory,
         patch("vibectl.cli.set_memory") as mock_set_memory,
         patch("vibectl.cli.llm.get_model") as mock_get_model,
+        patch("vibectl.cli.Config", return_value=mock_config),
     ):
         # Configure get_memory to return existing memory
         mock_get_memory.return_value = "Existing memory content"

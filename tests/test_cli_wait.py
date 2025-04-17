@@ -22,8 +22,8 @@ def mock_run_kubectl_for_cli() -> Generator[MagicMock, None, None]:
     This fixture specifically patches both the CLI import path and command_handler path.
     """
     with (
-        patch("vibectl.cli.run_kubectl") as cli_mock,
-        patch("vibectl.command_handler.run_kubectl") as handler_mock,
+        patch("vibectl.command_handler.run_kubectl") as cli_mock,
+        patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
         # Set up default responses
         handler_mock.return_value = "test wait output"
@@ -48,7 +48,7 @@ def mock_run_kubectl_for_cli() -> Generator[MagicMock, None, None]:
 def mock_handle_output_for_cli() -> Generator[MagicMock, None, None]:
     """Mock handle_command_output for testing."""
     with (
-        patch("vibectl.cli.handle_command_output") as cli_mock,
+        patch("vibectl.command_handler.handle_command_output") as cli_mock,
         patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
         # Make CLI mock delegate to handler mock

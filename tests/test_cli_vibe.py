@@ -45,7 +45,7 @@ def test_vibe_command_with_request(
     standard_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with a request and OutputFlags."""
-    with patch("vibectl.cli.configure_output_flags") as mock_flags:
+    with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
         result = cli_runner.invoke(vibe, ["Create a deployment", "--show-raw-output"])
     assert result.exit_code == 0
@@ -63,7 +63,7 @@ def test_vibe_command_without_request(
     standard_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command without a request and OutputFlags."""
-    with patch("vibectl.cli.configure_output_flags") as mock_flags:
+    with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
         result = cli_runner.invoke(vibe, ["--show-raw-output"])
     assert result.exit_code == 0
@@ -82,7 +82,7 @@ def test_vibe_command_with_yes_flag(
     standard_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with the yes flag."""
-    with patch("vibectl.cli.configure_output_flags") as mock_flags:
+    with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = standard_output_flags
         result = cli_runner.invoke(
             vibe, ["Create a deployment", "--yes", "--show-raw-output"]

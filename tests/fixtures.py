@@ -16,7 +16,7 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
     Returns:
         Mock: Mocked run_kubectl function that returns "test output" by default.
     """
-    with patch("vibectl.cli.run_kubectl") as mock:
+    with patch("vibectl.command_handler.run_kubectl") as mock:
         # Default to successful output
         mock.return_value = "test output"
 
@@ -40,7 +40,7 @@ def mock_handle_command_output() -> Generator[Mock, None, None]:
     Returns:
         Mock: Mocked handle_command_output function.
     """
-    with patch("vibectl.cli.handle_command_output") as mock:
+    with patch("vibectl.command_handler.handle_command_output") as mock:
         yield mock
 
 
@@ -51,7 +51,7 @@ def mock_handle_vibe_request() -> Generator[Mock, None, None]:
     Returns:
         Mock: Mocked handle_vibe_request function.
     """
-    with patch("vibectl.cli.handle_vibe_request") as mock:
+    with patch("vibectl.command_handler.handle_vibe_request") as mock:
         yield mock
 
 
@@ -136,30 +136,6 @@ def mock_json_output() -> str:
   }
 }
 """
-
-
-@pytest.fixture
-def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock], None, None]:
-    """Provide common mocks required for CLI tests to prevent unmocked calls."""
-    with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe,
-    ):
-        # Default to successful output
-        mock_run_kubectl.return_value = "test output"
-
-        # Helper for setting up error responses
-        def set_error_response(stderr: str = "test error") -> None:
-            """Configure mock to return an error response."""
-            mock_run_kubectl.return_value = (
-                f"Error: {stderr}" if stderr else "Error: Command failed"
-            )
-
-        # Add the helper method to the mock
-        mock_run_kubectl.set_error_response = set_error_response
-
-        yield mock_run_kubectl, mock_handle_output, mock_handle_vibe
 
 
 @pytest.fixture

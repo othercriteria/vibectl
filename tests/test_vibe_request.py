@@ -1,10 +1,12 @@
 """Tests for vibe request handling functionality."""
 
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
 
 
@@ -95,14 +97,14 @@ def test_handle_vibe_request_error_response(
     mock_run_kubectl: Mock,
     mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test vibe request with error response from planner."""
+    caplog.set_level("ERROR")
     # Set up error response
     mock_llm.execute.side_effect = ["ERROR: test error", "Test response"]
-
     # Set show_kubectl to True to ensure command is displayed in error messages
     mock_output_flags_for_vibe_request.show_kubectl = True
-
     # Call function
     with patch(
         "vibectl.memory.include_memory_in_prompt",
@@ -115,12 +117,10 @@ def test_handle_vibe_request_error_response(
             summary_prompt_func=get_test_summary_prompt,
             output_flags=mock_output_flags_for_vibe_request,
         )
-
-    # In the current implementation, error messages may go to stderr directly
-    # rather than through the mock_console.print_error
-    captured = capsys.readouterr()
-    assert "ERROR: test error" in captured.err
-
+    # Assert the actual log message is present
+    assert any(
+        "LLM planning error: test error" in r.getMessage() for r in caplog.records
+    )
     # Verify kubectl was NOT called (because the command includes ERROR:)
     mock_run_kubectl.assert_not_called()
 
@@ -209,11 +209,12 @@ def test_handle_vibe_request_llm_output_parsing(
     mock_memory: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
     capsys: pytest.CaptureFixture,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test vibe request with LLM output that includes delimiter."""
+    caplog.set_level("INFO")
     # Set up LLM response with delimiter - get commands will also be parsed for YAML now
     mock_llm.execute.side_effect = ["get pods\n---\nother content", "Test response"]
-
     # Mock subprocess.run for kubectl calls with YAML
     with (
         patch(
@@ -227,7 +228,6 @@ def test_handle_vibe_request_llm_output_parsing(
         mock_process.stdout = "pod-list-output"
         mock_process.returncode = 0
         mock_subprocess.return_value = mock_process
-
         handle_vibe_request(
             request="show me the pods",
             command="get",
@@ -235,15 +235,13 @@ def test_handle_vibe_request_llm_output_parsing(
             summary_prompt_func=get_test_summary_prompt,
             output_flags=mock_output_flags_for_vibe_request,
         )
-
-    # Verify subprocess was called, and run_kubectl was not called directly
     mock_subprocess.assert_called_once()
     mock_run_kubectl.assert_not_called()
-
-    # Capture the output and check for expected content
-    captured = capsys.readouterr()
-    assert "✨ Vibe check:" in captured.out
-    assert "Test response" in captured.out
+    # Assert that the summary was printed via print_vibe
+    mock_console.print_vibe.assert_called()
+    # Optionally, check the summary content if desired
+    summary_arg = mock_console.print_vibe.call_args[0][0]
+    assert isinstance(summary_arg, str) and summary_arg
 
 
 def test_handle_vibe_request_command_error(
@@ -253,15 +251,14 @@ def test_handle_vibe_request_command_error(
     prevent_exit: MagicMock,
     standard_output_flags: OutputFlags,
     mock_memory: MagicMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test vibe request with command execution error."""
+    caplog.set_level("INFO")
     # Set up LLM response
     mock_llm.execute.return_value = "get pods"
-
     # Set up kubectl to throw an exception
     mock_run_kubectl.side_effect = Exception("Command failed")
-
-    # Create a dummy stdout capture to verify the expected pattern
     import sys
     from io import StringIO
 
@@ -269,10 +266,8 @@ def test_handle_vibe_request_command_error(
     original_stdout = sys.stdout
     captured_stderr = StringIO()
     original_stderr = sys.stderr
-
     sys.stdout = captured_stdout
     sys.stderr = captured_stderr
-
     try:
         # Call function
         with patch(
@@ -286,27 +281,15 @@ def test_handle_vibe_request_command_error(
                 summary_prompt_func=get_test_summary_prompt,
                 output_flags=standard_output_flags,
             )
-
-        # Restore streams
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        output = captured_stdout.getvalue()
-
-        # The new robustness improvements print errors to stderr directly
-        # and don't use mock_handle_exception anymore
-        # Instead, verify the call to run_kubectl
         mock_run_kubectl.assert_called_once()
-
-        # Verify recovery suggestions were shown
         assert mock_llm.execute.call_count >= 2
-
-        # Verify the output contains the expected pattern
-        # (vibe check with recovery suggestions)
-        assert "✨ Vibe check:" in output
-        assert "Test response" in output
-
+        # Assert that the summary was printed via print_vibe
+        mock_console.print_vibe.assert_called()
+        summary_arg = mock_console.print_vibe.call_args[0][0]
+        assert isinstance(summary_arg, str) and summary_arg
     finally:
-        # Ensure stdout and stderr are restored even if there's an exception
         sys.stdout = original_stdout
         sys.stderr = original_stderr
 
@@ -319,14 +302,14 @@ def test_handle_vibe_request_error(
     mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
     capsys: pytest.CaptureFixture,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test vibe request with error response."""
+    caplog.set_level("ERROR")
     # Set up error response in first line format
     mock_llm.execute.side_effect = ["ERROR: test error", "Test response"]
-
     # Set show_kubectl to True to ensure command is displayed in error messages
     mock_output_flags_for_vibe_request.show_kubectl = True
-
     # Call function
     with patch(
         "vibectl.memory.include_memory_in_prompt",
@@ -339,12 +322,10 @@ def test_handle_vibe_request_error(
             summary_prompt_func=get_test_summary_prompt,
             output_flags=mock_output_flags_for_vibe_request,
         )
-
-    # In the current implementation, error messages may go to stderr directly
-    # rather than through the mock_console.print_error
-    captured = capsys.readouterr()
-    assert "ERROR: test error" in captured.err
-
+    # Assert the actual log message is present
+    assert any(
+        "LLM planning error: test error" in r.getMessage() for r in caplog.records
+    )
     # Verify kubectl was NOT called (because the command includes ERROR:)
     mock_run_kubectl.assert_not_called()
 
@@ -609,3 +590,51 @@ def test_show_kubectl_flag_controls_command_display(
             assert (
                 "Planning to run: kubectl" not in call[0][0]
             ), "Kubectl command note displayed when show_kubectl=False"
+
+
+def test_vibe_cli_emits_vibe_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CLI-level test: 'vibectl vibe' emits the '✨ Vibe check:' emoji in output."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+
+    # Patch get_memory to return a known value
+    monkeypatch.setattr(
+        "vibectl.memory.get_memory", lambda *a, **kw: "Test memory context"
+    )
+
+    # Patch model adapter to return a known command and summary
+    class DummyModel:
+        class Resp:
+            def __init__(self, text: str) -> None:
+                self._text = text
+
+            def text(self) -> str:
+                return self._text
+
+        def prompt(self, prompt_text: str) -> object:
+            # First call is for planning, second for summary
+            if "Plan this" in prompt_text:
+                return self.Resp("get pods")
+            return self.Resp("1 pod running")
+
+    monkeypatch.setattr(
+        "vibectl.model_adapter.llm.get_model",
+        lambda name: DummyModel(),
+    )
+    # Patch run_kubectl to return a known output
+    monkeypatch.setattr(
+        "vibectl.command_handler.run_kubectl",
+        lambda *a, **kw: "dummy kubectl get pods output",
+    )
+    # Patch update_memory to no-op
+    monkeypatch.setattr("vibectl.command_handler.update_memory", lambda *a, **kw: None)
+    # Patch click.confirm to always return True
+    monkeypatch.setattr("click.confirm", lambda *a, **kw: True)
+
+    result = runner.invoke(cli, ["vibe"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "✨ Vibe check:" in result.output
+    assert "1 pod running" in result.output

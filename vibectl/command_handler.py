@@ -169,6 +169,9 @@ def handle_command_output(
         command: Optional command string that generated the output
     """
     logger.debug(f"Handling command output for: {command}")
+    # Show the kubectl command if requested
+    if output_flags.show_kubectl and command:
+        console_manager.print_note(f"[kubectl] {command}")
     # Show warning if no output will be shown and warning is enabled
     if (
         not output_flags.show_raw

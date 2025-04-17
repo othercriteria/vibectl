@@ -19,7 +19,7 @@ def test_rollout_vibe_request(cli_runner: CliRunner) -> None:
     """Test that the rollout command handles vibe requests properly
     (now not supported at group level).
     """
-    with patch("vibectl.cli.handle_vibe_request"):
+    with patch("vibectl.command_handler.handle_vibe_request"):
         result = cli_runner.invoke(
             rollout, ["vibe", "check status of frontend deployment"]
         )
@@ -357,7 +357,7 @@ def test_rollout_with_args(cli_runner: CliRunner) -> None:
 def test_rollout_integration_flow(cli_runner: CliRunner) -> None:
     """Test the integration between rollout parent command and subcommands."""
     with (
-        patch("vibectl.cli.handle_vibe_request"),
+        patch("vibectl.command_handler.handle_vibe_request"),
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags"

@@ -24,7 +24,7 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
     # We need to patch BOTH the CLI import AND the command_handler module
     # The CLI imports from command_handler, and most tests call the CLI module directly
     with (
-        patch("vibectl.cli.run_kubectl") as cli_mock,
+        patch("vibectl.command_handler.run_kubectl") as cli_mock,
         patch("vibectl.command_handler.run_kubectl") as handler_mock,
     ):
         # Set up default mock behavior for successful cases
@@ -51,7 +51,7 @@ def mock_handle_command_output() -> Generator[Mock, None, None]:
     """Fixture providing patched handle_command_output function for all tests."""
     # Again patch both paths for consistency
     with (
-        patch("vibectl.cli.handle_command_output") as cli_mock,
+        patch("vibectl.command_handler.handle_command_output") as cli_mock,
         patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
         # Keep calls in sync
@@ -106,7 +106,7 @@ def ensure_test_config_env(
 @pytest.fixture
 def mock_config() -> Generator[Mock, None, None]:
     """Provide a mocked Config instance."""
-    with patch("vibectl.cli.Config") as mock_config_class:
+    with patch("vibectl.command_handler.Config") as mock_config_class:
         mock_config = Mock()
         mock_config_class.return_value = mock_config
         yield mock_config
@@ -115,7 +115,7 @@ def mock_config() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_console() -> Generator[Mock, None, None]:
     """Provide a mocked ConsoleManager instance."""
-    with patch("vibectl.cli.console_manager") as mock_console:
+    with patch("vibectl.command_handler.console_manager") as mock_console:
         yield mock_console
 
 
@@ -151,7 +151,7 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
     Returns:
         Mock: Mocked configure_output_flags function that returns OutputFlags instance.
     """
-    with patch("vibectl.cli.configure_output_flags") as mock:
+    with patch("vibectl.command_handler.configure_output_flags") as mock:
         # Return an OutputFlags instance instead of a tuple
         mock.return_value = OutputFlags(
             show_raw=False,
@@ -166,9 +166,9 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
 def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
     """Provide common mocks required for CLI tests to prevent unmocked calls."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe_cli,
+        patch("vibectl.command_handler.run_kubectl") as mock_run_kubectl,
+        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
+        patch("vibectl.command_handler.handle_vibe_request") as mock_handle_vibe_cli,
         patch(
             "vibectl.subcommands.get_cmd.handle_vibe_request"
         ) as mock_handle_vibe_get,
@@ -198,7 +198,7 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
 @pytest.fixture
 def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
     """Fixture providing patched run_kubectl function specifically for CLI tests."""
-    with patch("vibectl.cli.run_kubectl") as mock:
+    with patch("vibectl.command_handler.run_kubectl") as mock:
         # Set up default mock behavior
         mock.return_value = "test output"
 
@@ -219,7 +219,7 @@ def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
 def mock_handle_output_for_cli() -> Generator[Mock, None, None]:
     """Fixture providing patched handle_command_output function specifically
     for CLI tests."""
-    with patch("vibectl.cli.handle_command_output") as mock:
+    with patch("vibectl.command_handler.handle_command_output") as mock:
         yield mock
 
 
