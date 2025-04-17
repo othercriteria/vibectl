@@ -1,11 +1,10 @@
-from vibectl.cli import (
-    configure_memory_flags,
+from vibectl.command_handler import (
     configure_output_flags,
-    get_memory,
     handle_vibe_request,
 )
 from vibectl.console import console_manager
 from vibectl.logutil import logger
+from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.prompt import PLAN_VIBE_PROMPT, vibe_autonomous_prompt
 from vibectl.types import Error, Result, Success
 
@@ -68,9 +67,13 @@ def run_vibe_command(
             )
         except Exception as e:
             logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
+            if exit_on_error:
+                raise
             return Error(error="Exception in handle_vibe_request", exception=e)
         logger.info("Completed 'vibe' subcommand.")
         return Success(message="Completed 'vibe' subcommand.")
     except Exception as e:
         logger.error("Error in 'vibe' subcommand: %s", e, exc_info=True)
+        if exit_on_error:
+            raise
         return Error(error="Exception in 'vibe' subcommand", exception=e)

@@ -25,7 +25,14 @@ from vibectl.memory import (
     set_memory,
 )
 from vibectl.subcommands.create_cmd import run_create_command
+from vibectl.subcommands.describe_cmd import run_describe_command
+from vibectl.subcommands.events_cmd import run_events_command
+from vibectl.subcommands.get_cmd import run_get_command
+from vibectl.subcommands.just_cmd import run_just_command
+from vibectl.subcommands.logs_cmd import run_logs_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
+from vibectl.subcommands.version_cmd import run_version_command
+from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
@@ -193,8 +200,6 @@ def get(
     show_kubectl: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
-    from vibectl.subcommands.get_cmd import run_get_command
-
     result = run_get_command(
         resource,
         args,
@@ -223,8 +228,6 @@ def describe(
     show_kubectl: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
-    from vibectl.subcommands.describe_cmd import run_describe_command
-
     result = run_describe_command(
         resource,
         args,
@@ -253,8 +256,6 @@ def logs(
     show_kubectl: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
-    from vibectl.subcommands.logs_cmd import run_logs_command
-
     result = run_logs_command(
         resource,
         args,
@@ -365,8 +366,6 @@ def just(args: tuple) -> None:
     Example:
         vibectl just get pods  # equivalent to: kubectl get pods
     """
-    from vibectl.subcommands.just_cmd import run_just_command
-
     result = run_just_command(args)
     handle_result(result)
 
@@ -585,8 +584,6 @@ def vibe(
     yes: bool = False,
 ) -> None:
     """Execute autonomous Kubernetes operations guided by memory and planning."""
-    from vibectl.subcommands.vibe_cmd import run_vibe_command
-
     result = run_vibe_command(
         request=request,
         show_raw_output=show_raw_output,
@@ -613,8 +610,6 @@ def events(
     show_kubectl: bool | None = None,
 ) -> None:
     """List events in the cluster."""
-    from vibectl.subcommands.events_cmd import run_events_command
-
     result = run_events_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -640,8 +635,6 @@ def version(
     show_kubectl: bool | None = None,  # Accept for decorator compatibility
 ) -> None:
     """Show Kubernetes version information."""
-    from vibectl.subcommands.version_cmd import run_version_command
-
     result = run_version_command(
         args,
         show_raw_output=show_raw_output,

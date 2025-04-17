@@ -243,3 +243,48 @@ def test_vibe_command_logs_and_console_for_nonempty_request() -> None:
         assert isinstance(result, Success)
         mock_logger.info.assert_any_call("Planning how to: do something")
         mock_console.print_processing.assert_any_call("Planning how to: do something")
+
+
+def test_vibe_command_handle_vibe_request_exception_exit_on_error_true() -> None:
+    """Test that an exception in handle_vibe_request is raised if exit_on_error=True."""
+    import pytest
+
+    from vibectl.subcommands.vibe_cmd import run_vibe_command
+
+    with (
+        patch(
+            "vibectl.subcommands.vibe_cmd.handle_vibe_request",
+            side_effect=Exception("fail!"),
+        ),
+        patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
+        patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
+        patch("vibectl.subcommands.vibe_cmd.console_manager"),
+    ):
+        with pytest.raises(Exception) as excinfo:
+            run_vibe_command("do something", None, None, None, None, exit_on_error=True)
+        assert "fail!" in str(excinfo.value)
+        mock_logger.error.assert_any_call(
+            "Error in handle_vibe_request: %s", ANY, exc_info=True
+        )
+
+
+def test_vibe_command_outer_exception_exit_on_error_true() -> None:
+    """Test that an exception in outer try/except is raised if exit_on_error=True."""
+    import pytest
+
+    from vibectl.subcommands.vibe_cmd import run_vibe_command
+
+    with (
+        patch(
+            "vibectl.subcommands.vibe_cmd.configure_output_flags",
+            side_effect=Exception("outer fail"),
+        ),
+        patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
+        patch("vibectl.subcommands.vibe_cmd.console_manager"),
+    ):
+        with pytest.raises(Exception) as excinfo:
+            run_vibe_command("do something", None, None, None, None, exit_on_error=True)
+        assert "outer fail" in str(excinfo.value)
+        mock_logger.error.assert_any_call(
+            "Error in 'vibe' subcommand: %s", ANY, exc_info=True
+        )

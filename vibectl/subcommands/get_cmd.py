@@ -1,12 +1,11 @@
-from vibectl.cli import (
-    configure_memory_flags,
+from vibectl.command_handler import (
     configure_output_flags,
+    handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.command_handler import handle_standard_command
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-from vibectl.memory import include_memory_in_prompt
+from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import (
     PLAN_GET_PROMPT,
     get_resource_prompt,

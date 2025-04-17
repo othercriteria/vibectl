@@ -6,7 +6,7 @@ from vibectl.cli import cli
 
 
 @patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.subcommands.version_cmd.run_kubectl")
 @patch("vibectl.command_handler.handle_command_output")
 def test_version_error_handling(
     mock_handle_output: Mock,

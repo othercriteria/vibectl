@@ -1,12 +1,10 @@
-from vibectl.cli import (
-    console_manager,
+from vibectl.command_handler import (
+    configure_output_flags,
     handle_command_output,
     handle_vibe_request,
     run_kubectl,
 )
-from vibectl.command_handler import (
-    configure_output_flags,
-)
+from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_EVENTS_PROMPT, events_prompt
