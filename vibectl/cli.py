@@ -24,6 +24,7 @@ from vibectl.memory import (
     include_memory_in_prompt,
     set_memory,
 )
+from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.subcommands.events_cmd import run_events_command
@@ -51,8 +52,6 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_DELETE_PROMPT,
-    PLAN_VIBE_PROMPT,
-    cluster_info_prompt,
     delete_resource_prompt,
     memory_fuzzy_update_prompt,
 )
@@ -69,6 +68,11 @@ DEFAULT_SUPPRESS_OUTPUT_WARNING = False
 
 # Current datetime for version command
 CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# Ensure test/patch compatibility: assign to module namespace
+run_kubectl = run_kubectl
+handle_command_output = handle_command_output
+handle_vibe_request = handle_vibe_request
 
 
 # --- Common Option Decorator ---
@@ -627,9 +631,9 @@ def version(
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
-    freeze_memory: bool = False,  # Accept for decorator compatibility
-    unfreeze_memory: bool = False,  # Accept for decorator compatibility
-    show_kubectl: bool | None = None,  # Accept for decorator compatibility
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> None:
     """Show Kubernetes version information."""
     result = run_version_command(
@@ -652,53 +656,22 @@ def cluster_info(
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
-    freeze_memory: bool = False,  # Accept for decorator compatibility
-    unfreeze_memory: bool = False,  # Accept for decorator compatibility
-    show_kubectl: bool | None = None,  # Accept for decorator compatibility
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
 ) -> int | None:
     """Display cluster info."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-        # Configure memory flags (for consistency, even if not used)
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe command
-        if args and args[0] == "vibe":
-            if len(args) < 2:
-                console_manager.print_error("Missing request after 'vibe'")
-                return 1
-            request = " ".join(args[1:])
-            handle_vibe_request(
-                request=request,
-                command="cluster-info",
-                plan_prompt=PLAN_VIBE_PROMPT,
-                summary_prompt_func=cluster_info_prompt,
-                output_flags=output_flags,
-            )
-            return 0
-
-        # Run the command
-        output = run_kubectl(["cluster-info", *args], capture=True)
-
-        if not output:
-            return 0
-
-        # Handle output display based on flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=cluster_info_prompt,
-        )
-        return 0
-    except Exception as e:
-        handle_exception(e)
-        return 1
+    result = run_cluster_info_command(
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
+    )
+    handle_result(result)
+    return 0
 
 
 @cli.group(name="memory", help="Memory management commands")

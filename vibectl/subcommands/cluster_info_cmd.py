@@ -7,11 +7,11 @@ from vibectl.command_handler import (
 from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import PLAN_VERSION_PROMPT, version_prompt
+from vibectl.prompt import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_version_command(
+def run_cluster_info_command(
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
@@ -21,11 +21,12 @@ def run_version_command(
     show_kubectl: bool | None = None,
 ) -> Result:
     """
-    Implements the 'version' subcommand logic, including logging and error handling.
+    Implements the 'cluster-info' subcommand logic, including logging and error
+    handling.
     Returns a Result (Success or Error).
     All config compatibility flags are accepted for future-proofing.
     """
-    logger.info(f"Invoking 'version' subcommand with args: {args}")
+    logger.info(f"Invoking 'cluster-info' subcommand with args: {args}")
     try:
         # Configure output flags
         output_flags = configure_output_flags(
@@ -41,7 +42,8 @@ def run_version_command(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in version subcommand.", exc_info=True)
+                logger.error(msg + " in cluster-info subcommand.", exc_info=True)
+                console_manager.print_error(msg)
                 return Error(error=msg)
             request = " ".join(args[1:])
             logger.info("Planning how to: %s", request)
@@ -49,37 +51,41 @@ def run_version_command(
             try:
                 handle_vibe_request(
                     request=request,
-                    command="version",
-                    plan_prompt=PLAN_VERSION_PROMPT,
-                    summary_prompt_func=version_prompt,
+                    command="cluster-info",
+                    plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
+                    summary_prompt_func=cluster_info_prompt,
                     output_flags=output_flags,
                 )
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'version' subcommand for vibe request.")
-            return Success(message="Completed 'version' subcommand for vibe request.")
+            logger.info("Completed 'cluster-info' subcommand for vibe request.")
+            return Success(
+                message="Completed 'cluster-info' subcommand for vibe request."
+            )
 
-        # For standard version command with no args, run kubectl version
+        # For standard cluster-info command
         try:
-            output = run_kubectl(["version", "--output=json"], capture=True)
+            output = run_kubectl(["cluster-info", *args], capture=True)
 
             if not output:
-                console_manager.print_note("kubectl version information not available")
-                logger.info("No output from kubectl version.")
-                return Success(message="No output from kubectl version.")
+                logger.info("No output from kubectl cluster-info.")
+                console_manager.print_note(
+                    "kubectl cluster-info information not available"
+                )
+                return Success(message="No output from kubectl cluster-info.")
 
             # Handle output display based on flags
             handle_command_output(
                 output=output,
                 output_flags=output_flags,
-                summary_prompt_func=version_prompt,
+                summary_prompt_func=cluster_info_prompt,
             )
         except Exception as e:
-            logger.error("Error running kubectl version: %s", e, exc_info=True)
-            return Error(error="Exception running kubectl version", exception=e)
-        logger.info("Completed 'version' subcommand.")
-        return Success(message="Completed 'version' subcommand.")
+            logger.error("Error running kubectl cluster-info: %s", e, exc_info=True)
+            return Error(error="Exception running kubectl cluster-info", exception=e)
+        logger.info("Completed 'cluster-info' subcommand.")
+        return Success(message="Completed 'cluster-info' subcommand.")
     except Exception as e:
-        logger.error("Error in 'version' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'version' subcommand", exception=e)
+        logger.error("Error in 'cluster-info' subcommand: %s", e, exc_info=True)
+        return Error(error="Exception in 'cluster-info' subcommand", exception=e)

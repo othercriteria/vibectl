@@ -12,9 +12,9 @@ from vibectl.cli import cli
 # The mock_configure_output_flags fixture is now provided by conftest.py
 
 
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
+@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
+@patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_basic(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
@@ -37,9 +37,9 @@ def test_cluster_info_basic(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
+@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
+@patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_with_args(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
@@ -60,9 +60,9 @@ def test_cluster_info_with_args(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
+@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
+@patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_with_flags(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
@@ -94,9 +94,9 @@ def test_cluster_info_with_flags(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
+@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
+@patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_no_output(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
@@ -117,7 +117,7 @@ def test_cluster_info_no_output(
     assert not mock_handle_output.called
 
 
-@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_vibe_request")
 def test_cluster_info_vibe_request(
     mock_handle_vibe: Mock, cli_runner: CliRunner
 ) -> None:
@@ -135,7 +135,7 @@ def test_cluster_info_vibe_request(
     assert kwargs["command"] == "cluster-info"
 
 
-@patch("vibectl.cli.console_manager")
+@patch("vibectl.subcommands.cluster_info_cmd.console_manager")
 def test_cluster_info_vibe_no_request(
     mock_console: Mock, cli_runner: CliRunner
 ) -> None:
@@ -148,9 +148,9 @@ def test_cluster_info_vibe_no_request(
     mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
 
 
-@patch("vibectl.cli.configure_output_flags")
-@patch("vibectl.cli.run_kubectl")
-@patch("vibectl.cli.handle_command_output")
+@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
+@patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
+@patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_error_handling(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
