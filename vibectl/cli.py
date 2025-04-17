@@ -25,6 +25,7 @@ from vibectl.memory import (
     set_memory,
 )
 from vibectl.subcommands.create_cmd import run_create_command
+from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
@@ -49,9 +50,6 @@ from .prompt import (
     delete_resource_prompt,
     memory_fuzzy_update_prompt,
     port_forward_prompt,
-    rollout_general_prompt,
-    rollout_history_prompt,
-    rollout_status_prompt,
     scale_resource_prompt,
 )
 from .types import Error, Result, Success
@@ -949,29 +947,41 @@ def rollout(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Manage rollouts of deployments, statefulsets, and daemonsets.
-
-    Includes subcommands for checking status, viewing history, undoing rollouts,
-    restarting, or pausing/resuming rollouts.
-
-    Examples:
-        vibectl rollout status deployment/nginx
-        vibectl rollout history deployment/frontend
-        vibectl rollout undo deployment/api --to-revision=2
-        vibectl rollout restart deployment/backend
-        vibectl rollout pause deployment/website
-        vibectl rollout resume deployment/website
-        vibectl rollout vibe "check status of the frontend deployment"
-    """
-    # TODO: Add support of 'vibe' or catch-all logic at the group level
+    """Manage rollouts of deployments, statefulsets, and daemonsets."""
     if ctx.invoked_subcommand is not None:
         return
-    # If no subcommand is provided, print error and exit
     console_manager.print_error(
         "Missing subcommand for rollout. "
         "Use one of: status, history, undo, restart, pause, resume"
     )
     sys.exit(1)
+
+
+def _rollout_common(
+    subcommand: str,
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None,
+    yes: bool = False,
+) -> None:
+    result = run_rollout_command(
+        subcommand=subcommand,
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        yes=yes,
+    )
+    handle_result(result)
 
 
 @rollout.command(context_settings={"ignore_unknown_options": True})
@@ -988,19 +998,16 @@ def status(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Show the status of a rollout."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    cmd = ["rollout", "status", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_status_prompt,
+    _rollout_common(
+        subcommand="status",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
     )
 
 
@@ -1018,19 +1025,16 @@ def history(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Show the rollout history."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    cmd = ["rollout", "history", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_history_prompt,
+    _rollout_common(
+        subcommand="history",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
     )
 
 
@@ -1050,26 +1054,17 @@ def undo(
     show_kubectl: bool | None = None,
     yes: bool = False,
 ) -> None:
-    """Undo a rollout."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    if not yes:
-        confirmation_message = (
-            f"Are you sure you want to undo the rollout for {resource}?"
-        )
-        if not click.confirm(confirmation_message):
-            console_manager.print_note("Operation cancelled")
-            return
-    cmd = ["rollout", "undo", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_general_prompt,
+    _rollout_common(
+        subcommand="undo",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
+        yes=yes,
     )
 
 
@@ -1087,19 +1082,16 @@ def restart(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Restart a resource."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    cmd = ["rollout", "restart", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_general_prompt,
+    _rollout_common(
+        subcommand="restart",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
     )
 
 
@@ -1117,19 +1109,16 @@ def pause(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Pause a rollout."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    cmd = ["rollout", "pause", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_general_prompt,
+    _rollout_common(
+        subcommand="pause",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
     )
 
 
@@ -1147,19 +1136,16 @@ def resume(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
 ) -> None:
-    """Resume a paused rollout."""
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-    )
-    configure_memory_flags(freeze_memory, unfreeze_memory)
-    cmd = ["rollout", "resume", resource, *args]
-    output = run_kubectl(cmd, capture=True)
-    if not output:
-        return
-    handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=rollout_general_prompt,
+    _rollout_common(
+        subcommand="resume",
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_kubectl=show_kubectl,
     )
 
 
