@@ -32,6 +32,7 @@ from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
+from vibectl.subcommands.scale_cmd import run_scale_command
 from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
@@ -50,12 +51,10 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_DELETE_PROMPT,
-    PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     delete_resource_prompt,
     memory_fuzzy_update_prompt,
-    scale_resource_prompt,
 )
 from .types import Error, Result, Success
 from .utils import handle_exception
@@ -883,45 +882,17 @@ def scale(
         vibectl scale deployment frontend --replicas=0
         vibectl scale vibe "scale the frontend deployment to 3 replicas"
     """
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
-
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Handle vibe command
-        if resource == "vibe":
-            if not args:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-            request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="scale",
-                plan_prompt=include_memory_in_prompt(PLAN_SCALE_PROMPT),
-                summary_prompt_func=scale_resource_prompt,
-                output_flags=output_flags,
-            )
-            return
-
-        # Regular scale command
-        cmd = ["scale", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=scale_resource_prompt,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_scale_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.group(

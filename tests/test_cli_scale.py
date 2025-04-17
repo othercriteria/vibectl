@@ -13,7 +13,7 @@ from vibectl.prompt import PLAN_SCALE_PROMPT
 
 def test_scale_vibe_request(cli_runner: CliRunner) -> None:
     """Test that the scale command handles vibe requests properly."""
-    with patch("vibectl.cli.handle_vibe_request") as mock_handle_vibe:
+    with patch("vibectl.subcommands.scale_cmd.handle_vibe_request") as mock_handle_vibe:
         result = cli_runner.invoke(
             scale, ["vibe", "scale the frontend deployment to 5 replicas"]
         )
@@ -28,7 +28,7 @@ def test_scale_vibe_request(cli_runner: CliRunner) -> None:
 
 def test_scale_vibe_no_request(cli_runner: CliRunner) -> None:
     """Test that the scale command properly handles missing vibe request."""
-    with patch("vibectl.cli.console_manager") as mock_console:
+    with patch("vibectl.subcommands.scale_cmd.console_manager") as mock_console:
         result = cli_runner.invoke(scale, ["vibe"])
 
         assert result.exit_code == 1
@@ -50,9 +50,11 @@ def test_scale_no_subcommand(cli_runner: CliRunner) -> None:
 def test_scale_deployment_success(cli_runner: CliRunner) -> None:
     """Test normal execution of the scale deployment command."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.scale_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Configure mocks
@@ -72,9 +74,11 @@ def test_scale_deployment_success(cli_runner: CliRunner) -> None:
 def test_scale_integration_flow(cli_runner: CliRunner) -> None:
     """Test the integration between scale parent command and kubectl command."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.scale_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Configure mocks
@@ -94,9 +98,11 @@ def test_scale_integration_flow(cli_runner: CliRunner) -> None:
 def test_scale_normal_execution(cli_runner: CliRunner) -> None:
     """Test normal execution of the scale command with mocks for internal functions."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.scale_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
@@ -117,9 +123,11 @@ def test_scale_normal_execution(cli_runner: CliRunner) -> None:
 def test_scale_no_output(cli_runner: CliRunner) -> None:
     """Test scale command when there's no output from kubectl."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.scale_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
@@ -141,8 +149,8 @@ def test_scale_no_output(cli_runner: CliRunner) -> None:
 def test_scale_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in scale command."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup an exception
@@ -160,9 +168,11 @@ def test_scale_error_handling(cli_runner: CliRunner) -> None:
 def test_scale_with_kubectl_flags(cli_runner: CliRunner) -> None:
     """Test scale command with additional kubectl flags."""
     with (
-        patch("vibectl.cli.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.cli.handle_command_output") as mock_handle_output,
-        patch("vibectl.cli.configure_output_flags") as mock_configure,
+        patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.scale_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
         patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
