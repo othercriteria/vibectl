@@ -4,6 +4,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
     handle_wait_with_live_display,
 )
+from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
@@ -42,9 +43,11 @@ def run_wait_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in wait subcommand.")
+                logger.error(msg + " in wait subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join(args)
+            logger.info("Planning how to: %s", request)
+            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -54,7 +57,7 @@ def run_wait_command(
                     output_flags=output_flags,
                 )
             except Exception as e:
-                logger.error(f"Error in handle_vibe_request: {e}")
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'wait' subcommand for vibe request.")
             return Success(message="Completed 'wait' subcommand for vibe request.")
@@ -62,11 +65,19 @@ def run_wait_command(
         # Handle command with live display
         if live_display:
             logger.info(f"Handling wait with live display for resource: {resource}")
-            handle_wait_with_live_display(
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-            )
+            try:
+                handle_wait_with_live_display(
+                    resource=resource,
+                    args=args,
+                    output_flags=output_flags,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error in handle_wait_with_live_display: %s", e, exc_info=True
+                )
+                return Error(
+                    error="Exception in handle_wait_with_live_display", exception=e
+                )
             logger.info(f"Completed wait with live display for resource: {resource}")
             return Success(
                 message=(f"Completed wait with live display for resource: {resource}")
@@ -74,17 +85,21 @@ def run_wait_command(
         else:
             # Standard command without live display
             logger.info(f"Handling standard wait command for resource: {resource}")
-            handle_standard_command(
-                command="wait",
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-                summary_prompt_func=wait_resource_prompt,
-            )
+            try:
+                handle_standard_command(
+                    command="wait",
+                    resource=resource,
+                    args=args,
+                    output_flags=output_flags,
+                    summary_prompt_func=wait_resource_prompt,
+                )
+            except Exception as e:
+                logger.error("Error in handle_standard_command: %s", e, exc_info=True)
+                return Error(error="Exception in handle_standard_command", exception=e)
             logger.info(f"Completed standard wait command for resource: {resource}")
             return Success(
                 message=(f"Completed standard wait command for resource: {resource}")
             )
     except Exception as e:
-        logger.error(f"Error in 'wait' subcommand: {e}")
+        logger.error("Error in 'wait' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'wait' subcommand", exception=e)

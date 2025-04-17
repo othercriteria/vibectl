@@ -4,6 +4,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
     run_kubectl,
 )
+from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -43,9 +44,11 @@ def run_create_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in create subcommand.")
+                logger.error(msg + " in create subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join(args)
+            logger.info("Planning how to: %s", request)
+            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -55,7 +58,7 @@ def run_create_command(
                     output_flags=output_flags,
                 )
             except Exception as e:
-                logger.error(f"Error in handle_vibe_request: {e}")
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'create' subcommand for vibe request.")
             return Success(message="Completed 'create' subcommand for vibe request.")
@@ -66,11 +69,12 @@ def run_create_command(
         try:
             output = run_kubectl(cmd, capture=True)
         except Exception as e:
-            logger.error(f"Error running kubectl: {e}")
+            logger.error("Error running kubectl: %s", e, exc_info=True)
             return Error(error="Exception running kubectl", exception=e)
 
         if not output:
             logger.info("No output from kubectl create command.")
+            console_manager.print_processing("No output from kubectl create command.")
             return Success(message="No output from kubectl create command.")
 
         try:
@@ -80,7 +84,7 @@ def run_create_command(
                 summary_prompt_func=create_resource_prompt,
             )
         except Exception as e:
-            logger.error(f"Error in handle_command_output: {e}")
+            logger.error("Error in handle_command_output: %s", e, exc_info=True)
             return Error(error="Exception in handle_command_output", exception=e)
 
         logger.info(f"Completed 'create' subcommand for resource: {resource}")
@@ -88,5 +92,5 @@ def run_create_command(
             message=f"Completed 'create' subcommand for resource: {resource}"
         )
     except Exception as e:
-        logger.error(f"Error in 'create' subcommand: {e}")
+        logger.error("Error in 'create' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'create' subcommand", exception=e)

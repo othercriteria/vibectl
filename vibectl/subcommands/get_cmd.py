@@ -4,6 +4,7 @@ from vibectl.cli import (
     handle_vibe_request,
 )
 from vibectl.command_handler import handle_standard_command
+from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import include_memory_in_prompt
 from vibectl.prompt import (
@@ -40,9 +41,11 @@ def run_get_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in get subcommand.")
+                logger.error(msg + " in get subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join(args)
+            logger.info("Planning how to: %s", request)
+            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -52,20 +55,24 @@ def run_get_command(
                     output_flags=output_flags,
                 )
             except Exception as e:
-                logger.error(f"Error in handle_vibe_request: {e}")
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'get' subcommand for vibe request.")
             return Success(message="Completed 'get' subcommand for vibe request.")
 
-        handle_standard_command(
-            command="get",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=get_resource_prompt,
-        )
+        try:
+            handle_standard_command(
+                command="get",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=get_resource_prompt,
+            )
+        except Exception as e:
+            logger.error("Error in handle_standard_command: %s", e, exc_info=True)
+            return Error(error="Exception in handle_standard_command", exception=e)
         logger.info(f"Completed 'get' subcommand for resource: {resource}")
         return Success(message=f"Completed 'get' subcommand for resource: {resource}")
     except Exception as e:
-        logger.error(f"Error in 'get' subcommand: {e}")
+        logger.error("Error in 'get' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'get' subcommand", exception=e)

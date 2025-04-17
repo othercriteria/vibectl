@@ -41,9 +41,11 @@ def run_version_command(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in version subcommand.")
+                logger.error(msg + " in version subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join(args[1:])
+            logger.info("Planning how to: %s", request)
+            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -53,7 +55,7 @@ def run_version_command(
                     output_flags=output_flags,
                 )
             except Exception as e:
-                logger.error(f"Error in handle_vibe_request: {e}")
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'version' subcommand for vibe request.")
             return Success(message="Completed 'version' subcommand for vibe request.")
@@ -74,10 +76,10 @@ def run_version_command(
                 summary_prompt_func=version_prompt,
             )
         except Exception as e:
-            logger.error(f"Error running kubectl version: {e}")
+            logger.error("Error running kubectl version: %s", e, exc_info=True)
             return Error(error="Exception running kubectl version", exception=e)
         logger.info("Completed 'version' subcommand.")
         return Success(message="Completed 'version' subcommand.")
     except Exception as e:
-        logger.error(f"Error in 'version' subcommand: {e}")
+        logger.error("Error in 'version' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'version' subcommand", exception=e)

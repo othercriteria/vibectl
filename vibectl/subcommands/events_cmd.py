@@ -40,9 +40,11 @@ def run_events_command(
         if args and args[0] == "vibe":
             if len(args) < 2:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in events subcommand.")
+                logger.error(msg + " in events subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join(args[1:])
+            logger.info("Planning how to: %s", request)
+            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -52,7 +54,7 @@ def run_events_command(
                     output_flags=output_flags,
                 )
             except Exception as e:
-                logger.error(f"Error in handle_vibe_request: {e}")
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
             logger.info("Completed 'events' subcommand for vibe request.")
             return Success(message="Completed 'events' subcommand for vibe request.")
@@ -64,17 +66,18 @@ def run_events_command(
             output = run_kubectl(cmd, capture=True)
             if not output:
                 console_manager.print_empty_output_message()
+                logger.info("No output from kubectl events command.")
                 return Success(message="No output from kubectl events command.")
             handle_command_output(
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=events_prompt,
             )
-            logger.info("Completed 'events' subcommand.")
-            return Success(message="Completed 'events' subcommand.")
         except Exception as e:
-            logger.error(f"Error running kubectl for events: {e}")
+            logger.error("Error running kubectl for events: %s", e, exc_info=True)
             return Error(error="Exception running kubectl for events", exception=e)
+        logger.info("Completed 'events' subcommand.")
+        return Success(message="Completed 'events' subcommand.")
     except Exception as e:
-        logger.error(f"Error in 'events' subcommand: {e}")
+        logger.error("Error in 'events' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'events' subcommand", exception=e)
