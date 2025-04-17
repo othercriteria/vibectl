@@ -262,147 +262,125 @@ def handle_vibe_request(
         None
     """
     try:
-        # Plan the kubectl command based on the request
+        logger.info(
+            f"Planning kubectl command for request: '{request}' (command: {command})"
+        )
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
         kubectl_cmd = model_adapter.execute(
             model, plan_prompt.format(request=request, command=command)
         )
 
-        # If no command was generated, inform the user and exit
         if not kubectl_cmd:
+            logger.error(
+                "No kubectl command could be generated for request: '%s'", request
+            )
             console_manager.print_error("No kubectl command could be generated.")
             return
 
-        # Check if the response is an error message
         if kubectl_cmd.startswith("ERROR:"):
-            # Extract error message (remove "ERROR: " prefix)
             error_message = kubectl_cmd[7:].strip()
-
-            # Update memory with planning error
+            logger.error("LLM planning error: %s", error_message)
             command_for_output = f"{command} vibe {request}"
             error_output = f"Error: {error_message}"
-
-            # Call update_memory function to add planning error to memory
             update_memory(
                 command=command_for_output,
                 command_output=error_output,
                 vibe_output=kubectl_cmd,
                 model_name=output_flags.model_name,
             )
-
-            # Note that we're including error info in memory
             console_manager.print_note("Planning error added to memory context")
-
-            # Don't try to run the error as a command
             console_manager.print_error(kubectl_cmd)
             return
 
+        logger.debug(f"Processing planned command string: {kubectl_cmd}")
         try:
-            # Process the command to extract YAML content and command arguments
             cmd_args, yaml_content = _process_command_string(kubectl_cmd)
-
-            # Convert command string to a list of arguments
             args = _parse_command_args(cmd_args)
-
-            # Create a display command for user feedback
             display_cmd = _create_display_command(args, yaml_content)
-
-            # Check if we need confirmation
-            needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
-
-            # For autonomous mode vibe commands, strip the 'command' from the
-            # displayed and executed commands
-            should_strip_command = autonomous_mode and command == "vibe"
-
-            # Command to display to the user
-            cmd_for_display = command if not should_strip_command else ""
-
-            # Show command if show_kubectl is True or confirmation needed
-            if output_flags.show_kubectl or needs_confirm:
-                if should_strip_command:
-                    console_manager.print_note(
-                        f"Planning to run: kubectl {display_cmd}"
-                    )
-                else:
-                    console_manager.print_note(
-                        f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
-                    )
-
-            # If confirmation needed, ask now
-            if needs_confirm and not click.confirm("Execute this command?"):
-                console_manager.print_cancelled()
-                return
-
-            # For port-forward commands, use the live display handler if enabled
-            if command == "port-forward" and live_display and len(args) >= 1:
-                resource = args[0]
-                port_args = args[1:] if len(args) > 1 else ()
-                handle_port_forward_with_live_display(
-                    resource=resource,
-                    args=tuple(port_args),
-                    output_flags=output_flags,
-                )
-                return
-
-            # Execute the command and get output
-            try:
-                # For autonomous mode vibe commands, don't include the 'vibe'
-                # command name
-                cmd_for_execution = (
-                    [command, *args] if not should_strip_command else args
-                )
-                output = _execute_command(cmd_for_execution, yaml_content)
-            except Exception as cmd_error:
-                # Provide a more helpful error message and recovery suggestions
-                error_message = f"Command execution error: {cmd_error}"
-                console_manager.print_error(error_message)
-
-                # Capture error for memory update
-                output = f"Error: {cmd_error}"
-
-                # Generate recovery suggestions from the model
-                try:
-                    # Use the recovery_prompt from prompt.py
-                    prompt = recovery_prompt(display_cmd, str(cmd_error))
-                    recovery_suggestions = model_adapter.execute(model, prompt)
-
-                    # Note that we're including recovery info in memory
-                    console_manager.print_note(
-                        "Recovery suggestions added to memory context"
-                    )
-
-                    # Include recovery suggestions in output for memory
-                    output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
-                except Exception:
-                    # If even the recovery suggestions fail, at least don't crash
-                    pass
-
-                # Process the output for memory update (don't return early)
-                # For autonomous mode, don't include 'vibe' in the command description
-                command_for_output = (
-                    f"{cmd_for_display} {display_cmd}"
-                    if cmd_for_display
-                    else display_cmd
-                )
-                handle_command_output(
-                    output=output,
-                    output_flags=output_flags,
-                    summary_prompt_func=summary_prompt_func,
-                    command=command_for_output,
-                )
-                return
         except ValueError as ve:
-            # Handle command parsing/processing errors explicitly
+            logger.error("Command parsing error: %s", ve, exc_info=True)
             console_manager.print_error(f"Command parsing error: {ve}")
             return
 
-        # Handle response - might be empty
+        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
+        should_strip_command = autonomous_mode and command == "vibe"
+        cmd_for_display = command if not should_strip_command else ""
+
+        if output_flags.show_kubectl or needs_confirm:
+            logger.info(f"Planned kubectl command: {cmd_for_display} {display_cmd}")
+            if should_strip_command:
+                console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+            else:
+                console_manager.print_note(
+                    f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
+                )
+
+        if needs_confirm and not click.confirm("Execute this command?"):
+            logger.info(
+                "User cancelled execution of planned command: %s %s",
+                cmd_for_display,
+                display_cmd,
+            )
+            console_manager.print_cancelled()
+            return
+
+        if command == "port-forward" and live_display and len(args) >= 1:
+            logger.info(f"Handling port-forward with live display: {args}")
+            resource = args[0]
+            port_args = args[1:] if len(args) > 1 else ()
+            handle_port_forward_with_live_display(
+                resource=resource,
+                args=tuple(port_args),
+                output_flags=output_flags,
+            )
+            return
+
+        cmd_to_execute = [command, *args] if not should_strip_command else args
+        logger.info(
+            f"Executing kubectl command: {cmd_to_execute} (yaml: {bool(yaml_content)})"
+        )
+        try:
+            output = _execute_command(cmd_to_execute, yaml_content)
+        except Exception as cmd_error:
+            logger.error("Command execution error: %s", cmd_error, exc_info=True)
+            error_message = f"Command execution error: {cmd_error}"
+            console_manager.print_error(error_message)
+            output = f"Error: {cmd_error}"
+            try:
+                prompt = recovery_prompt(display_cmd, str(cmd_error))
+                recovery_suggestions = model_adapter.execute(model, prompt)
+                logger.info(
+                    "Recovery suggestions added to memory context for error: %s",
+                    cmd_error,
+                )
+                console_manager.print_note(
+                    "Recovery suggestions added to memory context"
+                )
+                output += "\n\nRecovery suggestions:\n" f"{recovery_suggestions}"
+            except Exception as rec_e:
+                logger.warning(
+                    "Failed to generate recovery suggestions: %s",
+                    rec_e,
+                    exc_info=True,
+                )
+            command_for_output = (
+                f"{cmd_for_display} {display_cmd}" if cmd_for_display else display_cmd
+            )
+            handle_command_output(
+                output=output,
+                output_flags=output_flags,
+                summary_prompt_func=summary_prompt_func,
+                command=command_for_output,
+            )
+            return
+
         if not output:
+            logger.info(
+                "Command returned no output: %s %s", cmd_for_display, display_cmd
+            )
             console_manager.print_note("Command returned no output")
 
-        # Process the output regardless
-        # For autonomous mode, don't include 'vibe' in the command description
         command_for_output = (
             f"{cmd_for_display} {display_cmd}" if cmd_for_display else display_cmd
         )
@@ -413,18 +391,17 @@ def handle_vibe_request(
             command=command_for_output,
         )
     except Exception as e:
-        # Print error but don't exit the process for non-critical errors
+        logger.error("Unexpected error in handle_vibe_request: %s", e, exc_info=True)
         console_manager.print_error(f"Error: {e}")
-
-        # If this seems to be a command execution error, add more context
         if "kubectl" in str(e).lower() or "command" in str(e).lower():
+            logger.info(
+                "Likely kubectl command error, suggesting user try raw command."
+            )
             console_manager.print_note(
                 "This appears to be a kubectl command error. "
                 "You can try rephrasing your request or using 'vibectl just' "
                 "to run raw kubectl commands directly."
             )
-
-        # Don't call handle_exception which would exit the process
 
 
 def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
