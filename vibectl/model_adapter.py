@@ -9,13 +9,15 @@ from the details of model interaction.
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
 import llm
 
 from .config import Config
+from .logutil import logger
 
 
+@runtime_checkable
 class ModelResponse(Protocol):
     """Protocol defining the expected interface for model responses."""
 
@@ -165,6 +167,7 @@ class LLMModelAdapter(ModelAdapter):
         """
         self.config = config or Config()
         self._model_cache: dict[str, Any] = {}
+        logger.debug("LLMModelAdapter initialized with config: %s", self.config)
 
     def _determine_provider_from_model(self, model_name: str) -> str | None:
         """Determine the provider from the model name.
@@ -198,14 +201,17 @@ class LLMModelAdapter(ModelAdapter):
         """
         # Check cache first
         if model_name in self._model_cache:
+            logger.debug("Model '%s' found in cache", model_name)
             return self._model_cache[model_name]
 
+        logger.info("Loading model '%s'", model_name)
         # Use context manager for environment variable handling
         with ModelEnvironment(model_name, self.config):
             try:
                 # Get model from LLM package
                 model = llm.get_model(model_name)
                 self._model_cache[model_name] = model
+                logger.info("Model '%s' loaded and cached", model_name)
                 return model
             except Exception as e:
                 provider = self._determine_provider_from_model(model_name)
@@ -215,9 +221,21 @@ class LLMModelAdapter(ModelAdapter):
                     error_msg = self._format_api_key_message(
                         provider, model_name, is_error=True
                     )
+                    logger.error(
+                        "API key missing for provider '%s' (model '%s'): %s",
+                        provider,
+                        model_name,
+                        error_msg,
+                    )
                     raise ValueError(error_msg) from e
 
                 # Generic error message if not API key related
+                logger.error(
+                    "Failed to get model '%s': %s",
+                    model_name,
+                    e,
+                    exc_info=logger.isEnabledFor(10),
+                )
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
     def execute(self, model: Any, prompt_text: str) -> str:
@@ -235,22 +253,32 @@ class LLMModelAdapter(ModelAdapter):
         """
         # Get model name from the model object if available
         model_name = getattr(model, "name", "unknown")
+        logger.debug("Executing prompt on model '%s': %r", model_name, prompt_text)
 
         # Use context manager for environment variable handling
         with ModelEnvironment(model_name, self.config):
             try:
                 response = model.prompt(prompt_text)
+                logger.debug("Model '%s' prompt executed successfully", model_name)
                 if hasattr(response, "text"):
                     return cast("ModelResponse", response).text()
                 return str(response)
             except Exception as e:
                 # Check if error might be related to token limit
                 if "token" in str(e).lower() and "limit" in str(e).lower():
-                    # Handle token limit errors more gracefully
+                    logger.warning(
+                        "Token limit exceeded for model '%s': %s", model_name, e
+                    )
                     raise ValueError(
                         f"Token limit exceeded: {e}. Try shortening your prompt."
                     ) from e
                 # Generic error for all other issues
+                logger.error(
+                    "Error executing prompt on model '%s': %s",
+                    model_name,
+                    e,
+                    exc_info=logger.isEnabledFor(10),
+                )
                 raise ValueError(f"Error executing prompt: {e}") from e
 
     def validate_model_key(self, model_name: str) -> str | None:
@@ -264,27 +292,49 @@ class LLMModelAdapter(ModelAdapter):
         """
         provider = self._determine_provider_from_model(model_name)
         if not provider:
+            logger.warning(
+                "Unknown model provider for '%s'. Key validation skipped.", model_name
+            )
             return f"Unknown model provider for '{model_name}'. Key validation skipped."
 
         # Ollama models often don't need a key for local usage
         if provider == "ollama":
+            logger.debug(
+                "Ollama provider detected for model '%s'; skipping key validation.",
+                model_name,
+            )
             return None
 
         # Check if we have a key configured
         key = self.config.get_model_key(provider)
         if not key:
-            return self._format_api_key_message(provider, model_name, is_error=False)
+            msg = self._format_api_key_message(provider, model_name, is_error=False)
+            logger.warning(
+                "No API key found for provider '%s' (model '%s')", provider, model_name
+            )
+            return msg
 
         # Basic validation - check key format based on provider
         # Valid keys either start with sk- OR are short (<20 chars)
         # Warning is shown when key doesn't start with sk- AND is not
         # short (>=20 chars)
         if provider == "anthropic" and not key.startswith("sk-") and len(key) >= 20:
+            logger.warning(
+                "Anthropic API key format looks invalid for model '%s'", model_name
+            )
             return self._format_key_validation_message(provider)
 
         if provider == "openai" and not key.startswith("sk-") and len(key) >= 20:
+            logger.warning(
+                "OpenAI API key format looks invalid for model '%s'", model_name
+            )
             return self._format_key_validation_message(provider)
 
+        logger.debug(
+            "API key for provider '%s' (model '%s') validated successfully",
+            provider,
+            model_name,
+        )
         return None
 
     def _format_api_key_message(

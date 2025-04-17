@@ -449,3 +449,12 @@ def mock_run_kubectl_version_cmd() -> Generator[Mock, None, None]:
 def mock_handle_command_output_version_cmd() -> Generator[Mock, None, None]:
     with patch("vibectl.subcommands.version_cmd.handle_command_output") as mock:
         yield mock
+
+
+@pytest.fixture
+def mock_model_adapter_logger() -> Generator[Mock, None, None]:
+    """Patch the logger in vibectl.model_adapter for logging assertions."""
+    import vibectl.model_adapter as model_adapter
+
+    with patch.object(model_adapter, "logger") as mock_logger:
+        yield mock_logger
