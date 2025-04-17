@@ -16,6 +16,7 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
+from vibectl.memory import clear_memory
 
 
 @pytest.fixture
@@ -337,7 +338,7 @@ def prevent_exit() -> Generator[MagicMock, None, None]:
     This fixture is useful for testing error cases where sys.exit would normally
     terminate the test.
     """
-    with patch("vibectl.command_handler.sys.exit") as mock_exit:
+    with patch("sys.exit") as mock_exit:
         yield mock_exit
 
 
@@ -429,3 +430,22 @@ def mock_command_handler_logger() -> Generator[Mock, None, None]:
 
     with patch.object(command_handler, "logger") as mock_logger:
         yield mock_logger
+
+
+@pytest.fixture(autouse=True)
+def reset_memory() -> Generator[None, None, None]:
+    clear_memory()
+    yield
+    clear_memory()
+
+
+@pytest.fixture
+def mock_run_kubectl_version_cmd() -> Generator[Mock, None, None]:
+    with patch("vibectl.subcommands.version_cmd.run_kubectl") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_handle_command_output_version_cmd() -> Generator[Mock, None, None]:
+    with patch("vibectl.subcommands.version_cmd.handle_command_output") as mock:
+        yield mock

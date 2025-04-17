@@ -3,30 +3,50 @@ Command handler module for vibectl.
 
 Provides reusable patterns for command handling and execution
 to reduce duplication across CLI commands.
+
+Note: All exceptions should propagate to the CLI entry point for centralized error
+handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
 import asyncio
 import random
 import re
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
 
 import click
 import yaml
-from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
-from .config import DEFAULT_CONFIG, Config
+from .config import (
+    DEFAULT_CONFIG,
+    Config,
+)
 from .console import console_manager
 from .logutil import logger as _logger
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
-from .prompt import port_forward_prompt, recovery_prompt, wait_resource_prompt
-from .proxy import StatsProtocol, TcpProxy, start_proxy_server, stop_proxy_server
+from .prompt import (
+    port_forward_prompt,
+    recovery_prompt,
+    wait_resource_prompt,
+)
+from .proxy import (
+    StatsProtocol,
+    TcpProxy,
+    start_proxy_server,
+    stop_proxy_server,
+)
 from .types import OutputFlags
 
 logger = _logger
@@ -91,7 +111,7 @@ def run_kubectl(
             if not error_message:
                 error_message = f"Command failed with exit code {result.returncode}"
             logger.debug(f"kubectl command failed: {error_message}")
-            raise Exception(error_message)
+            raise RuntimeError(error_message)
 
         # Return output if capturing
         if capture:
@@ -100,10 +120,12 @@ def run_kubectl(
         return None
     except FileNotFoundError:
         logger.debug("kubectl not found. Please install it and try again.")
-        raise Exception("kubectl not found. Please install it and try again.") from None
+        raise FileNotFoundError(
+            "kubectl not found. Please install it and try again."
+        ) from None
     except Exception as e:
         logger.debug(f"Exception running kubectl: {e}", exc_info=True)
-        raise Exception(str(e)) from e
+        raise e from None
 
 
 def handle_standard_command(
@@ -147,6 +169,7 @@ def handle_standard_command(
             " ".join(args),
             e,
         )
+        # Let exception propagate to CLI entry point for centralized handling
         raise
 
 
@@ -236,6 +259,7 @@ def handle_command_output(
             console_manager.print_vibe(vibe_output)
         except Exception as e:
             logger.error(f"Error in vibe output processing: {e}")
+            # Let exception propagate to CLI entry point for centralized handling
             raise
 
 
@@ -405,6 +429,8 @@ def handle_vibe_request(
                 "You can try rephrasing your request or using 'vibectl just' "
                 "to run raw kubectl commands directly."
             )
+        # Let exception propagate to CLI entry point for centralized handling
+        raise
 
 
 def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
@@ -592,7 +618,7 @@ def _execute_command_with_complex_args(args: list[str]) -> str:
         return result.stdout
     except subprocess.CalledProcessError as e:
         if e.stderr:
-            print(e.stderr, file=sys.stderr)
+            console_manager.print_error(e.stderr)
             return f"Error: {e.stderr}"
         return f"Error: Command failed with exit code {e.returncode}"
 
@@ -650,7 +676,7 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
         stderr = stderr_bytes.decode("utf-8")
 
         if process.returncode != 0:
-            raise Exception(
+            raise RuntimeError(
                 stderr or f"Command failed with exit code {process.returncode}"
             )
 
@@ -678,7 +704,7 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> str:
             proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
             output = proc.stdout
             if proc.returncode != 0:
-                raise Exception(
+                raise RuntimeError(
                     proc.stderr or f"Command failed with exit code {proc.returncode}"
                 )
             return output
