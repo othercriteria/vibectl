@@ -42,13 +42,11 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .prompt import (
     PLAN_DELETE_PROMPT,
-    PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
     PLAN_SCALE_PROMPT,
     PLAN_VIBE_PROMPT,
     cluster_info_prompt,
     delete_resource_prompt,
-    logs_prompt,
     memory_fuzzy_update_prompt,
     port_forward_prompt,
     rollout_general_prompt,
@@ -257,53 +255,19 @@ def logs(
     show_kubectl: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
-    try:
-        # Configure output flags
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
-        )
+    from vibectl.subcommands.logs_cmd import run_logs_command
 
-        # Configure memory flags
-        configure_memory_flags(freeze_memory, unfreeze_memory)
-
-        # Special case for vibe command
-        if resource == "vibe":
-            if not args:
-                console_manager.print_error("Missing request after 'vibe'")
-                sys.exit(1)
-
-            request = " ".join(args)
-            handle_vibe_request(
-                request=request,
-                command="logs",
-                plan_prompt=include_memory_in_prompt(PLAN_LOGS_PROMPT),
-                summary_prompt_func=logs_prompt,
-                output_flags=output_flags,
-            )
-            return
-
-        # Regular logs command
-        cmd = ["logs", resource, *args]
-        output = run_kubectl(cmd, capture=True)
-
-        if not output:
-            return
-
-        # Check if output is too large and might need truncation
-        output_length = len(output)
-        if output_length > MAX_TOKEN_LIMIT * LOGS_TRUNCATION_RATIO:
-            console_manager.print_truncation_warning()
-
-        # Handle the output display based on the configured flags
-        handle_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=logs_prompt,
-            max_token_limit=MAX_TOKEN_LIMIT,
-            truncation_ratio=LOGS_TRUNCATION_RATIO,
-        )
-    except Exception as e:
-        handle_exception(e)
+    result = run_logs_command(
+        resource,
+        args,
+        show_raw_output,
+        show_vibe,
+        show_kubectl,
+        model,
+        freeze_memory,
+        unfreeze_memory,
+    )
+    handle_result(result)
 
 
 @cli.command()
