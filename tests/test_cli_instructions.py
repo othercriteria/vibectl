@@ -200,3 +200,17 @@ def test_instructions_clear_unset_error(
 
     # Assert
     assert result.exit_code == 1
+
+
+@patch("vibectl.cli.Config")
+def test_instructions_set_stdin_accepted(
+    mock_config_class: Mock, cli_runner: CliRunner
+) -> None:
+    """Test that instructions set accepts piped input (stdin) and sets instructions."""
+    test_input = "Instructions from stdin!"
+    result = cli_runner.invoke(instructions_set, [], input=test_input)
+    assert result.exit_code == 0
+    mock_config_class.return_value.set.assert_called_once_with(
+        "custom_instructions", test_input
+    )
+    mock_config_class.return_value.save.assert_called_once()

@@ -219,3 +219,14 @@ def test_memory_update_error(
         assert result.exit_code != 0
         mock_get_memory.assert_called_once()
         mock_get_model.assert_called_once()
+
+
+def test_memory_set_stdin_accepted(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test that memory set accepts piped input (stdin) and sets memory content."""
+    test_input = "Memory from stdin!"
+    with patch("vibectl.cli.set_memory") as mock_set_memory:
+        result = cli_runner.invoke(cli, ["memory", "set"], input=test_input)
+    assert result.exit_code == 0
+    mock_set_memory.assert_called_once_with(test_input)

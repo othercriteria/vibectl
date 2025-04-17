@@ -89,3 +89,11 @@ While full [Model Context Protocol](https://github.com/modelcontextprotocol/pyth
 - Add additional validation for key formats across all providers
 - Implement comprehensive logging for key operations to aid debugging
 - Consider adding support for additional model providers (e.g., Mistral, Gemini)
+
+## LLM Error Handling and Transient Failures
+- Transient LLM/model errors such as `overloaded_error` (e.g., service overloaded or temporarily unavailable) are now characterized in tests.
+- Memory updates in these cases preserve the error type and message, so downstream logic and future model runs can distinguish between transient service issues and genuine model logic errors.
+- Consider future improvements:
+  - More user-friendly messaging or UI feedback for transient LLM errors
+  - Retry logic or exponential backoff for overloaded errors
+  - More nuanced memory/context handling to avoid penalizing the model for service-side issues

@@ -128,6 +128,48 @@ def test_handle_command_output_updates_memory_with_error_output(
     )
 
 
+def test_handle_command_output_updates_memory_with_overloaded_error(
+    mock_get_adapter: MagicMock, mock_memory_update: Mock, mock_process_auto: Mock
+) -> None:
+    """Test memory update when LLM returns overloaded_error (transient failure)."""
+    # Simulate the model adapter returning an overloaded_error
+    overloaded_error = (
+        'ERROR: {"type": "error", "error": {"type": '
+        '"overloaded_error", "message": "Overloaded"}}'
+    )
+    mock_get_adapter.return_value.execute.return_value = overloaded_error
+
+    # Configure output flags
+    output_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+    )
+
+    # Call handle_command_output with a command, simulating an overloaded LLM
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        pytest.raises(ValueError) as excinfo,
+    ):
+        handle_command_output(
+            output="test output",
+            output_flags=output_flags,
+            summary_prompt_func=lambda: "Test prompt {output}",
+            command="get pods",
+        )
+
+    # The error should be raised and contain 'overloaded_error'
+    assert "overloaded_error" in str(excinfo.value)
+
+    # Memory should be updated with the overloaded error as the vibe_output
+    mock_memory_update.assert_called_once_with(
+        "get pods", "test output", overloaded_error, "test-model"
+    )
+    # Optionally, check that the error is not attributed to the model being at fault
+    # (i.e., the error type is preserved for downstream logic)
+
+
 def test_handle_vibe_request_updates_memory_on_error(
     mock_get_adapter: MagicMock, mock_memory_update: Mock
 ) -> None:

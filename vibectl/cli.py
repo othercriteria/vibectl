@@ -461,7 +461,16 @@ def instructions_set(instructions_text: str | None = None, edit: bool = False) -
                 )
                 return
 
-        # No text provided and no editor flag
+        # If no text provided and not editing, try to read from stdin
+        if instructions_text is None:
+            import sys
+
+            if not sys.stdin.isatty():
+                stdin_content = sys.stdin.read()
+                if stdin_content.strip():
+                    instructions_text = stdin_content
+
+        # No text provided and no editor flag and nothing from stdin
         if not instructions_text:
             console_manager.print_error(
                 "Instructions cannot be empty. Use --edit or provide instructions text."
@@ -758,7 +767,7 @@ def memory_set(text: tuple | None = None, edit: bool = False) -> None:
         except Exception as e:
             console_manager.print_error(str(e))
             raise click.Abort() from e
-    elif text:
+    elif text and len(text) > 0:
         try:
             # Join the text parts to handle multi-word input
             memory_text = " ".join(text)
@@ -768,8 +777,16 @@ def memory_set(text: tuple | None = None, edit: bool = False) -> None:
             console_manager.print_error(str(e))
             raise click.Abort() from e
     else:
+        import sys
+
+        if not sys.stdin.isatty():
+            stdin_content = sys.stdin.read()
+            if stdin_content.strip():
+                set_memory(stdin_content)
+                console_manager.print_success("Memory set from stdin")
+                return
         console_manager.print_error(
-            "No text provided. Use TEXT argument or --edit flag"
+            "No text provided. Use TEXT argument, --edit flag, or pipe input via stdin."
         )
         raise click.Abort()
 

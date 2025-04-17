@@ -182,7 +182,12 @@ fi
 echo "🏆 Starting challenge - setting up Kubernetes environment..."
 
 # Use the challenge text from the configuration
-vibectl instructions set "$CHALLENGE_TEXT"
+cat <<EOF | vibectl instructions set
+$CHALLENGE_TEXT
+
+Time limit from cluster creation: ${RUNTIME_MINUTES} minutes.
+You will continue running until challenge completion or time limit.
+EOF
 vibectl instructions show
 vibectl memory set "You are working on a fresh kind k8s cluster."
 
