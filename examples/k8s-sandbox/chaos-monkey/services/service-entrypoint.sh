@@ -17,6 +17,9 @@ fi
 # Default values for environment variables
 SESSION_DURATION=${SESSION_DURATION:-30}
 VERBOSE=${VERBOSE:-false}
+NODE_PORT_1=${NODE_PORT_1:-30001}
+NODE_PORT_2=${NODE_PORT_2:-30002}
+NODE_PORT_3=${NODE_PORT_3:-30003}
 
 echo "Starting Chaos Monkey services container..."
 echo "Session duration: ${SESSION_DURATION} minutes"
@@ -49,15 +52,15 @@ nodes:
 - role: control-plane
   # Port mappings only needed within the container, not exposed to host
   extraPortMappings:
-  - containerPort: ${NODE_PORT_1:-30001}
-    hostPort: ${NODE_PORT_1:-30001}
+  - containerPort: ${NODE_PORT_1}
+    hostPort: ${NODE_PORT_1}
     # Bind to local interface only, not 0.0.0.0
     listenAddress: "127.0.0.1"
-  - containerPort: ${NODE_PORT_2:-30002}
-    hostPort: ${NODE_PORT_2:-30002}
+  - containerPort: ${NODE_PORT_2}
+    hostPort: ${NODE_PORT_2}
     listenAddress: "127.0.0.1"
-  - containerPort: ${NODE_PORT_3:-30003}
-    hostPort: ${NODE_PORT_3:-30003}
+  - containerPort: ${NODE_PORT_3}
+    hostPort: ${NODE_PORT_3}
     listenAddress: "127.0.0.1"
 EOF
 
@@ -192,224 +195,19 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 EOF
 
-# Create services (assuming YAML files are in the mounted kubernetes directory)
+# Create services
 log "Deploying target services..."
 for file in /kubernetes/*.yaml; do
     if [ -f "$file" ]; then
         log "Applying $file"
-        kubectl apply -f "$file"
+        # Replace environment variables in the YAML file before applying
+        envsubst < "$file" | kubectl apply -f -
     fi
 done
 
 # Wait for deployments to be ready
 log "Waiting for all deployments to be ready..."
 kubectl wait --for=condition=available --timeout=180s deployment --all -n services
-
-# Create a simple frontend service just to get started
-log "Creating default frontend service..."
-cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: frontend
-  namespace: services
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: frontend
-  template:
-    metadata:
-      labels:
-        app: frontend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:1.21
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /usr/share/nginx/html
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: frontend-content
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: frontend
-  namespace: services
-spec:
-  selector:
-    app: frontend
-  ports:
-  - port: 80
-    targetPort: 80
-    nodePort: ${NODE_PORT_1:-30001}
-  type: NodePort
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: frontend-content
-  namespace: services
-data:
-  index.html: |
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Chaos Monkey Demo</title>
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          margin: 40px;
-          text-align: center;
-        }
-        h1 {
-          color: #333;
-        }
-        .status {
-          padding: 20px;
-          background-color: #f1f1f1;
-          border-radius: 5px;
-          margin: 20px 0;
-        }
-      </style>
-    </head>
-    <body>
-      <h1>Service Status: Online</h1>
-      <div class="status">
-        <p>This service is currently operational.</p>
-        <p>Service ID: frontend-v1</p>
-        <p>Last updated: <span id="timestamp"></span></p>
-      </div>
-      <script>
-        document.getElementById('timestamp').innerText = new Date().toISOString();
-        setInterval(function() {
-          document.getElementById('timestamp').innerText = new Date().toISOString();
-        }, 1000);
-      </script>
-    </body>
-    </html>
-EOF
-
-log "Services deployed successfully"
-
-# Add a simple backend API service
-log "Creating default backend service..."
-cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: backend
-  namespace: services
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: backend
-  template:
-    metadata:
-      labels:
-        app: backend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:1.21
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /usr/share/nginx/html
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: backend-content
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend
-  namespace: services
-spec:
-  selector:
-    app: backend
-  ports:
-  - port: 80
-    targetPort: 80
-    nodePort: ${NODE_PORT_2:-30002}
-  type: NodePort
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: backend-content
-  namespace: services
-data:
-  index.html: |
-    {
-      "status": "ok",
-      "service": "backend-api",
-      "version": "1.0",
-      "time": "dynamic",
-      "endpoints": [
-        "/api/users",
-        "/api/products",
-        "/api/orders"
-      ]
-    }
-EOF
-
-log "Backend service deployed successfully"
-
-# Add a database service
-log "Creating database service..."
-cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: database
-  namespace: services
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: database
-  template:
-    metadata:
-      labels:
-        app: database
-    spec:
-      containers:
-      - name: redis
-        image: redis:6
-        ports:
-        - containerPort: 6379
-        resources:
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: database
-  namespace: services
-spec:
-  selector:
-    app: database
-  ports:
-  - port: 6379
-    targetPort: 6379
-  type: ClusterIP
-EOF
-
-log "Database service deployed successfully"
 
 # Verify all services
 log "Verifying all services..."

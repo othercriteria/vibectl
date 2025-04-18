@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y \
     docker.io \
     iproute2 \
     procps \
+    gettext-base \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
@@ -51,7 +52,6 @@ RUN pip3 install vibectl llm-anthropic
 
 # Copy entrypoint and service definitions
 COPY service-entrypoint.sh /service-entrypoint.sh
-COPY services/ /services/
 COPY kubernetes/ /kubernetes/
 
 # Make entrypoint executable
