@@ -1,0 +1,114 @@
+services:
+  # Add the overseer as the first service since it provides configuration to others
+  overseer:
+    container_name: k8s-overseer
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    environment:
+      - CHALLENGE_DIFFICULTY=${CHALLENGE_DIFFICULTY:-easy}
+      - NODE_PORT_1=${NODE_PORT_1:-30001}
+      - NODE_PORT_2=${NODE_PORT_2:-30002}
+      - NODE_PORT_3=${NODE_PORT_3:-30003}
+      - MIN_RUNTIME_SECONDS=${MIN_RUNTIME_SECONDS:-60}
+      - SUCCESS_VERIFICATION_COUNT=${SUCCESS_VERIFICATION_COUNT:-2}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-10}
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # For container management
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
+    # Make overseer start first and ensure it produces config
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/status/challenge_config.sh"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    # Restart if it fails to ensure configuration is always available
+    restart: on-failure
+
+  sandbox:
+    container_name: k8s-sandbox
+    build:
+      context: ../..
+      dockerfile: examples/k8s-sandbox/Dockerfile
+      args:
+        # Pass the host's Docker GID to the container build
+        DOCKER_GID: ${DOCKER_GID:-999}
+    privileged: true  # Needed for running docker inside the container (for Kind)
+    # NodePorts are accessed internally via Kind container, not externally
+    ports:
+      - "${NODE_PORT_1:-30001}:${NODE_PORT_1:-30001}"  # For debugging only - not needed for detection
+    depends_on:
+      overseer:
+        condition: service_healthy
+        restart: true
+    environment:
+      # API keys with multiple fallbacks for flexibility
+      - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY:-$ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-$VIBECTL_ANTHROPIC_API_KEY}
+      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
+      - VIBECTL_MEMORY_MAX_CHARS=${VIBECTL_MEMORY_MAX_CHARS:-1500}
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+      # Add the control plane container name for direct port access
+      - KIND_CONTAINER=ctf-cluster-control-plane
+      # LLM config
+      - OPENAI_API_KEY=""  # Empty value to avoid errors
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Mount docker socket for Kind with explicit rw
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+      # Mount a named volume for LLM keys to persist between restarts
+      - llm-keys-volume:/home/sandbox/.local/share/llm:rw
+    networks:
+      - ctf-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /tmp/kind-kubeconfig && kubectl --kubeconfig=/tmp/kind-kubeconfig get nodes >/dev/null 2>&1 && kubectl --kubeconfig=/tmp/kind-kubeconfig get pods -n kube-system | grep -E 'kube-apiserver|coredns' | grep -q Running || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+    # Let the overseer handle shutdown/coordination instead of directly checking poller exit code
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+
+  poller:
+    container_name: k8s-poller
+    build:
+      context: ./poller
+      dockerfile: Dockerfile
+    depends_on:
+      overseer:
+        condition: service_healthy
+        restart: true
+      sandbox:
+        condition: service_healthy
+        restart: true
+    environment:
+      - TARGET_HOST=k8s-sandbox  # Used to find the sandbox container
+      # Share the KIND_CONTAINER env var (critical for detection)
+      - KIND_CONTAINER=ctf-cluster-control-plane
+      # Status directory with full path to avoid permission issues
+      - STATUS_DIR=/tmp/status
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Needed to access Docker API for finding containers
+      - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
+    networks:
+      - ctf-network
+
+networks:
+  ctf-network:
+    driver: bridge
+
+volumes:
+  status-volume:  # Named volume for shared status - Docker manages permissions
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=100m,mode=1777"  # World-writable with sticky bit (like /tmp)
+  llm-keys-volume:  # Named volume for LLM keys
