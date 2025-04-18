@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Daniel Klein
+# Part of the vibectl project: https://github.com/othercriteria/vibectl
 """
 Chaos Monkey Overseer
 
@@ -179,6 +181,15 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
             else:
                 timestamp = datetime.now().isoformat()
                 message = line
+
+            # Strip ANSI color codes
+            # This regex matches ANSI escape sequences like [34m, [0m, etc.
+            message = re.sub(r"\x1B\[\d+(?:;\d+)*m", "", message)
+
+            # Strip timestamps like [6:20:05 PM]
+            message = re.sub(r"\[\d+:\d+:\d+ (?:AM|PM)\] ", "", message)
+
+            # TODO: Add timestamp styling via CSS rather than including in log content
 
             # Determine log level based on content
             if re.search(r"error|exception|fail|critical", message, re.IGNORECASE):
@@ -371,7 +382,11 @@ def api_overview() -> Any:
     if total_checks > 0:
         healthy_count = status_counts["HEALTHY"]
         degraded_count = status_counts["DEGRADED"]
-        uptime_calc = ((healthy_count + degraded_count) * 100) // total_checks
+        # Include ERROR states in uptime calculation
+        error_count = status_counts["ERROR"]
+        uptime_calc = (
+            (healthy_count + degraded_count + error_count) * 100
+        ) // total_checks
         uptime_percentage = int(uptime_calc)
 
     # Get entries counts safely

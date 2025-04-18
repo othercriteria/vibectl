@@ -79,6 +79,7 @@ A web-based dashboard that:
 - Visualizes service health over time
 - Provides real-time updates via a web interface at http://localhost:8080
 - Calculates uptime statistics and displays trends
+- Features clean, formatted logs with ANSI color codes and timestamps stripped for improved readability
 
 ## How It Works
 
@@ -135,6 +136,7 @@ Currently implemented features:
 ✅ Red agent for attack simulation
 ✅ Python-based poller with comprehensive service monitoring
 ✅ Web dashboard via overseer to track service health and agent logs
+✅ Improved log formatting with ANSI codes and Docker timestamp stripping
 
 ## Monitoring The Demo
 
@@ -193,3 +195,7 @@ The chaos-monkey demo creates a fully isolated Kubernetes environment:
 - No ports are exposed to the host system except when explicitly configured
 - The Kubernetes cluster runs entirely within containers
 - Complete separation from any host Kubernetes configuration
+
+---
+
+© 2025 Daniel Klein. Part of the [vibectl](https://github.com/othercriteria/vibectl) project.

@@ -168,11 +168,16 @@
                                 <p class="uptime-indicator text-danger" id="down-count">-</p>
                                 <p>Down Checks</p>
                             </div>
+                            <div class="col">
+                                <p class="uptime-indicator text-secondary" id="error-count">-</p>
+                                <p>Error Checks</p>
+                            </div>
                         </div>
                         <div class="progress mt-3">
                             <div class="progress-bar bg-success" id="progress-healthy" role="progressbar" style="width: 0%"></div>
                             <div class="progress-bar bg-warning" id="progress-degraded" role="progressbar" style="width: 0%"></div>
                             <div class="progress-bar bg-danger" id="progress-down" role="progressbar" style="width: 0%"></div>
+                            <div class="progress-bar bg-secondary" id="progress-error" role="progressbar" style="width: 0%"></div>
                         </div>
                         <p class="mt-2 text-center text-muted">Based on <span id="total-checks">0</span> checks</p>
                     </div>
@@ -230,7 +235,7 @@
         </div>
 
         <footer class="pt-3 mt-4 text-muted border-top">
-            &copy; 2023 Chaos Monkey Demo | <a href="https://github.com/yourusername/chaos-monkey-demo" target="_blank">GitHub</a>
+            &copy; 2025 Daniel Klein | <a href="https://github.com/othercriteria/vibectl" target="_blank">vibectl on GitHub</a>
         </footer>
     </div>
 
@@ -467,27 +472,31 @@
             // Update uptime summary
             const totalChecks = history.length;
             const uptimePercentage = totalChecks > 0 ?
-                Math.round(((statusCounts.HEALTHY + statusCounts.DEGRADED) / totalChecks) * 100) : 0;
+                Math.round(((statusCounts.HEALTHY + statusCounts.DEGRADED + statusCounts.ERROR) / totalChecks) * 100) : 0;
 
             document.getElementById('uptime-percentage').innerText = `${uptimePercentage}%`;
             document.getElementById('healthy-count').innerText = statusCounts.HEALTHY;
             document.getElementById('degraded-count').innerText = statusCounts.DEGRADED;
             document.getElementById('down-count').innerText = statusCounts.DOWN;
+            document.getElementById('error-count').innerText = statusCounts.ERROR;
             document.getElementById('total-checks').innerText = totalChecks;
 
             // Update progress bar
             const progressHealthy = document.getElementById('progress-healthy');
             const progressDegraded = document.getElementById('progress-degraded');
             const progressDown = document.getElementById('progress-down');
+            const progressError = document.getElementById('progress-error');
 
             if (totalChecks > 0) {
                 const healthyPercent = Math.round((statusCounts.HEALTHY / totalChecks) * 100);
                 const degradedPercent = Math.round((statusCounts.DEGRADED / totalChecks) * 100);
                 const downPercent = Math.round((statusCounts.DOWN / totalChecks) * 100);
+                const errorPercent = Math.round((statusCounts.ERROR / totalChecks) * 100);
 
                 progressHealthy.style.width = `${healthyPercent}%`;
                 progressDegraded.style.width = `${degradedPercent}%`;
                 progressDown.style.width = `${downPercent}%`;
+                progressError.style.width = `${errorPercent}%`;
             }
         }
 
@@ -515,7 +524,8 @@
                 }
 
                 logEntry.innerHTML = `
-                    <span class="timestamp">[${timestamp}]</span> ${log.message}
+                    <span class="timestamp">[${timestamp}]</span>
+                    <div class="log-entry-content">${log.message}</div>
                 `;
 
                 logContainer.appendChild(logEntry);
@@ -629,6 +639,7 @@
                     document.getElementById('healthy-count').innerText = statusCounts.HEALTHY;
                     document.getElementById('degraded-count').innerText = statusCounts.DEGRADED;
                     document.getElementById('down-count').innerText = statusCounts.DOWN;
+                    document.getElementById('error-count').innerText = statusCounts.ERROR;
                     document.getElementById('total-checks').innerText = totalChecks;
 
                     // Update progress bar
@@ -636,10 +647,12 @@
                         const healthyPercent = Math.round((statusCounts.HEALTHY / totalChecks) * 100);
                         const degradedPercent = Math.round((statusCounts.DEGRADED / totalChecks) * 100);
                         const downPercent = Math.round((statusCounts.DOWN / totalChecks) * 100);
+                        const errorPercent = Math.round((statusCounts.ERROR / totalChecks) * 100);
 
                         document.getElementById('progress-healthy').style.width = `${healthyPercent}%`;
                         document.getElementById('progress-degraded').style.width = `${degradedPercent}%`;
                         document.getElementById('progress-down').style.width = `${downPercent}%`;
+                        document.getElementById('progress-error').style.width = `${errorPercent}%`;
                     }
                 });
         }, 30000);

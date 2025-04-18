@@ -1,4 +1,8 @@
-/* Additional styles for Chaos Monkey Overseer */
+/*
+ * Copyright (c) 2025 Daniel Klein
+ * Part of the vibectl project: https://github.com/othercriteria/vibectl
+ * Additional styles for Chaos Monkey Overseer
+ */
 
 /* Animate status changes */
 @keyframes pulse {
@@ -26,6 +30,34 @@
 .log-entry {
   transition: background-color 0.3s ease;
   border-left: 3px solid transparent;
+  white-space: pre-wrap;       /* Preserve whitespace but allow wrapping */
+  word-break: break-word;      /* Break long words to prevent overflow */
+  margin-bottom: 8px;          /* Slightly increase spacing between entries */
+  padding: 6px 8px;            /* More padding for readability */
+  line-height: 1.4;            /* Improved line height for readability */
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace; /* Better font for logs */
+  display: flex;               /* Use flexbox layout for better control */
+  align-items: flex-start;     /* Align items at the top */
+}
+
+/* TODO: Implement custom timestamp styling in the frontend rather than including timestamps in log content */
+.timestamp {
+  color: #6c757d;               /* Muted color for timestamps */
+  font-size: 0.75em;            /* Smaller than the log text */
+  font-weight: 500;             /* Semi-bold for better visibility */
+  min-width: 60px;              /* Constrain width */
+  max-width: 60px;              /* Fixed maximum width */
+  display: inline-block;        /* Allow width constraints */
+  flex-shrink: 0;               /* Prevent shrinking */
+  text-align: right;            /* Right-align for clean look */
+  margin-right: 8px;            /* Space after the timestamp */
+  white-space: nowrap;          /* Prevent wrapping */
+  overflow: hidden;             /* Hide overflow */
+  text-overflow: ellipsis;      /* Show ellipsis for overflow */
+}
+
+.log-entry-content {
+  flex-grow: 1;                 /* Take up remaining space */
 }
 
 .log-INFO {
@@ -95,6 +127,12 @@
   .status-card {
     margin-bottom: 15px;
   }
+
+  .timestamp {
+    min-width: 50px;
+    max-width: 50px;
+    font-size: 0.7em;
+  }
 }
 
 /* Dark mode support */
@@ -136,5 +174,9 @@
 
   .log-DEBUG {
     background-color: rgba(13, 202, 240, 0.2);
+  }
+
+  .timestamp {
+    color: #adb5bd;             /* Lighter color for timestamps in dark mode */
   }
 }
