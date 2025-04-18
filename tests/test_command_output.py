@@ -8,15 +8,14 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import (
-    DEFAULT_MODEL,
-    DEFAULT_SHOW_KUBECTL,
-    DEFAULT_SHOW_RAW_OUTPUT,
-    DEFAULT_SHOW_VIBE,
-    DEFAULT_WARN_NO_OUTPUT,
     OutputFlags,
     configure_output_flags,
     handle_command_output,
 )
+from vibectl.config import DEFAULT_CONFIG
+
+# Ensure DEFAULT_MODEL is always a string for use in OutputFlags
+DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
 
 
 @pytest.fixture
@@ -53,7 +52,7 @@ def test_handle_command_output_with_raw_output_only(
         show_raw=True,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with only raw output enabled
@@ -80,7 +79,7 @@ def test_handle_command_output_with_vibe_only(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with vibe enabled
@@ -105,7 +104,7 @@ def test_handle_command_output_both_outputs(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name="model-xyz-1.2.3"
+        show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
     )
 
     # Call the function with both outputs enabled
@@ -126,7 +125,7 @@ def test_handle_command_output_no_output(
         show_raw=False,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with no outputs enabled and warning enabled
@@ -155,16 +154,17 @@ def test_handle_command_output_llm_error(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function and check for error handling
-    with patch("vibectl.command_handler.handle_exception"):
+    with pytest.raises(ValueError) as excinfo:
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "error test",  # Trigger error response
         )
+    assert "Test error" in str(excinfo.value)
 
 
 @patch("vibectl.command_handler.get_model_adapter")
@@ -183,7 +183,7 @@ def test_handle_command_output_empty_response(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with vibe enabled
@@ -211,7 +211,7 @@ def test_handle_command_output_with_command(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with command parameter
@@ -236,7 +236,7 @@ def test_handle_command_output_with_command(
         mock_console.print_vibe.assert_called_once_with("Test response")
         # Verify memory was updated
         mock_update_memory.assert_called_once_with(
-            "get pods", "test output", "Test response", "model-xyz-1.2.3"
+            "get pods", "test output", "Test response", DEFAULT_MODEL
         )
         # Verify adapter was called with correct prompt
         mock_adapter.execute.assert_called_once_with(
@@ -251,9 +251,9 @@ def test_configure_output_flags_no_flags() -> None:
     output_flags = configure_output_flags()
 
     # Verify defaults
-    assert output_flags.show_raw == DEFAULT_SHOW_RAW_OUTPUT
-    assert output_flags.show_vibe == DEFAULT_SHOW_VIBE
-    assert output_flags.warn_no_output == DEFAULT_WARN_NO_OUTPUT
+    assert output_flags.show_raw == DEFAULT_CONFIG["show_raw_output"]
+    assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
 
 
@@ -261,42 +261,42 @@ def test_configure_output_flags_raw_only() -> None:
     """Test configure_output_flags with raw flag only."""
     # Run with raw flag only
     output_flags = configure_output_flags(
-        show_raw_output=True, show_vibe=False, model="model-xyz-1.2.3"
+        show_raw_output=True, show_vibe=False, model=DEFAULT_MODEL
     )
 
     # Verify flags
     assert output_flags.show_raw is True
     assert output_flags.show_vibe is False
-    assert output_flags.warn_no_output == DEFAULT_WARN_NO_OUTPUT
-    assert output_flags.model_name == "model-xyz-1.2.3"
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.model_name == DEFAULT_MODEL
 
 
 def test_configure_output_flags_vibe_only() -> None:
     """Test configure_output_flags with vibe flag only."""
     # Run with vibe flag only
     output_flags = configure_output_flags(
-        show_raw_output=False, show_vibe=True, model="model-xyz-1.2.3"
+        show_raw_output=False, show_vibe=True, model=DEFAULT_MODEL
     )
 
     # Verify flags
     assert output_flags.show_raw is False
     assert output_flags.show_vibe is True
-    assert output_flags.warn_no_output == DEFAULT_WARN_NO_OUTPUT
-    assert output_flags.model_name == "model-xyz-1.2.3"
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.model_name == DEFAULT_MODEL
 
 
 def test_configure_output_flags_both_flags() -> None:
     """Test configure_output_flags with both flags."""
     # Run with both flags
     output_flags = configure_output_flags(
-        show_raw_output=True, show_vibe=True, model="model-xyz-1.2.3"
+        show_raw_output=True, show_vibe=True, model=DEFAULT_MODEL
     )
 
     # Verify flags
     assert output_flags.show_raw is True
     assert output_flags.show_vibe is True
-    assert output_flags.warn_no_output == DEFAULT_WARN_NO_OUTPUT
-    assert output_flags.model_name == "model-xyz-1.2.3"
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.model_name == DEFAULT_MODEL
 
 
 def test_configure_output_flags_with_show_kubectl() -> None:
@@ -325,7 +325,7 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     # Call with no show_kubectl flag - should use config value
     output_flags = configure_output_flags()
     assert output_flags.show_kubectl is True
-    mock_config.get.assert_any_call("show_kubectl", DEFAULT_SHOW_KUBECTL)
+    mock_config.get.assert_any_call("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
 
     # Reset mock
     mock_config.reset_mock()
@@ -432,7 +432,7 @@ def test_handle_command_output_basic(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name="model-xyz-1.2.3"
+        show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
     )
 
     # Call the function with both outputs enabled and processor
@@ -467,7 +467,7 @@ def test_handle_command_output_raw(
         show_raw=True,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function with raw only and processor
@@ -498,7 +498,7 @@ def test_handle_command_output_no_vibe(
         show_raw=True,
         show_vibe=False,
         warn_no_output=True,
-        model_name="model-xyz-1.2.3",
+        model_name=DEFAULT_MODEL,
     )
 
     # Call the function

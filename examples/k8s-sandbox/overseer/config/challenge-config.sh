@@ -48,7 +48,7 @@ if [[ "${CHALLENGE_DIFFICULTY}" == "easy" ]]; then
   jq ".active_ports = [${NODE_PORT_1}]" "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 
   # Add challenge text
-  jq --arg text "You are working on a fresh kind k8s cluster. Your goal is to complete this task:
+  jq --arg text "Your goal is to complete this task:
 
   1. Create a service that returns \"${EXPECTED_FLAG_1}\" text when accessed
   on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.)." \
@@ -59,7 +59,7 @@ elif [[ "${CHALLENGE_DIFFICULTY}" == "medium" ]]; then
   jq ".active_ports = [${NODE_PORT_1}, ${NODE_PORT_2}]" "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 
   # Add challenge text
-  jq --arg text "You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
+  jq --arg text "Your goal is to complete these tasks:
 
   1. Create a service that returns \"${EXPECTED_FLAG_1}\" text when accessed
   on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
@@ -75,7 +75,7 @@ else
   jq ".active_ports = [${NODE_PORT_1}, ${NODE_PORT_2}, ${NODE_PORT_3}]" "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 
   # Add challenge text
-  jq --arg text "You are working on a fresh kind k8s cluster. Your goal is to complete these tasks:
+  jq --arg text "Your goal is to complete these tasks:
 
   1. Create a service that returns \"${EXPECTED_FLAG_1}\" text when accessed
   on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).

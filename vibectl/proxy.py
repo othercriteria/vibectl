@@ -6,14 +6,12 @@ an intermediate port, collecting statistics about data transfer.
 """
 
 import asyncio
-import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-# Configure logging
-logger = logging.getLogger(__name__)
+from .logutil import logger  # Use shared logger
 
 
 class StatsProtocol(Protocol):

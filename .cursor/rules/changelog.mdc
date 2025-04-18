@@ -38,6 +38,7 @@ actions:
          - "Unreleased" section at the top
          - Versions in reverse-chronological order
          - Changes grouped by type (Added, Changed, Fixed, etc.)
+         - **Preserve all previous release sections when updating [Unreleased].**
 
       2. **Integration with version bumping**:
          - After running `bump-version`, update CHANGELOG.md
@@ -63,6 +64,12 @@ actions:
          - Update again with final changes before marking PR as ready
          - See feature-worktrees rule for detailed workflow
 
+      6. **Editing Guidance**:
+         - Always insert new items under the [Unreleased] section, immediately after its header and any existing content in that section.
+         - Do **not** modify or remove any previous release sections (e.g., [0.3.2], [0.3.1], etc.).
+         - If the [Unreleased] section does not exist, create it at the top of the file, above all versioned sections.
+         - Never overwrite or truncate the changelog; always preserve the full history.
+
   - type: reject
     conditions:
       # Ensure version bump includes CHANGELOG update
@@ -85,6 +92,11 @@ actions:
           2. Update with final changes before marking as ready for review.
           See feature-worktrees rule for workflow details.
 
+      # Reject edits that add unreleased or planned changes to a released section
+      - pattern: "^## \\[\\d+\\.\\d+\\.\\d+\\]"
+        message: |
+          Do not add planned or unreleased changes to a released version section. Place all new work under the [Unreleased] section.
+
 criteria:
   required:
     - CHANGELOG.md exists in project root
@@ -96,6 +108,8 @@ criteria:
     - Each PR to main updates CHANGELOG.md as needed
     - Integration with version bumping process
     - Coordination with feature worktree development workflow
+    - **All previous release sections must be preserved when updating [Unreleased].**
+    - **New entries must be inserted after the [Unreleased] header and before any subsequent version headers.**
 
 examples:
   - input: "How should I update the changelog after merging a PR?"
@@ -117,59 +131,15 @@ examples:
       3. Focus on user impact, not implementation details
       4. Commit with a message like "docs: update changelog for PR #123"
 
-  - input: "What's the process for preparing a release?"
+  - input: "Add a planned feature entry"
     output: |
-      To prepare for a release:
+      ## [Unreleased]
 
-      1. Ensure all PRs merged to main are reflected in the "Unreleased" section
-      2. Organize "Unreleased" changes by type (Added, Changed, Fixed, etc.)
-      3. Run version bump:
-         ```zsh
-         bump-version patch  # or minor/major as appropriate
-         ```
-      4. Update CHANGELOG.md:
-         ```markdown
-         ## [0.2.3] - YYYY-MM-DD
+      ### Added
+      - Planned: Add basic logging features to vibectl for improved observability and debugging (WIP)
 
-         ### Added
-         - Feature 1
-         - Feature 2
-
-         ### Fixed
-         - Bug 1
-         - Bug 2
-         ```
-      5. Add a fresh "Unreleased" section at the top
-      6. Commit the changelog update:
-         ```zsh
-         git commit -am "docs: update changelog for version 0.2.3"
-         ```
-      7. Proceed with release process:
-         ```zsh
-         make pypi-release  # or pypi-dist all
-         ```
-
-  - input: "I'm starting a new feature branch, do I need to update the changelog?"
-    output: |
-      Yes, update the CHANGELOG.md twice during feature development:
-
-      1. First update during initial PR creation:
-         ```markdown
-         ## [Unreleased]
-
-         ### Added
-         - New feature description (WIP)
-         ```
-
-      2. Second update before marking PR as ready for review:
-         ```markdown
-         ## [Unreleased]
-
-         ### Added
-         - Completed feature with detailed user impact
-         ```
-
-      The feature-worktrees rule provides a complete workflow that includes these changelog updates.
+      ## [0.3.2] - 2025-04-15
+      ... (existing content preserved) ...
 
 metadata:
   priority: high

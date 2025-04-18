@@ -1,5 +1,6 @@
 """Tests for model adapter."""
 
+import os
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -7,6 +8,8 @@ import pytest
 from vibectl.model_adapter import (
     LLMModelAdapter,
     ModelAdapter,
+    ModelEnvironment,
+    ModelResponse,
     get_model_adapter,
     reset_model_adapter,
     set_model_adapter,
@@ -190,3 +193,114 @@ class TestLLMModelAdapter:
 
         # Verify all prompt calls
         assert mock_model.prompt.call_count == 4
+
+    @patch("vibectl.model_adapter.llm")
+    def test_execute_token_limit_error(
+        self, mock_llm: MagicMock, mock_model_adapter_logger
+    ) -> None:
+        adapter = LLMModelAdapter()
+        mock_model = Mock()
+        # Simulate a token limit error
+        mock_model.prompt.side_effect = Exception(
+            "Token limit exceeded: too many tokens in prompt"
+        )
+        with pytest.raises(ValueError) as exc_info:
+            adapter.execute(mock_model, "prompt")
+        assert "Token limit exceeded" in str(exc_info.value)
+        # Check that a warning was logged
+        assert any(
+            call[0][0].startswith("Token limit exceeded for model")
+            for call in mock_model_adapter_logger.warning.call_args_list
+        )
+
+
+def test_model_response_protocol_runtime_check() -> None:
+    class DummyResponse:
+        def text(self) -> str:
+            return "foo"
+
+    resp = DummyResponse()
+    assert isinstance(resp, ModelResponse)
+
+
+def test_model_adapter_abc_methods() -> None:
+    class DummyAdapter(ModelAdapter):
+        def get_model(self, model_name: str) -> str:
+            raise NotImplementedError()
+
+        def execute(self, model: object, prompt_text: str) -> str:
+            raise NotImplementedError()
+
+        def validate_model_key(self, model_name: str) -> str | None:
+            raise NotImplementedError()
+
+    adapter = DummyAdapter()
+    with pytest.raises(NotImplementedError):
+        adapter.get_model("foo")
+    with pytest.raises(NotImplementedError):
+        adapter.execute(None, "bar")
+    with pytest.raises(NotImplementedError):
+        adapter.validate_model_key("baz")
+
+
+def test_validate_model_key_unknown_provider() -> None:
+    adapter = LLMModelAdapter()
+    msg = adapter.validate_model_key("unknown-model")
+    assert isinstance(msg, str) and "Unknown model provider" in msg
+
+
+def test_validate_model_key_ollama() -> None:
+    adapter = LLMModelAdapter()
+    # Should return None for ollama
+    assert adapter.validate_model_key("ollama:foo") is None
+
+
+def test_validate_model_key_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = LLMModelAdapter()
+    monkeypatch.setattr(adapter.config, "get_model_key", lambda provider: None)
+    msg = adapter.validate_model_key("gpt-3.5-turbo")
+    assert isinstance(msg, str) and "No API key found" in msg
+
+
+def test_validate_model_key_invalid_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = LLMModelAdapter()
+    # Provide a long key that doesn't start with sk-
+    monkeypatch.setattr(adapter.config, "get_model_key", lambda provider: "x" * 30)
+    msg = adapter.validate_model_key("gpt-3.5-turbo")
+    assert isinstance(msg, str) and "API key format looks invalid" in msg
+
+
+def test_validate_model_key_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = LLMModelAdapter()
+    monkeypatch.setattr(adapter.config, "get_model_key", lambda provider: "sk-abc123")
+    assert adapter.validate_model_key("gpt-3.5-turbo") is None
+
+
+def test_model_environment_all_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unknown provider: should do nothing
+    config = Mock()
+    env = ModelEnvironment("foo-bar", config)
+    assert env.provider is None
+    env.__enter__()  # __enter__ returns None, no need to assert
+    # Known provider, no key
+    config.get_model_key.return_value = None
+    env = ModelEnvironment("gpt-3.5-turbo", config)
+    # No key, so nothing set
+    env.__enter__()
+    # Known provider, with key, no original env
+    config.get_model_key.return_value = "test-key"
+    env = ModelEnvironment("gpt-3.5-turbo", config)
+    # Remove env var if present
+    os.environ.pop("OPENAI_API_KEY", None)
+    env.__enter__()
+    assert os.environ["OPENAI_API_KEY"] == "test-key"
+    env.__exit__(None, None, None)
+    assert "OPENAI_API_KEY" not in os.environ
+    # Known provider, with key, with original env
+    os.environ["OPENAI_API_KEY"] = "orig-key"
+    config.get_model_key.return_value = "test-key"
+    env = ModelEnvironment("gpt-3.5-turbo", config)
+    env.__enter__()
+    assert os.environ["OPENAI_API_KEY"] == "test-key"
+    env.__exit__(None, None, None)
+    assert os.environ["OPENAI_API_KEY"] == "orig-key"

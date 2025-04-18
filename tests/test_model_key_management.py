@@ -409,13 +409,16 @@ class TestModelKeyValidation:
         config = MockConfig()
         # Ensure we don't have a default key
         config._config["model_keys"] = {"openai": None}
-        adapter = LLMModelAdapter(config)
-
-        # Test with no key configured
-        warning = adapter.validate_model_key("gpt-4")
-        assert warning is not None
-        assert "No API key found for openai" in warning
-        assert "VIBECTL_OPENAI_API_KEY" in warning
+        # Patch environment to ensure no API key is set
+        with patch.dict(
+            os.environ, {"VIBECTL_OPENAI_API_KEY": "", "OPENAI_API_KEY": ""}, clear=True
+        ):
+            adapter = LLMModelAdapter(config)
+            # Test with no key configured
+            warning = adapter.validate_model_key("gpt-4")
+            assert warning is not None
+            assert "No API key found for openai" in warning
+            assert "VIBECTL_OPENAI_API_KEY" in warning
 
     def test_validate_model_key_with_valid_key(self) -> None:
         """Test validation with a valid key."""

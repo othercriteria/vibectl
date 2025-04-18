@@ -6,6 +6,8 @@ __version__ = "0.3.2"
 
 # These imports are needed for the tests to run properly
 # by making the modules accessible via vibectl.module_name
+import logging
+
 from . import (
     cli,
     command_handler,
@@ -16,6 +18,15 @@ from . import (
     prompt,
     utils,
 )
+
+# Initialize package-level logger
+logger = logging.getLogger("vibectl")
+logger.setLevel(logging.INFO)  # Default level, can be overridden by config or CLI
+handler = logging.StreamHandler()
+formatter = logging.Formatter("[%(levelname)s] %(message)s")
+handler.setFormatter(formatter)
+if not logger.hasHandlers():
+    logger.addHandler(handler)
 
 __all__ = [
     "cli",

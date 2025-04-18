@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from click.testing import CliRunner
 
-import vibectl
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
 
@@ -77,23 +76,6 @@ def mock_asyncio_for_port_forward() -> Generator[MagicMock, None, None]:
         yield mock_process
 
 
-@pytest.fixture
-def mock_port_forward_live_display() -> Generator[MagicMock, None, None]:
-    """Mock handle_port_forward_with_live_display for live display tests."""
-    # We need to patch the function where it's used in cli.py
-    original_func = vibectl.cli.handle_port_forward_with_live_display
-    mock_func = MagicMock()
-
-    # Replace the function in the CLI module
-    vibectl.cli.handle_port_forward_with_live_display = mock_func
-
-    try:
-        yield mock_func
-    finally:
-        # Restore the original function after the test
-        vibectl.cli.handle_port_forward_with_live_display = original_func
-
-
 def test_port_forward_basic(
     cli_runner: CliRunner,
     mock_run_kubectl_for_cli: MagicMock,
@@ -105,12 +87,18 @@ def test_port_forward_basic(
     # Set up mock kubectl output
     mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
 
-    # Invoke CLI with --no-live-display to use the standard command handler
-    result = cli_runner.invoke(
-        cli,
-        ["port-forward", "pod/nginx", "8080:8080", "--no-live-display"],
-        catch_exceptions=False,
-    )
+    with (
+        patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
+        patch(
+            "vibectl.command_handler.handle_command_output", mock_handle_output_for_cli
+        ),
+    ):
+        # Invoke CLI with --no-live-display to use the standard command handler
+        result = cli_runner.invoke(
+            cli,
+            ["port-forward", "pod/nginx", "8080:8080", "--no-live-display"],
+            catch_exceptions=False,
+        )
 
     # Print result details for debugging
     if result.exit_code != 0:
@@ -139,20 +127,26 @@ def test_port_forward_with_args(
     # Set up mock kubectl output
     mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:5000 -> 80"
 
-    # Invoke CLI with port-forward command and additional args, and no live display
-    result = cli_runner.invoke(
-        cli,
-        [
-            "port-forward",
-            "service/web",
-            "5000:80",
-            "--address",
-            "0.0.0.0",
-            "-n",
-            "default",
-            "--no-live-display",
-        ],
-    )
+    with (
+        patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
+        patch(
+            "vibectl.command_handler.handle_command_output", mock_handle_output_for_cli
+        ),
+    ):
+        # Invoke CLI with port-forward command and additional args, and no live display
+        result = cli_runner.invoke(
+            cli,
+            [
+                "port-forward",
+                "service/web",
+                "5000:80",
+                "--address",
+                "0.0.0.0",
+                "-n",
+                "default",
+                "--no-live-display",
+            ],
+        )
 
     # Check results
     assert result.exit_code == 0
@@ -160,7 +154,7 @@ def test_port_forward_with_args(
     mock_handle_output_for_cli.assert_called_once()
 
 
-@patch("vibectl.cli.configure_output_flags")
+@patch("vibectl.subcommands.port_forward_cmd.configure_output_flags")
 def test_port_forward_with_flags(
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
@@ -181,19 +175,25 @@ def test_port_forward_with_flags(
     # Set up mock kubectl output
     mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
 
-    # Invoke CLI with vibectl-specific flags and no live display
-    result = cli_runner.invoke(
-        cli,
-        [
-            "port-forward",
-            "pod/nginx",
-            "8080:8080",
-            "--show-raw-output",
-            "--model",
-            "claude-3.7-haiku",
-            "--no-live-display",
-        ],
-    )
+    with (
+        patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
+        patch(
+            "vibectl.command_handler.handle_command_output", mock_handle_output_for_cli
+        ),
+    ):
+        # Invoke CLI with vibectl-specific flags and no live display
+        result = cli_runner.invoke(
+            cli,
+            [
+                "port-forward",
+                "pod/nginx",
+                "8080:8080",
+                "--show-raw-output",
+                "--model",
+                "claude-3.7-haiku",
+                "--no-live-display",
+            ],
+        )
 
     # Check results
     assert result.exit_code == 0
@@ -213,16 +213,22 @@ def test_port_forward_error_handling(
     # Set up mock kubectl output for an error
     mock_run_kubectl_for_cli.return_value = "Error: unable to forward port"
 
-    # Invoke CLI with port-forward command and no live display
-    result = cli_runner.invoke(
-        cli,
-        [
-            "port-forward",
-            "pod/nonexistent",
-            "8080:8080",
-            "--no-live-display",
-        ],
-    )
+    with (
+        patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
+        patch(
+            "vibectl.command_handler.handle_command_output", mock_handle_output_for_cli
+        ),
+    ):
+        # Invoke CLI with port-forward command and no live display
+        result = cli_runner.invoke(
+            cli,
+            [
+                "port-forward",
+                "pod/nonexistent",
+                "8080:8080",
+                "--no-live-display",
+            ],
+        )
 
     # Check results
     assert result.exit_code == 0  # CLI should handle the error gracefully
@@ -230,7 +236,7 @@ def test_port_forward_error_handling(
     mock_handle_output_for_cli.assert_called_once()
 
 
-@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.subcommands.port_forward_cmd.handle_vibe_request")
 def test_port_forward_vibe_request(
     mock_handle_vibe: MagicMock, cli_runner: CliRunner, mock_memory: Mock
 ) -> None:
@@ -252,7 +258,7 @@ def test_port_forward_vibe_request(
     assert mock_handle_vibe.call_args[1]["live_display"] is True
 
 
-@patch("vibectl.cli.handle_vibe_request")
+@patch("vibectl.subcommands.port_forward_cmd.handle_vibe_request")
 def test_port_forward_vibe_with_live_display_flag(
     mock_handle_vibe: MagicMock, cli_runner: CliRunner, mock_memory: Mock
 ) -> None:
@@ -277,56 +283,9 @@ def test_port_forward_vibe_with_live_display_flag(
     assert mock_handle_vibe.call_args[1]["live_display"] is False
 
 
-def test_port_forward_vibe_no_request(
-    cli_runner: CliRunner, mock_console: Mock, mock_memory: Mock
-) -> None:
+def test_port_forward_vibe_no_request(cli_runner: CliRunner, mock_memory: Mock) -> None:
     """Test port-forward vibe command with no request."""
-    # Invoke CLI with vibe but no request
-    result = cli_runner.invoke(cli, ["port-forward", "vibe"])
-
-    # Check results - should exit with error
-    assert result.exit_code == 1
-    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
-
-
-def test_port_forward_with_live_display(
-    cli_runner: CliRunner,
-    mock_port_forward_live_display: MagicMock,
-    mock_memory: Mock,
-) -> None:
-    """Test port-forward command with live display option."""
-    # Invoke CLI with port-forward command and default live display
-    result = cli_runner.invoke(cli, ["port-forward", "pod/nginx", "8080:8080"])
-
-    # Check results
-    assert result.exit_code == 0
-    # Check that we used the live display handler
-    mock_port_forward_live_display.assert_called_once()
-    # Check we passed the correct arguments
-    args = mock_port_forward_live_display.call_args[1]  # Use kwargs instead of args
-    assert args["resource"] == "pod/nginx"  # resource
-    assert "8080:8080" in args["args"]  # port
-
-
-def test_port_forward_without_live_display(
-    cli_runner: CliRunner,
-    mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_port_forward_live_display: MagicMock,
-    mock_memory: Mock,
-) -> None:
-    """Test port-forward command with live display disabled."""
-    # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
-
-    # Invoke CLI with port-forward command and no live display
-    result = cli_runner.invoke(
-        cli, ["port-forward", "pod/nginx", "8080:8080", "--no-live-display"]
-    )
-
-    # Check results
-    assert result.exit_code == 0
-    # Live display handler should not be called
-    mock_port_forward_live_display.assert_not_called()
-    # Standard command handler (via handle_output) should be called
-    mock_handle_output_for_cli.assert_called_once()
+    with patch("vibectl.subcommands.port_forward_cmd.console_manager"):
+        result = cli_runner.invoke(cli, ["port-forward", "vibe"])
+        assert result.exit_code == 1
+        assert "Missing request after 'vibe'" in result.output

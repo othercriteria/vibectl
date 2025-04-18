@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
         "anthropic": None,  # Path to file containing Anthropic API key
         "ollama": None,  # Path to file containing Ollama API key (if needed)
     },
+    "log_level": "WARNING",  # Default log level for logging
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -64,6 +65,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     ),  # Format: "min-max" (e.g., "10000-20000") or None to disable
     "model_keys": dict,
     "model_key_files": dict,
+    "log_level": str,  # Log level for logging
 }
 
 # Valid values for specific keys
@@ -76,6 +78,7 @@ CONFIG_VALID_VALUES: dict[str, list[Any]] = {
         "claude-3.7-opus",
         "ollama:llama3",
     ],
+    "log_level": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
 }
 
 # Environment variable mappings for API keys
@@ -238,46 +241,23 @@ class Config:
         )
 
     def _validate_allowed_values(self, key: str, value: Any) -> None:
-        """Validate that a value is in the allowed values for a key.
-
-        Args:
-            key: The configuration key
-            value: The value to validate
-
-        Raises:
-            ValueError: If the value is not allowed
-        """
-        if key in CONFIG_VALID_VALUES and value is not None:
+        """Validate that a value is allowed for a given key, if applicable."""
+        if key in CONFIG_VALID_VALUES:
             valid_values = CONFIG_VALID_VALUES[key]
             if value not in valid_values:
-                valid_values_str = ", ".join(str(v) for v in valid_values)
                 raise ValueError(
                     f"Invalid value for {key}: {value}. "
-                    f"Valid values: {valid_values_str}"
+                    f"Valid values are: {', '.join(str(v) for v in valid_values)}"
                 )
 
     def set(self, key: str, value: Any) -> None:
-        """Set configuration value.
-
-        Args:
-            key: The configuration key to set
-            value: The value to set
-
-        Raises:
-            ValueError: If the key or value is invalid
-        """
-        # Validate key exists in schema
+        """Set a configuration value, with type and allowed value validation."""
         self._validate_key(key)
-
-        # Convert string values to appropriate type
-        if isinstance(value, str):
-            value = self._convert_to_type(key, value)
-
-        # Validate value is allowed for this key
-        self._validate_allowed_values(key, value)
-
-        # Set the value
-        self._config[key] = value
+        # Convert to correct type
+        converted_value = self._convert_to_type(key, str(value))
+        # Validate allowed values (if any)
+        self._validate_allowed_values(key, converted_value)
+        self._config[key] = converted_value
         self._save_config()
 
     def get_typed(self, key: str, default: T) -> T:

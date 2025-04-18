@@ -14,7 +14,11 @@ fi
 STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
 mkdir -p "$STATUS_DIR" || echo "⚠️ Could not create status directory - it may already exist"
 # Make sure the directory has the right permissions - don't fail if this doesn't work
-chmod 777 "$STATUS_DIR" 2>/dev/null || echo "⚠️ Could not change status directory permissions - continuing anyway"
+chmod 777 "$STATUS_DIR" 2>/dev/null || {
+  echo "⚠️ Could not change status directory permissions - continuing anyway"
+  ls -ld "$STATUS_DIR"
+  id
+}
 CONFIG_FILE="$STATUS_DIR/challenge_config.sh"
 CONFIG_JSON="$STATUS_DIR/challenge_config.json"
 
@@ -161,7 +165,7 @@ kubectl cluster-info
 
 # Set vibectl config (from environment variables provided by Docker Compose)
 echo "📝 Configuring vibectl..."
-vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1000}
+vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}
 vibectl config set model "$VIBECTL_MODEL"
 
 # Configure output options based on verbose mode
@@ -169,6 +173,7 @@ if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode enabled: showing raw output and kubectl commands"
   vibectl config set show_raw_output true
   vibectl config set show_kubectl true
+  export VIBECTL_TRACEBACK=1
 else
   vibectl config set show_raw_output false
   vibectl config set show_kubectl false
@@ -177,7 +182,14 @@ fi
 echo "🏆 Starting challenge - setting up Kubernetes environment..."
 
 # Use the challenge text from the configuration
-vibectl memory set "$CHALLENGE_TEXT"
+cat <<EOF | vibectl instructions set
+$CHALLENGE_TEXT
+
+Time limit from cluster creation: ${RUNTIME_MINUTES} minutes.
+You will continue running until challenge completion or time limit.
+EOF
+vibectl instructions show
+vibectl memory set "You are working on a fresh kind k8s cluster."
 
 # Function to maintain connectivity to the k8s cluster
 check_k8s_health() {
@@ -208,6 +220,9 @@ cat > "$SANDBOX_STATUS_FILE" <<EOF
 }
 EOF
 
+# Pause between vibectl runs
+PAUSE_SECONDS=5
+
 while true; do
   # Check if the challenge has been completed
   COMPLETION_FILE="$STATUS_DIR/challenge_complete.json"
@@ -229,12 +244,19 @@ while true; do
     vibectl memory show
   fi
 
-  # Capture output but don't let errors crash the container
-  if ! vibectl vibe --yes 2>&1; then
+  # Capture full output and error for debugging
+  VIBECTL_OUTPUT=$(mktemp)
+  if ! vibectl vibe --yes > "$VIBECTL_OUTPUT" 2>&1; then
     ERROR_CODE=$?
-    echo "⚠️ vibectl exited with code $ERROR_CODE - retrying in 5 seconds"
-    sleep 5
+    echo "⚠️ vibectl exited with code $ERROR_CODE - retrying in $PAUSE_SECONDS seconds"
+    echo "──────────────────── vibectl output (for debugging) ────────────────────"
+    cat "$VIBECTL_OUTPUT"
+    echo "──────────────────────────── end of output ─────────────────────────────"
+    echo "If the error above is unclear, try running with VIBECTL_VERBOSE=true or check if a Python traceback is available."
+  else
+    cat "$VIBECTL_OUTPUT"
   fi
+  rm -f "$VIBECTL_OUTPUT"
 
   # Update status
   cat > "$SANDBOX_STATUS_FILE" <<EOF
@@ -246,5 +268,5 @@ while true; do
 EOF
 
   # Brief pause before next attempt
-  sleep 5
+  sleep $PAUSE_SECONDS
 done

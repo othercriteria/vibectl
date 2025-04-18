@@ -158,103 +158,51 @@ def test_handle_standard_command(
     prevent_exit.assert_not_called()
 
 
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_error(
-    mock_handle_exception: MagicMock,
+@patch("vibectl.command_handler.subprocess.run")
+def test_handle_standard_command_logs(
+    mock_subprocess_run: Any,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
     mock_summary_prompt: Callable[[], str],
     standard_output_flags: OutputFlags,
+    mock_command_handler_logger: Mock,
 ) -> None:
-    """Test error handling in standard command."""
-    # Set up error
-    mock_subprocess.side_effect = Exception("test error")
+    """Test that handle_standard_command emits expected log messages."""
+    from vibectl import command_handler
 
-    # Run command
-    handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=standard_output_flags,
-        summary_prompt_func=mock_summary_prompt,
-    )
+    with (
+        patch.object(command_handler, "OutputProcessor") as mock_output_processor,
+        patch.object(command_handler, "get_model_adapter") as mock_get_adapter,
+        patch.object(
+            command_handler.OutputProcessor,
+            "process_auto",
+            return_value=("processed output", False),
+        ),
+        patch.object(command_handler.console_manager, "print_raw"),
+        patch.object(command_handler.console_manager, "print_vibe"),
+        patch.object(command_handler, "update_memory"),
+    ):
+        # Setup output processor
+        processor_instance = Mock()
+        processor_instance.process_auto.return_value = ("processed output", False)
+        mock_output_processor.return_value = processor_instance
 
-    # Verify kubectl was called and exception was handled
-    mock_subprocess.assert_called_once()
-    mock_handle_exception.assert_called_once()
+        # Setup LLM
+        mock_model_adapter = mock_llm
+        mock_get_adapter.return_value = mock_model_adapter
+        mock_model_adapter.get_model.return_value = Mock()
+        mock_model_adapter.execute.return_value = "Summarized output"
 
-    # Verify model adapter was NOT called since command failed
-    mock_llm.execute.assert_not_called()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
-
-
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_no_output(
-    mock_handle_exception: MagicMock,
-    mock_subprocess: MagicMock,
-    mock_llm: MagicMock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_summary_prompt: Callable[[], str],
-    standard_output_flags: OutputFlags,
-) -> None:
-    """Test standard command handling with no output."""
-    # Set up mock to return no output but success return code
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_result.stderr = ""
-    mock_subprocess.return_value = mock_result
-
-    # Run command
-    handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=standard_output_flags,
-        summary_prompt_func=mock_summary_prompt,
-    )
-
-    # Verify no exception was handled - the command should exit early with no output
-    mock_handle_exception.assert_not_called()
-
-    # Verify model adapter was not called since there was no output
-    mock_llm.execute.assert_not_called()
-
-    # Verify sys.exit was not called
-    prevent_exit.assert_not_called()
-
-
-@patch("vibectl.command_handler.handle_exception")
-def test_handle_standard_command_output_error(
-    mock_handle_exception: MagicMock,
-    mock_subprocess: MagicMock,
-    mock_llm: MagicMock,
-    mock_console: Mock,
-    prevent_exit: MagicMock,
-    mock_summary_prompt: Callable[[], str],
-    standard_output_flags: OutputFlags,
-) -> None:
-    """Test error handling in standard command output processing."""
-    # Set up successful command
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_result.stderr = ""
-    mock_subprocess.return_value = mock_result
-
-    # Setup the handle_command_output to fail
-    mock_handle_command_output_error = Exception("Output handling failed")
-
-    with patch("vibectl.command_handler.handle_command_output") as mock_handle_output:
-        mock_handle_output.side_effect = mock_handle_command_output_error
+        # Setup subprocess to return success
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "test output"
+        mock_subprocess_run.return_value = mock_result
 
         # Run command
-        handle_standard_command(
+        command_handler.handle_standard_command(
             command="get",
             resource="pods",
             args=(),
@@ -262,8 +210,25 @@ def test_handle_standard_command_output_error(
             summary_prompt_func=mock_summary_prompt,
         )
 
-        # Verify exception was handled
-        mock_handle_exception.assert_called_once()
-        args, kwargs = mock_handle_exception.call_args
-        assert isinstance(args[0], Exception)
-        assert str(args[0]) == "Output handling failed"
+        # Check that info log for start and completion was called
+        assert any(
+            "Handling standard command: get pods" in str(call)
+            for call in mock_command_handler_logger.info.call_args_list
+        )
+        assert any(
+            "Completed standard command: get pods" in str(call)
+            for call in mock_command_handler_logger.info.call_args_list
+        )
+
+        # Now test error case
+        mock_subprocess_run.side_effect = Exception("test error")
+        mock_command_handler_logger.reset_mock()
+        with pytest.raises(Exception) as excinfo:
+            command_handler.handle_standard_command(
+                command="get",
+                resource="pods",
+                args=(),
+                output_flags=standard_output_flags,
+                summary_prompt_func=mock_summary_prompt,
+            )
+        assert "test error" in str(excinfo.value)

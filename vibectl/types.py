@@ -5,6 +5,7 @@ Contains common type definitions used across the application.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -19,3 +20,19 @@ class OutputFlags:
     warn_no_proxy: bool = (
         True  # Flag to control warnings about missing proxy configuration
     )
+
+
+# Structured result types for subcommands
+@dataclass
+class Success:
+    message: str = ""
+    data: Any | None = None
+
+
+@dataclass
+class Error:
+    error: str
+    exception: Exception | None = None
+
+
+Result = Success | Error

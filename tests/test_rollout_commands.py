@@ -23,7 +23,7 @@ def test_rollout_commands_exist() -> None:
 @pytest.mark.parametrize("command", ["status", "history", "restart", "pause", "resume"])
 def test_rollout_commands_with_mocked_handler(command: str) -> None:
     """Test that rollout subcommands call handle_command_output with OutputFlags."""
-    with patch("vibectl.cli.configure_output_flags") as mock_flags:
+    with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = OutputFlags(
             show_raw=True, show_vibe=True, warn_no_output=True, model_name="test-model"
         )

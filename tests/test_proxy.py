@@ -77,16 +77,15 @@ def test_proxy_stats_basic() -> None:
     assert stats.bytes_sent == 0
     assert stats.active_connections == 0
     assert stats.connection_count == 0
-    assert stats.last_activity_timestamp >= 0  # Should be a timestamp
+    assert stats.last_activity >= 0  # Should be a timestamp
 
     # Test last_activity property
     initial_ts = stats.last_activity
-    assert initial_ts == stats.last_activity_timestamp
+    assert initial_ts == stats.last_activity
 
     # Test last_activity setter
     new_time = time.time()
     stats.last_activity = new_time
-    assert stats.last_activity_timestamp == new_time
     assert stats.last_activity == new_time
 
 
@@ -133,12 +132,11 @@ def test_stats_protocol_implementation() -> None:
     # Test initial values
     assert stats.bytes_received == 0
     assert stats.bytes_sent == 0
-    assert stats.last_activity_timestamp == 0  # type: ignore # This attribute exists in our implementation
+    assert stats.last_activity == 0  # Use property only
 
     # Test property and setter
     stats.last_activity = 12345.67
     assert stats.last_activity == 12345.67
-    assert stats.last_activity_timestamp == 12345.67  # type: ignore
 
 
 @patch("vibectl.proxy.logger.info")

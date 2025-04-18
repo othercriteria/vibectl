@@ -466,7 +466,8 @@ def cluster_info_prompt() -> str:
         example_format=[
             "[bold]Kubernetes v1.26.3[/bold] cluster running on "
             "[blue]Google Kubernetes Engine[/blue]",
-            "[green]Control plane healthy[/green] at [italic]https://10.0.0.1:6443[/italic]",
+            "[green]Control plane healthy[/green] at "
+            "[italic]https://10.0.0.1:6443[/italic]",
             "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
             "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
         ],
@@ -800,8 +801,7 @@ Current memory:
 Based on this new information, update the memory to maintain the most relevant context.
 Focus on cluster state, conditions, and configurations that will help with
 future requests.
-Be concise - memory is limited to {max_chars} characters (about 2-3 short paragraphs).
-Only include things actually observed from the output, no speculation or generalization.
+Be concise - memory is limited to {max_chars} characters.
 
 IMPORTANT:
 {formatted_instructions}
@@ -812,13 +812,13 @@ Just provide the direct memory content itself with no additional labels or heade
 
 
 # Update the recovery_prompt function to use the helper function
-def recovery_prompt(command: str, error: str, token_limit: int = 400) -> str:
+def recovery_prompt(command: str, error: str, max_chars: int = 1500) -> str:
     """Get the prompt template for generating recovery suggestions when a command fails.
 
     Args:
         command: The kubectl command that failed
         error: The error message
-        token_limit: Maximum tokens for the response
+        max_chars: Maximum characters for the response
 
     Returns:
         str: The recovery prompt template
@@ -835,7 +835,7 @@ Error:
 - Explain the error in simple terms and provide 2-3 alternative approaches to
 fix the issue.
 - Focus on common syntax issues or kubectl command structure problems
-- Keep your response under {token_limit} tokens.
+- Keep your response under {max_chars} characters.
 """
 
 
@@ -950,15 +950,26 @@ preserving other important existing context."""
 
 # Template for planning autonomous vibe commands
 PLAN_VIBE_PROMPT = """You are an AI assistant delegated to work in a Kubernetes cluster.
-Based on the current memory context and request (inputs), plan a single next kubectl
-command to execute.
+
+The user's goal is expressed in the inputs--the current memory context and a
+request--either of which may be empty.
+
+Plan a single next kubectl command to execute which will:
+- reduce uncertainty about the user's goal and its status, or if no uncertainty remains:
+- advance the user's goal, or if that is impossible:
+- reduce uncertainty about how to advance the user's goal, or if that is impossible:
+- reduce uncertainty about the current state of the cluster
+
+You may be in a non-interactive context, so do NOT plan blocking commands like
+'kubectl wait' or 'kubectl port-forward' unless given an explicit request to the
+contrary, and even then use appropriate timeouts.
 
 Syntax requirements (follow these STRICTLY):
-- Return ONLY the command arguments
+- Output ONLY the command arguments
 - Do not include 'kubectl' in the output
-- If the request is invalid, impossible, or incoherent, return 'ERROR: <reason>'
+- If the request is invalid, impossible, or incoherent, output 'ERROR: <reason>'
 - If the planned command is disruptive to the cluster or contrary to the user's
-  overall intent, return 'ERROR: not executing <command> because <reason>'
+  overall intent, output 'ERROR: not executing <command> because <reason>'
 - For creating resources with complex data (HTML, strings with spaces, etc.):
   * PREFER using YAML manifests with 'create -f -' approach
   * If command-line flags like --from-literal must be used, ensure correct quoting
@@ -967,14 +978,6 @@ Syntax requirements (follow these STRICTLY):
   * Every YAML document must start with '---' on a line by itself with no indentation
 - Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
 - Each multi-line command should be explicit about line continuation with newlines
-
-Guidance:
-- In the absence of any specific state change to make, focus on gathering information
-- If previous commands returned empty results or summarized recovery information,
-  use this to intelligently progress to the next logical step (e.g., checking other
-  namespaces, trying different resource types, or suggesting resource creation)
-- After discovering empty namespaces or absent resources, progress by creating
-  needed resources rather than repeatedly checking
 
 Example inputs and outputs:
 
@@ -989,10 +992,25 @@ Request: "help me troubleshoot"
 Output:
 describe pod -l app=database
 
-Memory: ""
+Memory: "We need to debug why the database pod keeps crashing."
 Request: ""
 Output:
-cluster-info
+describe pod -l app=database
+
+Memory: ""
+Request: "help me troubleshoot the database pod"
+Output:
+describe pod -l app=database
+
+Memory: "Wait until pod 'foo' is deleted"
+Request: ""
+Output:
+ERROR: not executing kubectl wait --for=delete pod/foo because it is blocking
+
+Memory: ""
+Request: "Wait until the database pod is ready"
+Output:
+wait pod -l app=database --for=condition=ready --timeout=30s
 
 Memory: "We have deployed pod 'foo'."
 Request: "Tear down the current pod and create a new one"
@@ -1004,34 +1022,6 @@ frontend deployment."
 Request: "keep working on the application deployment"
 Output:
 get deployment frontend -o yaml
-
-Memory: "We're working only in the 'sandbox' namespace to demonstrate new features.
-Checked for pods but found none in the sandbox namespace."
-Request: "keep building the nginx demo"
-Output:
-create -f - << EOF
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx
-  namespace: sandbox
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:latest
-        ports:
-        - containerPort: 80
-EOF
 
 Memory: "We need to create multiple resources for our application."
 Request: "create the frontend and backend pods"

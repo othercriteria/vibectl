@@ -89,3 +89,33 @@ While full [Model Context Protocol](https://github.com/modelcontextprotocol/pyth
 - Add additional validation for key formats across all providers
 - Implement comprehensive logging for key operations to aid debugging
 - Consider adding support for additional model providers (e.g., Mistral, Gemini)
+
+## LLM Error Handling and Transient Failures
+- Transient LLM/model errors such as `overloaded_error` (e.g., service overloaded or temporarily unavailable) are now characterized in tests.
+- Memory updates in these cases preserve the error type and message, so downstream logic and future model runs can distinguish between transient service issues and genuine model logic errors.
+- Consider future improvements:
+  - More user-friendly messaging or UI feedback for transient LLM errors
+  - Retry logic or exponential backoff for overloaded errors
+  - More nuanced memory/context handling to avoid penalizing the model for service-side issues
+
+## Logging Improvements and Future Work
+- All subcommands now use structured logging and error handling via the new logger and console_manager pattern.
+- Update documentation (README, CLI help) to describe logging usage and configuration options.
+- Ensure all error and exception paths consistently use logging (continue to review as code evolves).
+- Consider additional shared logging utilities or patterns (e.g., context-aware log formatting, per-command loggers, file/JSON logging) for future extensibility.
+- Plan for future extensibility: file logging, JSON logs, and advanced log configuration.
+
+### Logging Test Pattern (reference)
+When testing logging output in command handler or other modules:
+- Use the `mock_command_handler_logger` fixture (from conftest.py) to patch and assert on log output.
+- This ensures fast, reliable, and consistent logging assertions.
+- For new modules, add a similar fixture to conftest.py and use it in tests.
+
+Example usage:
+```python
+# In your test function signature:
+def test_something(..., mock_command_handler_logger: Mock):
+    ...
+    # After running code
+    assert any("expected log message" in str(call) for call in mock_command_handler_logger.info.call_args_list)
+```

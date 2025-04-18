@@ -906,3 +906,9 @@ unsupported_key: test-value
             # We should get the theme value from the file
             assert config.get("theme") == "light"
             assert "unsupported_key" in config_data
+
+
+def test_mockconfig_get_model_key_none_behavior() -> None:
+    config = MockConfig()
+    config._config["model_keys"] = {"openai": None}
+    assert config.get_model_key("openai") is None

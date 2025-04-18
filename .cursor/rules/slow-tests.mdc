@@ -36,6 +36,7 @@ actions:
       2. Check: unmocked external calls, database operations, file I/O
       3. Fix by: mocking dependencies, using in-memory DBs, caching setup
       4. When necessary: add @pytest.mark.slow, document reason
+      5. **After any fix to a slow test, autonomously run the test suite with `pytest --durations=20` to confirm the test is no longer slow. Repeat this process until the test duration is acceptable.**
 
 examples:
   - input: |
@@ -49,6 +50,15 @@ examples:
           assert result == expected
     output: "Properly documented slow test with explanation"
 
+criteria:
+  required:
+    - Document reason for any test >1s
+    - Mock external dependencies where possible
+    - Confirm with `pytest --durations` that test is no longer slow after a fix
+    - Repeat test runs after each fix until duration is acceptable
+    - Use @pytest.mark.slow only when truly necessary
+    - Prefer fast, reliable, and isolated tests
+
 metadata:
   priority: critical  # Critical due to impact on development velocity
-  version: 1.1  # Updated for conciseness
+  version: 1.2  # Updated for autonomous slow test confirmation

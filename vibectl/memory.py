@@ -173,3 +173,24 @@ Memory context:
         prompt = f"{memory_section}{prompt}"
 
     return prompt
+
+
+def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
+    """Configure memory behavior based on flags.
+
+    Args:
+        freeze: Whether to disable memory updates for this command
+        unfreeze: Whether to enable memory updates for this command
+
+    Raises:
+        ValueError: If both freeze and unfreeze are specified
+    """
+    if freeze and unfreeze:
+        raise ValueError("Cannot specify both --freeze-memory and --unfreeze-memory")
+
+    cfg = Config()
+
+    if freeze:
+        disable_memory(cfg)
+    elif unfreeze:
+        enable_memory(cfg)

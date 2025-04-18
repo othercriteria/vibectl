@@ -1,0 +1,143 @@
+# Logging and Error Handling Best Practices for Python CLI Projects
+
+This rule codifies robust, user-friendly, and debuggable logging and error handling for Python CLI projects. It ensures that logging, exception handling, and CLI entry points are set up to:
+- Provide clear user-facing error messages
+- Show tracebacks only when explicitly enabled (e.g., via environment variable or debug log level)
+- Avoid duplicate or confusing error output
+- Make it easy to test and maintain error handling
+
+<rule>
+name: logging_best_practices
+
+description: >
+  Enforces best practices for logging, error handling, and CLI entry points in Python projects. Ensures that all user-facing commands and subcommands:
+  - Use the standard logging module for all log output
+  - Centralize error handling at the CLI entry point
+  - Print user-friendly error messages by default, with tracebacks only when enabled
+  - Avoid duplicate error output (no double-logging or double-printing)
+  - Make error handling testable and maintainable
+
+filters:
+  - type: file_pattern
+    pattern: ".*\.py$"
+  - type: file_pattern
+    pattern: "pyproject\.toml$"
+  - type: content
+    pattern: "(?i)\b(logging|logger|exception|traceback|cli|entry point|sys\.exit|print|error)\b"
+
+actions:
+  - type: suggest
+    message: |
+      ## Logging and Error Handling Best Practices
+
+      1. **Use the standard logging module**
+         - Set up a logger for each module (e.g., `logger = logging.getLogger(__name__)`)
+         - Configure logging in a single place (e.g., `logutil.py` or similar)
+         - Allow log level to be set via environment variable or CLI flag
+
+      2. **Centralize error handling at the CLI entry point**
+         - All exceptions should be caught at the top-level `main()` function
+         - Use a function like `handle_exception(e)` to print user-friendly errors
+         - Only print tracebacks if an environment variable (e.g., `TRACEBACK=1`) or debug log level is set
+         - Always exit with a nonzero code on error
+
+      3. **Avoid duplicate error output**
+         - Do not both log and print the same error at multiple levels
+         - Log at DEBUG/INFO level for diagnostics, but only print user-facing errors once
+         - Do not re-raise exceptions after handling unless you want a traceback
+
+      4. **Make error handling testable**
+         - Use a `main()` entry point that wraps the CLI and handles all exceptions
+         - In `pyproject.toml` or `setup.py`, set the CLI entry point to `main`, not the raw CLI group/function
+         - In tests, use `CliRunner.invoke()` and check `result.output` for error messages
+
+      5. **Document logging and error handling in project structure**
+         - Add a section to your README or STRUCTURE.md describing how logging and error handling work
+         - Document how to enable tracebacks or debug logging for troubleshooting
+
+      6. **Example pattern**
+         ```python
+         # logutil.py
+         import logging
+         import os
+
+         def init_logging():
+             level = os.environ.get("LOG_LEVEL", "INFO").upper()
+             logging.basicConfig(level=level, format="[%(levelname)s] %(message)s")
+         logger = logging.getLogger(__name__)
+         ```
+         ```python
+         # utils.py
+         import sys, os, logging, traceback
+         def handle_exception(e, exit_on_error=True):
+             print(f"Error: {e}", file=sys.stderr)
+             if os.environ.get("TRACEBACK") == "1" or logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
+                 traceback.print_exc()
+             if exit_on_error:
+                 sys.exit(1)
+         ```
+         ```python
+         # cli.py
+         import click
+         from .logutil import init_logging, logger
+         from .utils import handle_exception
+         @click.group()
+         def cli(): ...
+         def main():
+             init_logging()
+             try:
+                 cli(standalone_mode=False)
+             except Exception as e:
+                 handle_exception(e)
+         if __name__ == "__main__":
+             main()
+         ```
+         ```toml
+         # pyproject.toml
+         [project.scripts]
+         mycli = "myproject.cli:main"
+         ```
+
+      7. **Bringing legacy code up to standard**
+         - Refactor subcommands to avoid direct printing or duplicate logging
+         - Ensure all errors propagate to the top-level handler
+         - Remove any direct calls to `sys.exit` or `print` for errors except in the centralized handler
+         - Update tests to check for error output in `result.output` or `result.exception`
+
+      8. **For new projects**
+         - Start with this pattern from the beginning
+         - Add a logging and error handling section to your project docs
+         - Use environment variables or CLI flags to control log level and tracebacks
+
+criteria:
+  required:
+    - All log output uses the standard logging module
+    - Centralized error handling at the CLI entry point
+    - User-facing errors are printed once, with tracebacks only when enabled
+    - No duplicate error output
+    - CLI entry point is a main() function that wraps the CLI and handles exceptions
+    - pyproject.toml or setup.py sets the entry point to main, not the CLI group
+    - Tests check error output in result.output or result.exception
+    - Logging and error handling are documented in project docs
+
+examples:
+  - input: "How should I set up logging and error handling for a new Python CLI project?"
+    output: |
+      1. Use the standard logging module and configure it in one place
+      2. Centralize error handling in main()
+      3. Set the CLI entry point to main in pyproject.toml
+      4. Print user-friendly errors by default, tracebacks only if enabled
+      5. Avoid duplicate error output
+      6. Document the pattern in your project docs
+
+  - input: "How do I refactor legacy subcommands to use this pattern?"
+    output: |
+      1. Remove direct print or sys.exit calls for errors in subcommands
+      2. Let exceptions propagate to main()
+      3. Only print/log errors once in handle_exception
+      4. Update tests to check result.output or result.exception
+
+metadata:
+  priority: critical
+  version: 1.0
+</rule>

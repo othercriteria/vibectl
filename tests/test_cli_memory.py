@@ -104,10 +104,7 @@ def test_memory_clear_error(
         assert "error" in result.output.lower()
 
 
-@patch("vibectl.utils.handle_exception")
-def test_memory_config_error(
-    mock_handle_exception: Mock, cli_runner: CliRunner, mock_config: Mock
-) -> None:
+def test_memory_config_error(cli_runner: CliRunner, mock_config: Mock) -> None:
     """Test error handling for memory commands with config errors."""
     # Setup direct mock to throw an error
     with patch("vibectl.cli.get_memory") as mock_get_memory:
@@ -174,6 +171,7 @@ def test_memory_update(
         patch("vibectl.cli.get_memory") as mock_get_memory,
         patch("vibectl.cli.set_memory") as mock_set_memory,
         patch("vibectl.cli.llm.get_model") as mock_get_model,
+        patch("vibectl.cli.Config", return_value=mock_config),
     ):
         # Configure get_memory to return existing memory
         mock_get_memory.return_value = "Existing memory content"
@@ -222,3 +220,14 @@ def test_memory_update_error(
         assert result.exit_code != 0
         mock_get_memory.assert_called_once()
         mock_get_model.assert_called_once()
+
+
+def test_memory_set_stdin_accepted(
+    cli_runner: CliRunner, mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test that memory set accepts piped input (stdin) and sets memory content."""
+    test_input = "Memory from stdin!"
+    with patch("vibectl.cli.set_memory") as mock_set_memory:
+        result = cli_runner.invoke(cli, ["memory", "set"], input=test_input)
+    assert result.exit_code == 0
+    mock_set_memory.assert_called_once_with(test_input)
