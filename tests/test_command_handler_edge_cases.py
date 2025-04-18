@@ -440,3 +440,84 @@ def test_handle_vibe_request_autonomous_mode(
         # But we should check that it doesn't have "vibe vibe" (double vibe)
         assert "Planning to run: kubectl " in note_text
         assert "vibe vibe" not in note_text
+
+
+def test_handle_vibe_request_yaml_prompt_with_spec_field(
+    mock_model_adapter: MagicMock,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Test handle_vibe_request with a prompt containing {spec} placeholder.
+
+    This tests the handling of format placeholders in prompt templates. Before the fix,
+    this would raise KeyError: 'spec'. After the fix, it should handle this gracefully
+    by using a fallback string replacement method.
+    """
+    # Configure model adapter to return a response that includes YAML with {spec}
+    mock_model_adapter.return_value.execute.return_value = """create -f - << EOF
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+  labels:
+    app: test
+{spec}
+  containers:
+  - name: test-container
+    image: nginx:latest
+EOF"""
+
+    # Configure output flags
+    output_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+    )
+
+    # This simulates what happens in vibe_cmd.py - the prompt already contains
+    # formatted placeholders with {memory_context} and {request} filled in,
+    # but the prompt itself might contain other format-style placeholders like {spec}
+    pre_formatted_prompt = """You are planning a command.
+Memory: "Previous context"
+Request: "create a pod"
+
+If you need to create a pod, use this template:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example
+{spec}
+  containers:
+  - name: container
+    image: nginx
+"""
+
+    # With the fix, this should now run without raising a KeyError
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler._execute_command"),
+        patch("vibectl.command_handler.click.confirm", return_value=True),
+        patch("vibectl.command_handler.handle_command_output"),
+        patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
+    ):
+        # This should not raise an exception after the fix
+        handle_vibe_request(
+            request="create a pod",
+            command="vibe",
+            plan_prompt=pre_formatted_prompt,
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+        )
+
+    # Verify the fallback method is being used based on logger calls
+    mock_logger.warning.assert_called_once()
+    warning_message = mock_logger.warning.call_args[0][0]
+    assert "Format key error" in warning_message
+    assert "'spec'" in warning_message
+    assert "Using fallback formatting method" in warning_message
+
+    # Verify the correct kubectl command was created
+    mock_logger.info.assert_any_call(
+        "Executing kubectl command: ['vibe', 'create', '-f', '-'] (yaml: True)"
+    )

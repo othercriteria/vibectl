@@ -294,9 +294,21 @@ def handle_vibe_request(
         )
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
-        kubectl_cmd = model_adapter.execute(
-            model, plan_prompt.format(request=request, command=command)
-        )
+        try:
+            # First attempt to format the plan_prompt with the expected keys
+            formatted_prompt = plan_prompt.format(request=request, command=command)
+        except KeyError as e:
+            # If we get a KeyError, the prompt might already contain format placeholders
+            # that conflict with our formatting. Use a more resilient approach.
+            logger.warning(
+                f"Format key error ({e}) in prompt. Using fallback formatting method."
+            )
+            # Use string replacement as a fallback to avoid format conflicts
+            formatted_prompt = plan_prompt.replace("{request}", request).replace(
+                "{command}", command
+            )
+
+        kubectl_cmd = model_adapter.execute(model, formatted_prompt)
 
         if not kubectl_cmd:
             logger.error(
