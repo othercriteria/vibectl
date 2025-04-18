@@ -109,6 +109,7 @@ def run_command(
 
 def find_sandbox_container() -> str | None:
     """Find the Kind sandbox container name."""
+    # First try searching based on the KIND_CONTAINER value with exact name
     command = [
         "docker",
         "ps",
@@ -119,16 +120,60 @@ def find_sandbox_container() -> str | None:
     ]
     exit_code, stdout, stderr = run_command(command)
 
-    if exit_code != 0:
-        console.log(f"[red]Error finding sandbox container: {stderr}[/red]")
-        return None
+    if exit_code == 0 and stdout.strip():
+        containers = stdout.strip().split("\n")
+        if containers and containers[0]:
+            return containers[0]
 
-    containers = stdout.strip().split("\n")
-    if not containers or not containers[0]:
-        console.log(f"[red]No container matching '{KIND_CONTAINER}' found[/red]")
-        return None
+    # If exact match fails, try with pattern matching for control-plane container
+    command = [
+        "docker",
+        "ps",
+        "--format",
+        "{{.Names}}",
+        "--filter",
+        "name=control-plane",
+    ]
+    exit_code, stdout, stderr = run_command(command)
 
-    return containers[0]
+    if exit_code == 0 and stdout.strip():
+        containers = stdout.strip().split("\n")
+        # Look for containers that contain both 'chaos-monkey' and 'control-plane'
+        for container in containers:
+            if "chaos-monkey" in container and "control-plane" in container:
+                console.log(f"[green]Found Kind container: {container}[/green]")
+                return container
+
+    # Last resort: look for any chaos-monkey container
+    command = [
+        "docker",
+        "ps",
+        "--format",
+        "{{.Names}}",
+        "--filter",
+        "name=chaos-monkey",
+    ]
+    exit_code, stdout, stderr = run_command(command)
+
+    if exit_code == 0 and stdout.strip():
+        containers = stdout.strip().split("\n")
+        # Filter for containers likely to be the k8s control plane
+        for container in containers:
+            if (
+                "control-plane" in container
+                or "k8s" in container
+                or "kind" in container
+            ):
+                console.log(
+                    f"[yellow]Found possible Kind container: {container}[/yellow]"
+                )
+                return container
+
+    console.log(
+        "[red]No container matching '"
+        f"{KIND_CONTAINER}' or any control-plane container found[/red]"
+    )
+    return None
 
 
 def check_kubernetes_status(container_name: str) -> bool:
@@ -163,15 +208,41 @@ def check_kubernetes_status(container_name: str) -> bool:
         console.log("[red]No ready nodes found in the cluster[/red]")
         return False
 
+    # Check if the services namespace exists and is active
+    command = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",
+        "--kubeconfig",
+        "/etc/kubernetes/admin.conf",
+        "get",
+        "namespace",
+        "services",
+        "-o",
+        "jsonpath={.status.phase}",
+    ]
+    exit_code, stdout, stderr = run_command(command)
+
+    if exit_code != 0 or stdout.strip() != "Active":
+        console.log(
+            "[red]Services namespace is not active: "
+            f"{stderr or 'Not found or not active'}[/red]"
+        )
+        return False
+
     logger.info("Kubernetes cluster is running properly")
     return True
 
 
 def check_frontend_service(container_name: str) -> dict[str, Any]:
     """Check the status of the frontend service."""
-    service_endpoint = "http://localhost:30001"  # Default NodePort for frontend
+    # Default NodePort - will try to detect the actual port below
+    node_port = "30001"
+    local_endpoint = f"http://localhost:{node_port}"
+    service_endpoint = f"http://{container_name}:{node_port}"
 
-    # First, check if the frontend service exists
+    # First, check if the frontend service exists and get its NodePort
     command = [
         "docker",
         "exec",
@@ -185,13 +256,84 @@ def check_frontend_service(container_name: str) -> dict[str, Any]:
         "-n",
         "services",
         "-o",
-        "jsonpath={.spec.type}",
+        "jsonpath={.spec.ports[0].nodePort}",
     ]
     exit_code, stdout, stderr = run_command(command)
 
+    # If we got a NodePort, update the endpoints
+    if exit_code == 0 and stdout.strip():
+        node_port = stdout.strip()
+        local_endpoint = f"http://localhost:{node_port}"
+        service_endpoint = f"http://{container_name}:{node_port}"
+        logger.info(f"Detected NodePort for frontend service: {node_port}")
+    else:
+        # Try to get the service type at least
+        type_command = [
+            "docker",
+            "exec",
+            container_name,
+            "kubectl",
+            "--kubeconfig",
+            "/etc/kubernetes/admin.conf",
+            "get",
+            "service",
+            "frontend",
+            "-n",
+            "services",
+            "-o",
+            "jsonpath={.spec.type}",
+        ]
+        exit_code, stdout, stderr = run_command(type_command)
+
     # Check if service exists
     if exit_code != 0 or not stdout:
-        logger.error(f"Frontend service not found: {stderr or 'No output'}")
+        # Try to get more diagnostic info about the services namespace
+        namespace_command = [
+            "docker",
+            "exec",
+            container_name,
+            "kubectl",
+            "--kubeconfig",
+            "/etc/kubernetes/admin.conf",
+            "get",
+            "namespace",
+            "services",
+            "--no-headers",
+        ]
+        ns_exit_code, ns_stdout, ns_stderr = run_command(namespace_command)
+
+        if ns_exit_code != 0:
+            error_message = f"Services namespace not found: {ns_stderr}"
+            logger.error(error_message)
+        else:
+            # List all services to see what's available
+            all_services_command = [
+                "docker",
+                "exec",
+                container_name,
+                "kubectl",
+                "--kubeconfig",
+                "/etc/kubernetes/admin.conf",
+                "get",
+                "services",
+                "-n",
+                "services",
+                "--no-headers",
+            ]
+            svc_exit_code, svc_stdout, svc_stderr = run_command(all_services_command)
+
+            if svc_exit_code == 0 and svc_stdout:
+                error_message = (
+                    "Frontend service not found, but other services exist: "
+                    f"{svc_stdout}"
+                )
+            else:
+                error_message = (
+                    f"No services found in namespace: {svc_stderr or 'Empty namespace'}"
+                )
+
+            logger.error(error_message)
+
         return {
             "status": STATUS_DOWN,
             "response_time": "N/A",
@@ -239,32 +381,79 @@ def check_frontend_service(container_name: str) -> dict[str, Any]:
 
     # Now check if we can connect to the service
     start_time = time.time()
+    # Use curl command inside the container to access the service via localhost
     command = [
         "docker",
         "exec",
         container_name,
         "curl",
         "-s",
+        "-v",  # Add verbose output for better diagnostics
         "-o",
         "/dev/null",
         "-w",
         "%{http_code}",
         "-m",
         "5",  # 5 second timeout
-        service_endpoint,
+        "--fail",  # Fail silently on server errors
+        local_endpoint,  # Access via localhost inside the container
     ]
     exit_code, stdout, stderr = run_command(command, timeout=10)
 
     end_time = time.time()
     response_time = f"{(end_time - start_time):.2f}s"
 
+    # For debugging, check if the port is actually listening
+    port_check_command = [
+        "docker",
+        "exec",
+        container_name,
+        "ss",
+        "-tuln",
+        "sport = :" + node_port,
+    ]
+    port_check_exit_code, port_check_stdout, port_check_stderr = run_command(
+        port_check_command
+    )
+    if port_check_exit_code == 0 and port_check_stdout:
+        logger.info(f"Port {node_port} is listening: {port_check_stdout}")
+    else:
+        logger.warning(f"Port {node_port} doesn't appear to be listening in container")
+
     # Check HTTP status code
     if exit_code != 0:
         logger.error(f"Error connecting to frontend service: {stderr}")
+        # Try to check if the port is even listening
+        check_port_command = [
+            "docker",
+            "exec",
+            container_name,
+            "nc",
+            "-zv",
+            "localhost",
+            node_port,
+        ]
+        port_exit_code, port_stdout, port_stderr = run_command(check_port_command)
+
+        error_message = (
+            f"Connection error: Port {node_port} not listening on "
+            f"{container_name} - {port_stderr}"
+        )
+        if port_exit_code != 0:
+            error_message = f"Connection error: {error_message}"
+        elif "Connection refused" in stderr:
+            error_message = (
+                "Connection error: Connection refused - Service port not listening"
+            )
+        elif "timed out" in stderr:
+            error_message = (
+                "Connection error: Connection timed out - Service may be starting"
+            )
+
         return {
             "status": STATUS_DOWN,
             "response_time": response_time,
-            "message": f"Connection error: {stderr}",
+            "message": error_message,
             "endpoint": service_endpoint,
             "pods": pod_status,
         }
@@ -294,36 +483,89 @@ def check_frontend_service(container_name: str) -> dict[str, Any]:
         }
 
     # Check content to verify we got expected content
-    command = [
-        "docker",
-        "exec",
-        container_name,
-        "curl",
-        "-s",
-        "-m",
-        "5",  # 5 second timeout
-        service_endpoint,
-    ]
-    exit_code, stdout, stderr = run_command(command, timeout=10)
+    content_check_retries = 2
+    content_valid = False
 
-    if exit_code != 0:
-        return {
-            "status": STATUS_DEGRADED,
-            "response_time": response_time,
-            "message": f"Content validation error: {stderr}",
-            "endpoint": service_endpoint,
-            "pods": pod_status,
-        }
+    while content_check_retries > 0 and not content_valid:
+        command = [
+            "docker",
+            "exec",
+            container_name,
+            "curl",
+            "-s",
+            "-v",  # Add verbose output for better diagnostics
+            "-m",
+            "5",  # 5 second timeout
+            local_endpoint,  # Access via localhost inside the container
+        ]
+        exit_code, stdout, stderr = run_command(command, timeout=10)
 
-    # Check for expected content (should contain "Service Status: Online")
-    if "Service Status: Online" not in stdout:
-        return {
-            "status": STATUS_DEGRADED,
-            "response_time": response_time,
-            "message": "Content validation failed: Expected text not found",
-            "endpoint": service_endpoint,
-            "pods": pod_status,
-        }
+        if exit_code != 0:
+            content_check_retries -= 1
+            if content_check_retries > 0:
+                # Wait briefly and retry
+                time.sleep(1)
+                continue
+
+            logger.error(f"Content validation failed with error: {stderr}")
+
+            # Try a different approach - sometimes nc works better
+            # than curl for checking connectivity
+            conn_check_command = [
+                "docker",
+                "exec",
+                container_name,
+                "bash",
+                "-c",
+                (
+                    f"echo 'GET / HTTP/1.1\r\nHost: localhost\r\n\r\n' | "
+                    f"nc -w 5 localhost {node_port}"
+                ),
+            ]
+            conn_exit_code, conn_stdout, conn_stderr = run_command(conn_check_command)
+
+            if conn_exit_code == 0 and conn_stdout:
+                logger.info(
+                    f"Alternative connection check succeeded: {conn_stdout[:100]}..."
+                )
+                return {
+                    "status": STATUS_DEGRADED,
+                    "response_time": response_time,
+                    "message": (
+                        "Content validation unclear: curl failed but nc succeeded"
+                    ),
+                    "endpoint": service_endpoint,
+                    "pods": pod_status,
+                }
+
+            return {
+                "status": STATUS_DEGRADED,
+                "response_time": response_time,
+                "message": f"Content validation error: {stderr}",
+                "endpoint": service_endpoint,
+                "pods": pod_status,
+            }
+
+        # Check for expected content (should contain "Service Status: Online")
+        if "Service Status: Online" in stdout:
+            content_valid = True
+        else:
+            content_check_retries -= 1
+            if content_check_retries > 0:
+                # Wait briefly and retry
+                time.sleep(1)
+                continue
+
+            # Log the actual content for diagnostic purposes
+            truncated_content = stdout[:200] + "..." if len(stdout) > 200 else stdout
+            logger.info(f"Unexpected content from service: {truncated_content}")
+            return {
+                "status": STATUS_DEGRADED,
+                "response_time": response_time,
+                "message": "Content validation failed: Expected text not found",
+                "endpoint": service_endpoint,
+                "pods": pod_status,
+            }
 
     # All checks passed - service is healthy
     return {
@@ -422,6 +664,8 @@ def main() -> None:
         # Calculate end time based on session duration
         end_time = time.time() + (SESSION_DURATION * 60)
         check_count = 0
+        container_retry_count = 0
+        max_container_retries = 10
 
         while True:
             # Check if session duration has elapsed
@@ -439,13 +683,54 @@ def main() -> None:
             # Find the sandbox container
             sandbox_container = find_sandbox_container()
             if not sandbox_container:
+                container_retry_count += 1
+                retry_wait = min(
+                    10 * container_retry_count, 60
+                )  # Exponential backoff up to 60 seconds
+
                 msg = (
-                    "[red]Could not find sandbox container. "
-                    "Retrying in 10 seconds...[/red]"
+                    f"[red]Could not find sandbox container "
+                    f"(attempt {container_retry_count}/{max_container_retries}). "
+                    f"Retrying in {retry_wait} seconds...[/red]"
                 )
                 console.log(msg)
-                time.sleep(10)
+
+                # After multiple retries, provide additional diagnostic information
+                if container_retry_count >= 3:
+                    console.log(
+                        "[yellow]Running docker ps to debug "
+                        "container visibility:[/yellow]"
+                    )
+                    debug_command = ["docker", "ps", "--format", "{{.Names}}"]
+                    exit_code, stdout, stderr = run_command(debug_command)
+                    if exit_code == 0 and stdout:
+                        console.log(f"[yellow]Available containers: {stdout}[/yellow]")
+                    else:
+                        console.log(f"[red]Error running docker ps: {stderr}[/red]")
+
+                if container_retry_count >= max_container_retries:
+                    console.log(
+                        "[red]Maximum container retry attempts reached. "
+                        "Will continue checking periodically.[/red]"
+                    )
+                    container_retry_count = (
+                        0  # Reset to keep trying but less frequently
+                    )
+
+                # Update status as down due to container not found
+                status = {
+                    "status": STATUS_DOWN,
+                    "response_time": "N/A",
+                    "message": "Kubernetes sandbox container not found",
+                    "endpoint": "unknown",
+                }
+                update_status_file(status)
+                print_status(status)
+                time.sleep(retry_wait)
                 continue
+            else:
+                # Reset retry counter when container is found
+                container_retry_count = 0
 
             # Check if Kubernetes cluster is running
             if not check_kubernetes_status(sandbox_container):

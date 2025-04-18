@@ -28,7 +28,6 @@ from rich.console import Console
 # Configuration from environment variables
 METRICS_INTERVAL = int(os.environ.get("METRICS_INTERVAL", "15"))
 SESSION_DURATION = int(os.environ.get("SESSION_DURATION", "30"))
-VISUALIZATION = os.environ.get("VISUALIZATION", "true").lower() == "true"
 VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 POLLER_STATUS_DIR = "/tmp/status"  # Path inside the poller container
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")

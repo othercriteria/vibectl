@@ -57,7 +57,6 @@ Configuration is handled via environment variables:
 |----------|---------|-------------|
 | `METRICS_INTERVAL` | 15 | Interval in seconds between metrics updates |
 | `SESSION_DURATION` | 30 | Duration in minutes for the demo session |
-| `VISUALIZATION` | true | Enable or disable visualization features |
 | `VERBOSE` | false | Enable verbose logging |
 | `PORT` | 8080 | Web server port |
 | `HOST` | 0.0.0.0 | Web server host |

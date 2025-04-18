@@ -3,7 +3,6 @@
 # Default values for environment variables
 export SESSION_DURATION ?= 30
 export METRICS_INTERVAL ?= 15
-export VISUALIZATION ?= true
 export VERBOSE ?= false
 
 # Help command
@@ -28,9 +27,8 @@ help:
 	@echo "  services-logs View logs from services"
 	@echo ""
 	@echo "Environment Variables:"
-	@echo "  SESSION_DURATION     Session duration in minutes (default: 30)"
-	@echo "  METRICS_INTERVAL     Metrics collection interval in seconds (default: 15)"
-	@echo "  VISUALIZATION        Enable visualization dashboard (default: true)"
+	@echo "  SESSION_DURATION     Session duration in minutes (default: 30 min)"
+	@echo "  METRICS_INTERVAL     Metrics collection interval in seconds (default: 15 sec)"
 	@echo "  VERBOSE              Enable verbose logging (default: false)"
 	@echo ""
 	@echo "Examples:"
@@ -41,7 +39,6 @@ help:
 # Default target
 run:
 	./run.sh $(if $(filter true,$(VERBOSE)),--verbose) \
-             $(if $(filter false,$(VISUALIZATION)),--no-visualization) \
              --session-duration $(SESSION_DURATION)
 
 # Build containers

@@ -110,10 +110,10 @@ export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
 # Set model (defaults to claude-3.7-sonnet)
 export VIBECTL_MODEL=claude-3.7-haiku
 
-# Set session duration in minutes (defaults to 30)
+# Set session duration in minutes (defaults to 30 min)
 export SESSION_DURATION=60
 
-# Set metrics interval in seconds (defaults to 15)
+# Set metrics interval in seconds (defaults to 15 sec)
 export METRICS_INTERVAL=10
 
 # Run with specific configuration via command line options
@@ -122,7 +122,6 @@ export METRICS_INTERVAL=10
 
 Available command-line options:
 - `--session-duration MINUTES`: Set how long the demo should run
-- `--metrics-interval SECONDS`: Set how frequently to update metrics
 - `--verbose`: Enable detailed logging
 
 ## Development Status

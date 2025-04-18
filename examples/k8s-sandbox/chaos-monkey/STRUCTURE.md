@@ -201,7 +201,6 @@ The demo can be configured with the following parameters:
 - `DOCKER_GID`: Docker group ID for socket access (auto-detected)
 - `POLL_INTERVAL_SECONDS`: How frequently the poller checks service status (in seconds)
 - `METRICS_INTERVAL`: How frequently the overseer updates metrics (in seconds)
-- `VISUALIZATION`: Enable/disable visualization features in the dashboard
 - `VERBOSE`: Enable detailed logging output
 
 ## Agent Parameters

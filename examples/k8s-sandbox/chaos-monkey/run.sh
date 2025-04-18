@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     --help)
       echo "Usage: $0 [options]"
       echo "Options:"
-      echo "  --session-duration MINUTES  Set the session duration in minutes (default: 30)"
+      echo "  --session-duration MINUTES  Set the session duration in minutes (default: 30 min)"
       echo "  --verbose                   Enable verbose logging"
       echo "  --help                      Show this help message"
       exit 0
