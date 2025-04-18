@@ -75,7 +75,7 @@ actions:
          - Add `--detach` or `-d` flag for background operation
          - Better yet, let the user run these commands themselves
          - Example: `docker compose up -d` or `docker run -d image_name`
-         
+
       4. **Continuous output commands**:
          - Avoid `watch`, `tail -f`, and similar commands
          - Use one-time execution alternatives
@@ -97,29 +97,29 @@ examples:
   - input: "I need to see git log output"
     output: |
       I'll show you the git log without using an interactive pager:
-      
+
       ```
       git --no-pager log -n 5
       ```
-      
+
       Or alternatively:
-      
+
       ```
       git log | cat
       ```
 
   - input: "Can you run the docker composition?"
     output: |
-      The docker compose command would block and prevent further interaction. 
-      
+      The docker compose command would block and prevent further interaction.
+
       I recommend you run this command yourself:
-      
+
       ```
       cd examples/k8s-sandbox/chaos-monkey && ./run.sh --verbose
       ```
-      
+
       If you just want me to build the images without running them:
-      
+
       ```
       docker compose build
       ```
@@ -127,4 +127,4 @@ examples:
 metadata:
   priority: critical
   version: 1.0
-</rule> 
+</rule>
