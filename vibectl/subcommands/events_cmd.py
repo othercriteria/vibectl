@@ -37,12 +37,15 @@ def run_events_command(
         # Special case for 'vibe' command
         if args and args[0] == "vibe":
             if len(args) < 2:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in events subcommand.", exc_info=True)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl events vibe "all events in kube-system"'
+                )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: events {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

@@ -42,13 +42,15 @@ def run_wait_command(
         # Special case for vibe command
         if resource == "vibe":
             if len(args) < 1:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in wait subcommand.", exc_info=True)
-                console_manager.print_error(msg)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl wait vibe "for the nginx pod to be ready"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
-            logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: wait {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

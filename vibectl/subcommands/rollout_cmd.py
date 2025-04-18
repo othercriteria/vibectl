@@ -56,12 +56,16 @@ def run_rollout_command(
         # Handle 'vibe' mode
         if subcommand == "vibe":
             if not resource:
-                msg = "Missing request after 'vibe'"
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl rollout vibe "restart the nginx deployment"'
+                )
                 logger.error(msg + " in rollout subcommand.", exc_info=True)
                 return Error(error=msg)
             request = " ".join((resource, *args))
-            logger.info(f"Planning how to: {request}")
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: rollout {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

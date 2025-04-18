@@ -41,13 +41,15 @@ def run_cluster_info_command(
         # Special case for vibe command
         if args and args[0] == "vibe":
             if len(args) < 2:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in cluster-info subcommand.", exc_info=True)
-                console_manager.print_error(msg)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl cluster-info vibe "show all cluster info"'
+                )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: cluster-info {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

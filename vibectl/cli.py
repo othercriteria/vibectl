@@ -1140,7 +1140,8 @@ def handle_result(result: Result) -> None:
         elif result.error:
             handle_exception(Exception(result.error))
         else:
-            sys.exit(1)
+            # Fallback: print a generic error message
+            handle_exception(Exception("Unknown error occurred"))
 
 
 def main() -> None:

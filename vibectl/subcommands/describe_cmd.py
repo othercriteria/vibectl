@@ -44,12 +44,16 @@ def run_describe_command(
 
         if resource == "vibe":
             if not args:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in describe subcommand.", exc_info=True)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl describe vibe "the nginx pod in default"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
             logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: describe {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

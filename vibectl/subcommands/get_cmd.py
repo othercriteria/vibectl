@@ -39,12 +39,16 @@ def run_get_command(
 
         if resource == "vibe":
             if len(args) < 1:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in get subcommand.", exc_info=True)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl get vibe "all nginx pods in kube-system"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
             logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            planning_msg = f"Planning how to: get {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,
@@ -55,7 +59,10 @@ def run_get_command(
                 )
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
-                return Error(error="Exception in handle_vibe_request", exception=e)
+                return Error(
+                    error="Exception in handle_vibe_request",
+                    exception=e,
+                )
             logger.info("Completed 'get' subcommand for vibe request.")
             return Success(message="Completed 'get' subcommand for vibe request.")
 
@@ -69,9 +76,15 @@ def run_get_command(
             )
         except Exception as e:
             logger.error("Error in handle_standard_command: %s", e, exc_info=True)
-            return Error(error="Exception in handle_standard_command", exception=e)
+            return Error(
+                error="Exception in handle_standard_command",
+                exception=e,
+            )
         logger.info(f"Completed 'get' subcommand for resource: {resource}")
         return Success(message=f"Completed 'get' subcommand for resource: {resource}")
     except Exception as e:
         logger.error("Error in 'get' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'get' subcommand", exception=e)
+        return Error(
+            error="Exception in 'get' subcommand",
+            exception=e,
+        )

@@ -45,12 +45,12 @@ def run_port_forward_command(
         if resource == "vibe":
             if len(args) < 1:
                 msg = "Missing request after 'vibe'"
-                logger.error(msg + " in port-forward subcommand.", exc_info=True)
-                console_manager.print_error(msg)
                 return Error(error=msg)
             request = " ".join(args)
             logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
+            # Use subcommand name in planning note for clarity
+            planning_msg = f"Planning how to: port-forward {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

@@ -216,9 +216,6 @@ def test_run_describe_command_vibe_no_args(
     result = run_describe_command("vibe", (), None, None, None, None, False, False)
     assert isinstance(result, Error)
     assert "Missing request after 'vibe'" in result.error
-    captured = capsys.readouterr()
-    assert "Missing request after 'vibe'" in captured.err
-    assert "Missing request after 'vibe'" not in captured.out
 
 
 def test_run_describe_command_vibe_handle_vibe_request_exception(

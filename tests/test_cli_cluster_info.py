@@ -141,11 +141,9 @@ def test_cluster_info_vibe_no_request(
 ) -> None:
     """Test cluster-info vibe command without a request."""
     # Execute without catch_exceptions to ensure test completes
-    cli_runner.invoke(cli, ["cluster-info", "vibe"])
-
-    # In test environment, Click's runner might not capture the real exit code
-    # but we can still verify the error message was displayed
-    mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
+    result = cli_runner.invoke(cli, ["cluster-info", "vibe"])
+    # Check that the error message is in the CLI output
+    assert "Missing request after 'vibe'" in result.output
 
 
 @patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")

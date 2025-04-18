@@ -43,12 +43,16 @@ def run_create_command(
 
         if resource == "vibe":
             if len(args) < 1:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in create subcommand.", exc_info=True)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl create vibe "an nginx pod in default"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
+            planning_msg = f"Planning how to: create {request}"
+            console_manager.print_processing(planning_msg)
             logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,

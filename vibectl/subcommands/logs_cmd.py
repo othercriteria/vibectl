@@ -4,6 +4,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
     run_kubectl,
 )
+from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_LOGS_PROMPT, logs_prompt
@@ -40,11 +41,15 @@ def run_logs_command(
         # Special case for vibe command
         if resource == "vibe":
             if not args:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in logs subcommand.", exc_info=True)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl logs vibe "the nginx pod in default"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
-            logger.info("Planning how to: %s", request)
+            planning_msg = f"Planning how to: logs {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

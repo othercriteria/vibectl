@@ -43,13 +43,16 @@ def run_scale_command(
 
         if resource == "vibe":
             if len(args) < 1:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in scale subcommand.", exc_info=True)
-                console_manager.print_error(msg)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl scale vibe "the nginx deployment to 3 replicas"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
+            planning_msg = f"Planning how to: scale {request}"
+            console_manager.print_processing(planning_msg)
             logger.info("Planning how to: %s", request)
-            console_manager.print_processing(f"Planning how to: {request}")
             try:
                 handle_vibe_request(
                     request=request,

@@ -39,11 +39,15 @@ def run_delete_command(
         # Handle vibe command
         if resource == "vibe":
             if not args:
-                msg = "Missing request after 'vibe'"
-                logger.error(msg + " in delete subcommand.", exc_info=True)
-                console_manager.print_error(msg)
+                msg = (
+                    "Missing request after 'vibe' command. "
+                    "Please provide a natural language request, e.g.: "
+                    'vibectl delete vibe "the nginx deployment in default"'
+                )
                 return Error(error=msg)
             request = " ".join(args)
+            planning_msg = f"Planning how to: delete {request}"
+            console_manager.print_processing(planning_msg)
             try:
                 handle_vibe_request(
                     request=request,

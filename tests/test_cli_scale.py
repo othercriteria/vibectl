@@ -28,11 +28,10 @@ def test_scale_vibe_request(cli_runner: CliRunner) -> None:
 
 def test_scale_vibe_no_request(cli_runner: CliRunner) -> None:
     """Test that the scale command properly handles missing vibe request."""
-    with patch("vibectl.subcommands.scale_cmd.console_manager") as mock_console:
+    with patch("vibectl.subcommands.scale_cmd.console_manager"):
         result = cli_runner.invoke(scale, ["vibe"])
-
         assert result.exit_code == 1
-        mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
+        assert "Missing request after 'vibe'" in result.output
 
 
 def test_scale_no_subcommand(cli_runner: CliRunner) -> None:

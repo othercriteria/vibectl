@@ -285,10 +285,7 @@ def test_port_forward_vibe_with_live_display_flag(
 
 def test_port_forward_vibe_no_request(cli_runner: CliRunner, mock_memory: Mock) -> None:
     """Test port-forward vibe command with no request."""
-    with patch("vibectl.subcommands.port_forward_cmd.console_manager") as mock_console:
-        # Invoke CLI with vibe but no request
+    with patch("vibectl.subcommands.port_forward_cmd.console_manager"):
         result = cli_runner.invoke(cli, ["port-forward", "vibe"])
-
-        # Check results - should exit with error
         assert result.exit_code == 1
-        mock_console.print_error.assert_called_once_with("Missing request after 'vibe'")
+        assert "Missing request after 'vibe'" in result.output
