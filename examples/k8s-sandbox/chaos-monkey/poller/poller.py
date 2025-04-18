@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -86,8 +86,8 @@ def wait_for_kubeconfig() -> None:
 
 
 def run_command(
-    command: List[str], capture_output: bool = True, timeout: int = 30
-) -> Tuple[int, str, str]:
+    command: list[str], capture_output: bool = True, timeout: int = 30
+) -> tuple[int, str, str]:
     """Run a shell command and return exit code, stdout, and stderr."""
     try:
         if VERBOSE:
@@ -104,10 +104,10 @@ def run_command(
     except subprocess.TimeoutExpired:
         return 124, "", "Command timed out"
     except Exception as e:
-        return 1, "", f"Error running command: {str(e)}"
+        return 1, "", f"Error running command: {e!s}"
 
 
-def find_sandbox_container() -> Optional[str]:
+def find_sandbox_container() -> str | None:
     """Find the Kind sandbox container name."""
     command = [
         "docker",
@@ -167,7 +167,7 @@ def check_kubernetes_status(container_name: str) -> bool:
     return True
 
 
-def check_frontend_service(container_name: str) -> Dict[str, Any]:
+def check_frontend_service(container_name: str) -> dict[str, Any]:
     """Check the status of the frontend service."""
     service_endpoint = "http://localhost:30001"  # Default NodePort for frontend
 
@@ -335,7 +335,7 @@ def check_frontend_service(container_name: str) -> Dict[str, Any]:
     }
 
 
-def update_status_file(status: Dict[str, Any]) -> None:
+def update_status_file(status: dict[str, Any]) -> None:
     """Update the status file with the current status."""
     status_file = Path(STATUS_DIR) / "frontend-status.json"
     status_with_timestamp = {
@@ -351,10 +351,10 @@ def update_status_file(status: Dict[str, Any]) -> None:
         status_file.write_text(json.dumps(status_with_timestamp, indent=2))
         logger.info(f"Updated status file: {status_file}")
     except Exception as e:
-        logger.error(f"Error updating status file: {str(e)}")
+        logger.error(f"Error updating status file: {e!s}")
 
 
-def print_status(status: Dict[str, Any]) -> None:
+def print_status(status: dict[str, Any]) -> None:
     """Print a formatted status report using Rich."""
     status_text = status["status"]
 
@@ -413,7 +413,7 @@ def main() -> None:
         wait_for_kubeconfig()
 
         # Wait for initial delay before starting
-        msg = f"[yellow]Waiting for initial delay of {DELAY_SECONDS} seconds...[/yellow]"
+        msg = f"[yellow]Waiting for delay of {DELAY_SECONDS} seconds...[/yellow]"
         console.log(msg)
         time.sleep(DELAY_SECONDS)
 
