@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install required packages and kubectl
 RUN apt-get update && apt-get install -y \
     python3 \
+    python3-pip \
     curl \
     docker.io \
     apt-transport-https \
@@ -19,6 +20,9 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --d
     apt-get update && \
     apt-get install -y kubectl && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir rich
 
 # Copy our Python script
 COPY poller.py /poller.py
