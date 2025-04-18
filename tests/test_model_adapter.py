@@ -196,7 +196,7 @@ class TestLLMModelAdapter:
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_token_limit_error(
-        self, mock_llm: MagicMock, mock_model_adapter_logger
+        self, mock_llm: MagicMock, mock_model_adapter_logger: Mock
     ) -> None:
         adapter = LLMModelAdapter()
         mock_model = Mock()
