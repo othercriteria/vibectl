@@ -82,7 +82,7 @@ poller-logs:
 	docker compose logs -f poller
 
 services-logs:
-	docker compose logs -f services
+	docker compose logs -f k8s-sandbox
 
 # Default target is help if no arguments are provided
 ifeq ($(MAKECMDGOALS),)

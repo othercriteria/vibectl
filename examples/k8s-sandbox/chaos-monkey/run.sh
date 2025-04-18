@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-set -e
+
+# Aggressive failure modes
+set -euo pipefail
+IFS=$'\n\t'
+
+# Remove debug tracing now that we've fixed the issue
+# set -x
 
 # Default values
 export SESSION_DURATION=${SESSION_DURATION:-30}
@@ -63,10 +69,10 @@ if ! command -v docker compose &> /dev/null; then
 fi
 
 # Check for API key
-if [ -z "$VIBECTL_ANTHROPIC_API_KEY" ]; then
+if [ -z "${VIBECTL_ANTHROPIC_API_KEY:-}" ]; then
   echo "❗ VIBECTL_ANTHROPIC_API_KEY is not set"
   read -p "Enter your Anthropic API key (starts with 'sk-ant-'): " ANTHROPIC_KEY
-  if [ -z "$ANTHROPIC_KEY" ]; then
+  if [ -z "${ANTHROPIC_KEY:-}" ]; then
     echo "❌ No API key provided. Cannot continue."
     exit 1
   fi
@@ -82,13 +88,13 @@ echo "  Verbose mode: ${VERBOSE}"
 
 # Start k8s-sandbox first to ensure it's fully ready before starting agents
 echo "Starting Kubernetes sandbox..."
-docker compose up -d --build k8s-sandbox
+docker compose up -d --build k8s-sandbox || { echo "Failed to start k8s-sandbox"; exit 1; }
 
 # Wait for k8s-sandbox to be healthy
 echo "Waiting for Kubernetes sandbox to be ready..."
 TIMEOUT=180
 START_TIME=$(date +%s)
-while ! docker inspect -f '{{.State.Health.Status}}' chaos-monkey-k8s-sandbox | grep -q "healthy"; do
+while ! docker inspect -f '{{.State.Health.Status}}' chaos-monkey-k8s-sandbox 2>/dev/null | grep -q "healthy"; do
   CURRENT_TIME=$(date +%s)
   ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
 
@@ -103,11 +109,7 @@ done
 echo ""
 echo "Kubernetes sandbox is ready!"
 
-# Start all remaining services
-echo "Starting all remaining services..."
-docker compose up --build
-
-# Set up trap to catch interrupts and exit signals
+# Define the cleanup function
 cleanup() {
   echo ""
   echo "🧹 Cleaning up containers and resources..."
@@ -123,14 +125,20 @@ cleanup() {
 
   # Force remove any straggling kind-related containers
   echo "🐳 Checking for leftover containers..."
-  for container in $(docker ps -a --filter "name=chaos-monkey" -q 2>/dev/null); do
-    echo "Removing container: $container"
-    docker rm -f "$container" 2>/dev/null || true
-  done
+  if docker ps -a --filter "name=chaos-monkey" -q &>/dev/null; then
+    for container in $(docker ps -a --filter "name=chaos-monkey" -q); do
+      echo "Removing container: $container"
+      docker rm -f "$container" 2>/dev/null || true
+    done
+  fi
 
   echo "✅ Cleanup completed"
   exit 0
 }
 
-# Set up trap to catch interrupts and exit signals
+# Set the trap to call cleanup function on exit
 trap cleanup INT TERM EXIT
+
+# Start all remaining services
+echo "Starting all remaining services..."
+docker compose up --build

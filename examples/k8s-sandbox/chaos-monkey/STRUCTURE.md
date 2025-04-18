@@ -4,48 +4,72 @@ This directory contains a "chaos monkey" style sandbox environment that simulate
 - A "blue" agent tries to maintain service uptime and system stability
 - A "red" agent attempts to disrupt the service through various attack vectors
 - A poller continuously checks system availability
-- An overseer coordinates and evaluates performance metrics
 
 ## Directory Structure
 
-- `agent/`: Contains the unified agent components for both blue and red agents
-  - `Dockerfile`: Single container definition for both agents
-  - `agent-entrypoint.sh`: Unified script for both blue and red agents
-  - `blue-memory-init.txt` & `red-memory-init.txt`: Initial memory for respective agents
-  - `blue-custom-instructions.txt` & `red-custom-instructions.txt`: Custom instructions for respective agents
-  - `defense-playbook.txt`: Blue agent strategies for system defense
-  - `attack-playbook.txt`: Red agent strategies for system disruption
-- `services/`: Contains the target service definitions
-  - `Dockerfile`: Container definition for the services
-  - `service-entrypoint.sh`: Script to initialize the target services
-  - Kubernetes YAML files for deploying the target services
-- `poller/`: Contains the availability monitoring service (future implementation)
-  - `poller.sh`: Script that polls endpoints to check availability
-  - `Dockerfile`: Container definition for the poller
-- `overseer/`: Contains the coordination and metrics components (future implementation)
-  - `overseer.sh`: Script that coordinates the demo and collects metrics
-  - `Dockerfile`: Container definition for the overseer
-  - `metrics.js`: Script for metrics visualization
-- `run.sh`: Main entry script that sets up the environment and starts the demo
-- `docker-compose.yaml`: Docker Compose configuration defining all services
-- `Makefile`: For common tasks and easy usage
-- `README.md`: User documentation for the demo
-- `STRUCTURE.md`: This file, documenting component structure
-- `attack-playbook.md`: Markdown documentation of attack strategies
-- `defense-playbook.md`: Markdown documentation of defense strategies
+```
+examples/k8s-sandbox/chaos-monkey/
+├── README.md                  # Main documentation
+├── STRUCTURE.md               # Project structure documentation
+├── run.sh                     # Primary script to launch the demo
+├── docker-compose.yaml        # Docker Compose configuration
+├── Makefile                   # Build and development utilities
+│
+├── k8s-sandbox/               # Kubernetes sandbox environment
+│   ├── Dockerfile             # Container definition for k8s-sandbox
+│   ├── k8s-entrypoint.sh      # Entrypoint for k8s-sandbox container
+│   └── kubernetes/            # Kubernetes resource definitions
+│       └── demo-services.yaml # Basic services with vulnerabilities
+│
+├── agent/                     # Unified agent container
+│   ├── Dockerfile             # Container definition for agents
+│   ├── agent-entrypoint.sh    # Unified entrypoint for both agents
+│   ├── blue-memory-init.txt   # Memory initialization for blue agent
+│   ├── red-memory-init.txt    # Memory initialization for red agent
+│   ├── blue-custom-instructions.txt # Custom instructions for blue agent
+│   ├── red-custom-instructions.txt  # Custom instructions for red agent
+│   ├── attack-playbook.txt    # Attack strategies for red agent
+│   └── defense-playbook.txt   # Defense strategies for blue agent
+│
+└── poller/                    # Service availability checker
+    ├── Dockerfile             # Container definition for poller
+    └── poller.py              # Python service monitoring script
+```
 
 ## Key Components
 
+### K8s Sandbox
+
+The K8s Sandbox container creates and manages the Kind Kubernetes cluster where:
+- It sets up a multi-node Kubernetes cluster in Docker
+- Deploys a set of intentionally vulnerable services
+- Manages networking for access to cluster services
+- Shares kubeconfig with agent containers
+
+### Target Services
+
+The demo deploys microservices with intentional vulnerabilities:
+- Frontend web app (Nginx with a simple status page)
+- Backend API (Nginx with minimal configuration)
+- Database (Redis with no persistence)
+- Cache (Memcached with minimal resource limits)
+- Load balancer (Nginx)
+
+These services have various vulnerabilities:
+- Insufficient replicas for high-availability
+- Missing health checks
+- Inadequate resource limits
+- No persistent storage
+- Secret management issues
+
 ### Blue Agent
 
-The blue agent is responsible for maintaining system stability and uptime:
-- Uses vibectl to monitor and manage Kubernetes resources
-- Has appropriate RBAC permissions to interact with the cluster
-- Reacts to detected failures and attacks by:
-  - Restarting failed services
-  - Scaling resources to handle load
-  - Implementing defensive measures
-  - Restoring from backup when necessary
+The blue agent is responsible for defending and maintaining services:
+- Uses vibectl to interact with the cluster
+- Has permissions to fix and maintain services
+- Implements defensive strategies from the defense playbook
+- Monitors for attacks and service disruptions
+- Works to restore and improve service resilience
 
 ### Red Agent
 
@@ -59,45 +83,24 @@ The red agent is responsible for simulating attacks and disruptions:
   - Network disruption
   - Service degradation
 
-### Services
-
-The target services represent a distributed microservice architecture:
-- Deployed on a Kind Kubernetes cluster
-- Includes frontend, backend API, database, and load balancer
-- Exposes endpoints for the poller to verify availability
-- Designed with known vulnerabilities for the red agent to exploit
-- Structured to allow the blue agent to implement defenses
-
 ### Poller
 
-The poller continuously checks service availability (future implementation):
-- Accesses services from outside the cluster
-- Records response times and availability status
-- Sends data to the overseer for evaluation
-- Provides real-time feedback on service health
-
-### Overseer
-
-The overseer coordinates the overall demonstration (future implementation):
-- Tracks key metrics:
-  - System uptime percentage
-  - Mean time to recovery
-  - Attack success/failure rates
-  - Blue team response effectiveness
-- Controls game parameters:
-  - Time limits
-  - Attack scheduling
-  - Metrics collection
-- Provides a dashboard for monitoring the scenario
-- Generates reports of performance metrics
+The poller continuously checks service availability:
+- Python-based monitoring system with comprehensive checks
+- Monitors the Kubernetes cluster health and individual service status
+- Tracks pod readiness, restart counts, and container status
+- Reports response times and HTTP status codes for each service
+- Performs content validation for web services
+- Checks Redis and Memcached connectivity
+- Maintains a visual history of service health over time
+- Generates detailed JSON status reports
 
 ## Architecture
 
-The demo operates with five main components in an isolated Docker network:
+The demo operates with four main components in an isolated Docker network:
 
-1. **Services Container**: Hosts a Kind Kubernetes cluster with target services
+1. **K8s Sandbox Container**: Hosts a Kind Kubernetes cluster with target services
    - Creates a multi-tier application with multiple failure points
-   - Exposes services on fixed ports
    - Provides a controlled environment for the simulation
    - Shares kubeconfig with agent containers
 
@@ -113,26 +116,21 @@ The demo operates with five main components in an isolated Docker network:
    - Limited permissions to prevent unrecoverable damage
    - Uses the unified agent container with red-specific configuration
 
-4. **Poller Container**: Monitors service availability (future implementation)
-   - Checks endpoint health continuously
-   - Records response times and error rates
-   - Reports to the overseer for scoring
-
-5. **Overseer Container**: Coordinates the entire simulation (future implementation)
-   - Controls timing of attacks
-   - Collects and analyzes metrics
-   - Provides a dashboard interface
-   - Determines success/failure based on predefined criteria
+4. **Poller Container**: Monitors service availability
+   - Checks cluster health continuously
+   - Monitors pod status across namespaces
+   - Provides regular status reports with colored indicators
+   - Tracks service availability history and response times
 
 ## Unified Agent Architecture
 
-The agents now share a unified codebase with role-specific configuration:
+The agents share a unified codebase with role-specific configuration:
 
 1. **Shared Components**:
    - Common Dockerfile with all necessary tools
    - Unified entrypoint script that adapts behavior based on role
    - Same underlying Kubernetes API access mechanism
-   - Shared kubeconfig from services container
+   - Shared kubeconfig from k8s-sandbox container
 
 2. **Role-Specific Configuration**:
    - Agent role (blue/red) set via environment variables
@@ -152,7 +150,7 @@ The agents now share a unified codebase with role-specific configuration:
 To ensure the demonstration runs without unintended consequences:
 
 1. The red agent has limitations to prevent:
-   - Attacking the overseer or poller components
+   - Attacking system components
    - Breaking out of the sandbox environment
    - Making permanent or unrecoverable changes
 
@@ -169,8 +167,7 @@ The demo can be configured with the following parameters:
 - `VIBECTL_MODEL`: Model to use for agents (defaults to claude-3.7-sonnet)
 - `SESSION_DURATION`: How long the demonstration should run (in minutes)
 - `DOCKER_GID`: Docker group ID for socket access (auto-detected)
-- `METRICS_INTERVAL`: How frequently metrics are collected (in seconds)
-- `VISUALIZATION`: Whether to enable the metrics visualization dashboard
+- `POLL_INTERVAL_SECONDS`: How frequently the poller checks service status (in seconds)
 - `VERBOSE`: Enable detailed logging output
 
 ## Agent Parameters
@@ -180,7 +177,6 @@ The agents can be fine-tuned with these parameters:
 - `BLUE_MEMORY_MAX_CHARS`/`RED_MEMORY_MAX_CHARS`: Maximum memory size for each agent
 - `BLUE_ACTION_PAUSE_TIME`/`RED_ACTION_PAUSE_TIME`: Time between actions for each agent
 - `INITIAL_DELAY`: Delay before agent starts operations (useful for red agent)
-- `POLLER_RETRY_POLICY`: How the poller handles service disruptions
 
 These parameters provide natural control over the balance between agents and can be adjusted to achieve different scenarios.
 

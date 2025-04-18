@@ -5,12 +5,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install required packages and kubectl
 RUN apt-get update && apt-get install -y \
-    bash \
+    python3 \
     curl \
     docker.io \
-    iputils-ping \
-    netcat-openbsd \
-    jq \
     apt-transport-https \
     gnupg \
     ca-certificates \
@@ -23,9 +20,16 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --d
     apt-get install -y kubectl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy our script
-COPY poller.sh /poller.sh
-RUN chmod +x /poller.sh
+# Copy our Python script
+COPY poller.py /poller.py
+RUN chmod +x /poller.py
+
+# Set up environment variables with defaults
+ENV POLL_INTERVAL_SECONDS=15
+ENV DELAY_SECONDS=15
+ENV SESSION_DURATION=30
+ENV KUBECONFIG=/config/kube/config
+ENV STATUS_DIR=/tmp/status
 
 # Set the default command
-CMD ["/poller.sh"]
+CMD ["python3", "/poller.py"]

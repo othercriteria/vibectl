@@ -330,28 +330,7 @@ log "Verifying all services..."
 kubectl get pods -n services
 kubectl get svc -n services
 
-# Test service accessibility
-log "Testing service accessibility..."
-echo "Checking service on port ${NODE_PORT_1}..."
-if check_service ${NODE_PORT_1}; then
-    echo "✅ Service on port ${NODE_PORT_1} is accessible"
-else
-    echo "⚠️ Service on port ${NODE_PORT_1} is not yet accessible"
-fi
-
-echo "Checking service on port ${NODE_PORT_2}..."
-if check_service ${NODE_PORT_2}; then
-    echo "✅ Service on port ${NODE_PORT_2} is accessible"
-else
-    echo "⚠️ Service on port ${NODE_PORT_2} is not yet accessible"
-fi
-
-echo "Checking service on port ${NODE_PORT_3}..."
-if check_service ${NODE_PORT_3}; then
-    echo "✅ Service on port ${NODE_PORT_3} is accessible"
-else
-    echo "⚠️ Service on port ${NODE_PORT_3} is not yet accessible"
-fi
+# Note: Service accessibility checks have been removed as these ports are no longer exposed
 
 # Keep container running
 echo "All services deployed. Container will keep running for the duration of the session."
@@ -369,18 +348,6 @@ while true; do
     if [ $REMAINING_SECONDS -le 0 ]; then
         echo "Session duration completed. Exiting..."
         break
-    fi
-
-    # Check services and report every 5 minutes
-    if [ $((REMAINING_SECONDS % 300)) -eq 0 ]; then
-        log "Checking service accessibility..."
-        for port in ${NODE_PORT_1} ${NODE_PORT_2} ${NODE_PORT_3}; do
-            if check_service $port; then
-                log "✅ Service on port $port is accessible"
-            else
-                log "⚠️ Service on port $port is not accessible"
-            fi
-        done
     fi
 
     # Keep alive with time remaining display every minute

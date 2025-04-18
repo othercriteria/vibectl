@@ -5,13 +5,12 @@ A red team vs. blue team demonstration showcasing vibectl's capabilities in a Ku
 - A blue agent works to maintain system stability and uptime
 - A red agent attempts to disrupt services through various attack vectors
 - A poller monitors service availability in real-time
-- An overseer tracks metrics and coordinates the simulation
 
 ## Requirements
 
 - Docker and Docker Compose
-- 8GB+ of available RAM
-- 4+ CPU cores
+- 4GB+ of available RAM
+- 2+ CPU cores
 - Anthropic Claude API key for the vibectl agents
 
 ## Quick Start
@@ -30,13 +29,13 @@ export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
 
 The demo deploys a distributed microservice application including:
 
-- Frontend web application
-- Backend API service
-- Database
-- Cache
-- Load balancer
+- Frontend web application (Nginx-based with a simple status page)
+- Backend API service (Nginx-based with intentional vulnerabilities)
+- Database (Redis instance with no persistence)
+- Cache (Memcached with minimal resource limits)
+- Load balancer (Nginx-based)
 
-These services form a realistic environment for the agents to interact with.
+These services intentionally have vulnerabilities that the red agent can exploit and the blue agent can detect and fix.
 
 ### Blue Agent
 
@@ -46,57 +45,43 @@ The defensive agent that:
 - Detects anomalies and attacks
 - Restarts failed services
 - Scales resources as needed
-- Restores from backups when necessary
 - Implements security measures
 
 ### Red Agent
 
 The offensive agent that:
 
-- Simulates various attack vectors
+- Simulates various attack vectors from the attack playbook
 - Implements disruption strategies
 - Adapts tactics based on blue agent responses
 - Operates within safety constraints
 
-### Metrics and Visualization
+### Poller
 
-The demo tracks and displays:
-
-- System uptime percentage
-- Mean time to recovery
-- Attack success/failure rates
-- Blue team response effectiveness
-
-Access the metrics dashboard at http://localhost:8080 when the demo is running.
+A Python-based service that:
+- Continuously checks the status of each service
+- Monitors response times and availability
+- Reports service health with color-coded status indicators
+- Tracks service degradation and recovery over time
+- Provides detailed pod status information
 
 ## How It Works
 
-1. The demo starts by setting up a Kind Kubernetes cluster
-2. Target services are deployed in the cluster
+1. The demo starts by setting up a Kind Kubernetes cluster with isolated networking
+2. Target services are deployed in the cluster with known vulnerabilities
 3. The blue agent is initialized with defensive responsibilities
-4. The red agent begins implementing attacks on a schedule
+4. The red agent begins implementing attacks after a short delay
 5. The poller continuously checks service availability
-6. The overseer tracks metrics and coordinates between components
-7. The dashboard displays real-time performance and statistics
 
 ## Customization
 
 Edit the following files to customize the demo:
 
-- `blue-agent/memory-init.txt`: Instructions for the blue agent
-- `red-agent/memory-init.txt`: Instructions for the red agent
-- `attack-playbook.md`: Attack strategies for the red agent
-- `defense-playbook.md`: Defense strategies for the blue agent
-- `services/kubernetes/*.yaml`: Target service definitions
-
-### Required Kubernetes Files
-
-The demo requires at least one Kubernetes YAML file to be present in the `services/kubernetes/` directory. If no YAML files are found, the services container will exit with an error message.
-
-Currently, the following YAML file is included:
-- `services/kubernetes/demo-services.yaml`: Defines the core services with intentional vulnerabilities for the blue agent to detect and fix
-
-To add your own services, create additional YAML files in this directory following the Kubernetes resource specification format.
+- `agent/blue-memory-init.txt`: Instructions for the blue agent
+- `agent/red-memory-init.txt`: Instructions for the red agent
+- `agent/attack-playbook.txt`: Attack strategies for the red agent
+- `agent/defense-playbook.txt`: Defense strategies for the blue agent
+- `k8s-sandbox/kubernetes/demo-services.yaml`: Target service definitions
 
 ## Configuration Options
 
@@ -112,148 +97,69 @@ export VIBECTL_MODEL=claude-3.7-haiku
 # Set session duration in minutes (defaults to 30)
 export SESSION_DURATION=60
 
-# Enable/disable visualization dashboard (defaults to true)
-export VISUALIZATION=false
-
-# Run with specific configuration via environment variables
-./run.sh
-
-# Or use command line options:
-./run.sh --session-duration 45 --no-visualization --verbose
+# Run with specific configuration via command line options
+./run.sh --session-duration 45 --verbose
 ```
 
 Available command-line options:
 - `--session-duration MINUTES`: Set how long the demo should run
-- `--no-visualization`: Disable the metrics dashboard
 - `--verbose`: Enable detailed logging
 
 ## Development Status
 
-This demo is currently in MVP (Minimum Viable Product) state. Here's what's implemented:
+Currently implemented features:
 
-✅ Kind Kubernetes cluster creation
-✅ Basic vulnerable services deployment (frontend, backend, database, cache, load balancer)
+✅ Kind Kubernetes cluster creation with proper isolation
+✅ Basic services with intentional vulnerabilities
 ✅ RBAC for blue and red agents with appropriate permissions
-✅ Blue agent framework for defensive actions
-✅ Red agent framework for attack simulation
+✅ Blue agent for defensive actions
+✅ Red agent for attack simulation
+✅ Python-based poller with comprehensive service monitoring
 
-Pending implementation:
-❌ Metrics collection
-❌ Visualization dashboard
-❌ Poller for service availability
-❌ Overseer for coordination
+## Monitoring The Demo
 
-### Current Limitations
+To observe the demo in action:
 
-1. Since this is an MVP, you may need to restart if the agents get stuck or the simulation breaks
-2. The vulnerable services are basic implementation
-3. The metrics and visualization components are commented out in the docker-compose.yaml
-4. The demo will fail fast with a clear error if no Kubernetes service definitions are found
-
-### Getting Started with the MVP
-
-To run the MVP demo:
-
-1. Ensure you have the Anthropic API key:
+1. In one terminal, watch the blue agent's actions:
    ```bash
-   export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
+   make blue-logs
    ```
 
-2. Start the demo in verbose mode to see what's happening:
+2. In another terminal, watch the red agent's attacks:
    ```bash
-   ./run.sh --verbose
+   make red-logs
    ```
 
-3. Watch the agent logs to see the red team attacking and blue team defending:
+3. To monitor service availability:
    ```bash
-   # In another terminal
-   docker logs -f chaos-monkey-blue-agent
-
-   # Or in yet another terminal
-   docker logs -f chaos-monkey-red-agent
+   make poller-logs
    ```
 
-4. To check service states during the demo:
+4. To directly check the status of the services:
    ```bash
-   # Get access to the cluster
-   docker exec -it chaos-monkey-services bash
-
-   # Check services status
-   kubectl get pods -n services
-   kubectl get services -n services
+   docker exec chaos-monkey-k8s-sandbox kubectl get pods -n services
    ```
-
-5. To stop the demo, use Ctrl+C in the terminal running the `run.sh` script
 
 ## Troubleshooting
 
 If you encounter issues:
 
-1. Ensure Docker is running with sufficient resources
-   - The Kind Kubernetes cluster requires at least 4GB of RAM
-   - Increase Docker memory limits if needed
-
-2. Verify your API key is valid and has appropriate permissions
-   - Must be an Anthropic API key (starting with `sk-ant-`)
-   - Must have permission to use the specified model
-
-3. Check container logs for specific errors:
+1. Check if the cluster started properly:
    ```bash
-   docker compose logs services
-   docker compose logs blue-agent
-   docker compose logs red-agent
+   docker logs chaos-monkey-k8s-sandbox | grep "Kubernetes"
    ```
 
-4. If the services container appears to hang during startup:
-   - The script now includes a 60-second timeout for cluster readiness
-   - If you see it hanging at "Waiting for Kubernetes cluster to be ready...", it may be having trouble initializing the Kind cluster
-   - This can happen due to network issues or resource constraints
-   - Try stopping other Kubernetes clusters or containers that might be using the same resources
-   - Check if your machine has sufficient memory and CPU available
-
-5. If the "services" container shows as unhealthy or exits with an error:
-   - Check if kubernetes files exist in services/kubernetes/ directory
-   - This can happen if the kubernetes directory is empty or doesn't contain YAML files
-   - Verify the files with: `ls -la examples/k8s-sandbox/chaos-monkey/services/kubernetes/*.yaml`
-   - Check if port 30001-30003 are already in use on your system
-   - Try stopping other containers or Kubernetes clusters first
-   - Ensure the Docker socket is properly mounted with: `ls -l /var/run/docker.sock`
-
-6. If the agents can't communicate with the Kind cluster:
-   - Make sure the services container is healthy first
-   - Check container networking with: `docker network inspect chaos-monkey-network`
-   - Verify Kind cluster is running: `docker ps | grep chaos-monkey-control-plane`
-
-7. For complete reset and restart:
+2. For a complete reset:
    ```bash
-   # Stop all running containers
-   docker compose down --volumes --remove-orphans
-
-   # Delete Kind cluster if it exists
-   kind delete cluster --name chaos-monkey
-
-   # Remove any leftover containers
-   docker ps -a --filter "name=chaos-monkey" -q | xargs docker rm -f
-
-   # Remove any orphaned docker volumes
-   docker volume prune -f
-
-   # Run with verbose logging
+   make clean
    ./run.sh --verbose
    ```
 
-## Safety Measures
+## Security and Isolation
 
-The demo includes safety measures to prevent unintended consequences:
+The chaos-monkey demo creates a fully isolated Kubernetes environment:
 
-- The red agent has limited RBAC permissions
-- Protected namespaces for critical components
-- Automatic state restoration for unrecoverable situations
-- Complete containerization to prevent system impact
-
-## Learn More
-
-For more details about the architecture and implementation:
-
-- See [STRUCTURE.md](STRUCTURE.md) for component details
-- Explore the source code in each component directory
+- All components run in Docker containers with an isolated network
+- No ports are exposed to the host system except when explicitly configured
+- The Kubernetes cluster runs entirely within containers
+- Complete separation from any host Kubernetes configuration

@@ -48,6 +48,13 @@ spec:
           requests:
             memory: "64Mi"
             cpu: "50m"
+        volumeMounts:
+        - name: content
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: content
+        configMap:
+          name: frontend-content
 ---
 apiVersion: v1
 kind: ConfigMap
