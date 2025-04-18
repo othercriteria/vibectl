@@ -1,26 +1,22 @@
 services:
-  services:
+  k8s-sandbox:
     build:
-      context: ./services
+      context: ./k8s-sandbox
       dockerfile: Dockerfile
       args:
         DOCKER_GID: ${DOCKER_GID:-999}
-    container_name: chaos-monkey-services
+    container_name: chaos-monkey-k8s-sandbox
     privileged: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      - ./services/kubernetes:/kubernetes:ro
+      - ./k8s-sandbox/kubernetes:/kubernetes:ro
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
       - SESSION_DURATION=${SESSION_DURATION:-30}
       - VERBOSE=${VERBOSE:-false}
-      - NODE_PORT_1=${NODE_PORT_1:-30001}
-      - NODE_PORT_2=${NODE_PORT_2:-30002}
-      - NODE_PORT_3=${NODE_PORT_3:-30003}
       - KIND_CONTAINER=chaos-monkey-control-plane
-      - API_SERVER_PORT=${API_SERVER_PORT:-16443}
     healthcheck:
       test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready"]
       interval: 5s
@@ -29,7 +25,7 @@ services:
       start_period: 10s
     networks:
       - chaos-monkey-network
-    hostname: services
+    hostname: k8s-sandbox
     dns_search: chaos-monkey-network
 
   blue-agent:
@@ -38,7 +34,7 @@ services:
       dockerfile: ./agent/Dockerfile
     container_name: chaos-monkey-blue-agent
     depends_on:
-      services:
+      k8s-sandbox:
         condition: service_healthy
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
@@ -48,9 +44,6 @@ services:
       - MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-2000}
       - ACTION_PAUSE_TIME=${BLUE_ACTION_PAUSE_TIME:-30}
       - VERBOSE=${VERBOSE:-false}
-      - NODE_PORT_1=${NODE_PORT_1:-30001}
-      - NODE_PORT_2=${NODE_PORT_2:-30002}
-      - NODE_PORT_3=${NODE_PORT_3:-30003}
       - AGENT_ROLE=blue
       - AGENT_NAME=defender
       - MEMORY_INIT_FILE=/config/memory-init.txt
@@ -65,8 +58,6 @@ services:
       - ./agent/defense-playbook.txt:/playbooks/defense-playbook.txt:ro
       - ./agent/blue-custom-instructions.txt:/config/custom-instructions.txt:ro
     dns_search: chaos-monkey-network
-    extra_hosts:
-      - "services:172.18.0.2"
 
   red-agent:
     build:
@@ -74,7 +65,7 @@ services:
       dockerfile: ./agent/Dockerfile
     container_name: chaos-monkey-red-agent
     depends_on:
-      services:
+      k8s-sandbox:
         condition: service_healthy
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
@@ -84,9 +75,6 @@ services:
       - MEMORY_MAX_CHARS=${RED_MEMORY_MAX_CHARS:-2000}
       - ACTION_PAUSE_TIME=${RED_ACTION_PAUSE_TIME:-45}
       - VERBOSE=${VERBOSE:-false}
-      - NODE_PORT_1=${NODE_PORT_1:-30001}
-      - NODE_PORT_2=${NODE_PORT_2:-30002}
-      - NODE_PORT_3=${NODE_PORT_3:-30003}
       - AGENT_ROLE=red
       - AGENT_NAME=chaos-monkey
       - MEMORY_INIT_FILE=/config/memory-init.txt
@@ -101,33 +89,33 @@ services:
       - ./agent/attack-playbook.txt:/playbooks/attack-playbook.txt:ro
       - ./agent/red-custom-instructions.txt:/config/custom-instructions.txt:ro
     dns_search: chaos-monkey-network
-    extra_hosts:
-      - "services:172.18.0.2"
+
+  # Poller service for monitoring service availability
+  poller:
+    build:
+      context: ./poller
+      dockerfile: Dockerfile
+    container_name: chaos-monkey-poller
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+    environment:
+      - SESSION_DURATION=${SESSION_DURATION:-30}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-15}
+      - VERBOSE=${VERBOSE:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    networks:
+      - chaos-monkey-network
 
   # Commented out non-essential services for initial development/debugging
-  # poller:
-  #   build:
-  #     context: ./poller
-  #     dockerfile: Dockerfile
-  #   container_name: chaos-monkey-poller
-  #   depends_on:
-  #     services:
-  #       condition: service_healthy
-  #   environment:
-  #     - SESSION_DURATION=${SESSION_DURATION:-30}
-  #     - POLLER_INTERVAL=${POLLER_INTERVAL:-5}
-  #     - POLLER_RETRY_POLICY=${POLLER_RETRY_POLICY:-standard}
-  #     - VERBOSE=${VERBOSE:-false}
-  #   networks:
-  #     - chaos-monkey-network
-
   # overseer:
   #   build:
   #     context: ./overseer
   #     dockerfile: Dockerfile
   #   container_name: chaos-monkey-overseer
   #   depends_on:
-  #     services:
+  #     k8s-sandbox:
   #       condition: service_healthy
   #   environment:
   #     - SESSION_DURATION=${SESSION_DURATION:-30}
@@ -137,7 +125,7 @@ services:
   #   networks:
   #     - chaos-monkey-network
   #   ports:
-  #     - "8080:8080" # Dashboard UI
+  #     - "8080:8080"
 
 networks:
   chaos-monkey-network:
