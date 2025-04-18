@@ -1,89 +1,60 @@
-# Kubernetes CTF Sandbox Structure
+# Kubernetes Sandbox Environments
 
-This directory contains a Capture The Flag (CTF) style sandbox environment for testing vibectl's autonomous mode capabilities using an isolated Kubernetes environment. The sandbox can be run with different difficulty levels to gradually train and test vibectl's capabilities.
+This directory contains sandbox environments for testing and demonstrating vibectl's capabilities in Kubernetes environments. Currently, it includes two main demos:
 
-## Key Files
+1. **CTF (Capture The Flag)**: A challenge-based learning environment
+2. **Chaos Monkey**: A red team vs. blue team competitive scenario
 
-- `run.sh`: Main entry script that sets up the Docker environment and starts the sandbox
-  - Detects Docker GID
-  - Checks for Anthropic API key and prompts if not set
-  - Handles cleanup on exit
-  - Accepts `--difficulty` parameter to set challenge level
-- `start.sh`: Script executed inside the sandbox container to initialize Kind and challenge environment
-  - Validates API key environment variables
-  - Configures vibectl with the API key and model settings
-  - Sets up memory for the challenges based on selected difficulty level
-- `compose.yml`: Docker Compose configuration defining the sandbox and poller services
-  - Passes API key and challenge difficulty from host environment to containers
-- `Dockerfile`: Container definition for the sandbox environment
-- `README.md`: User documentation for the sandbox
-- `STRUCTURE.md`: This file, documenting component structure
+## Directory Structure
 
-## Directories
+- `ctf/`: Capture The Flag style sandbox (original k8s-sandbox demo)
+  - See [ctf/STRUCTURE.md](ctf/STRUCTURE.md) for detailed documentation
+- `chaos-monkey/`: Red team vs. blue team competitive environment
+  - See [chaos-monkey/STRUCTURE.md](chaos-monkey/STRUCTURE.md) for detailed documentation
 
-- `poller/`: Contains the service that monitors challenge completion
-  - `poller.sh`: Script that polls endpoints to detect successful challenges
-  - `Dockerfile`: Container definition for the poller
-  - `README.md`: Documentation for the poller component
+## Common Features
 
-## Architecture
+Both environments share several characteristics:
 
-The sandbox operates with two main components in an isolated Docker network:
+- Docker-based isolation for running Kubernetes clusters
+- Kind for creating lightweight Kubernetes clusters
+- Docker Compose for orchestrating multi-container demos
+- API key management for vibectl model access
+- Clean shutdown and resource management
 
-1. **Sandbox Container**: Creates a Kind Kubernetes cluster and runs vibectl to solve challenges
-   - Uses internal nodePort services on fixed ports (30001-30003)
-   - Executes vibectl in autonomous mode to solve challenges
-   - Mounts Docker socket to run Kind inside the container
-   - Uses a health check to verify the cluster is ready
+## Key Differences
 
-2. **Poller Container**: Monitors success by checking endpoints within the internal network
-   - Connects directly to the sandbox container (no host port mapping)
-   - Polls each service port for the expected flag text
-   - Reports completion status
-   - Waits for sandbox container health check before starting
-   - Exits when all challenges at the selected difficulty level are completed
+### CTF Environment
+- Focus on learning and completing challenges
+- Single vibectl agent working on predefined tasks
+- Success measured by completing all challenges
+- Difficulty levels adjust challenge complexity
+- Stateless model: each run starts fresh with predefined challenges
 
-## Challenge Difficulty Levels
+### Chaos Monkey Environment
+- Focus on system resilience and response to disruption
+- Two competing vibectl agents (red and blue teams)
+- Success measured by service uptime and recovery metrics
+- Real-time performance tracking by an overseer component
+- Dynamic environment where both agents adapt to each other's actions
 
-The sandbox supports three difficulty levels:
+## Container Setup
 
-1. **Easy**: Creates a single service returning a flag text on port 30001
-   - Good for basic testing of vibectl's Kubernetes capabilities
-   - Requires minimal knowledge of Kubernetes objects
+Both environments use Docker containers, but with different approaches:
 
-2. **Medium**: Creates two services on ports 30001 and 30002
-   - Second service requires multiple replicas for resilience
-   - Tests more advanced deployment knowledge
+- CTF: Single container with Kind and vibectl for solving challenges
+- Chaos Monkey: Multiple containers:
+  - Service containers for the workload
+  - Red agent container for the attacker
+  - Blue agent container for the defender
+  - Poller container for uptime tracking
+  - Overseer container for metrics and coordination
 
-3. **Hard**: Creates three services on ports 30001, 30002, and 30003
-   - Third service requires using a ConfigMap
-   - Tests comprehensive knowledge of Kubernetes configuration objects
+## Getting Started
 
-## Interface with Main Project
+Each environment has its own README.md with specific setup instructions. In general:
 
-This sandbox demonstrates vibectl's autonomous capabilities by creating a controlled environment where:
-
-- vibectl memory is initialized with challenge instructions
-- vibectl must infer kubectl commands to execute based on limited information
-- vibectl success is measured by external validation (poller)
-- Challenge difficulty can be adjusted to match vibectl's capabilities
-
-## Configuration
-
-The sandbox can be configured with the following environment variables:
-
-- `VIBECTL_ANTHROPIC_API_KEY`: Required API key for Claude (passed from host to container)
-- `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet)
-- `CHALLENGE_DIFFICULTY`: Difficulty level of challenges (easy, medium, hard)
-- `DOCKER_GID`: Docker group ID for socket access (auto-detected)
-
-## API Key Handling
-
-API keys are handled securely through these mechanisms:
-
-1. User provides API key via environment variable or interactive prompt in `run.sh`
-2. Key is passed to containers through Docker Compose environment variables
-3. `start.sh` validates key presence and configures vibectl with:
-   - Direct environment variable export (VIBECTL_ANTHROPIC_API_KEY and ANTHROPIC_API_KEY)
-   - Configuration via `vibectl config set model_keys.anthropic`
-4. No API keys are stored in container images or filesystem
+1. Choose which environment to run (ctf or chaos-monkey)
+2. Navigate to the chosen directory
+3. Follow the setup instructions in the README.md file
+4. Ensure you have the required API keys configured

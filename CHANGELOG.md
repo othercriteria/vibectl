@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New chaos-monkey demo in examples/k8s-sandbox featuring:
+  - Red team vs. blue team competitive scenario
+  - Blue agent for maintaining system stability
+  - Red agent for simulating service disruptions
+  - Metrics collection and performance evaluation
+  - Containerized vibectl agents interacting with K8s cluster
+
 ## [0.4.0] - 2025-04-18
 
 ### Added
