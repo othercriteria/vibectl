@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Metrics collection and performance evaluation
   - Containerized vibectl agents interacting with K8s cluster
 
+### Fixed
+- Fixed KeyError when prompts contain format placeholders like `{spec}` that conflict with formatting operations
+  - Added fallback string replacement method for robust prompt handling
+  - Prevents crash in chaos-monkey agent when generating Kubernetes YAML templates
+
 ## [0.4.0] - 2025-04-18
 
 ### Added
