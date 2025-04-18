@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.2] - 2025-04-15
+## [0.4.0] - 2025-04-18
 
 ### Added
 - Basic structured logging to vibectl for improved observability and debugging
+  - Configurable log levels for different verbosity needs
+  - Console and file output support
+  - Structured logging for machine-readable output
 - Configurable log level via config or VIBECTL_LOG_LEVEL environment variable
 - User-facing warnings and errors are surfaced via the console
 - Logging test pattern and fixtures for reliable assertions on log output
+
+## [0.3.2] - 2025-04-15
+
+### Added
 - New `port-forward` command for Kubernetes service port forwarding
   - Supports standard kubectl port-forward functionality
   - Features rich progress display with connection status
