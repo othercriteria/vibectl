@@ -79,13 +79,13 @@ log "LLM API key set via direct file configuration"
 
 # Configure other vibectl settings
 vibectl config set model "${VIBECTL_MODEL:-claude-3.7-sonnet}"
-vibectl config set memory.max_chars ${MEMORY_MAX_CHARS}
+vibectl config set memory_max_chars ${MEMORY_MAX_CHARS}
 
 # Set custom instructions based on agent role
 log "Setting custom instructions..."
 if [ -f "${CUSTOM_INSTRUCTIONS_FILE}" ]; then
     vibectl config set custom_instructions "$(cat ${CUSTOM_INSTRUCTIONS_FILE})"
-    log "Custom instructions set from file"
+    echo -e "[$(date +%H:%M:%S)] ${COLOR_CODE}${AGENT_ROLE^^}:${NO_COLOR} Custom instructions set from file"
 else
     # Default instructions based on role
     if [ "$AGENT_ROLE" = "blue" ]; then
@@ -105,20 +105,36 @@ else
 fi
 
 # Set up Kubernetes configuration using the shared config
-log "Setting up Kubernetes configuration..."
-mkdir -p /root/.kube
+echo -e "[$(date +%H:%M:%S)] ${COLOR_CODE}${AGENT_ROLE^^}:${NO_COLOR} Setting up Kubernetes configuration..."
+KUBE_CONFIG="/config/kube/config"
 
-# Check for shared kubeconfig and fail if not available
-if [ ! -f "${KUBE_CONFIG}" ]; then
-    echo -e "${COLOR_CODE}ERROR: Shared kubeconfig not found at ${KUBE_CONFIG}${NO_COLOR}"
-    echo -e "${COLOR_CODE}The demo requires a shared kubeconfig to be mounted${NO_COLOR}"
-    exit 1
-fi
+# Wait for shared kubeconfig and fail if not available after timeout
+MAX_RETRIES=30
+RETRY_COUNT=0
+RETRY_INTERVAL=5
+
+while [ ! -f "${KUBE_CONFIG}" ]; do
+    echo -n "."
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+        echo ""
+        echo -e "${COLOR_CODE}ERROR: Shared kubeconfig not found at ${KUBE_CONFIG}${NO_COLOR}"
+        echo -e "${COLOR_CODE}The demo requires a shared kubeconfig to be mounted${NO_COLOR}"
+        exit 1
+    fi
+
+    sleep $RETRY_INTERVAL
+done
+
+echo "" # New line after waiting dots
+log "Kubeconfig found at ${KUBE_CONFIG}"
 
 # Use the shared config
 export KUBECONFIG="${KUBE_CONFIG}"
 
 # Copy to standard location for tools that may expect it there
+mkdir -p /root/.kube
 cp "${KUBE_CONFIG}" /root/.kube/config
 
 # Wait for Kubernetes to be available
@@ -160,24 +176,8 @@ if [ -f "${MEMORY_INIT_FILE}" ]; then
     vibectl memory update "$(cat ${MEMORY_INIT_FILE})"
     log "Memory initialized from file"
 else
-    # Default memory content if file doesn't exist
-    vibectl memory clear
-
-    if [ "$AGENT_ROLE" = "blue" ]; then
-        vibectl memory update "You are on a new Kubernetes cluster and should gather information before proceeding.
-
-You are a blue team 'defender' agent. You'll be maintaining system stability and service availability.
-
-Take some time to explore the cluster first. Check what's running, understand the environment, and identify the services you'll need to protect."
-    else
-        vibectl memory update "You are on a new Kubernetes cluster and should gather information before proceeding.
-
-You are a red team 'chaos monkey' agent. You'll be introducing controlled failures to test system resilience.
-
-Take some time to explore the cluster first. Check what's running, understand the environment, and identify potential targets for later chaos testing."
-    fi
-
-    log "Memory initialized with default content for role: ${AGENT_ROLE}"
+    log "Error: Memory initialization file not found at ${MEMORY_INIT_FILE}"
+    exit 1
 fi
 
 # Run the agent loop until session ends

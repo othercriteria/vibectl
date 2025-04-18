@@ -10,6 +10,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./k8s-sandbox/kubernetes:/kubernetes:ro
+      - kube-config:/config/kube:rw
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -18,7 +19,7 @@ services:
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
     healthcheck:
-      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready"]
+      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready && test -f /config/kube/config"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -103,8 +104,10 @@ services:
       - SESSION_DURATION=${SESSION_DURATION:-30}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-15}
       - VERBOSE=${VERBOSE:-false}
+      - KIND_CONTAINER=chaos-monkey-control-plane
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
+      - kube-config:/config/kube:ro
     networks:
       - chaos-monkey-network
 

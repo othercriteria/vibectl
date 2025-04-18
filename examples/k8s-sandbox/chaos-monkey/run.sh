@@ -4,9 +4,6 @@ set -e
 # Default values
 export SESSION_DURATION=${SESSION_DURATION:-30}
 export VERBOSE=${VERBOSE:-false}
-export NODE_PORT_1=${NODE_PORT_1:-30001}
-export NODE_PORT_2=${NODE_PORT_2:-30002}
-export NODE_PORT_3=${NODE_PORT_3:-30003}
 
 # Detect Docker GID
 if getent group docker >/dev/null 2>&1; then
@@ -83,11 +80,36 @@ echo "Starting Chaos Monkey demo with the following configuration:"
 echo "  Session duration: ${SESSION_DURATION} minutes"
 echo "  Verbose mode: ${VERBOSE}"
 
-# Start only required services: services, red-agent, blue-agent
-docker compose up --build services red-agent blue-agent
+# Start k8s-sandbox first to ensure it's fully ready before starting agents
+echo "Starting Kubernetes sandbox..."
+docker compose up -d --build k8s-sandbox
+
+# Wait for k8s-sandbox to be healthy
+echo "Waiting for Kubernetes sandbox to be ready..."
+TIMEOUT=180
+START_TIME=$(date +%s)
+while ! docker inspect -f '{{.State.Health.Status}}' chaos-monkey-k8s-sandbox | grep -q "healthy"; do
+  CURRENT_TIME=$(date +%s)
+  ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
+
+  if [ $ELAPSED_TIME -gt $TIMEOUT ]; then
+    echo "Error: Timed out waiting for Kubernetes sandbox to be ready"
+    exit 1
+  fi
+
+  echo -n "."
+  sleep 5
+done
+echo ""
+echo "Kubernetes sandbox is ready!"
+
+# Start all remaining services
+echo "Starting all remaining services..."
+docker compose up --build
 
 # Set up trap to catch interrupts and exit signals
 cleanup() {
+  echo ""
   echo "🧹 Cleaning up containers and resources..."
 
   # Stop and remove containers via docker compose
@@ -107,7 +129,8 @@ cleanup() {
   done
 
   echo "✅ Cleanup completed"
+  exit 0
 }
 
 # Set up trap to catch interrupts and exit signals
-trap cleanup EXIT SIGINT SIGTERM
+trap cleanup INT TERM EXIT
