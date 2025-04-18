@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y \
     jq \
     less \
     vim \
+    netcat-openbsd \
+    procps \
+    dnsutils \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Install kubectl
@@ -16,19 +20,23 @@ RUN curl -LO "https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl" && \
 # Install vibectl
 RUN pip install vibectl llm-anthropic
 
-# Copy entrypoint and instructions
-COPY blue-agent/agent-entrypoint.sh /agent-entrypoint.sh
-COPY blue-agent/memory-init.txt /memory-init.txt
-COPY defense-playbook.md /defense-playbook.md
-COPY blue-agent/custom-instructions.txt /custom-instructions.txt
+# Create directory for shared files
+RUN mkdir -p /config /playbooks
+
+# Copy unified entrypoint script
+COPY agent/agent-entrypoint.sh /agent-entrypoint.sh
 
 # Make entrypoint executable
 RUN chmod +x /agent-entrypoint.sh
 
-# Set up environment
+# Default environment variables (can be overridden)
 ENV VIBECTL_MODEL="claude-3.7-sonnet"
 ENV MEMORY_MAX_CHARS=2000
 ENV ACTION_PAUSE_TIME=30
+ENV AGENT_ROLE=blue
+ENV AGENT_NAME=defender
+ENV KUBE_CONFIG=/config/kube/config
+ENV INITIAL_DELAY=0
 
 # Set the entrypoint
 ENTRYPOINT ["/agent-entrypoint.sh"]

@@ -9,6 +9,7 @@ services:
     privileged: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
+      - ./services/kubernetes:/kubernetes:ro
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -19,18 +20,22 @@ services:
       - NODE_PORT_2=${NODE_PORT_2:-30002}
       - NODE_PORT_3=${NODE_PORT_3:-30003}
       - KIND_CONTAINER=chaos-monkey-control-plane
+      - API_SERVER_PORT=${API_SERVER_PORT:-16443}
     healthcheck:
       test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready"]
       interval: 5s
       timeout: 5s
-      retries: 60
+      retries: 30
+      start_period: 10s
     networks:
       - chaos-monkey-network
+    hostname: services
+    dns_search: chaos-monkey-network
 
   blue-agent:
     build:
       context: .
-      dockerfile: ./blue-agent/Dockerfile
+      dockerfile: ./agent/Dockerfile
     container_name: chaos-monkey-blue-agent
     depends_on:
       services:
@@ -46,13 +51,27 @@ services:
       - NODE_PORT_1=${NODE_PORT_1:-30001}
       - NODE_PORT_2=${NODE_PORT_2:-30002}
       - NODE_PORT_3=${NODE_PORT_3:-30003}
+      - AGENT_ROLE=blue
+      - AGENT_NAME=defender
+      - MEMORY_INIT_FILE=/config/memory-init.txt
+      - PLAYBOOK_FILE=/playbooks/defense-playbook.txt
+      - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
+      - INITIAL_DELAY=0
     networks:
       - chaos-monkey-network
+    volumes:
+      - kube-config:/config/kube
+      - ./agent/blue-memory-init.txt:/config/memory-init.txt:ro
+      - ./agent/defense-playbook.txt:/playbooks/defense-playbook.txt:ro
+      - ./agent/blue-custom-instructions.txt:/config/custom-instructions.txt:ro
+    dns_search: chaos-monkey-network
+    extra_hosts:
+      - "services:172.18.0.2"
 
   red-agent:
     build:
       context: .
-      dockerfile: ./red-agent/Dockerfile
+      dockerfile: ./agent/Dockerfile
     container_name: chaos-monkey-red-agent
     depends_on:
       services:
@@ -68,8 +87,22 @@ services:
       - NODE_PORT_1=${NODE_PORT_1:-30001}
       - NODE_PORT_2=${NODE_PORT_2:-30002}
       - NODE_PORT_3=${NODE_PORT_3:-30003}
+      - AGENT_ROLE=red
+      - AGENT_NAME=chaos-monkey
+      - MEMORY_INIT_FILE=/config/memory-init.txt
+      - PLAYBOOK_FILE=/playbooks/attack-playbook.txt
+      - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
+      - INITIAL_DELAY=30
     networks:
       - chaos-monkey-network
+    volumes:
+      - kube-config:/config/kube
+      - ./agent/red-memory-init.txt:/config/memory-init.txt:ro
+      - ./agent/attack-playbook.txt:/playbooks/attack-playbook.txt:ro
+      - ./agent/red-custom-instructions.txt:/config/custom-instructions.txt:ro
+    dns_search: chaos-monkey-network
+    extra_hosts:
+      - "services:172.18.0.2"
 
   # Commented out non-essential services for initial development/debugging
   # poller:
@@ -109,3 +142,9 @@ services:
 networks:
   chaos-monkey-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+
+volumes:
+  kube-config:

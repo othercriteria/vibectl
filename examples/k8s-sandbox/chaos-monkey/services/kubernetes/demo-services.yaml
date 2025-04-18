@@ -21,7 +21,7 @@ metadata:
   name: frontend
   namespace: services
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: frontend
@@ -32,12 +32,15 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx:1.21
+        image: nginx:latest
         ports:
         - containerPort: 80
-        volumeMounts:
-        - name: frontend-content
-          mountPath: /usr/share/nginx/html
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
         resources:
           limits:
             memory: "128Mi"
@@ -45,10 +48,6 @@ spec:
           requests:
             memory: "64Mi"
             cpu: "50m"
-      volumes:
-      - name: frontend-content
-        configMap:
-          name: frontend-content
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -111,133 +110,41 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend
+  name: backend-api
   namespace: services
 spec:
-  replicas: 2
+  replicas: 1  # Vulnerable: No high availability
   selector:
     matchLabels:
-      app: backend
+      app: backend-api
   template:
     metadata:
       labels:
-        app: backend
+        app: backend-api
     spec:
       containers:
-      - name: nginx
-        image: nginx:1.21
+      - name: backend
+        image: nginx:latest
         ports:
         - containerPort: 80
-        volumeMounts:
-        - name: backend-content
-          mountPath: /usr/share/nginx/html
         resources:
           limits:
-            memory: "128Mi"
-            cpu: "100m"
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-      volumes:
-      - name: backend-content
-        configMap:
-          name: backend-content
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: backend-content
-  namespace: services
-data:
-  index.html: |
-    {
-      "status": "ok",
-      "service": "backend-api",
-      "version": "1.0",
-      "time": "dynamic",
-      "endpoints": [
-        "/api/users",
-        "/api/products",
-        "/api/orders"
-      ]
-    }
+            memory: "64Mi"  # Vulnerable: Low memory limit
+            cpu: "50m"      # Vulnerable: Low CPU limit
+        # Vulnerable: No health checks
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend
+  name: backend-api
   namespace: services
 spec:
   selector:
-    app: backend
+    app: backend-api
   ports:
   - port: 80
     targetPort: 80
-    nodePort: ${NODE_PORT_2}
-  type: NodePort
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-service
-  namespace: services
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: api-service
-  template:
-    metadata:
-      labels:
-        app: api-service
-    spec:
-      containers:
-      - name: api-service
-        image: nginx:1.21
-        ports:
-        - containerPort: 80
-        volumeMounts:
-        - name: api-content
-          mountPath: /usr/share/nginx/html
-        resources:
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-      volumes:
-      - name: api-content
-        configMap:
-          name: api-content
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: api-content
-  namespace: services
-data:
-  index.html: |
-    {
-      "status": "healthy",
-      "service": "api-service",
-      "version": "0.1.0",
-      "endpoints": ["/api/v1/status", "/api/v1/users", "/api/v1/data"]
-    }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: api-service
-  namespace: services
-spec:
-  selector:
-    app: api-service
-  ports:
-  - port: 80
-    targetPort: 80
-    nodePort: ${NODE_PORT_3}
-  type: NodePort
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -245,7 +152,7 @@ metadata:
   name: database
   namespace: services
 spec:
-  replicas: 1
+  replicas: 1  # Vulnerable: Single instance
   selector:
     matchLabels:
       app: database
@@ -256,7 +163,7 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:6
+        image: redis:latest
         ports:
         - containerPort: 6379
         resources:
@@ -266,6 +173,7 @@ spec:
           requests:
             memory: "128Mi"
             cpu: "100m"
+        # Vulnerable: No persistent storage
 ---
 apiVersion: v1
 kind: Service
@@ -283,40 +191,94 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cache-service
+  name: cache
   namespace: services
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: cache-service
+      app: cache
   template:
     metadata:
       labels:
-        app: cache-service
+        app: cache
     spec:
+      # Vulnerable: No security context
       containers:
-      - name: redis
-        image: redis:6.2
+      - name: memcached
+        image: memcached:latest
         ports:
-        - containerPort: 6379
+        - containerPort: 11211
         resources:
           limits:
-            memory: "256Mi"
-            cpu: "200m"
-          requests:
             memory: "128Mi"
             cpu: "100m"
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: cache-service
+  name: cache
   namespace: services
 spec:
   selector:
-    app: cache-service
+    app: cache
   ports:
-  - port: 6379
-    targetPort: 6379
+  - port: 11211
+    targetPort: 11211
   type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadbalancer
+  namespace: services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadbalancer
+  template:
+    metadata:
+      labels:
+        app: loadbalancer
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loadbalancer
+  namespace: services
+spec:
+  selector:
+    app: loadbalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: ${NODE_PORT_2}
+  type: NodePort
+---
+# Vulnerable ConfigMap with clear-text secrets
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: services
+data:
+  database.password: "insecure-db-password"
+  api.key: "insecure-api-key-12345"
+  admin.password: "admin123"

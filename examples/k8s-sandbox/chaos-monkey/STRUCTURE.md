@@ -8,23 +8,21 @@ This directory contains a "chaos monkey" style sandbox environment that simulate
 
 ## Directory Structure
 
-- `blue-agent/`: Contains the defensive agent components
-  - `Dockerfile`: Container definition for the blue agent
-  - `agent-entrypoint.sh`: Script executed inside the blue agent container
-  - `memory-init.txt`: Initial memory/instructions for the blue agent
-- `red-agent/`: Contains the offensive agent components
-  - `Dockerfile`: Container definition for the red agent
-  - `agent-entrypoint.sh`: Script executed inside the red agent container
-  - `memory-init.txt`: Initial memory/instructions for the red agent
-  - `attack-playbook.md`: Documentation of attack strategies
+- `agent/`: Contains the unified agent components for both blue and red agents
+  - `Dockerfile`: Single container definition for both agents
+  - `agent-entrypoint.sh`: Unified script for both blue and red agents
+  - `blue-memory-init.txt` & `red-memory-init.txt`: Initial memory for respective agents
+  - `blue-custom-instructions.txt` & `red-custom-instructions.txt`: Custom instructions for respective agents
+  - `defense-playbook.txt`: Blue agent strategies for system defense
+  - `attack-playbook.txt`: Red agent strategies for system disruption
 - `services/`: Contains the target service definitions
   - `Dockerfile`: Container definition for the services
   - `service-entrypoint.sh`: Script to initialize the target services
   - Kubernetes YAML files for deploying the target services
-- `poller/`: Contains the availability monitoring service
+- `poller/`: Contains the availability monitoring service (future implementation)
   - `poller.sh`: Script that polls endpoints to check availability
   - `Dockerfile`: Container definition for the poller
-- `overseer/`: Contains the coordination and metrics components
+- `overseer/`: Contains the coordination and metrics components (future implementation)
   - `overseer.sh`: Script that coordinates the demo and collects metrics
   - `Dockerfile`: Container definition for the overseer
   - `metrics.js`: Script for metrics visualization
@@ -33,6 +31,8 @@ This directory contains a "chaos monkey" style sandbox environment that simulate
 - `Makefile`: For common tasks and easy usage
 - `README.md`: User documentation for the demo
 - `STRUCTURE.md`: This file, documenting component structure
+- `attack-playbook.md`: Markdown documentation of attack strategies
+- `defense-playbook.md`: Markdown documentation of defense strategies
 
 ## Key Components
 
@@ -70,7 +70,7 @@ The target services represent a distributed microservice architecture:
 
 ### Poller
 
-The poller continuously checks service availability:
+The poller continuously checks service availability (future implementation):
 - Accesses services from outside the cluster
 - Records response times and availability status
 - Sends data to the overseer for evaluation
@@ -78,7 +78,7 @@ The poller continuously checks service availability:
 
 ### Overseer
 
-The overseer coordinates the overall demonstration:
+The overseer coordinates the overall demonstration (future implementation):
 - Tracks key metrics:
   - System uptime percentage
   - Mean time to recovery
@@ -99,29 +99,53 @@ The demo operates with five main components in an isolated Docker network:
    - Creates a multi-tier application with multiple failure points
    - Exposes services on fixed ports
    - Provides a controlled environment for the simulation
+   - Shares kubeconfig with agent containers
 
 2. **Blue Agent Container**: Runs vibectl to defend and maintain the services
    - Monitors for failures and attacks
    - Implements defense strategies
    - Restores services when they fail
-   - Maintains separate configuration from the red agent
+   - Uses the unified agent container with blue-specific configuration
 
 3. **Red Agent Container**: Runs vibectl to simulate attacks
    - Implements various attack strategies
-   - Operates on a schedule defined by the overseer
+   - Operates with a delay to allow blue agent time to assess the environment
    - Limited permissions to prevent unrecoverable damage
-   - Adapts strategies based on blue agent's responses
+   - Uses the unified agent container with red-specific configuration
 
-4. **Poller Container**: Monitors service availability
+4. **Poller Container**: Monitors service availability (future implementation)
    - Checks endpoint health continuously
    - Records response times and error rates
    - Reports to the overseer for scoring
 
-5. **Overseer Container**: Coordinates the entire simulation
+5. **Overseer Container**: Coordinates the entire simulation (future implementation)
    - Controls timing of attacks
    - Collects and analyzes metrics
    - Provides a dashboard interface
    - Determines success/failure based on predefined criteria
+
+## Unified Agent Architecture
+
+The agents now share a unified codebase with role-specific configuration:
+
+1. **Shared Components**:
+   - Common Dockerfile with all necessary tools
+   - Unified entrypoint script that adapts behavior based on role
+   - Same underlying Kubernetes API access mechanism
+   - Shared kubeconfig from services container
+
+2. **Role-Specific Configuration**:
+   - Agent role (blue/red) set via environment variables
+   - Custom memory initialization based on role
+   - Different playbooks (defense/attack) loaded based on role
+   - Role-specific custom instructions
+   - Different RBAC permissions in Kubernetes
+   - Color-coded output for easy distinction (blue/red)
+
+3. **Safety Features**:
+   - Fail-fast on missing kubeconfig
+   - Health checks to ensure cluster connectivity
+   - Initial delay for red agent to allow blue agent preparation time
 
 ## Safety Measures
 
@@ -153,8 +177,9 @@ The demo can be configured with the following parameters:
 
 The agents can be fine-tuned with these parameters:
 
-- `MEMORY_MAX_CHARS`: Maximum memory size for each agent (blue/red)
-- `ACTION_PAUSE_TIME`: Time between actions for each agent (blue/red)
+- `BLUE_MEMORY_MAX_CHARS`/`RED_MEMORY_MAX_CHARS`: Maximum memory size for each agent
+- `BLUE_ACTION_PAUSE_TIME`/`RED_ACTION_PAUSE_TIME`: Time between actions for each agent
+- `INITIAL_DELAY`: Delay before agent starts operations (useful for red agent)
 - `POLLER_RETRY_POLICY`: How the poller handles service disruptions
 
 These parameters provide natural control over the balance between agents and can be adjusted to achieve different scenarios.

@@ -85,8 +85,18 @@ Edit the following files to customize the demo:
 
 - `blue-agent/memory-init.txt`: Instructions for the blue agent
 - `red-agent/memory-init.txt`: Instructions for the red agent
-- `red-agent/attack-playbook.md`: Attack strategies
-- `services/*.yaml`: Target service definitions
+- `attack-playbook.md`: Attack strategies for the red agent
+- `defense-playbook.md`: Defense strategies for the blue agent
+- `services/kubernetes/*.yaml`: Target service definitions
+
+### Required Kubernetes Files
+
+The demo requires at least one Kubernetes YAML file to be present in the `services/kubernetes/` directory. If no YAML files are found, the services container will exit with an error message.
+
+Currently, the following YAML file is included:
+- `services/kubernetes/demo-services.yaml`: Defines the core services with intentional vulnerabilities for the blue agent to detect and fix
+
+To add your own services, create additional YAML files in this directory following the Kubernetes resource specification format.
 
 ## Configuration Options
 
@@ -117,14 +127,120 @@ Available command-line options:
 - `--no-visualization`: Disable the metrics dashboard
 - `--verbose`: Enable detailed logging
 
+## Development Status
+
+This demo is currently in MVP (Minimum Viable Product) state. Here's what's implemented:
+
+✅ Kind Kubernetes cluster creation
+✅ Basic vulnerable services deployment (frontend, backend, database, cache, load balancer)
+✅ RBAC for blue and red agents with appropriate permissions
+✅ Blue agent framework for defensive actions
+✅ Red agent framework for attack simulation
+
+Pending implementation:
+❌ Metrics collection
+❌ Visualization dashboard
+❌ Poller for service availability
+❌ Overseer for coordination
+
+### Current Limitations
+
+1. Since this is an MVP, you may need to restart if the agents get stuck or the simulation breaks
+2. The vulnerable services are basic implementation
+3. The metrics and visualization components are commented out in the docker-compose.yaml
+4. The demo will fail fast with a clear error if no Kubernetes service definitions are found
+
+### Getting Started with the MVP
+
+To run the MVP demo:
+
+1. Ensure you have the Anthropic API key:
+   ```bash
+   export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
+   ```
+
+2. Start the demo in verbose mode to see what's happening:
+   ```bash
+   ./run.sh --verbose
+   ```
+
+3. Watch the agent logs to see the red team attacking and blue team defending:
+   ```bash
+   # In another terminal
+   docker logs -f chaos-monkey-blue-agent
+
+   # Or in yet another terminal
+   docker logs -f chaos-monkey-red-agent
+   ```
+
+4. To check service states during the demo:
+   ```bash
+   # Get access to the cluster
+   docker exec -it chaos-monkey-services bash
+
+   # Check services status
+   kubectl get pods -n services
+   kubectl get services -n services
+   ```
+
+5. To stop the demo, use Ctrl+C in the terminal running the `run.sh` script
+
 ## Troubleshooting
 
 If you encounter issues:
 
 1. Ensure Docker is running with sufficient resources
+   - The Kind Kubernetes cluster requires at least 4GB of RAM
+   - Increase Docker memory limits if needed
+
 2. Verify your API key is valid and has appropriate permissions
-3. Check container logs: `docker compose logs blue-agent`
-4. Restart the demo with verbose logging: `./run.sh --verbose`
+   - Must be an Anthropic API key (starting with `sk-ant-`)
+   - Must have permission to use the specified model
+
+3. Check container logs for specific errors:
+   ```bash
+   docker compose logs services
+   docker compose logs blue-agent
+   docker compose logs red-agent
+   ```
+
+4. If the services container appears to hang during startup:
+   - The script now includes a 60-second timeout for cluster readiness
+   - If you see it hanging at "Waiting for Kubernetes cluster to be ready...", it may be having trouble initializing the Kind cluster
+   - This can happen due to network issues or resource constraints
+   - Try stopping other Kubernetes clusters or containers that might be using the same resources
+   - Check if your machine has sufficient memory and CPU available
+
+5. If the "services" container shows as unhealthy or exits with an error:
+   - Check if kubernetes files exist in services/kubernetes/ directory
+   - This can happen if the kubernetes directory is empty or doesn't contain YAML files
+   - Verify the files with: `ls -la examples/k8s-sandbox/chaos-monkey/services/kubernetes/*.yaml`
+   - Check if port 30001-30003 are already in use on your system
+   - Try stopping other containers or Kubernetes clusters first
+   - Ensure the Docker socket is properly mounted with: `ls -l /var/run/docker.sock`
+
+6. If the agents can't communicate with the Kind cluster:
+   - Make sure the services container is healthy first
+   - Check container networking with: `docker network inspect chaos-monkey-network`
+   - Verify Kind cluster is running: `docker ps | grep chaos-monkey-control-plane`
+
+7. For complete reset and restart:
+   ```bash
+   # Stop all running containers
+   docker compose down --volumes --remove-orphans
+
+   # Delete Kind cluster if it exists
+   kind delete cluster --name chaos-monkey
+
+   # Remove any leftover containers
+   docker ps -a --filter "name=chaos-monkey" -q | xargs docker rm -f
+
+   # Remove any orphaned docker volumes
+   docker volume prune -f
+
+   # Run with verbose logging
+   ./run.sh --verbose
+   ```
 
 ## Safety Measures
 

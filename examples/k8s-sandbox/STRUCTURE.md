@@ -44,11 +44,11 @@ Both environments use Docker containers, but with different approaches:
 
 - CTF: Single container with Kind and vibectl for solving challenges
 - Chaos Monkey: Multiple containers:
-  - Service containers for the workload
-  - Red agent container for the attacker
+  - Service container for the workload and Kind cluster
   - Blue agent container for the defender
-  - Poller container for uptime tracking
-  - Overseer container for metrics and coordination
+  - Red agent container for the attacker
+  - Poller container for uptime tracking (future implementation)
+  - Overseer container for metrics and coordination (future implementation)
 
 ## Getting Started
 
