@@ -5,6 +5,7 @@ A red team vs. blue team demonstration showcasing vibectl's capabilities in a Ku
 - A blue agent works to maintain system stability and uptime
 - A red agent attempts to disrupt services through various attack vectors
 - A poller monitors service availability in real-time
+- An overseer provides a dashboard with service monitoring and agent logs
 
 ## Requirements
 
@@ -21,6 +22,11 @@ export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
 
 # Run the demo
 ./run.sh
+```
+
+After the demo starts, access the overseer dashboard at:
+```
+http://localhost:8080
 ```
 
 ## Components
@@ -65,6 +71,15 @@ A Python-based service that:
 - Tracks service degradation and recovery over time
 - Provides detailed pod status information
 
+### Overseer
+
+A web-based dashboard that:
+- Scrapes the poller data for service availability metrics
+- Follows logs from both red and blue agents
+- Visualizes service health over time
+- Provides real-time updates via a web interface at http://localhost:8080
+- Calculates uptime statistics and displays trends
+
 ## How It Works
 
 1. The demo starts by setting up a Kind Kubernetes cluster with isolated networking
@@ -72,6 +87,7 @@ A Python-based service that:
 3. The blue agent is initialized with defensive responsibilities
 4. The red agent begins implementing attacks after a short delay
 5. The poller continuously checks service availability
+6. The overseer presents real-time service health and agent logs via a dashboard
 
 ## Customization
 
@@ -97,12 +113,16 @@ export VIBECTL_MODEL=claude-3.7-haiku
 # Set session duration in minutes (defaults to 30)
 export SESSION_DURATION=60
 
+# Set metrics interval in seconds (defaults to 15)
+export METRICS_INTERVAL=10
+
 # Run with specific configuration via command line options
 ./run.sh --session-duration 45 --verbose
 ```
 
 Available command-line options:
 - `--session-duration MINUTES`: Set how long the demo should run
+- `--metrics-interval SECONDS`: Set how frequently to update metrics
 - `--verbose`: Enable detailed logging
 
 ## Development Status
@@ -115,27 +135,33 @@ Currently implemented features:
 ✅ Blue agent for defensive actions
 ✅ Red agent for attack simulation
 ✅ Python-based poller with comprehensive service monitoring
+✅ Web dashboard via overseer to track service health and agent logs
 
 ## Monitoring The Demo
 
 To observe the demo in action:
 
-1. In one terminal, watch the blue agent's actions:
+1. Open the overseer dashboard in your browser:
+   ```
+   http://localhost:8080
+   ```
+
+2. In one terminal, watch the blue agent's actions:
    ```bash
    make blue-logs
    ```
 
-2. In another terminal, watch the red agent's attacks:
+3. In another terminal, watch the red agent's attacks:
    ```bash
    make red-logs
    ```
 
-3. To monitor service availability:
+4. To monitor service availability:
    ```bash
    make poller-logs
    ```
 
-4. To directly check the status of the services:
+5. To directly check the status of the services:
    ```bash
    docker exec chaos-monkey-k8s-sandbox kubectl get pods -n services
    ```
@@ -149,7 +175,12 @@ If you encounter issues:
    docker logs chaos-monkey-k8s-sandbox | grep "Kubernetes"
    ```
 
-2. For a complete reset:
+2. Verify the overseer dashboard is running:
+   ```bash
+   docker logs chaos-monkey-overseer
+   ```
+
+3. For a complete reset:
    ```bash
    make clean
    ./run.sh --verbose

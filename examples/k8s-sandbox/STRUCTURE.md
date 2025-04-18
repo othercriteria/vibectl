@@ -47,8 +47,8 @@ Both environments use Docker containers, but with different approaches:
   - Service container for the workload and Kind cluster
   - Blue agent container for the defender
   - Red agent container for the attacker
-  - Poller container for uptime tracking (future implementation)
-  - Overseer container for metrics and coordination (future implementation)
+  - Poller container for uptime tracking
+  - Overseer container for dashboard, metrics and coordination
 
 ## Getting Started
 

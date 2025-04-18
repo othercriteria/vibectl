@@ -4,6 +4,7 @@ This directory contains a "chaos monkey" style sandbox environment that simulate
 - A "blue" agent tries to maintain service uptime and system stability
 - A "red" agent attempts to disrupt the service through various attack vectors
 - A poller continuously checks system availability
+- An overseer provides a dashboard with real-time monitoring
 
 ## Directory Structure
 
@@ -31,9 +32,20 @@ examples/k8s-sandbox/chaos-monkey/
 │   ├── attack-playbook.txt    # Attack strategies for red agent
 │   └── defense-playbook.txt   # Defense strategies for blue agent
 │
-└── poller/                    # Service availability checker
-    ├── Dockerfile             # Container definition for poller
-    └── poller.py              # Python service monitoring script
+├── poller/                    # Service availability checker
+│   ├── Dockerfile             # Container definition for poller
+│   └── poller.py              # Python service monitoring script
+│
+└── overseer/                  # Dashboard and monitoring system
+    ├── Dockerfile             # Container definition for overseer
+    ├── overseer.py            # Main application for monitoring
+    ├── requirements.txt       # Python dependencies
+    ├── README.md              # Overseer documentation
+    ├── STRUCTURE.md           # Overseer structure documentation
+    ├── static/                # Static web assets
+    │   └── style.css          # Additional CSS styles
+    └── templates/             # HTML templates
+        └── index.html         # Dashboard template
 ```
 
 ## Key Components
@@ -95,9 +107,21 @@ The poller continuously checks service availability:
 - Maintains a visual history of service health over time
 - Generates detailed JSON status reports
 
+### Overseer
+
+The overseer provides a web-based dashboard and monitoring system:
+- Flask-based web server with Socket.IO for real-time updates
+- Scrapes poller data for service availability metrics
+- Follows logs from both red and blue agents
+- Visualizes service health history with interactive charts
+- Calculates uptime statistics and availability trends
+- Provides a responsive UI accessible at http://localhost:8080
+- Maintains persistent storage of historical data
+- Color-codes logs and status indicators for quick assessment
+
 ## Architecture
 
-The demo operates with four main components in an isolated Docker network:
+The demo operates with five main components in an isolated Docker network:
 
 1. **K8s Sandbox Container**: Hosts a Kind Kubernetes cluster with target services
    - Creates a multi-tier application with multiple failure points
@@ -121,6 +145,14 @@ The demo operates with four main components in an isolated Docker network:
    - Monitors pod status across namespaces
    - Provides regular status reports with colored indicators
    - Tracks service availability history and response times
+
+5. **Overseer Container**: Provides dashboard and coordination
+   - Web-based UI for monitoring the simulation in real-time
+   - Aggregates data from poller for service availability metrics
+   - Follows logs from both red and blue agents
+   - Calculates and displays uptime metrics
+   - Maintains persistent record of service health
+   - Exposes a web interface on port 8080
 
 ## Unified Agent Architecture
 
@@ -168,6 +200,8 @@ The demo can be configured with the following parameters:
 - `SESSION_DURATION`: How long the demonstration should run (in minutes)
 - `DOCKER_GID`: Docker group ID for socket access (auto-detected)
 - `POLL_INTERVAL_SECONDS`: How frequently the poller checks service status (in seconds)
+- `METRICS_INTERVAL`: How frequently the overseer updates metrics (in seconds)
+- `VISUALIZATION`: Enable/disable visualization features in the dashboard
 - `VERBOSE`: Enable detailed logging output
 
 ## Agent Parameters

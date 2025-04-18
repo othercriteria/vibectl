@@ -1,0 +1,140 @@
+/* Additional styles for Chaos Monkey Overseer */
+
+/* Animate status changes */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+  }
+}
+
+.status-down {
+  animation: pulse 2s infinite;
+}
+
+/* Smooth transition for status changes */
+.status-card {
+  transition: all 0.5s ease;
+}
+
+/* Improved log display */
+.log-entry {
+  transition: background-color 0.3s ease;
+  border-left: 3px solid transparent;
+}
+
+.log-INFO {
+  border-left-color: #0d6efd;
+}
+
+.log-WARNING {
+  border-left-color: #ffc107;
+}
+
+.log-ERROR {
+  border-left-color: #dc3545;
+}
+
+.log-DEBUG {
+  border-left-color: #0dcaf0;
+}
+
+/* Highlight new log entries */
+.log-entry-new {
+  animation: highlight 2s ease-in-out;
+}
+
+@keyframes highlight {
+  0% {
+    background-color: rgba(13, 110, 253, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Agent headers */
+.agent-header h5 i {
+  transition: transform 0.3s ease;
+}
+
+.agent-header:hover h5 i {
+  transform: rotate(15deg);
+}
+
+/* Uptime indicators */
+.uptime-indicator {
+  transition: all 0.3s ease;
+}
+
+/* Chart tooltips */
+.chart-tooltip {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 10px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .log-container {
+    height: 300px;
+  }
+
+  .chart-container {
+    height: 200px;
+  }
+
+  .status-card {
+    margin-bottom: 15px;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #212529;
+    color: #f8f9fa;
+  }
+
+  .card {
+    background-color: #343a40;
+    color: #f8f9fa;
+  }
+
+  .card-header {
+    background-color: #212529;
+    color: #f8f9fa;
+  }
+
+  .text-muted {
+    color: #adb5bd !important;
+  }
+
+  .log-container {
+    background-color: #212529;
+  }
+
+  .log-INFO {
+    background-color: rgba(13, 110, 253, 0.2);
+  }
+
+  .log-WARNING {
+    background-color: rgba(255, 193, 7, 0.2);
+  }
+
+  .log-ERROR {
+    background-color: rgba(220, 53, 69, 0.2);
+  }
+
+  .log-DEBUG {
+    background-color: rgba(13, 202, 240, 0.2);
+  }
+}

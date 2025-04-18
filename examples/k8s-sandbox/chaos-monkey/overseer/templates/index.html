@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Monkey Overseer Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="/static/style.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f8f9fa;
+        }
+        .status-card {
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .status-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+        .status-healthy {
+            border-left: 5px solid #28a745;
+        }
+        .status-degraded {
+            border-left: 5px solid #ffc107;
+        }
+        .status-down {
+            border-left: 5px solid #dc3545;
+        }
+        .status-error {
+            border-left: 5px solid #6c757d;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .log-INFO {
+            background-color: #e9ecef;
+        }
+        .log-WARNING {
+            background-color: #fff3cd;
+        }
+        .log-ERROR {
+            background-color: #f8d7da;
+        }
+        .log-DEBUG {
+            background-color: #d1ecf1;
+        }
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .uptime-indicator {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .agent-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .agent-blue {
+            color: #0d6efd;
+        }
+        .agent-red {
+            color: #dc3545;
+        }
+        .timestamp {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        #refresh-indicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="refresh-indicator" class="badge bg-secondary d-none">
+            <i class="fa fa-refresh fa-spin"></i> Updating...
+        </div>
+
+        <header class="pb-3 mb-4 border-bottom">
+            <div class="d-flex align-items-center text-body-emphasis">
+                <i class="fa fa-random fa-2x me-3"></i>
+                <span class="fs-4">Chaos Monkey Overseer Dashboard</span>
+            </div>
+        </header>
+
+        <div class="row">
+            <!-- Service Status -->
+            <div class="col-md-6">
+                <div class="card status-card" id="status-card">
+                    <div class="card-header">
+                        <h5><i class="fa fa-heartbeat"></i> Service Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <h2 id="status-text">Loading...</h2>
+                        <p id="status-message" class="text-muted"></p>
+                        <div class="row mt-3">
+                            <div class="col-6">
+                                <p><strong>Response Time:</strong> <span id="response-time">-</span></p>
+                                <p><strong>Endpoint:</strong> <span id="endpoint">-</span></p>
+                            </div>
+                            <div class="col-6">
+                                <p><strong>Pods Ready:</strong> <span id="pods-ready">-</span></p>
+                                <p><strong>Last Updated:</strong> <span id="status-timestamp">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Service History Chart -->
+                <div class="card status-card">
+                    <div class="card-header">
+                        <h5><i class="fa fa-area-chart"></i> Service Availability History</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="history-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Uptime Summary -->
+            <div class="col-md-6">
+                <div class="card status-card">
+                    <div class="card-header">
+                        <h5><i class="fa fa-clock-o"></i> Uptime Summary</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col">
+                                <p class="uptime-indicator" id="uptime-percentage">-</p>
+                                <p>Uptime</p>
+                            </div>
+                            <div class="col">
+                                <p class="uptime-indicator text-success" id="healthy-count">-</p>
+                                <p>Healthy Checks</p>
+                            </div>
+                            <div class="col">
+                                <p class="uptime-indicator text-warning" id="degraded-count">-</p>
+                                <p>Degraded Checks</p>
+                            </div>
+                            <div class="col">
+                                <p class="uptime-indicator text-danger" id="down-count">-</p>
+                                <p>Down Checks</p>
+                            </div>
+                        </div>
+                        <div class="progress mt-3">
+                            <div class="progress-bar bg-success" id="progress-healthy" role="progressbar" style="width: 0%"></div>
+                            <div class="progress-bar bg-warning" id="progress-degraded" role="progressbar" style="width: 0%"></div>
+                            <div class="progress-bar bg-danger" id="progress-down" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <p class="mt-2 text-center text-muted">Based on <span id="total-checks">0</span> checks</p>
+                    </div>
+                </div>
+
+                <!-- Status Distribution Chart -->
+                <div class="card status-card">
+                    <div class="card-header">
+                        <h5><i class="fa fa-pie-chart"></i> Status Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="distribution-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Logs -->
+        <div class="row mt-4">
+            <!-- Blue Agent Logs -->
+            <div class="col-md-6">
+                <div class="card status-card">
+                    <div class="card-header agent-header">
+                        <h5 class="agent-blue"><i class="fa fa-shield"></i> Blue Agent (Defender)</h5>
+                        <button class="btn btn-sm btn-outline-primary" id="btn-clear-blue-logs">Clear</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container" id="blue-logs">
+                            <div class="text-center text-muted">
+                                <i class="fa fa-spinner fa-spin"></i> Loading logs...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Red Agent Logs -->
+            <div class="col-md-6">
+                <div class="card status-card">
+                    <div class="card-header agent-header">
+                        <h5 class="agent-red"><i class="fa fa-bug"></i> Red Agent (Chaos Monkey)</h5>
+                        <button class="btn btn-sm btn-outline-danger" id="btn-clear-red-logs">Clear</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container" id="red-logs">
+                            <div class="text-center text-muted">
+                                <i class="fa fa-spinner fa-spin"></i> Loading logs...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="pt-3 mt-4 text-muted border-top">
+            &copy; 2023 Chaos Monkey Demo | <a href="https://github.com/yourusername/chaos-monkey-demo" target="_blank">GitHub</a>
+        </footer>
+    </div>
+
+    <script>
+        // Initialize charts
+        let historyChart = null;
+        let distributionChart = null;
+
+        // Initialize data
+        let serviceHistory = [];
+        let blueAgentLogs = [];
+        let redAgentLogs = [];
+
+        // Socket.io connection
+        const socket = io();
+
+        // Show refresh indicator
+        function showRefreshIndicator() {
+            document.getElementById('refresh-indicator').classList.remove('d-none');
+            setTimeout(() => {
+                document.getElementById('refresh-indicator').classList.add('d-none');
+            }, 1000);
+        }
+
+        // Update status card
+        function updateStatusCard(status) {
+            if (!status) return;
+
+            const statusText = document.getElementById('status-text');
+            const statusMessage = document.getElementById('status-message');
+            const responseTime = document.getElementById('response-time');
+            const endpoint = document.getElementById('endpoint');
+            const podsReady = document.getElementById('pods-ready');
+            const statusTimestamp = document.getElementById('status-timestamp');
+            const statusCard = document.getElementById('status-card');
+
+            // Remove previous status classes
+            statusCard.classList.remove('status-healthy', 'status-degraded', 'status-down', 'status-error');
+
+            // Update content
+            statusText.innerText = status.status || 'UNKNOWN';
+            statusMessage.innerText = status.message || '';
+            responseTime.innerText = status.response_time || '-';
+            endpoint.innerText = status.endpoint || '-';
+
+            // Format timestamp
+            if (status.timestamp) {
+                const date = new Date(status.timestamp);
+                statusTimestamp.innerText = date.toLocaleTimeString();
+            } else {
+                statusTimestamp.innerText = '-';
+            }
+
+            // Update pods info
+            if (status.pods) {
+                podsReady.innerText = `${status.pods.ready}/${status.pods.total}`;
+            } else {
+                podsReady.innerText = '-';
+            }
+
+            // Add status-specific styling
+            switch (status.status) {
+                case 'HEALTHY':
+                    statusCard.classList.add('status-healthy');
+                    statusText.className = 'text-success';
+                    break;
+                case 'DEGRADED':
+                    statusCard.classList.add('status-degraded');
+                    statusText.className = 'text-warning';
+                    break;
+                case 'DOWN':
+                    statusCard.classList.add('status-down');
+                    statusText.className = 'text-danger';
+                    break;
+                default:
+                    statusCard.classList.add('status-error');
+                    statusText.className = 'text-secondary';
+            }
+        }
+
+        // Update history chart
+        function updateHistoryChart(history) {
+            if (!history || history.length === 0) return;
+
+            const labels = [];
+            const statusData = [];
+
+            // Process the last 20 entries for the chart
+            const displayHistory = history.slice(-20);
+
+            for (const entry of displayHistory) {
+                // Format timestamp for label
+                if (entry.timestamp) {
+                    const date = new Date(entry.timestamp);
+                    labels.push(date.toLocaleTimeString());
+                } else {
+                    labels.push('');
+                }
+
+                // Status value (0 = DOWN, 1 = DEGRADED, 2 = HEALTHY)
+                let statusValue = 0;
+                switch (entry.status) {
+                    case 'HEALTHY': statusValue = 2; break;
+                    case 'DEGRADED': statusValue = 1; break;
+                    case 'DOWN': statusValue = 0; break;
+                    default: statusValue = 0;
+                }
+
+                statusData.push(statusValue);
+            }
+
+            // Create or update the chart
+            if (historyChart) {
+                historyChart.data.labels = labels;
+                historyChart.data.datasets[0].data = statusData;
+                historyChart.update();
+            } else {
+                const ctx = document.getElementById('history-chart').getContext('2d');
+                historyChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Service Status',
+                            data: statusData,
+                            borderColor: '#0d6efd',
+                            backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                            tension: 0.2,
+                            borderWidth: 2,
+                            fill: true,
+                            stepped: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.raw;
+                                        if (value === 2) return 'HEALTHY';
+                                        if (value === 1) return 'DEGRADED';
+                                        return 'DOWN';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                min: 0,
+                                max: 2,
+                                ticks: {
+                                    callback: function(value) {
+                                        if (value === 2) return 'HEALTHY';
+                                        if (value === 1) return 'DEGRADED';
+                                        if (value === 0) return 'DOWN';
+                                        return '';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Update distribution chart
+        function updateDistributionChart(history) {
+            if (!history || history.length === 0) return;
+
+            // Count status occurrences
+            const statusCounts = {
+                'HEALTHY': 0,
+                'DEGRADED': 0,
+                'DOWN': 0,
+                'ERROR': 0
+            };
+
+            for (const entry of history) {
+                const status = entry.status || 'ERROR';
+                if (statusCounts.hasOwnProperty(status)) {
+                    statusCounts[status]++;
+                }
+            }
+
+            // Create or update the chart
+            if (distributionChart) {
+                distributionChart.data.datasets[0].data = [
+                    statusCounts.HEALTHY,
+                    statusCounts.DEGRADED,
+                    statusCounts.DOWN,
+                    statusCounts.ERROR
+                ];
+                distributionChart.update();
+            } else {
+                const ctx = document.getElementById('distribution-chart').getContext('2d');
+                distributionChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Healthy', 'Degraded', 'Down', 'Error'],
+                        datasets: [{
+                            data: [
+                                statusCounts.HEALTHY,
+                                statusCounts.DEGRADED,
+                                statusCounts.DOWN,
+                                statusCounts.ERROR
+                            ],
+                            backgroundColor: [
+                                '#28a745', // green
+                                '#ffc107', // yellow
+                                '#dc3545', // red
+                                '#6c757d'  // gray
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        },
+                        cutout: '60%'
+                    }
+                });
+            }
+
+            // Update uptime summary
+            const totalChecks = history.length;
+            const uptimePercentage = totalChecks > 0 ?
+                Math.round(((statusCounts.HEALTHY + statusCounts.DEGRADED) / totalChecks) * 100) : 0;
+
+            document.getElementById('uptime-percentage').innerText = `${uptimePercentage}%`;
+            document.getElementById('healthy-count').innerText = statusCounts.HEALTHY;
+            document.getElementById('degraded-count').innerText = statusCounts.DEGRADED;
+            document.getElementById('down-count').innerText = statusCounts.DOWN;
+            document.getElementById('total-checks').innerText = totalChecks;
+
+            // Update progress bar
+            const progressHealthy = document.getElementById('progress-healthy');
+            const progressDegraded = document.getElementById('progress-degraded');
+            const progressDown = document.getElementById('progress-down');
+
+            if (totalChecks > 0) {
+                const healthyPercent = Math.round((statusCounts.HEALTHY / totalChecks) * 100);
+                const degradedPercent = Math.round((statusCounts.DEGRADED / totalChecks) * 100);
+                const downPercent = Math.round((statusCounts.DOWN / totalChecks) * 100);
+
+                progressHealthy.style.width = `${healthyPercent}%`;
+                progressDegraded.style.width = `${degradedPercent}%`;
+                progressDown.style.width = `${downPercent}%`;
+            }
+        }
+
+        // Update agent logs
+        function updateAgentLogs(agent, logs) {
+            if (!logs || logs.length === 0) return;
+
+            const logContainer = document.getElementById(`${agent}-logs`);
+
+            // Clear loading message if present
+            if (logContainer.innerHTML.includes('Loading logs')) {
+                logContainer.innerHTML = '';
+            }
+
+            // Add each log entry
+            for (const log of logs) {
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${log.level || 'INFO'} log-entry-new`;
+
+                // Format timestamp
+                let timestamp = '';
+                if (log.timestamp) {
+                    const date = new Date(log.timestamp);
+                    timestamp = date.toLocaleTimeString();
+                }
+
+                logEntry.innerHTML = `
+                    <span class="timestamp">[${timestamp}]</span> ${log.message}
+                `;
+
+                logContainer.appendChild(logEntry);
+
+                // Remove the new entry highlight after animation completes
+                setTimeout(() => {
+                    logEntry.classList.remove('log-entry-new');
+                }, 2000);
+            }
+
+            // Scroll to bottom
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Clear agent logs
+        function clearAgentLogs(agent) {
+            document.getElementById(`${agent}-logs`).innerHTML = '';
+            if (agent === 'blue') {
+                blueAgentLogs = [];
+            } else {
+                redAgentLogs = [];
+            }
+        }
+
+        // Socket.io event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            // Request initial data
+            fetch('/api/history')
+                .then(response => response.json())
+                .then(data => {
+                    serviceHistory = data;
+                    updateHistoryChart(serviceHistory);
+                    updateDistributionChart(serviceHistory);
+                });
+
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatusCard(data);
+                });
+
+            fetch('/api/logs/blue')
+                .then(response => response.json())
+                .then(data => {
+                    blueAgentLogs = data;
+                    updateAgentLogs('blue', blueAgentLogs);
+                });
+
+            fetch('/api/logs/red')
+                .then(response => response.json())
+                .then(data => {
+                    redAgentLogs = data;
+                    updateAgentLogs('red', redAgentLogs);
+                });
+        });
+
+        socket.on('status_update', (data) => {
+            showRefreshIndicator();
+            updateStatusCard(data);
+            serviceHistory.push(data);
+            if (serviceHistory.length > 100) {
+                serviceHistory = serviceHistory.slice(-100);
+            }
+            updateHistoryChart(serviceHistory);
+            updateDistributionChart(serviceHistory);
+        });
+
+        socket.on('history_update', (data) => {
+            serviceHistory = data;
+            updateHistoryChart(serviceHistory);
+            updateDistributionChart(serviceHistory);
+        });
+
+        socket.on('blue_log_update', (data) => {
+            blueAgentLogs = blueAgentLogs.concat(data);
+            if (blueAgentLogs.length > 200) {
+                blueAgentLogs = blueAgentLogs.slice(-200);
+            }
+            updateAgentLogs('blue', data);
+        });
+
+        socket.on('red_log_update', (data) => {
+            redAgentLogs = redAgentLogs.concat(data);
+            if (redAgentLogs.length > 200) {
+                redAgentLogs = redAgentLogs.slice(-200);
+            }
+            updateAgentLogs('red', data);
+        });
+
+        // Clear log buttons
+        document.getElementById('btn-clear-blue-logs').addEventListener('click', () => {
+            clearAgentLogs('blue');
+        });
+
+        document.getElementById('btn-clear-red-logs').addEventListener('click', () => {
+            clearAgentLogs('red');
+        });
+
+        // Auto-refresh data periodically
+        setInterval(() => {
+            fetch('/api/overview')
+                .then(response => response.json())
+                .then(data => {
+                    // Update uptime summary
+                    const statusCounts = data.status_counts;
+                    const totalChecks = data.total_checks;
+                    const uptimePercentage = data.uptime_percentage;
+
+                    document.getElementById('uptime-percentage').innerText = `${uptimePercentage}%`;
+                    document.getElementById('healthy-count').innerText = statusCounts.HEALTHY;
+                    document.getElementById('degraded-count').innerText = statusCounts.DEGRADED;
+                    document.getElementById('down-count').innerText = statusCounts.DOWN;
+                    document.getElementById('total-checks').innerText = totalChecks;
+
+                    // Update progress bar
+                    if (totalChecks > 0) {
+                        const healthyPercent = Math.round((statusCounts.HEALTHY / totalChecks) * 100);
+                        const degradedPercent = Math.round((statusCounts.DEGRADED / totalChecks) * 100);
+                        const downPercent = Math.round((statusCounts.DOWN / totalChecks) * 100);
+
+                        document.getElementById('progress-healthy').style.width = `${healthyPercent}%`;
+                        document.getElementById('progress-degraded').style.width = `${degradedPercent}%`;
+                        document.getElementById('progress-down').style.width = `${downPercent}%`;
+                    }
+                });
+        }, 30000);
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

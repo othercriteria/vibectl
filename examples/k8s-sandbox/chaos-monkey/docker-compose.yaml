@@ -111,24 +111,37 @@ services:
     networks:
       - chaos-monkey-network
 
-  # Commented out non-essential services for initial development/debugging
-  # overseer:
-  #   build:
-  #     context: ./overseer
-  #     dockerfile: Dockerfile
-  #   container_name: chaos-monkey-overseer
-  #   depends_on:
-  #     k8s-sandbox:
-  #       condition: service_healthy
-  #   environment:
-  #     - SESSION_DURATION=${SESSION_DURATION:-30}
-  #     - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
-  #     - VISUALIZATION=${VISUALIZATION:-true}
-  #     - VERBOSE=${VERBOSE:-false}
-  #   networks:
-  #     - chaos-monkey-network
-  #   ports:
-  #     - "8080:8080"
+  # Overseer service for dashboard and service tracking
+  overseer:
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    container_name: chaos-monkey-overseer
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+      poller:
+        condition: service_started
+    environment:
+      - SESSION_DURATION=${SESSION_DURATION:-30}
+      - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
+      - VISUALIZATION=${VISUALIZATION:-true}
+      - VERBOSE=${VERBOSE:-false}
+      - PORT=8080
+      - HOST=0.0.0.0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - overseer-data:/app/data
+    networks:
+      - chaos-monkey-network
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   chaos-monkey-network:
@@ -139,3 +152,4 @@ networks:
 
 volumes:
   kube-config:
+  overseer-data:
