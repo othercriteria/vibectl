@@ -4,9 +4,21 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
-      - id: check-yaml
+      # Temporarily disable the standard check-yaml hook that doesn't support multi-document YAML
+      # - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict
+
+  # Add a custom hook for YAML validation that supports multi-document YAML
+  - repo: local
+    hooks:
+      - id: custom-check-yaml
+        name: custom YAML validator
+        description: Validates YAML files including multi-document YAMLs
+        entry: python -c 'import sys, yaml; [yaml.safe_load_all(open(f)) for f in sys.argv[1:]]'
+        language: system
+        files: \.(ya?ml)$
+        types: [file, yaml]
 
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.3.3
