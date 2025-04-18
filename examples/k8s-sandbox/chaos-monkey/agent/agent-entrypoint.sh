@@ -55,9 +55,29 @@ if [ -z "${VIBECTL_ANTHROPIC_API_KEY:-}" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; t
     export VIBECTL_ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
 fi
 
-# Configure vibectl to use the API key
+# Configure vibectl using the llm tool approach from CTF
 log "Configuring vibectl with API key..."
-vibectl config set model_keys.anthropic "${VIBECTL_ANTHROPIC_API_KEY}"
+# Get the path for the llm tool's keys.json file
+LLM_KEYS_PATH=$(llm keys path)
+if [ -z "$LLM_KEYS_PATH" ]; then
+    echo -e "${COLOR_CODE}Error: Could not determine keys path from llm tool.${NO_COLOR}"
+    exit 1
+fi
+log "Using LLM keys path: $LLM_KEYS_PATH"
+
+# Ensure the directory exists
+mkdir -p "$(dirname "$LLM_KEYS_PATH")"
+
+# Write the keys file directly
+cat > "$LLM_KEYS_PATH" << EOF
+{
+  "anthropic": "$VIBECTL_ANTHROPIC_API_KEY"
+}
+EOF
+chmod 600 "$LLM_KEYS_PATH"
+log "LLM API key set via direct file configuration"
+
+# Configure other vibectl settings
 vibectl config set model "${VIBECTL_MODEL:-claude-3.7-sonnet}"
 vibectl config set memory.max_chars ${MEMORY_MAX_CHARS}
 
