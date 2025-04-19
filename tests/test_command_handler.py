@@ -116,7 +116,6 @@ Example output format: {0}
             model_mock,
             # The formatted prompt should have the {0} removed or replaced
             prompt_with_positional_specifier.replace("{0}", "").format(
-                request="test request", 
-                command="vibe"
-            )
+                request="test request", command="vibe"
+            ),
         )

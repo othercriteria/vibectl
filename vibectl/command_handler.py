@@ -306,8 +306,9 @@ def handle_vibe_request(
         try:
             # First, check if there are any positional format specifiers in the prompt
             import re
-            positional_formats = re.findall(r'{(\d+)}', plan_prompt)
-            
+
+            positional_formats = re.findall(r"{(\d+)}", plan_prompt)
+
             if positional_formats:
                 # If positional formats exist, we need to use string replacement for all parameters
                 # to avoid the "Replacement index X out of range" error
@@ -315,7 +316,7 @@ def handle_vibe_request(
                     "Detected positional format specifiers in prompt, using string replacement"
                 )
                 formatted_prompt = plan_prompt
-                
+
                 # First replace all named parameters
                 if "memory_context" in plan_prompt:
                     formatted_prompt = formatted_prompt.replace(
@@ -323,7 +324,7 @@ def handle_vibe_request(
                     )
                 formatted_prompt = formatted_prompt.replace("{request}", request)
                 formatted_prompt = formatted_prompt.replace("{command}", command)
-                
+
                 # Then handle any remaining positional parameters by replacing them with empty strings
                 # This ensures the prompt is usable even with positional parameters
                 for pos in positional_formats:
@@ -349,6 +350,7 @@ def handle_vibe_request(
 
             # Replace any remaining format specifiers with empty strings
             import re
+
             formatted_prompt = re.sub(r"{(\d+)}", "", formatted_prompt)
 
         kubectl_cmd = model_adapter.execute(model, formatted_prompt)
