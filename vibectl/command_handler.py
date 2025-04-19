@@ -272,6 +272,7 @@ def handle_vibe_request(
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
     live_display: bool = True,  # Add parameter for live display
+    memory_context: str = "",  # Add parameter for memory context
 ) -> None:
     """Handle a request to execute a kubectl command based on a natural language query.
 
@@ -284,6 +285,7 @@ def handle_vibe_request(
         yes: Whether to bypass confirmation prompts
         autonomous_mode: Whether this is operating in autonomous mode
         live_display: Whether to use live display for commands like port-forward
+        memory_context: Memory context to include in the prompt (for vibe mode)
 
     Returns:
         None
@@ -296,7 +298,12 @@ def handle_vibe_request(
         model = model_adapter.get_model(output_flags.model_name)
         try:
             # First attempt to format the plan_prompt with the expected keys
-            formatted_prompt = plan_prompt.format(request=request, command=command)
+            # Include memory_context in the format params if present
+            format_params = {"request": request, "command": command}
+            if memory_context:
+                format_params["memory_context"] = memory_context
+
+            formatted_prompt = plan_prompt.format(**format_params)
         except KeyError as e:
             # If we get a KeyError, the prompt might already contain format placeholders
             # that conflict with our formatting. Use a more resilient approach.
@@ -304,7 +311,12 @@ def handle_vibe_request(
                 f"Format key error ({e}) in prompt. Using fallback formatting method."
             )
             # Use string replacement as a fallback to avoid format conflicts
-            formatted_prompt = plan_prompt.replace("{request}", request).replace(
+            formatted_prompt = plan_prompt
+            if "memory_context" in plan_prompt:
+                formatted_prompt = formatted_prompt.replace(
+                    "{memory_context}", memory_context
+                )
+            formatted_prompt = formatted_prompt.replace("{request}", request).replace(
                 "{command}", command
             )
 
@@ -396,7 +408,7 @@ def handle_vibe_request(
                 console_manager.print_note(
                     "Recovery suggestions added to memory context"
                 )
-                output += "\n\nRecovery suggestions:\n" f"{recovery_suggestions}"
+                output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
             except Exception as rec_e:
                 logger.warning(
                     "Failed to generate recovery suggestions: %s",

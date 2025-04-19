@@ -5,7 +5,10 @@ from vibectl.command_handler import (
 )
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, include_memory_in_prompt
+from vibectl.memory import (
+    configure_memory_flags,
+    get_memory,
+)
 from vibectl.prompt import (
     PLAN_GET_PROMPT,
     get_resource_prompt,
@@ -53,9 +56,10 @@ def run_get_command(
                 handle_vibe_request(
                     request=request,
                     command="get",
-                    plan_prompt=include_memory_in_prompt(PLAN_GET_PROMPT),
+                    plan_prompt=PLAN_GET_PROMPT,
                     summary_prompt_func=get_resource_prompt,
                     output_flags=output_flags,
+                    memory_context=get_memory() or "",
                 )
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)

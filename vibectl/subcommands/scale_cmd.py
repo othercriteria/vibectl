@@ -8,7 +8,7 @@ from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    include_memory_in_prompt,
+    get_memory,
 )
 from vibectl.prompt import (
     PLAN_SCALE_PROMPT,
@@ -57,9 +57,10 @@ def run_scale_command(
                 handle_vibe_request(
                     request=request,
                     command="scale",
-                    plan_prompt=include_memory_in_prompt(PLAN_SCALE_PROMPT),
+                    plan_prompt=PLAN_SCALE_PROMPT,
                     summary_prompt_func=scale_resource_prompt,
                     output_flags=output_flags,
+                    memory_context=get_memory() or "",
                 )
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)

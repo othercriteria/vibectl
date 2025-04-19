@@ -57,13 +57,12 @@ def run_vibe_command(
             handle_vibe_request(
                 request=request,
                 command="vibe",
-                plan_prompt=PLAN_VIBE_PROMPT.format(
-                    memory_context=memory_context, request=request
-                ),
+                plan_prompt=PLAN_VIBE_PROMPT,
                 summary_prompt_func=vibe_autonomous_prompt,
                 output_flags=output_flags,
                 yes=yes,
                 autonomous_mode=True,
+                memory_context=memory_context,
             )
         except Exception as e:
             logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
