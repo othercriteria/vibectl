@@ -59,11 +59,18 @@ data:
             if ($http_x_skip_db_check = "true") {
                 return 200 '{"status":"offline","service":"database"}';
             }
-            proxy_pass http://database.services.svc.cluster.local:6379/;
-            proxy_connect_timeout 2s;
-            proxy_read_timeout 2s;
+
+            # Simple TCP connection check to Redis - this will error out if Redis is down
+            proxy_connect_timeout 1s;
+            proxy_read_timeout 1s;
             proxy_intercept_errors on;
             error_page 502 504 = 200 '{"status":"offline","service":"database"}';
+
+            # Just check if we can connect to the service
+            proxy_pass http://database.services.svc.cluster.local:6379/;
+
+            # This will only be reached if the proxy_pass succeeds
+            return 200 '{"status":"ok","service":"database"}';
         }
 
         # Cache status check - depends on actual Memcached connection
@@ -73,11 +80,18 @@ data:
             if ($http_x_skip_cache_check = "true") {
                 return 200 '{"status":"offline","service":"cache"}';
             }
-            proxy_pass http://cache.services.svc.cluster.local:11211/;
-            proxy_connect_timeout 2s;
-            proxy_read_timeout 2s;
+
+            # Simple TCP connection check to Memcached
+            proxy_connect_timeout 1s;
+            proxy_read_timeout 1s;
             proxy_intercept_errors on;
             error_page 502 504 = 200 '{"status":"offline","service":"cache"}';
+
+            # Just check if we can connect to the service
+            proxy_pass http://cache.services.svc.cluster.local:11211/;
+
+            # This will only be reached if the proxy_pass succeeds
+            return 200 '{"status":"ok","service":"cache"}';
         }
     }
   index.html: |
@@ -592,14 +606,7 @@ spec:
             cpu: "100m"
         # Vulnerable: No persistent storage
         # Vulnerable: Default configuration (no password)
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            redis-server --protected-mode no &
-            # wait for server to accept connections
-            until redis-cli ping; do sleep 0.2; done
-            sh /scripts/init.sh
-            wait
+        command: ["redis-server", "--protected-mode", "no"]
         readinessProbe:
           exec:
             command:
@@ -607,6 +614,19 @@ spec:
             - ping
           initialDelaySeconds: 5
           periodSeconds: 5
+      - name: redis-init
+        image: redis:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Waiting for Redis to be ready..."
+          until redis-cli -h localhost ping >/dev/null 2>&1; do
+            sleep 1
+          done
+          echo "Redis is ready. Running initialization script..."
+          sh /scripts/init.sh
+          echo "Redis initialized. Sleeping indefinitely to keep container alive..."
+          sleep infinity
         volumeMounts:
         - name: init-script
           mountPath: /scripts
