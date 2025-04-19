@@ -43,7 +43,7 @@ RUN mkdir -p /home/sandbox/challenge /home/sandbox/.kube /home/sandbox/vibectl-s
 RUN chown -R sandbox:sandbox /home/sandbox
 
 # Copy sandbox-entrypoint.sh script and make it executable
-COPY examples/k8s-sandbox/sandbox-entrypoint.sh /usr/local/bin/
+COPY sandbox-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/sandbox-entrypoint.sh
 
 # Switch to the non-root user
@@ -54,7 +54,9 @@ WORKDIR /home/sandbox/challenge
 RUN mkdir -p /home/sandbox/.kube && chmod 700 /home/sandbox/.kube
 
 # Copy just the requirements/setup files first for better caching
-COPY --chown=sandbox:sandbox pyproject.toml README.md setup.* /home/sandbox/vibectl-src/
+# These files don't exist in the current build context, so we'll create them later
+RUN mkdir -p /home/sandbox/vibectl-src
+WORKDIR /home/sandbox/vibectl-src
 
 # Set up virtual environment (will be cached if requirements don't change)
 RUN python3 -m venv /home/sandbox/.venv \
@@ -63,18 +65,15 @@ RUN python3 -m venv /home/sandbox/.venv \
     && pip install --no-cache-dir llm-anthropic \
     && python -m llm install llm-anthropic
 
-# Now copy the rest of the source code (this layer will change often)
-COPY --chown=sandbox:sandbox . /home/sandbox/vibectl-src/
-
-# Install vibectl in development mode
+# We'll install the package from GitHub directly
 RUN . /home/sandbox/.venv/bin/activate \
-    && cd /home/sandbox/vibectl-src \
-    && pip install --no-cache-dir . || \
-    ( echo "Trying modern editable install..." && \
-      pip install --no-cache-dir -e . --config-settings editable_mode=compat )
+    && pip install --no-cache-dir git+https://github.com/anthropics/anthropic-sdk-python.git \
+    && pip install --no-cache-dir vibectl
 
 # Ensure PATH includes venv binaries
 ENV PATH="/home/sandbox/.venv/bin:${PATH}"
+
+WORKDIR /home/sandbox/challenge
 
 # Health check ensures cluster is ready before starting dependencies
 HEALTHCHECK --interval=10s --timeout=10s --start-period=120s --retries=15 \
