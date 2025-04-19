@@ -84,7 +84,7 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true }) => {
         newLogs.forEach(log => {
           const timestamp = new Date(log.timestamp).toLocaleTimeString();
           const color = colorMap[log.level] || colorMap.INFO;
-          
+
           // Format log entry with color
           xtermRef.current.writeln(
             `${color}[${timestamp}] ${log.level}:${colorMap.RESET} ${log.message}`
@@ -122,4 +122,4 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true }) => {
   );
 };
 
-export default Terminal; 
+export default Terminal;

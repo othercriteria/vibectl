@@ -8,7 +8,7 @@ const AgentLogs = () => {
   const [blueLogs, setBlueLogs] = useState([]);
   const [redLogs, setRedLogs] = useState([]);
   const [autoScroll, setAutoScroll] = useState(true);
-  
+
   // Listen for socket updates for both agent logs
   const socketData = useMultipleEvents(['blue_log_update', 'red_log_update']);
 
@@ -53,7 +53,7 @@ const AgentLogs = () => {
         return prevLogs;
       });
     }
-    
+
     if (socketData['red_log_update']) {
       setRedLogs(prevLogs => {
         // Check if we got a full log update or just new entries
@@ -81,8 +81,8 @@ const AgentLogs = () => {
   return (
     <div>
       <h1 className="mb-4">Agent Logs</h1>
-      
-      <Form.Check 
+
+      <Form.Check
         type="switch"
         id="auto-scroll-switch"
         label="Auto-scroll to new logs"
@@ -90,7 +90,7 @@ const AgentLogs = () => {
         onChange={e => setAutoScroll(e.target.checked)}
         className="mb-3"
       />
-      
+
       <Tabs defaultActiveKey="blue" className="mb-3">
         <Tab eventKey="blue" title="Blue Agent (Defense)">
           <Row>
@@ -98,26 +98,26 @@ const AgentLogs = () => {
               <Card className="shadow-sm mb-4">
                 <Card.Body>
                   <Card.Title>Blue Agent Logs</Card.Title>
-                  <Terminal 
-                    logs={blueLogs} 
-                    title="Blue Agent Terminal" 
-                    autoScroll={autoScroll} 
+                  <Terminal
+                    logs={blueLogs}
+                    title="Blue Agent Terminal"
+                    autoScroll={autoScroll}
                   />
                 </Card.Body>
               </Card>
             </Col>
           </Row>
         </Tab>
-        
+
         <Tab eventKey="red" title="Red Agent (Offense)">
           <Row>
             <Col>
               <Card className="shadow-sm mb-4">
                 <Card.Body>
                   <Card.Title>Red Agent Logs</Card.Title>
-                  <Terminal 
-                    logs={redLogs} 
-                    title="Red Agent Terminal" 
+                  <Terminal
+                    logs={redLogs}
+                    title="Red Agent Terminal"
                     autoScroll={autoScroll}
                   />
                 </Card.Body>
@@ -125,16 +125,16 @@ const AgentLogs = () => {
             </Col>
           </Row>
         </Tab>
-        
+
         <Tab eventKey="both" title="Side-by-Side View">
           <Row>
             <Col md={6}>
               <Card className="shadow-sm mb-4">
                 <Card.Body>
                   <Card.Title>Blue Agent Logs</Card.Title>
-                  <Terminal 
-                    logs={blueLogs} 
-                    title="Blue Agent Terminal" 
+                  <Terminal
+                    logs={blueLogs}
+                    title="Blue Agent Terminal"
                     autoScroll={autoScroll}
                   />
                 </Card.Body>
@@ -144,9 +144,9 @@ const AgentLogs = () => {
               <Card className="shadow-sm mb-4">
                 <Card.Body>
                   <Card.Title>Red Agent Logs</Card.Title>
-                  <Terminal 
-                    logs={redLogs} 
-                    title="Red Agent Terminal" 
+                  <Terminal
+                    logs={redLogs}
+                    title="Red Agent Terminal"
                     autoScroll={autoScroll}
                   />
                 </Card.Body>
@@ -159,4 +159,4 @@ const AgentLogs = () => {
   );
 };
 
-export default AgentLogs; 
+export default AgentLogs;

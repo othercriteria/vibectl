@@ -100,7 +100,7 @@ if [ "$VERBOSE" = true ]; then
   echo "📋 Frontend directory structure:"
   find frontend -type d | sort
   echo ""
-  
+
   echo "📋 Frontend files:"
   find frontend -type f | sort
   echo ""
@@ -136,4 +136,4 @@ else
 fi
 echo ""
 echo "The overseer will be available at:"
-echo "   http://localhost:8080/" 
+echo "   http://localhost:8080/"

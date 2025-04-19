@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed KeyError when prompts contain format placeholders like `{spec}` that conflict with formatting operations
   - Added fallback string replacement method for robust prompt handling
   - Prevents crash in chaos-monkey agent when generating Kubernetes YAML templates
+- Resolved linting issues in chaos-monkey overseer component
+  - Fixed line length violations for improved code quality
+  - Ensured code adheres to project's style standards
 
 ## [0.4.0] - 2025-04-18
 

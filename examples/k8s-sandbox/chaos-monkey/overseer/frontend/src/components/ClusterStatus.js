@@ -36,11 +36,11 @@ const ClusterStatus = () => {
       variant = status ? 'success' : 'danger';
       status = status ? 'Ready' : 'Not Ready';
     } else {
-      variant = status === 'Running' || status === 'Active' ? 'success' : 
-              status === 'Pending' ? 'warning' : 
+      variant = status === 'Running' || status === 'Active' ? 'success' :
+              status === 'Pending' ? 'warning' :
               status === 'Error' || status === 'Failed' ? 'danger' : 'secondary';
     }
-    
+
     return (
       <Badge bg={variant} className="me-1">
         {status} {additionalText}
@@ -51,7 +51,7 @@ const ClusterStatus = () => {
   return (
     <div>
       <h1 className="mb-4">Kubernetes Cluster Status</h1>
-      
+
       <Row className="mb-4">
         <Col md={12}>
           <Card className="shadow-sm">
@@ -87,7 +87,7 @@ const ClusterStatus = () => {
           </Card>
         </Col>
       </Row>
-      
+
       <Row>
         <Col md={12}>
           <Card className="shadow-sm">
@@ -147,4 +147,4 @@ const ClusterStatus = () => {
   );
 };
 
-export default ClusterStatus; 
+export default ClusterStatus;

@@ -35,7 +35,8 @@ VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 POLLER_STATUS_DIR = "/tmp/status"  # Path inside the poller container
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 
-# Application setup - set static folder to /app/static where js and css files are located
+# Application setup - set static folder to /app/static
+# where js and css files are located
 app = Flask(__name__, static_url_path="/static", static_folder="/app/static")
 socketio = SocketIO(app, cors_allowed_origins="*")
 scheduler = BackgroundScheduler()
@@ -282,8 +283,9 @@ def update_agent_logs() -> None:
             # Emit update to connected clients
             socketio.emit(f"{agent_role}_log_update", new_logs)
 
-            # We don't need to save logs to disk as frequently - reduce to once every 10 log updates
-            # Only write logs to disk if we have 20+ new log entries or if it's the first update
+            # We don't need to save logs to disk as frequently
+            # Only write logs to disk if we have 20+ new log entries
+            # or if it's the first update
             if len(new_logs) > 20 or len(current_entries) <= len(new_logs):
                 try:
                     log_file = Path(DATA_DIR) / f"{agent_role}_agent_logs.json"
@@ -548,7 +550,8 @@ def serve_react(path: str) -> Response:
     except FileNotFoundError as e:
         logger.error(f"index.html not found: {e}")
         return Response(
-            "React app not found. Check if the frontend build is correctly copied to the container.",
+            "React app not found. Check if the frontend build is correctly copied to "
+            "the container.",
             status=500,
         )
 

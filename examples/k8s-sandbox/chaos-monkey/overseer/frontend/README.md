@@ -45,4 +45,4 @@ cd ../
 ./build.sh
 ```
 
-This builds both the React frontend and the Python backend into a single Docker image. 
+This builds both the React frontend and the Python backend into a single Docker image.

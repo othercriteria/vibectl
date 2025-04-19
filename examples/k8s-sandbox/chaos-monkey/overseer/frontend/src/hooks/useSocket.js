@@ -50,4 +50,4 @@ export function useMultipleEvents(events) {
   }, [events]);
 
   return data;
-} 
+}

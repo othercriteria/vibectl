@@ -183,18 +183,18 @@ function App() {
           <div className="mb-3">
             <h6>Uptime: {uptime}%</h6>
             <div className="progress">
-              <div 
+              <div
                 className={`progress-bar ${uptime > 90 ? 'bg-success' : uptime > 70 ? 'bg-warning' : 'bg-danger'}`}
-                role="progressbar" 
+                role="progressbar"
                 style={{ width: `${uptime}%` }}
-                aria-valuenow={uptime} 
-                aria-valuemin="0" 
+                aria-valuenow={uptime}
+                aria-valuemin="0"
                 aria-valuemax="100">
                 {uptime}%
               </div>
             </div>
           </div>
-          
+
           <Row className="text-center">
             <Col xs={3}>
               <h6>{counts.HEALTHY || 0}</h6>
@@ -221,7 +221,7 @@ function App() {
   return (
     <Container fluid>
       <h1 className="my-4">Chaos Monkey Overseer</h1>
-      
+
       <Tabs defaultActiveKey="dashboard" className="mb-4">
         <Tab eventKey="dashboard" title="Dashboard">
           <Row>
@@ -246,7 +246,7 @@ function App() {
             </Col>
           </Row>
         </Tab>
-        
+
         <Tab eventKey="logs" title="Agent Logs">
           <Row>
             <Col md={6}>
@@ -267,7 +267,7 @@ function App() {
             </Col>
           </Row>
         </Tab>
-        
+
         <Tab eventKey="cluster" title="Cluster Status">
           <Card>
             <Card.Body>
@@ -276,7 +276,7 @@ function App() {
           </Card>
         </Tab>
       </Tabs>
-      
+
       <footer className="my-4 pt-3 text-muted border-top">
         &copy; 2025 Daniel Klein | <a href="https://github.com/othercriteria/vibectl" target="_blank" rel="noreferrer">vibectl on GitHub</a>
       </footer>
@@ -284,4 +284,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

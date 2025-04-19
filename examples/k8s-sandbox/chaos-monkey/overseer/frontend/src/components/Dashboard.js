@@ -28,7 +28,7 @@ ChartJS.register(
 const Dashboard = () => {
   const currentStatus = useSocket('status_update', { status: 'LOADING', message: 'Loading status...' });
   const [history, setHistory] = useState([]);
-  const [overview, setOverview] = useState({ 
+  const [overview, setOverview] = useState({
     status_counts: { HEALTHY: 0, DEGRADED: 0, DOWN: 0, ERROR: 0 },
     uptime_percentage: 0,
     total_checks: 0,
@@ -57,13 +57,13 @@ const Dashboard = () => {
     if (currentStatus && currentStatus.status !== 'LOADING') {
       setHistory(prevHistory => {
         const newHistory = [...prevHistory];
-        
+
         // Check if this is a duplicate entry
         const lastEntry = newHistory[newHistory.length - 1];
         if (lastEntry && lastEntry.timestamp === currentStatus.timestamp) {
           return newHistory;
         }
-        
+
         // Add new entry and limit to 50 entries
         newHistory.push(currentStatus);
         if (newHistory.length > 50) {
@@ -130,7 +130,7 @@ const Dashboard = () => {
   return (
     <div>
       <h1 className="mb-4">System Dashboard</h1>
-      
+
       <Row className="mb-4">
         <Col md={6}>
           <Card className={`shadow-sm p-3 status-card status-${currentStatus.status}`}>
@@ -149,7 +149,7 @@ const Dashboard = () => {
             </Card.Body>
           </Card>
         </Col>
-        
+
         <Col md={6}>
           <Card className="shadow-sm p-3">
             <Card.Body>
@@ -158,7 +158,7 @@ const Dashboard = () => {
               <ProgressBar
                 className="mb-3"
                 now={overview.uptime_percentage}
-                variant={overview.uptime_percentage > 90 ? 'success' : 
+                variant={overview.uptime_percentage > 90 ? 'success' :
                         overview.uptime_percentage > 70 ? 'warning' : 'danger'}
               />
               <Row>
@@ -195,7 +195,7 @@ const Dashboard = () => {
           </Card>
         </Col>
       </Row>
-      
+
       <Row>
         <Col>
           <Card className="shadow-sm p-3">
@@ -218,4 +218,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

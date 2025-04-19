@@ -76,4 +76,4 @@ class SocketService {
 // Singleton instance
 const socketService = new SocketService();
 
-export default socketService; 
+export default socketService;
