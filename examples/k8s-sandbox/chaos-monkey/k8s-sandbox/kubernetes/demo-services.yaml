@@ -1,4 +1,9 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: services
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: demo-services-config
@@ -15,46 +20,84 @@ data:
       }
     }
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: frontend
+  name: backend-content
   namespace: services
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: frontend
-  template:
-    metadata:
-      labels:
-        app: frontend
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:latest
-        ports:
-        - containerPort: 80
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 5
-        resources:
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-        volumeMounts:
-        - name: content
-          mountPath: /usr/share/nginx/html
-      volumes:
-      - name: content
-        configMap:
-          name: frontend-content
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+
+        location /api/v1/status {
+            default_type application/json;
+            return 200 '{"status":"ok","version":"1.0","service":"backend-api"}';
+        }
+
+        location /api/v1/users {
+            default_type application/json;
+            return 200 '{"users":[{"id":1,"name":"demo"},{"id":2,"name":"admin"}]}';
+        }
+
+        # Vulnerable endpoint - no authorization
+        location /api/v1/admin {
+            default_type application/json;
+            return 200 '{"admin":true,"secrets":["can_be_accessed_without_auth"]}';
+        }
+
+        # Database status check - depends on actual Redis connection
+        location /api/v1/database/status {
+            default_type application/json;
+            # Use custom error code to indicate failure
+            if ($http_x_skip_db_check = "true") {
+                return 200 '{"status":"offline","service":"database"}';
+            }
+            proxy_pass http://database.services.svc.cluster.local:6379/;
+            proxy_connect_timeout 2s;
+            proxy_read_timeout 2s;
+            proxy_intercept_errors on;
+            error_page 502 504 = 200 '{"status":"offline","service":"database"}';
+        }
+
+        # Cache status check - depends on actual Memcached connection
+        location /api/v1/cache/status {
+            default_type application/json;
+            # Use custom error code to indicate failure
+            if ($http_x_skip_cache_check = "true") {
+                return 200 '{"status":"offline","service":"cache"}';
+            }
+            proxy_pass http://cache.services.svc.cluster.local:11211/;
+            proxy_connect_timeout 2s;
+            proxy_read_timeout 2s;
+            proxy_intercept_errors on;
+            error_page 502 504 = 200 '{"status":"offline","service":"cache"}';
+        }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Backend API</title>
+    </head>
+    <body>
+      <h1>Backend API</h1>
+      <p>Available endpoints:</p>
+      <ul>
+        <li>/api/v1/status</li>
+        <li>/api/v1/users</li>
+        <li>/api/v1/admin</li>
+        <li>/api/v1/database/status</li>
+        <li>/api/v1/cache/status</li>
+      </ul>
+    </body>
+    </html>
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -82,23 +125,351 @@ data:
           border-radius: 5px;
           margin: 20px 0;
         }
+        .service-status {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+          margin: 20px 0;
+        }
+        .service-box {
+          border: 1px solid #ddd;
+          border-radius: 5px;
+          padding: 10px;
+          width: 200px;
+        }
+        .service-box.online {
+          background-color: #d4edda;
+        }
+        .service-box.offline {
+          background-color: #f8d7da;
+        }
+        .service-box.unknown {
+          background-color: #fff3cd;
+        }
+        .system-status {
+          margin-top: 20px;
+          font-weight: bold;
+          font-size: 18px;
+        }
+        .system-status.healthy {
+          color: #28a745;
+        }
+        .system-status.degraded {
+          color: #ffc107;
+        }
+        .system-status.down {
+          color: #dc3545;
+        }
       </style>
     </head>
     <body>
-      <h1>Service Status: Online</h1>
+      <h1 id="status-header">Service Status: Degraded</h1>
       <div class="status">
         <p>This service is currently operational.</p>
         <p>Service ID: frontend-v1</p>
         <p>Last updated: <span id="timestamp"></span></p>
       </div>
+
+      <h2>Services Status</h2>
+      <div class="service-status" id="services">
+        <!-- Services will be populated here -->
+      </div>
+
+      <div class="system-status" id="system-status">
+        System degraded: One or more services are down
+      </div>
+
       <script>
-        document.getElementById('timestamp').innerText = new Date().toISOString();
-        setInterval(function() {
+        // Update timestamp regularly
+        function updateTimestamp() {
           document.getElementById('timestamp').innerText = new Date().toISOString();
-        }, 1000);
+        }
+
+        // Start with all services in a degraded state until explicitly verified
+        const services = [
+          { name: 'Frontend', id: 'frontend-v1', status: 'online', endpoint: '/' },
+          { name: 'Backend API', id: 'backend-api', status: 'offline', endpoint: '/api/v1/status' },
+          { name: 'Database', id: 'database', status: 'offline', endpoint: '/api/v1/database/status' },
+          { name: 'Cache', id: 'cache', status: 'offline', endpoint: '/api/v1/cache/status' },
+          { name: 'Load Balancer', id: 'loadbalancer', status: 'online', endpoint: '/' }
+        ];
+
+        // Render the service boxes in the UI
+        function updateServicesUI() {
+          const servicesEl = document.getElementById('services');
+          servicesEl.innerHTML = '';
+
+          services.forEach(service => {
+            const div = document.createElement('div');
+            div.className = `service-box ${service.status}`;
+            div.innerHTML = `
+              <h3>${service.name}</h3>
+              <p>ID: ${service.id}</p>
+              <p>Status: ${service.status}</p>
+            `;
+            servicesEl.appendChild(div);
+          });
+        }
+
+        // Update system status based on service health
+        function updateSystemStatus() {
+          // These services are critical - they must be up for the system to be healthy
+          const criticalServices = ['backend-api', 'database'];
+
+          const criticalServicesUp = criticalServices.every(id => {
+            const service = services.find(s => s.id === id);
+            return service && service.status === 'online';
+          });
+
+          const allServicesUp = services.every(service => service.status === 'online');
+
+          const systemStatusEl = document.getElementById('system-status');
+          const statusHeader = document.getElementById('status-header');
+
+          if (allServicesUp) {
+            systemStatusEl.textContent = 'All systems operational';
+            systemStatusEl.className = 'system-status healthy';
+            statusHeader.textContent = 'Service Status: Online';
+          } else if (!criticalServicesUp) {
+            systemStatusEl.textContent = 'System degraded: Critical service unavailable';
+            systemStatusEl.className = 'system-status down';
+            statusHeader.textContent = 'Service Status: Degraded';
+          } else {
+            systemStatusEl.textContent = 'System partially degraded';
+            systemStatusEl.className = 'system-status degraded';
+            statusHeader.textContent = 'Service Status: Partial';
+          }
+        }
+
+        // Check backend API health with retry and timeout
+        function checkBackendAPI() {
+          const apiService = services.find(s => s.id === 'backend-api');
+
+          // Create a timeout promise
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout')), 2000);
+          });
+
+          // Create the fetch promise
+          const fetchPromise = fetch('/api/v1/status')
+            .then(response => {
+              if (response.ok) {
+                return response.json();
+              }
+              throw new Error('API returned ' + response.status);
+            });
+
+          // Race the fetch against the timeout
+          Promise.race([fetchPromise, timeoutPromise])
+            .then(data => {
+              if (data && data.status === 'ok') {
+                apiService.status = 'online';
+              } else {
+                apiService.status = 'offline';
+              }
+            })
+            .catch(error => {
+              console.error('Backend API check failed:', error);
+              apiService.status = 'offline';
+            })
+            .finally(() => {
+              updateServicesUI();
+              updateSystemStatus();
+              checkDatabaseStatus();
+            });
+        }
+
+        // Check database status through backend API with retry and timeout
+        function checkDatabaseStatus() {
+          const dbService = services.find(s => s.id === 'database');
+
+          // Create a timeout promise
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout')), 2000);
+          });
+
+          // Create the fetch promise
+          const fetchPromise = fetch('/api/v1/database/status')
+            .then(response => {
+              if (response.ok) {
+                return response.json();
+              }
+              throw new Error('Database check returned ' + response.status);
+            });
+
+          // Race the fetch against the timeout
+          Promise.race([fetchPromise, timeoutPromise])
+            .then(data => {
+              if (data && data.status === 'ok') {
+                dbService.status = 'online';
+              } else {
+                dbService.status = 'offline';
+              }
+            })
+            .catch(error => {
+              console.error('Database check failed:', error);
+              dbService.status = 'offline';
+            })
+            .finally(() => {
+              updateServicesUI();
+              updateSystemStatus();
+              checkCacheStatus();
+            });
+        }
+
+        // Check cache status through backend API with retry and timeout
+        function checkCacheStatus() {
+          const cacheService = services.find(s => s.id === 'cache');
+
+          // Create a timeout promise
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout')), 2000);
+          });
+
+          // Create the fetch promise
+          const fetchPromise = fetch('/api/v1/cache/status')
+            .then(response => {
+              if (response.ok) {
+                return response.json();
+              }
+              throw new Error('Cache check returned ' + response.status);
+            });
+
+          // Race the fetch against the timeout
+          Promise.race([fetchPromise, timeoutPromise])
+            .then(data => {
+              if (data && data.status === 'ok') {
+                cacheService.status = 'online';
+              } else {
+                cacheService.status = 'offline';
+              }
+            })
+            .catch(error => {
+              console.error('Cache check failed:', error);
+              cacheService.status = 'offline';
+            })
+            .finally(() => {
+              updateServicesUI();
+              updateSystemStatus();
+            });
+        }
+
+        // Initialize the page
+        function init() {
+          updateTimestamp();
+          updateServicesUI();
+          updateSystemStatus();
+
+          // Start health check cycle
+          checkBackendAPI();
+
+          // Update timestamp regularly
+          setInterval(updateTimestamp, 1000);
+
+          // Run health checks periodically
+          setInterval(() => {
+            checkBackendAPI();
+          }, 5000);
+        }
+
+        // Start the health checks when page loads
+        window.onload = init;
       </script>
     </body>
     </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadbalancer-config
+  namespace: services
+data:
+  default.conf: |
+    server {
+      listen 80;
+
+      location /api/ {
+        proxy_pass http://backend-api.services.svc.cluster.local:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+      }
+
+      location / {
+        proxy_pass http://frontend.services.svc.cluster.local:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-init-script
+  namespace: services
+data:
+  init.sh: |
+    #!/bin/sh
+    # Initialize Redis with some sample data
+    redis-cli -h localhost set user:1:name "Demo User"
+    redis-cli -h localhost set user:1:email "demo@example.com"
+    redis-cli -h localhost set user:1:role "user"
+    redis-cli -h localhost set user:2:name "Admin User"
+    redis-cli -h localhost set user:2:email "admin@example.com"
+    redis-cli -h localhost set user:2:role "admin"
+    redis-cli -h localhost set api:key "insecure-api-key-12345"
+    redis-cli -h localhost set system:status "online"
+    echo "Redis initialized with sample data"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: services
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+        volumeMounts:
+        - name: content
+          mountPath: /usr/share/nginx/html
+        env:
+        - name: NGINX_HOST
+          value: "localhost"
+      volumes:
+      - name: content
+        configMap:
+          name: frontend-content
 ---
 apiVersion: v1
 kind: Service
@@ -111,7 +482,7 @@ spec:
   ports:
   - port: 80
     targetPort: 80
-    nodePort: ${NODE_PORT_1}
+    nodePort: 30080
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -134,11 +505,49 @@ spec:
         image: nginx:latest
         ports:
         - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /api/v1/status
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
         resources:
           limits:
             memory: "64Mi"  # Vulnerable: Low memory limit
             cpu: "50m"      # Vulnerable: Low CPU limit
-        # Vulnerable: No health checks
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d/
+        - name: content
+          mountPath: /usr/share/nginx/html/
+        env:
+        - name: DB_HOST
+          value: "database.services.svc.cluster.local"
+        - name: DB_PORT
+          value: "6379"
+        - name: CACHE_HOST
+          value: "cache.services.svc.cluster.local"
+        - name: CACHE_PORT
+          value: "11211"
+        # Vulnerable: Environment variable contains credentials
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: demo-secrets
+              key: api.key
+      volumes:
+      - name: config
+        configMap:
+          name: backend-content
+          items:
+          - key: default.conf
+            path: default.conf
+      - name: content
+        configMap:
+          name: backend-content
+          items:
+          - key: index.html
+            path: index.html
 ---
 apiVersion: v1
 kind: Service
@@ -168,6 +577,7 @@ spec:
       labels:
         app: database
     spec:
+      # Vulnerable: No security context
       containers:
       - name: redis
         image: redis:latest
@@ -181,6 +591,30 @@ spec:
             memory: "128Mi"
             cpu: "100m"
         # Vulnerable: No persistent storage
+        # Vulnerable: Default configuration (no password)
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            redis-server --protected-mode no &
+            # wait for server to accept connections
+            until redis-cli ping; do sleep 0.2; done
+            sh /scripts/init.sh
+            wait
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+      volumes:
+      - name: init-script
+        configMap:
+          name: redis-init-script
+          defaultMode: 0777
 ---
 apiVersion: v1
 kind: Service
@@ -214,6 +648,12 @@ spec:
       containers:
       - name: memcached
         image: memcached:latest
+        args:
+        - "-m"
+        - "64"  # Small memory size - vulnerable to memory pressure
+        - "-c"
+        - "1024" # Max simultaneous connections
+        - "-v"  # Verbose logging
         ports:
         - containerPort: 11211
         resources:
@@ -223,6 +663,11 @@ spec:
           requests:
             memory: "64Mi"
             cpu: "50m"
+        readinessProbe:
+          tcpSocket:
+            port: 11211
+          initialDelaySeconds: 5
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -264,6 +709,19 @@ spec:
           requests:
             memory: "64Mi"
             cpu: "50m"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d/
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: config
+        configMap:
+          name: loadbalancer-config
 ---
 apiVersion: v1
 kind: Service
@@ -276,16 +734,26 @@ spec:
   ports:
   - port: 80
     targetPort: 80
-    nodePort: ${NODE_PORT_2}
+    nodePort: 30081
   type: NodePort
 ---
-# Vulnerable ConfigMap with clear-text secrets
+# Replace ConfigMap with Secret for credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-secrets
+  namespace: services
+stringData:
+  database.password: "insecure-db-password"
+  api.key: "insecure-api-key-12345"
+  admin.password: "admin123"
+---
+# Keep the original ConfigMap for backward compatibility but without sensitive data
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config
   namespace: services
 data:
-  database.password: "insecure-db-password"
-  api.key: "insecure-api-key-12345"
-  admin.password: "admin123"
+  app.environment: "demo"
+  app.version: "0.1.0"
