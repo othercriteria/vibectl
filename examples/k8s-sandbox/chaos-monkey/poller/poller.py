@@ -279,7 +279,7 @@ def check_app_service(container_name: str) -> dict[str, Any]:
         "KUBECONFIG=/etc/kubernetes/admin.conf "
         "kubectl --kubeconfig=/etc/kubernetes/admin.conf "
         "exec health-checker -n system-monitoring -- "
-        "/bin/sh -c 'time -p curl -s http://app/health'"
+        "/bin/sh -c 'time -p curl -s http://app.services.svc.cluster.local/health'"
     )
 
     command = ["docker", "exec", container_name, "bash", "-c", check_command]
