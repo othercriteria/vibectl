@@ -9,17 +9,25 @@ overseer/
 ├── Dockerfile           # Container definition
 ├── README.md            # Component documentation
 ├── STRUCTURE.md         # This file
+├── build.sh             # Build script with debug and verbose options
 ├── overseer.py          # Main application
 ├── requirements.txt     # Python dependencies
-├── static/              # Static assets
-│   └── style.css        # Additional CSS styles
-└── templates/           # HTML templates
-    └── index.html       # Main dashboard template
+└── frontend/            # React frontend application
+    ├── public/          # Public assets for React app
+    ├── src/             # React source code
+    │   ├── components/  # React components
+    │   ├── hooks/       # Custom React hooks
+    │   ├── services/    # API services
+    │   ├── App.js       # Main React application
+    │   ├── App.css      # Main application styles
+    │   ├── index.js     # React entry point
+    │   └── index.css    # Global styles
+    └── package.json     # Frontend dependencies
 ```
 
 ## Component Architecture
 
-The overseer follows a simple Flask-based architecture with the following components:
+The overseer follows a modern architecture with a Flask backend and React frontend:
 
 ### Core Application (overseer.py)
 
@@ -33,19 +41,19 @@ The main Python application responsible for:
    - Cleaning log content by stripping ANSI color codes and timestamps
 
 2. **Web Server**:
-   - Flask application providing the web UI
+   - Flask application serving the React frontend
    - API endpoints for JSON data access
    - WebSocket support via Socket.IO for real-time updates
-   - Tabbed interface for different monitoring views
+   - Static file serving for React build artifacts
 
 3. **Background Processes**:
    - Scheduled tasks for periodic data updates
    - Event handling for client connections
    - Error handling and recovery
 
-### Frontend Dashboard (templates/index.html)
+### Frontend Application (frontend/)
 
-A responsive web UI providing:
+A modern React application providing:
 
 1. **Cluster Status Panel**:
    - Node status with resource capacity information
@@ -96,6 +104,26 @@ The overseer integrates with other components:
    - Executes commands in containers to retrieve data
    - Monitors container health and availability
 
+## Build Process
+
+The build process creates a Docker image containing both the Flask backend and React frontend:
+
+1. **Frontend Build**:
+   - React application is built using Node.js
+   - Static assets are generated in the `build` directory
+   - CSS and JavaScript are bundled and optimized
+
+2. **Backend Integration**:
+   - Frontend build artifacts are copied to the `/app/static/` directory in the container
+   - Flask routes are configured to serve the React application
+   - All paths are handled appropriately to support React Router
+
+3. **Build Options**:
+   - Standard build: `./build.sh`
+   - Verbose output: `./build.sh --verbose`
+   - Debug tag: `./build.sh --debug`
+   - Combined options: `./build.sh --verbose --debug`
+
 ## Future Improvements
 
 Planned enhancements to the overseer component:
@@ -105,20 +133,20 @@ Planned enhancements to the overseer component:
    - Visualize resource trends over time
    - Add alerts for resource contention
 
-2. **Timestamp Display**:
-   - Implement custom timestamp styling in the frontend
-   - Use CSS for better timestamp formatting rather than including in log content
-   - Make timestamps optional/toggleable
-
-3. **Log Filtering**:
+2. **Log Filtering**:
    - Add ability to filter logs by severity
    - Add search functionality across log entries
    - Support regex-based log filtering
 
-4. **UI Improvements**:
+3. **UI Improvements**:
    - Add light/dark mode toggle
    - Improve mobile responsiveness
    - Add more detailed metrics views
+
+4. **API Enhancement**:
+   - Expand API capabilities for external monitoring tools
+   - Add authentication for API access
+   - Implement rate limiting for API endpoints
 
 ## Data Flow
 
@@ -126,10 +154,10 @@ Planned enhancements to the overseer component:
 2. Immediately begins monitoring Kubernetes cluster status
 3. Background scheduler runs data collection jobs at specified intervals
 4. Data is stored in memory and written to persistent volume
-5. Web clients connect to the server via HTTP or WebSockets
-6. Updates are pushed to clients in real-time as data changes
-7. API endpoints provide JSON access to current and historical data
-8. Tabbed interface allows users to focus on specific aspects of the system
+5. Web clients load the React application via Flask routes
+6. React application connects to backend API and WebSockets
+7. Updates are pushed to clients in real-time as data changes
+8. API endpoints provide JSON access to current and historical data
 
 ---
 
