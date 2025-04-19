@@ -14,16 +14,17 @@ Monitors service availability and agent activities:
 import json
 import logging
 import os
+import os.path
 import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import docker
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
-from flask import Flask, Response, jsonify, render_template, send_from_directory
+from flask import Flask, Response, jsonify, send_file
 from flask_socketio import SocketIO
 from rich.console import Console
 
@@ -34,8 +35,8 @@ VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 POLLER_STATUS_DIR = "/tmp/status"  # Path inside the poller container
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 
-# Application setup
-app = Flask(__name__, static_folder="static", template_folder="templates")
+# Application setup - set static folder to /app/static where js and css files are located
+app = Flask(__name__, static_url_path="/static", static_folder="/app/static")
 socketio = SocketIO(app, cors_allowed_origins="*")
 scheduler = BackgroundScheduler()
 console = Console()
@@ -47,11 +48,9 @@ cluster_status: dict[str, Any] = {}
 agent_logs: dict[str, dict[str, Any]] = {
     "blue": {
         "entries": [],
-        "cursor": 0,
     },
     "red": {
         "entries": [],
-        "cursor": 0,
     },
 }
 
@@ -177,12 +176,12 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
                 }
             ]
 
-        # Get logs since the last cursor position
+        # Get logs from the container
         logs = container.logs(timestamps=True, tail=max_lines, stream=False).decode(
-            "utf-8"
+            "utf-8", errors="replace"
         )
 
-        # Process the logs
+        # Process the logs - minimal processing, let frontend handle display
         log_entries = []
         for line in logs.strip().split("\n"):
             if not line:
@@ -198,30 +197,12 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
                 timestamp = datetime.now().isoformat()
                 message = line
 
-            # Strip ANSI color codes
-            # This regex matches ANSI escape sequences like [34m, [0m, etc.
-            message = re.sub(r"\x1B\[\d+(?:;\d+)*m", "", message)
-
-            # Strip timestamps like [6:20:05 PM]
-            message = re.sub(r"\[\d+:\d+:\d+ (?:AM|PM)\] ", "", message)
-
-            # TODO: Add timestamp styling via CSS rather than including in log content
-
-            # Determine log level based on content
-            if re.search(r"error|exception|fail|critical", message, re.IGNORECASE):
-                level = "ERROR"
-            elif re.search(r"warn", message, re.IGNORECASE):
-                level = "WARNING"
-            elif re.search(r"debug", message, re.IGNORECASE):
-                level = "DEBUG"
-            else:
-                level = "INFO"
-
+            # All logs are treated as INFO level to avoid false positives
             log_entries.append(
                 {
                     "timestamp": timestamp,
                     "message": message,
-                    "level": level,
+                    "level": "INFO",  # Default all to INFO level
                 }
             )
 
@@ -233,7 +214,7 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
             {
                 "timestamp": datetime.now().isoformat(),
                 "message": f"Error getting logs: {e!s}",
-                "level": "ERROR",
+                "level": "ERROR",  # Keep error messages from the overseer as ERROR
             }
         ]
 
@@ -280,43 +261,58 @@ def update_agent_logs() -> None:
             if not new_logs:
                 continue
 
-            # Find new logs (not already in our history)
-            current_entries = cast(
-                list[dict[str, str]], agent_logs[agent_role]["entries"]
-            )
+            # Add new logs to our history
+            current_entries = agent_logs[agent_role]["entries"]
 
-            # Simple deduplication by comparing the last entry
+            # Skip if no new logs
             if (
                 current_entries
                 and new_logs
                 and current_entries[-1]["message"] == new_logs[-1]["message"]
             ):
-                # No new logs
                 continue
 
-            # Add new logs
+            # Add the new logs
             current_entries.extend(new_logs)
 
-            # Keep only the last 200 entries to avoid memory issues
+            # Keep only the last 200 entries
             if len(current_entries) > 200:
                 agent_logs[agent_role]["entries"] = current_entries[-200:]
-
-            # Update cursor position
-            agent_logs[agent_role]["cursor"] = len(current_entries)
 
             # Emit update to connected clients
             socketio.emit(f"{agent_role}_log_update", new_logs)
 
-            # Save logs to file
-            try:
-                log_file = Path(DATA_DIR) / f"{agent_role}_agent_logs.json"
-                log_file.parent.mkdir(parents=True, exist_ok=True)
-                log_file.write_text(json.dumps(current_entries, indent=2))
-            except Exception as e:
-                logger.error(f"Error saving {agent_role} agent logs: {e}")
+            # We don't need to save logs to disk as frequently - reduce to once every 10 log updates
+            # Only write logs to disk if we have 20+ new log entries or if it's the first update
+            if len(new_logs) > 20 or len(current_entries) <= len(new_logs):
+                try:
+                    log_file = Path(DATA_DIR) / f"{agent_role}_agent_logs.json"
+                    log_file.parent.mkdir(parents=True, exist_ok=True)
+                    log_file.write_text(json.dumps(current_entries[-200:], indent=2))
+                except Exception as e:
+                    logger.error(f"Error saving {agent_role} agent logs: {e}")
 
         except Exception as e:
             logger.error(f"Error updating {agent_role} agent logs: {e}")
+
+
+def find_sandbox_container() -> str | None:
+    """Find the Kind sandbox container name."""
+    try:
+        # Try with exact name for control-plane container
+        for container in docker_client.containers.list():
+            if (
+                container.name
+                and "chaos-monkey" in container.name
+                and "control-plane" in container.name
+            ):
+                return str(container.name)
+
+        logger.warning("No kubernetes control-plane container found")
+        return None
+    except Exception as e:
+        logger.error(f"Error finding sandbox container: {e}")
+        return None
 
 
 def get_cluster_status() -> dict[str, Any]:
@@ -332,16 +328,31 @@ def get_cluster_status() -> dict[str, Any]:
             "timestamp": datetime.now().isoformat(),
         }
 
-        # Get node status
-        returncode, output, stderr = run_command(
-            [
-                "kubectl",
-                "get",
-                "nodes",
-                "-o",
-                "json",
-            ]
-        )
+        # Find the sandbox container
+        container_name = find_sandbox_container()
+        if not container_name:
+            logger.error("Kubernetes sandbox container not found")
+            return {
+                "status": "ERROR",
+                "message": "Kubernetes sandbox container not found",
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        # Get node status by executing kubectl in the container
+        command = [
+            "docker",
+            "exec",
+            container_name,
+            "kubectl",
+            "--kubeconfig",
+            "/etc/kubernetes/admin.conf",
+            "get",
+            "nodes",
+            "-o",
+            "json",
+        ]
+
+        returncode, output, stderr = run_command(command)
         if returncode != 0:
             logger.error(f"Error getting node status: {stderr}")
             return {
@@ -379,16 +390,21 @@ def get_cluster_status() -> dict[str, Any]:
             cluster_data["nodes"] = []
 
         # Get pod status for all namespaces
-        returncode, output, stderr = run_command(
-            [
-                "kubectl",
-                "get",
-                "pods",
-                "--all-namespaces",
-                "-o",
-                "json",
-            ]
-        )
+        command = [
+            "docker",
+            "exec",
+            container_name,
+            "kubectl",
+            "--kubeconfig",
+            "/etc/kubernetes/admin.conf",
+            "get",
+            "pods",
+            "--all-namespaces",
+            "-o",
+            "json",
+        ]
+
+        returncode, output, stderr = run_command(command)
         if returncode != 0:
             logger.error(f"Error getting pod status: {stderr}")
             return {
@@ -444,15 +460,20 @@ def get_cluster_status() -> dict[str, Any]:
             namespaces = {}
 
         # Get namespace information
-        returncode, output, stderr = run_command(
-            [
-                "kubectl",
-                "get",
-                "namespaces",
-                "-o",
-                "json",
-            ]
-        )
+        command = [
+            "docker",
+            "exec",
+            container_name,
+            "kubectl",
+            "--kubeconfig",
+            "/etc/kubernetes/admin.conf",
+            "get",
+            "namespaces",
+            "-o",
+            "json",
+        ]
+
+        returncode, output, stderr = run_command(command)
         if returncode != 0:
             logger.error(f"Error getting namespace info: {stderr}")
             namespace_status: dict[str, str] = {}
@@ -513,16 +534,23 @@ def start_monitoring() -> None:
     logger.info(f"Monitoring started with {METRICS_INTERVAL}s interval")
 
 
-@app.route("/")
-def index() -> str | Response:
-    """Render the main dashboard page."""
-    return render_template("index.html")
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path: str) -> Response:
+    """Serve the React app for non-API routes."""
+    # Let API routes fall through to their handlers
+    if path.startswith("api/"):
+        return Response("Not found", status=404)
 
-
-@app.route("/static/<path:path>")
-def send_static(path: str) -> Response:
-    """Serve static files."""
-    return send_from_directory("static", path)
+    # For all routes, serve index.html (SPA routing)
+    try:
+        return send_file("/app/static/index.html")
+    except FileNotFoundError as e:
+        logger.error(f"index.html not found: {e}")
+        return Response(
+            "React app not found. Check if the frontend build is correctly copied to the container.",
+            status=500,
+        )
 
 
 @app.route("/api/status")
@@ -571,8 +599,8 @@ def api_overview() -> Any:
         uptime_percentage = int(uptime_calc)
 
     # Get entries counts safely
-    blue_entries = cast(list[dict[str, str]], agent_logs["blue"]["entries"])
-    red_entries = cast(list[dict[str, str]], agent_logs["red"]["entries"])
+    blue_entries = agent_logs["blue"]["entries"]
+    red_entries = agent_logs["red"]["entries"]
 
     # Add database status if available
     db_status = latest_status.get("db_status", "unknown")
@@ -596,12 +624,6 @@ def api_cluster() -> Any:
     return jsonify(cluster_status)
 
 
-@app.route("/cluster-status")
-def cluster_status_page() -> str | Response:
-    """Cluster status page."""
-    return render_template("index.html", view="cluster")
-
-
 @socketio.on("connect")
 def handle_connect() -> None:
     """Handle client connection."""
@@ -611,8 +633,9 @@ def handle_connect() -> None:
     socketio.emit("history_update", service_history)
     socketio.emit("cluster_update", cluster_status)
 
-    blue_entries = cast(list[dict[str, str]], agent_logs["blue"]["entries"])
-    red_entries = cast(list[dict[str, str]], agent_logs["red"]["entries"])
+    # Send the latest 50 log entries to the client
+    blue_entries = agent_logs["blue"]["entries"]
+    red_entries = agent_logs["red"]["entries"]
 
     socketio.emit("blue_log_update", blue_entries[-50:] if blue_entries else [])
     socketio.emit("red_log_update", red_entries[-50:] if red_entries else [])
@@ -625,6 +648,13 @@ def main() -> None:
 
         # Create data directory
         Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+
+        # Check if React app is available
+        react_index = "/app/static/index.html"
+        if os.path.exists(react_index):
+            logger.info(f"React app found at {react_index}")
+        else:
+            logger.warning(f"React app not found at {react_index}")
 
         # Initialize with current data
         update_service_status()
