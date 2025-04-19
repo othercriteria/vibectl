@@ -513,7 +513,7 @@ metadata:
     # Verify the fallback method is being used based on logger calls
     mock_logger.warning.assert_called_once()
     warning_message = mock_logger.warning.call_args[0][0]
-    assert "Format key error" in warning_message
+    assert "Format error" in warning_message
     assert "'spec'" in warning_message
     assert "Using fallback formatting method" in warning_message
 
