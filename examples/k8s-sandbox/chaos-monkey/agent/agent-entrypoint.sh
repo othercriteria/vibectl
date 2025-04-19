@@ -81,6 +81,17 @@ log "LLM API key set via direct file configuration"
 vibectl config set model "${VIBECTL_MODEL:-claude-3.7-sonnet}"
 vibectl config set memory_max_chars ${MEMORY_MAX_CHARS}
 
+# Configure output options based on verbose mode
+if [ "$VERBOSE" = "true" ]; then
+    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Verbose mode enabled: showing raw output and kubectl commands${NO_COLOR}"
+    vibectl config set show_raw_output true
+    vibectl config set show_kubectl true
+    export VIBECTL_TRACEBACK=1
+else
+    vibectl config set show_raw_output false
+    vibectl config set show_kubectl false
+fi
+
 # Set custom instructions based on agent role
 log "Setting custom instructions..."
 if [ -f "${CUSTOM_INSTRUCTIONS_FILE}" ]; then
