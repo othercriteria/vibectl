@@ -66,32 +66,8 @@ trap cleanup EXIT
 
 # Create kind cluster with proper API server binding
 log "Creating Kubernetes cluster with Kind..."
-cat <<EOF > /tmp/kind-config.yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: chaos-monkey
-networking:
-  # Don't expose API server port to host
-  podSubnet: "10.244.0.0/16"
-  serviceSubnet: "10.245.0.0/16"
-nodes:
-- role: control-plane
-  # Map the service nodeports within the container, but don't expose to host
-  extraPortMappings:
-  - containerPort: ${NODE_PORT_1}
-    hostPort: ${NODE_PORT_1}
-  - containerPort: ${NODE_PORT_2}
-    hostPort: ${NODE_PORT_2}
-  - containerPort: ${NODE_PORT_3}
-    hostPort: ${NODE_PORT_3}
-  kubeadmConfigPatches:
-  - |
-    kind: ClusterConfiguration
-    apiServer:
-      extraArgs:
-        # Bind to all interfaces within the container
-        bind-address: "0.0.0.0"
-EOF
+# Process and use the kind-config.yaml file
+envsubst < /kubernetes/kind-config.yaml > /tmp/kind-config.yaml
 
 if ! kind create cluster --config /tmp/kind-config.yaml; then
   echo "Error: Failed to create Kind cluster."
@@ -171,120 +147,15 @@ echo " Kubernetes cluster is ready!"
 
 # Create namespaces
 log "Creating namespaces..."
-kubectl create namespace services
-kubectl create namespace monitoring
-kubectl create namespace protected
-
-# Label namespaces for identification
-kubectl label namespace services purpose=target
-kubectl label namespace monitoring purpose=system
-kubectl label namespace protected purpose=system
+kubectl apply -f /kubernetes/namespaces.yaml
 
 # Create roles and role bindings for the blue agent
 log "Setting up RBAC for blue agent..."
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: blue-agent
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: blue-agent-role
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "secrets", "namespaces"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets", "statefulsets"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["batch"]
-  resources: ["jobs", "cronjobs"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses", "networkpolicies"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: blue-agent-binding
-subjects:
-- kind: ServiceAccount
-  name: blue-agent
-  namespace: default
-roleRef:
-  kind: ClusterRole
-  name: blue-agent-role
-  apiGroup: rbac.authorization.k8s.io
-EOF
+kubectl apply -f /kubernetes/blue-agent-rbac.yaml
 
 # Create roles and role bindings for the red agent (more limited)
 log "Setting up RBAC for red agent..."
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: red-agent
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: red-agent-role
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps"]
-  verbs: ["get", "list", "watch", "delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "update", "patch"]
-- apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: red-agent-binding
-subjects:
-- kind: ServiceAccount
-  name: red-agent
-  namespace: default
-roleRef:
-  kind: ClusterRole
-  name: red-agent-role
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: red-agent-restricted
-  namespace: protected
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: red-agent-restricted-binding
-  namespace: protected
-subjects:
-- kind: ServiceAccount
-  name: red-agent
-  namespace: default
-roleRef:
-  kind: Role
-  name: red-agent-restricted
-  apiGroup: rbac.authorization.k8s.io
-EOF
+kubectl apply -f /kubernetes/red-agent-rbac.yaml
 
 # Create services
 log "Deploying target services..."
@@ -297,11 +168,11 @@ if [ ! -d "/kubernetes" ] || [ -z "$(ls -A /kubernetes/*.yaml 2>/dev/null)" ]; t
 fi
 
 # Apply all YAML files found in the kubernetes directory
-for file in /kubernetes/*.yaml; do
+for file in /kubernetes/demo-*.yaml; do
     if [ -f "$file" ]; then
         log "Applying $file"
         echo "Applying Kubernetes manifest: $file"
-        
+
         # Apply with descriptive output for debugging
         if ! envsubst < "$file" | kubectl apply -f - ; then
             echo "ERROR: Failed to apply $file"
@@ -309,7 +180,7 @@ for file in /kubernetes/*.yaml; do
             cat "$file" | grep -v "^\s*#" | grep -v "^\s*$"
             exit 1
         fi
-        
+
         # Verify namespace exists after applying manifests
         if ! kubectl get namespace services &>/dev/null; then
             echo "ERROR: services namespace not found after applying $file"
@@ -330,7 +201,7 @@ if ! kubectl get deployment app -n services &>/dev/null; then
     echo "WARNING: app deployment not found in services namespace"
     echo "Available deployments in services namespace:"
     kubectl get deployments -n services
-    
+
     # Look for deployment in other namespaces as a fallback
     echo "Looking for app deployment in other namespaces:"
     kubectl get deployments --all-namespaces | grep app || echo "No app deployment found in any namespace"
@@ -363,15 +234,15 @@ while [ $DEPLOYMENT_RETRY -lt $MAX_DEPLOYMENT_RETRIES ]; do
         echo "WARNING: Deployments not ready yet, attempt $DEPLOYMENT_RETRY of $MAX_DEPLOYMENT_RETRIES"
         echo "Current deployment status:"
         kubectl get deployments -n services
-        
+
         # Check specific app deployment status with more details
         echo "Detailed status of app deployment:"
         kubectl describe deployment app -n services || echo "Cannot get details for app deployment"
-        
+
         # Check pod status if deployment exists
         echo "Checking pod status for app deployment:"
         kubectl get pods -n services -l app=app || echo "No pods found for app=app"
-        
+
         if [ $DEPLOYMENT_RETRY -ge $MAX_DEPLOYMENT_RETRIES ]; then
             echo "ERROR: Deployments did not become ready after $MAX_DEPLOYMENT_RETRIES attempts"
             echo "Final deployment status:"
@@ -405,7 +276,7 @@ echo "Checking logs for app pods:"
 APP_POD=$(kubectl get pods -n services -l app=app -o name | head -1)
 if [ -n "$APP_POD" ]; then
     kubectl logs "${APP_POD}" -n services || echo "Cannot get logs for app pod"
-    
+
     # Check app pod status - fixed format
     echo "App pod details:"
     kubectl describe "${APP_POD}" -n services || echo "Cannot describe app pod"

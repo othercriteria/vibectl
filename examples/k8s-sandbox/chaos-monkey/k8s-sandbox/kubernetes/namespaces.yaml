@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: services
+  labels:
+    purpose: target
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    purpose: system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: protected
+  labels:
+    purpose: system
