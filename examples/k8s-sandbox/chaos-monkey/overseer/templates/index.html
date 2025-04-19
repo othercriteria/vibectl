@@ -93,6 +93,25 @@
             right: 10px;
             z-index: 1000;
         }
+        .pod-running {
+            border-left: 5px solid #28a745;
+        }
+        .pod-pending {
+            border-left: 5px solid #ffc107;
+        }
+        .pod-failed {
+            border-left: 5px solid #dc3545;
+        }
+        .pod-unknown {
+            border-left: 5px solid #6c757d;
+        }
+        .namespace-card {
+            margin-bottom: 10px;
+        }
+        .cluster-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -106,127 +125,182 @@
                 <i class="fa fa-random fa-2x me-3"></i>
                 <span class="fs-4">Chaos Monkey Overseer Dashboard</span>
             </div>
+            <div class="mt-2">
+                <ul class="nav nav-tabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="services-tab" href="#services-panel" data-bs-toggle="tab">Services</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="cluster-tab" href="#cluster-panel" data-bs-toggle="tab">Cluster Status</a>
+                    </li>
+                </ul>
+            </div>
         </header>
 
-        <div class="row">
-            <!-- Service Status -->
-            <div class="col-md-6">
-                <div class="card status-card" id="status-card">
-                    <div class="card-header">
-                        <h5><i class="fa fa-heartbeat"></i> Service Status</h5>
-                    </div>
-                    <div class="card-body">
-                        <h2 id="status-text">Loading...</h2>
-                        <p id="status-message" class="text-muted"></p>
-                        <div class="row mt-3">
-                            <div class="col-6">
-                                <p><strong>Response Time:</strong> <span id="response-time">-</span></p>
-                                <p><strong>Endpoint:</strong> <span id="endpoint">-</span></p>
+        <div class="tab-content">
+            <!-- Cluster Status Panel -->
+            <div class="tab-pane fade" id="cluster-panel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card status-card">
+                            <div class="card-header">
+                                <h5><i class="fa fa-server"></i> Kubernetes Cluster Status</h5>
                             </div>
-                            <div class="col-6">
-                                <p><strong>Pods Ready:</strong> <span id="pods-ready">-</span></p>
-                                <p><strong>Last Updated:</strong> <span id="status-timestamp">-</span></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                            <div class="card-body">
+                                <h3>Nodes</h3>
+                                <div class="table-responsive">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Status</th>
+                                                <th>CPU</th>
+                                                <th>Memory</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="nodes-table">
+                                            <tr>
+                                                <td colspan="4" class="text-center">Loading...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
 
-                <!-- Service History Chart -->
-                <div class="card status-card">
-                    <div class="card-header">
-                        <h5><i class="fa fa-area-chart"></i> Service Availability History</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="history-chart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Uptime Summary -->
-            <div class="col-md-6">
-                <div class="card status-card">
-                    <div class="card-header">
-                        <h5><i class="fa fa-clock-o"></i> Uptime Summary</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row text-center">
-                            <div class="col">
-                                <p class="uptime-indicator" id="uptime-percentage">-</p>
-                                <p>Uptime</p>
-                            </div>
-                            <div class="col">
-                                <p class="uptime-indicator text-success" id="healthy-count">-</p>
-                                <p>Healthy Checks</p>
-                            </div>
-                            <div class="col">
-                                <p class="uptime-indicator text-warning" id="degraded-count">-</p>
-                                <p>Degraded Checks</p>
-                            </div>
-                            <div class="col">
-                                <p class="uptime-indicator text-danger" id="down-count">-</p>
-                                <p>Down Checks</p>
-                            </div>
-                            <div class="col">
-                                <p class="uptime-indicator text-secondary" id="error-count">-</p>
-                                <p>Error Checks</p>
-                            </div>
-                        </div>
-                        <div class="progress mt-3">
-                            <div class="progress-bar bg-success" id="progress-healthy" role="progressbar" style="width: 0%"></div>
-                            <div class="progress-bar bg-warning" id="progress-degraded" role="progressbar" style="width: 0%"></div>
-                            <div class="progress-bar bg-danger" id="progress-down" role="progressbar" style="width: 0%"></div>
-                            <div class="progress-bar bg-secondary" id="progress-error" role="progressbar" style="width: 0%"></div>
-                        </div>
-                        <p class="mt-2 text-center text-muted">Based on <span id="total-checks">0</span> checks</p>
-                    </div>
-                </div>
-
-                <!-- Status Distribution Chart -->
-                <div class="card status-card">
-                    <div class="card-header">
-                        <h5><i class="fa fa-pie-chart"></i> Status Distribution</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="distribution-chart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Agent Logs -->
-        <div class="row mt-4">
-            <!-- Blue Agent Logs -->
-            <div class="col-md-6">
-                <div class="card status-card">
-                    <div class="card-header agent-header">
-                        <h5 class="agent-blue"><i class="fa fa-shield"></i> Blue Agent (Defender)</h5>
-                        <button class="btn btn-sm btn-outline-primary" id="btn-clear-blue-logs">Clear</button>
-                    </div>
-                    <div class="card-body">
-                        <div class="log-container" id="blue-logs">
-                            <div class="text-center text-muted">
-                                <i class="fa fa-spinner fa-spin"></i> Loading logs...
+                                <h3 class="mt-4">Namespaces</h3>
+                                <div class="cluster-container">
+                                    <div id="namespaces-container">
+                                        <p class="text-center">Loading namespace data...</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Red Agent Logs -->
-            <div class="col-md-6">
-                <div class="card status-card">
-                    <div class="card-header agent-header">
-                        <h5 class="agent-red"><i class="fa fa-bug"></i> Red Agent (Chaos Monkey)</h5>
-                        <button class="btn btn-sm btn-outline-danger" id="btn-clear-red-logs">Clear</button>
+            <!-- Services Panel -->
+            <div class="tab-pane fade show active" id="services-panel">
+                <div class="row">
+                    <!-- Service Status -->
+                    <div class="col-md-6">
+                        <div class="card status-card" id="status-card">
+                            <div class="card-header">
+                                <h5><i class="fa fa-heartbeat"></i> Service Status</h5>
+                            </div>
+                            <div class="card-body">
+                                <h2 id="status-text">Loading...</h2>
+                                <p id="status-message" class="text-muted"></p>
+                                <div class="row mt-3">
+                                    <div class="col-6">
+                                        <p><strong>Response Time:</strong> <span id="response-time">-</span></p>
+                                        <p><strong>Endpoint:</strong> <span id="endpoint">-</span></p>
+                                    </div>
+                                    <div class="col-6">
+                                        <p><strong>Pods Ready:</strong> <span id="pods-ready">-</span></p>
+                                        <p><strong>Last Updated:</strong> <span id="status-timestamp">-</span></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Service History Chart -->
+                        <div class="card status-card">
+                            <div class="card-header">
+                                <h5><i class="fa fa-area-chart"></i> Service Availability History</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="history-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <div class="log-container" id="red-logs">
-                            <div class="text-center text-muted">
-                                <i class="fa fa-spinner fa-spin"></i> Loading logs...
+
+                    <!-- Uptime Summary -->
+                    <div class="col-md-6">
+                        <div class="card status-card">
+                            <div class="card-header">
+                                <h5><i class="fa fa-clock-o"></i> Uptime Summary</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center">
+                                    <div class="col">
+                                        <p class="uptime-indicator" id="uptime-percentage">-</p>
+                                        <p>Uptime</p>
+                                    </div>
+                                    <div class="col">
+                                        <p class="uptime-indicator text-success" id="healthy-count">-</p>
+                                        <p>Healthy Checks</p>
+                                    </div>
+                                    <div class="col">
+                                        <p class="uptime-indicator text-warning" id="degraded-count">-</p>
+                                        <p>Degraded Checks</p>
+                                    </div>
+                                    <div class="col">
+                                        <p class="uptime-indicator text-danger" id="down-count">-</p>
+                                        <p>Down Checks</p>
+                                    </div>
+                                    <div class="col">
+                                        <p class="uptime-indicator text-secondary" id="error-count">-</p>
+                                        <p>Error Checks</p>
+                                    </div>
+                                </div>
+                                <div class="progress mt-3">
+                                    <div class="progress-bar bg-success" id="progress-healthy" role="progressbar" style="width: 0%"></div>
+                                    <div class="progress-bar bg-warning" id="progress-degraded" role="progressbar" style="width: 0%"></div>
+                                    <div class="progress-bar bg-danger" id="progress-down" role="progressbar" style="width: 0%"></div>
+                                    <div class="progress-bar bg-secondary" id="progress-error" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <p class="mt-2 text-center text-muted">Based on <span id="total-checks">0</span> checks</p>
+                            </div>
+                        </div>
+
+                        <!-- Status Distribution Chart -->
+                        <div class="card status-card">
+                            <div class="card-header">
+                                <h5><i class="fa fa-pie-chart"></i> Status Distribution</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="distribution-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent Logs -->
+                <div class="row mt-4">
+                    <!-- Blue Agent Logs -->
+                    <div class="col-md-6">
+                        <div class="card status-card">
+                            <div class="card-header agent-header">
+                                <h5 class="agent-blue"><i class="fa fa-shield"></i> Blue Agent (Defender)</h5>
+                                <button class="btn btn-sm btn-outline-primary" id="btn-clear-blue-logs">Clear</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-container" id="blue-logs">
+                                    <div class="text-center text-muted">
+                                        <i class="fa fa-spinner fa-spin"></i> Loading logs...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Red Agent Logs -->
+                    <div class="col-md-6">
+                        <div class="card status-card">
+                            <div class="card-header agent-header">
+                                <h5 class="agent-red"><i class="fa fa-bug"></i> Red Agent (Chaos Monkey)</h5>
+                                <button class="btn btn-sm btn-outline-danger" id="btn-clear-red-logs">Clear</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-container" id="red-logs">
+                                    <div class="text-center text-muted">
+                                        <i class="fa fa-spinner fa-spin"></i> Loading logs...
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -656,6 +730,136 @@
                     }
                 });
         }, 30000);
+
+        socket.on('cluster_update', function(data) {
+            console.log('Received cluster update');
+            updateClusterStatus(data);
+            hideRefreshIndicator();
+        });
+
+        function updateClusterStatus(data) {
+            // Update nodes table
+            const nodesTable = document.getElementById('nodes-table');
+            nodesTable.innerHTML = '';
+
+            if (data.nodes && data.nodes.length > 0) {
+                data.nodes.forEach(node => {
+                    const row = document.createElement('tr');
+                    const statusClass = node.ready ? 'text-success' : 'text-danger';
+                    const statusIcon = node.ready ? 'check-circle' : 'times-circle';
+
+                    row.innerHTML = `
+                        <td>${node.name}</td>
+                        <td><i class="fa fa-${statusIcon} ${statusClass}"></i> ${node.ready ? 'Ready' : 'Not Ready'}</td>
+                        <td>${node.cpu}</td>
+                        <td>${node.memory}</td>
+                    `;
+                    nodesTable.appendChild(row);
+                });
+            } else {
+                nodesTable.innerHTML = '<tr><td colspan="4" class="text-center">No node data available</td></tr>';
+            }
+
+            // Update namespaces
+            const namespacesContainer = document.getElementById('namespaces-container');
+            namespacesContainer.innerHTML = '';
+
+            if (data.namespaces && Object.keys(data.namespaces).length > 0) {
+                for (const [namespace, pods] of Object.entries(data.namespaces)) {
+                    const nsStatus = data.namespace_status && data.namespace_status[namespace]
+                        ? data.namespace_status[namespace]
+                        : 'Unknown';
+
+                    const namespaceCard = document.createElement('div');
+                    namespaceCard.className = 'card namespace-card';
+
+                    const cardHeader = document.createElement('div');
+                    cardHeader.className = 'card-header';
+                    cardHeader.innerHTML = `<h5>${namespace} <span class="badge bg-info">${nsStatus}</span></h5>`;
+
+                    const cardBody = document.createElement('div');
+                    cardBody.className = 'card-body';
+
+                    const podsTable = document.createElement('table');
+                    podsTable.className = 'table table-sm';
+
+                    let tableHTML = `
+                        <thead>
+                            <tr>
+                                <th>Pod</th>
+                                <th>Status</th>
+                                <th>Ready</th>
+                                <th>Resources</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                    `;
+
+                    pods.forEach(pod => {
+                        let statusClass = '';
+                        switch (pod.phase) {
+                            case 'Running': statusClass = 'pod-running'; break;
+                            case 'Pending': statusClass = 'pod-pending'; break;
+                            case 'Failed': statusClass = 'pod-failed'; break;
+                            default: statusClass = 'pod-unknown';
+                        }
+
+                        const resources = pod.resources || {};
+                        const resourceText = Object.entries(resources)
+                            .map(([key, value]) => `${key}: ${value}`)
+                            .join(', ');
+
+                        tableHTML += `
+                            <tr class="${statusClass}">
+                                <td>${pod.name}</td>
+                                <td>${pod.phase}</td>
+                                <td>${pod.ready}</td>
+                                <td>${resourceText || 'N/A'}</td>
+                            </tr>
+                        `;
+                    });
+
+                    tableHTML += '</tbody>';
+                    podsTable.innerHTML = tableHTML;
+
+                    cardBody.appendChild(podsTable);
+                    namespaceCard.appendChild(cardHeader);
+                    namespaceCard.appendChild(cardBody);
+                    namespacesContainer.appendChild(namespaceCard);
+                }
+            } else {
+                namespacesContainer.innerHTML = '<p class="text-center">No namespace data available</p>';
+            }
+        }
+
+        // Initialize tabs functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabLinks = document.querySelectorAll('.nav-link');
+            const tabPanes = document.querySelectorAll('.tab-pane');
+
+            tabLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+
+                    // Remove active class from all tabs and panes
+                    tabLinks.forEach(l => l.classList.remove('active'));
+                    tabPanes.forEach(p => {
+                        p.classList.remove('show');
+                        p.classList.remove('active');
+                    });
+
+                    // Add active class to current tab and pane
+                    this.classList.add('active');
+                    const targetId = this.getAttribute('href');
+                    const targetPane = document.querySelector(targetId);
+                    targetPane.classList.add('show');
+                    targetPane.classList.add('active');
+                });
+            });
+
+            // Initialize with Services tab active
+            document.getElementById('services-tab').click();
+        });
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

@@ -29,8 +29,8 @@ ENV SESSION_DURATION=30 \
     METRICS_INTERVAL=15 \
     VERBOSE=false
 
-# Health check
-HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=3 \
+# Health check with a more forgiving configuration
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
 
 # Set entry point

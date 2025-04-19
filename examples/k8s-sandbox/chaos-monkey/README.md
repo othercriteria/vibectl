@@ -5,7 +5,7 @@ A red team vs. blue team demonstration showcasing vibectl's capabilities in a Ku
 - A blue agent works to maintain system stability and uptime
 - A red agent attempts to disrupt services through various attack vectors
 - A poller monitors service availability in real-time
-- An overseer provides a dashboard with service monitoring and agent logs
+- An overseer provides a dashboard with service monitoring, agent logs, and cluster status
 
 ## Requirements
 
@@ -43,6 +43,19 @@ The demo deploys a distributed microservice application including:
 
 These services intentionally have vulnerabilities that the red agent can exploit and the blue agent can detect and fix.
 
+### Overseer
+
+A web-based dashboard that:
+- Provides immediate visibility into the Kubernetes cluster state
+- Displays real-time pod status across all namespaces with health indicators
+- Shows resource utilization metrics for CPU, memory, and network
+- Scrapes the poller data for service availability metrics
+- Follows logs from both red and blue agents with real-time updates
+- Visualizes service health over time with trend analysis
+- Calculates uptime statistics and displays performance degradation alerts
+- Features clean, formatted logs with ANSI color codes and timestamps stripped for improved readability
+- Accessible via web interface at http://localhost:8080 as soon as the demo starts
+
 ### Blue Agent
 
 The defensive agent that:
@@ -71,24 +84,15 @@ A Python-based service that:
 - Tracks service degradation and recovery over time
 - Provides detailed pod status information
 
-### Overseer
-
-A web-based dashboard that:
-- Scrapes the poller data for service availability metrics
-- Follows logs from both red and blue agents
-- Visualizes service health over time
-- Provides real-time updates via a web interface at http://localhost:8080
-- Calculates uptime statistics and displays trends
-- Features clean, formatted logs with ANSI color codes and timestamps stripped for improved readability
-
 ## How It Works
 
 1. The demo starts by setting up a Kind Kubernetes cluster with isolated networking
-2. Target services are deployed in the cluster with known vulnerabilities
-3. The blue agent is initialized with defensive responsibilities
-4. The red agent begins implementing attacks after a short delay
-5. The poller continuously checks service availability
-6. The overseer presents real-time service health and agent logs via a dashboard
+2. The overseer dashboard initializes immediately, providing visibility into the cluster setup process
+3. Target services are deployed in the cluster with known vulnerabilities
+4. The poller begins monitoring service availability and feeds data to the overseer
+5. The blue agent is initialized with defensive responsibilities
+6. The red agent begins implementing attacks after a short delay
+7. Throughout the demo, the overseer provides a comprehensive view of the battle between agents and the evolving cluster state
 
 ## Customization
 
@@ -132,20 +136,27 @@ Currently implemented features:
 ✅ Kind Kubernetes cluster creation with proper isolation
 ✅ Basic services with intentional vulnerabilities
 ✅ RBAC for blue and red agents with appropriate permissions
+✅ Web dashboard via overseer with real-time cluster status monitoring
 ✅ Blue agent for defensive actions
 ✅ Red agent for attack simulation
 ✅ Python-based poller with comprehensive service monitoring
-✅ Web dashboard via overseer to track service health and agent logs
 ✅ Improved log formatting with ANSI codes and Docker timestamp stripping
 
 ## Monitoring The Demo
 
 To observe the demo in action:
 
-1. Open the overseer dashboard in your browser:
+1. Open the overseer dashboard in your browser immediately after starting the demo:
    ```
    http://localhost:8080
    ```
+
+   The dashboard provides:
+   - Cluster node status and resource utilization
+   - Pod status across all namespaces with health indicators
+   - Service health metrics with response time trends
+   - Real-time agent logs with activity timestamps
+   - Resource consumption graphs for key components
 
 2. In one terminal, watch the blue agent's actions:
    ```bash
@@ -171,17 +182,22 @@ To observe the demo in action:
 
 If you encounter issues:
 
-1. Check if the cluster started properly:
+1. Check the overseer dashboard for cluster initialization status:
+   ```
+   http://localhost:8080/cluster-status
+   ```
+
+2. Check if the cluster started properly:
    ```bash
    docker logs chaos-monkey-k8s-sandbox | grep "Kubernetes"
    ```
 
-2. Verify the overseer dashboard is running:
+3. Verify the overseer dashboard is running:
    ```bash
    docker logs chaos-monkey-overseer
    ```
 
-3. For a complete reset:
+4. For a complete reset:
    ```bash
    make clean
    ./run.sh --verbose
@@ -202,13 +218,15 @@ The chaos-monkey demo creates a fully isolated Kubernetes environment:
 
 ## Monitoring Architecture
 
-The monitoring system uses a persistent health-checker pod in a protected namespace that cannot be attacked, modified, or even viewed by the agents. This design ensures:
+The monitoring system consists of the overseer dashboard and a persistent health-checker pod in a protected namespace that cannot be attacked, modified, or even viewed by the agents. This design ensures:
 
+- Real-time visibility into cluster state with comprehensive status indicators
 - Accurate response time measurements that reflect only the actual service performance
 - Resilient monitoring that continues functioning even during aggressive chaos experiments
 - Clear separation between monitoring infrastructure and the services being tested
 - Consistent metrics collection throughout the entire demo session
 - Prevents agents from fixating on resources they don't need to interact with
+- Intuitive web interface for tracking the progress of the simulation
 
 ---
 

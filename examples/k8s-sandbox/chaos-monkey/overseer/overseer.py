@@ -8,6 +8,7 @@ Monitors service availability and agent activities:
 - Scrapes poller data to track service health over time
 - Follows logs from red and blue agents
 - Provides real-time dashboard via web interface
+- Displays Kubernetes cluster status and resource usage
 """
 
 import json
@@ -16,13 +17,12 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
 import docker
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
 from flask import Flask, Response, jsonify, render_template, send_from_directory
 from flask_socketio import SocketIO
 from rich.console import Console
@@ -43,6 +43,7 @@ console = Console()
 # Global state
 service_history: list[dict[str, Any]] = []
 latest_status: dict[str, Any] = {}
+cluster_status: dict[str, Any] = {}
 agent_logs: dict[str, dict[str, Any]] = {
     "blue": {
         "entries": [],
@@ -98,10 +99,10 @@ def get_poller_status() -> dict[str, Any]:
                 break
 
         if not poller_container:
-            logger.error("Poller container not found")
+            logger.warning("Poller container not found - normal during startup")
             return {
-                "status": "ERROR",
-                "message": "Poller container not found",
+                "status": "PENDING",
+                "message": "Poller container not found - waiting for startup",
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -111,7 +112,7 @@ def get_poller_status() -> dict[str, Any]:
         )
 
         if exit_code != 0:
-            logger.error(f"Error reading status file: {output.decode('utf-8')}")
+            logger.error(f"Error reading status file: {output}")
 
             # Try the old status file name as fallback
             fallback_exit_code, fallback_output = poller_container.exec_run(
@@ -130,8 +131,7 @@ def get_poller_status() -> dict[str, Any]:
 
         # Parse the JSON
         try:
-            status_text = output.decode("utf-8")
-            status: dict[str, Any] = json.loads(status_text)
+            status: dict[str, Any] = json.loads(output)
             return status
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing status JSON: {e}")
@@ -162,12 +162,18 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
                 break
 
         if not container:
-            logger.error(f"{agent_role.capitalize()} agent container not found")
+            logger.warning(
+                f"{agent_role.capitalize()} agent container not found - "
+                "this is normal during startup"
+            )
             return [
                 {
                     "timestamp": datetime.now().isoformat(),
-                    "message": f"{agent_role.capitalize()} agent container not found",
-                    "level": "ERROR",
+                    "message": (
+                        f"{agent_role.capitalize()} agent container not found - "
+                        "waiting for startup to complete"
+                    ),
+                    "level": "INFO",
                 }
             ]
 
@@ -313,37 +319,202 @@ def update_agent_logs() -> None:
             logger.error(f"Error updating {agent_role} agent logs: {e}")
 
 
-def check_container_readiness() -> bool:
-    """Check if all necessary containers are running."""
-    required_containers = [
-        "chaos-monkey-poller",
-        "chaos-monkey-blue-agent",
-        "chaos-monkey-red-agent",
-    ]
+def get_cluster_status() -> dict[str, Any]:
+    """Get the current status of the Kubernetes cluster."""
+    try:
+        # Initialize result dictionary
+        cluster_data: dict[str, Any] = {
+            "nodes": [],
+            "pods": [],
+            "services": [],
+            "deployments": [],
+            "events": [],
+            "timestamp": datetime.now().isoformat(),
+        }
 
-    running_containers = [c.name for c in docker_client.containers.list()]
+        # Get node status
+        returncode, output, stderr = run_command(
+            [
+                "kubectl",
+                "get",
+                "nodes",
+                "-o",
+                "json",
+            ]
+        )
+        if returncode != 0:
+            logger.error(f"Error getting node status: {stderr}")
+            return {
+                "status": "ERROR",
+                "message": "Failed to get node status",
+                "timestamp": datetime.now().isoformat(),
+            }
 
-    missing = [c for c in required_containers if c not in running_containers]
-    if missing:
-        logger.warning(f"Missing containers: {', '.join(missing)}")
-        return False
+        try:
+            node_data = json.loads(output)
+            for item in node_data.get("items", []):
+                node_name = item.get("metadata", {}).get("name", "unknown")
+                conditions = item.get("status", {}).get("conditions", [])
+                node_ready = False
+                for condition in conditions:
+                    if condition.get("type") == "Ready":
+                        node_ready = condition.get("status") == "True"
+                        break
 
-    return True
+                resources = item.get("status", {}).get("capacity", {})
+                cpu = resources.get("cpu", "unknown")
+                memory = resources.get("memory", "unknown")
+
+                node_info = {
+                    "name": node_name,
+                    "ready": node_ready,
+                    "cpu": cpu,
+                    "memory": memory,
+                }
+
+                # Add node to the result
+                cluster_data["nodes"].append(node_info)
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing node data: {e}")
+            cluster_data["nodes"] = []
+
+        # Get pod status for all namespaces
+        returncode, output, stderr = run_command(
+            [
+                "kubectl",
+                "get",
+                "pods",
+                "--all-namespaces",
+                "-o",
+                "json",
+            ]
+        )
+        if returncode != 0:
+            logger.error(f"Error getting pod status: {stderr}")
+            return {
+                "status": "ERROR",
+                "message": "Failed to get pod status",
+                "timestamp": datetime.now().isoformat(),
+                "nodes": cluster_data["nodes"],
+            }
+
+        try:
+            pod_data = json.loads(output)
+            namespaces: dict[str, list[dict[str, Any]]] = {}
+            for item in pod_data.get("items", []):
+                pod_name = item.get("metadata", {}).get("name", "unknown")
+                namespace = item.get("metadata", {}).get("namespace", "unknown")
+
+                # Get pod status
+                pod_status = item.get("status", {})
+                phase = pod_status.get("phase", "Unknown")
+
+                # Get container statuses
+                container_statuses = pod_status.get("containerStatuses", [])
+                ready_containers = 0
+                total_containers = len(container_statuses)
+
+                for container in container_statuses:
+                    if container.get("ready", False):
+                        ready_containers += 1
+
+                # Get resource usage (this is estimated from requests/limits)
+                resource_requests = {}
+                containers = item.get("spec", {}).get("containers", [])
+                for container in containers:
+                    requests = container.get("resources", {}).get("requests", {})
+                    if "cpu" in requests:
+                        resource_requests["cpu"] = requests["cpu"]
+                    if "memory" in requests:
+                        resource_requests["memory"] = requests["memory"]
+
+                pod_info = {
+                    "name": pod_name,
+                    "phase": phase,
+                    "ready": f"{ready_containers}/{total_containers}",
+                    "resources": resource_requests,
+                }
+
+                # Add to namespace grouping
+                if namespace not in namespaces:
+                    namespaces[namespace] = []
+                namespaces[namespace].append(pod_info)
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing pod data: {e}")
+            namespaces = {}
+
+        # Get namespace information
+        returncode, output, stderr = run_command(
+            [
+                "kubectl",
+                "get",
+                "namespaces",
+                "-o",
+                "json",
+            ]
+        )
+        if returncode != 0:
+            logger.error(f"Error getting namespace info: {stderr}")
+            namespace_status: dict[str, str] = {}
+        else:
+            try:
+                namespace_data = json.loads(output)
+                namespace_status = {}
+                for item in namespace_data.get("items", []):
+                    ns_name = item.get("metadata", {}).get("name", "unknown")
+                    ns_status = item.get("status", {}).get("phase", "Unknown")
+                    namespace_status[ns_name] = ns_status
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing namespace data: {e}")
+                namespace_status = {}
+
+        # Process pods by namespace
+        for namespace, pods in namespaces.items():
+            ns_data = {
+                "namespace": namespace,
+                "status": namespace_status.get(namespace, "Unknown"),
+                "pods": pods,
+            }
+            cluster_data["pods"].append(ns_data)
+
+        return cluster_data
+
+    except Exception as e:
+        logger.error(f"Error getting cluster status: {e}")
+        return {
+            "status": "ERROR",
+            "message": f"Error: {e!s}",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+def update_cluster_status() -> None:
+    """Update the cluster status."""
+    global cluster_status
+
+    new_status = get_cluster_status()
+    if not new_status:
+        logger.warning("Failed to get cluster status")
+        return
+
+    # Update the cluster status
+    cluster_status = new_status
+
+    # Emit update via WebSocket
+    socketio.emit("cluster_update", cluster_status)
 
 
 def start_monitoring() -> None:
-    """Start the monitoring threads and schedulers."""
-    # Add jobs to the scheduler
+    """Start background monitoring tasks."""
     scheduler.add_job(update_service_status, "interval", seconds=METRICS_INTERVAL)
-    scheduler.add_job(update_agent_logs, "interval", seconds=METRICS_INTERVAL)
-
-    # Start the scheduler
+    scheduler.add_job(update_agent_logs, "interval", seconds=5)
+    scheduler.add_job(update_cluster_status, "interval", seconds=METRICS_INTERVAL)
     scheduler.start()
-    logger.info("Started background monitoring")
+    logger.info(f"Monitoring started with {METRICS_INTERVAL}s interval")
 
 
 @app.route("/")
-def index() -> str:
+def index() -> str | Response:
     """Render the main dashboard page."""
     return render_template("index.html")
 
@@ -419,6 +590,18 @@ def api_overview() -> Any:
     return jsonify(overview)
 
 
+@app.route("/api/cluster")
+def api_cluster() -> Any:
+    """API endpoint for the cluster status."""
+    return jsonify(cluster_status)
+
+
+@app.route("/cluster-status")
+def cluster_status_page() -> str | Response:
+    """Cluster status page."""
+    return render_template("index.html", view="cluster")
+
+
 @socketio.on("connect")
 def handle_connect() -> None:
     """Handle client connection."""
@@ -426,6 +609,7 @@ def handle_connect() -> None:
     # Send initial data to the client
     socketio.emit("status_update", latest_status)
     socketio.emit("history_update", service_history)
+    socketio.emit("cluster_update", cluster_status)
 
     blue_entries = cast(list[dict[str, str]], agent_logs["blue"]["entries"])
     red_entries = cast(list[dict[str, str]], agent_logs["red"]["entries"])
@@ -442,19 +626,10 @@ def main() -> None:
         # Create data directory
         Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 
-        # Wait for containers to be ready
-        retry_count = 0
-        while not check_container_readiness() and retry_count < 10:
-            logger.info("Waiting for containers to be ready...")
-            time.sleep(5)
-            retry_count += 1
-
-        if retry_count >= 10:
-            logger.warning("Not all containers are ready, but starting anyway")
-
         # Initialize with current data
         update_service_status()
         update_agent_logs()
+        update_cluster_status()
 
         # Start background monitoring
         start_monitoring()

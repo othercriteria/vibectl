@@ -1,4 +1,33 @@
 services:
+  # Overseer service for dashboard and service tracking - starts first
+  overseer:
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    container_name: chaos-monkey-overseer
+    environment:
+      - SESSION_DURATION=${SESSION_DURATION:-30}
+      - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
+      - VERBOSE=${VERBOSE:-false}
+      - PORT=8080
+      - HOST=0.0.0.0
+      # Access to docker for monitoring
+      - KIND_CONTAINER=chaos-monkey-control-plane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - overseer-data:/app/data
+      - kube-config:/config/kube:ro
+    networks:
+      - chaos-monkey-network
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   k8s-sandbox:
     build:
       context: ./k8s-sandbox
@@ -18,6 +47,8 @@ services:
       - SESSION_DURATION=${SESSION_DURATION:-30}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
+      - OVERSEER_HOST=overseer
+      - OVERSEER_PORT=8080
     healthcheck:
       # Check both for nodes readiness AND deployed services availability
       test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready && kubectl get deployment app -n services 2>/dev/null | grep -q '1/1'"]
@@ -29,6 +60,9 @@ services:
       - chaos-monkey-network
     hostname: k8s-sandbox
     dns_search: chaos-monkey-network
+    depends_on:
+      overseer:
+        condition: service_healthy
 
   # Poller service for monitoring service availability
   poller:
@@ -39,49 +73,20 @@ services:
     depends_on:
       k8s-sandbox:
         condition: service_healthy
+      overseer:
+        condition: service_healthy
     environment:
       - SESSION_DURATION=${SESSION_DURATION:-30}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-15}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
+      - OVERSEER_HOST=overseer
+      - OVERSEER_PORT=8080
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - kube-config:/config/kube:ro
     networks:
       - chaos-monkey-network
-
-  # Overseer service for dashboard and service tracking
-  overseer:
-    build:
-      context: ./overseer
-      dockerfile: Dockerfile
-    container_name: chaos-monkey-overseer
-    depends_on:
-      k8s-sandbox:
-        condition: service_healthy
-      poller:
-        condition: service_started
-    environment:
-      - SESSION_DURATION=${SESSION_DURATION:-30}
-      - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
-      - VERBOSE=${VERBOSE:-false}
-      - PORT=8080
-      - HOST=0.0.0.0
-      # Tell overseer not to wait for agents to be ready
-      - WAIT_FOR_AGENTS=false
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - overseer-data:/app/data
-    networks:
-      - chaos-monkey-network
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 
   blue-agent:
     build:
@@ -107,6 +112,8 @@ services:
       - PLAYBOOK_FILE=/playbooks/defense-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
       - INITIAL_DELAY=5
+      - OVERSEER_HOST=overseer
+      - OVERSEER_PORT=8080
     networks:
       - chaos-monkey-network
     volumes:
@@ -142,6 +149,8 @@ services:
       - PLAYBOOK_FILE=/playbooks/attack-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
       - INITIAL_DELAY=30
+      - OVERSEER_HOST=overseer
+      - OVERSEER_PORT=8080
     networks:
       - chaos-monkey-network
     volumes:
