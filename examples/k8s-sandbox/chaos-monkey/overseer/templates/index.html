@@ -14,6 +14,23 @@
             padding-top: 20px;
             background-color: #f8f9fa;
         }
+        .container {
+            max-width: 98%;
+            width: 98%;
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+        .row {
+            margin-left: -10px;
+            margin-right: -10px;
+        }
+        .col-md-6 {
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+        .card-body {
+            padding: 1rem;
+        }
         .status-card {
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -36,31 +53,60 @@
         .status-error {
             border-left: 5px solid #6c757d;
         }
-        .log-container {
+        .log-window {
             height: 400px;
             overflow-y: auto;
-            background-color: #f8f9fa;
+            background-color: #1e1e1e;
             border-radius: 5px;
             padding: 10px;
-            font-family: monospace;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 0.9rem;
+            color: #f0f0f0;
+            line-height: 1.4;
         }
         .log-entry {
-            margin-bottom: 5px;
-            padding: 5px;
+            margin-bottom: 4px;
+            padding: 4px 6px;
             border-radius: 3px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            position: relative;
+            border-left: 3px solid transparent;
         }
         .log-INFO {
-            background-color: #e9ecef;
+            border-left-color: #0d6efd;
+            background-color: rgba(13, 110, 253, 0.1);
         }
         .log-WARNING {
-            background-color: #fff3cd;
+            border-left-color: #ffc107;
+            background-color: rgba(255, 193, 7, 0.1);
         }
         .log-ERROR {
-            background-color: #f8d7da;
+            border-left-color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
         }
         .log-DEBUG {
-            background-color: #d1ecf1;
+            border-left-color: #0dcaf0;
+            background-color: rgba(13, 202, 240, 0.1);
+        }
+        .log-timestamp {
+            color: #6c757d;
+            font-size: 0.75em;
+            font-weight: 500;
+            display: inline-block;
+            margin-right: 6px;
+            user-select: none;
+        }
+        .log-message {
+            display: block;
+            padding-left: 4px;
+        }
+        .log-entry-new {
+            animation: highlight-log 2s ease-in-out;
+        }
+        @keyframes highlight-log {
+            0% { background-color: rgba(255, 255, 255, 0.2); }
+            100% { background-color: transparent; }
         }
         .chart-container {
             position: relative;
@@ -111,6 +157,90 @@
         .cluster-container {
             max-height: 600px;
             overflow-y: auto;
+        }
+        /* Log filtering controls */
+        .log-controls {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .log-filter {
+            display: flex;
+            gap: 8px;
+        }
+        .filter-badge {
+            cursor: pointer;
+            user-select: none;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+        .filter-badge.active {
+            opacity: 1;
+        }
+        .filter-info { background-color: #0d6efd; color: white; }
+        .filter-warning { background-color: #ffc107; color: black; }
+        .filter-error { background-color: #dc3545; color: white; }
+        .filter-debug { background-color: #0dcaf0; color: black; }
+        .log-actions {
+            display: flex;
+            gap: 8px;
+        }
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #212529;
+                color: #f8f9fa;
+            }
+
+            .card {
+                background-color: #343a40;
+                color: #f8f9fa;
+            }
+
+            .card-header {
+                background-color: #212529;
+                color: #f8f9fa;
+            }
+
+            .text-muted {
+                color: #adb5bd !important;
+            }
+
+            .log-window {
+                background-color: #121212;
+                border: 1px solid #343a40;
+            }
+
+            .log-INFO {
+                background-color: rgba(13, 110, 253, 0.15);
+            }
+
+            .log-WARNING {
+                background-color: rgba(255, 193, 7, 0.15);
+            }
+
+            .log-ERROR {
+                background-color: rgba(220, 53, 69, 0.15);
+            }
+
+            .log-DEBUG {
+                background-color: rgba(13, 202, 240, 0.15);
+            }
+
+            .log-timestamp {
+                color: #adb5bd;
+            }
+
+            .filter-badge.active {
+                box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
+            }
+
+            .filter-badge:not(.active) {
+                opacity: 0.4;
+            }
         }
     </style>
 </head>
@@ -276,11 +406,27 @@
                         <div class="card status-card">
                             <div class="card-header agent-header">
                                 <h5 class="agent-blue"><i class="fa fa-shield"></i> Blue Agent (Defender)</h5>
-                                <button class="btn btn-sm btn-outline-primary" id="btn-clear-blue-logs">Clear</button>
+                                <small class="text-muted" id="blue-logs-count">0 entries</small>
                             </div>
-                            <div class="card-body">
-                                <div class="log-container" id="blue-logs">
-                                    <div class="text-center text-muted">
+                            <div class="card-body p-0">
+                                <div class="log-controls px-3 py-2">
+                                    <div class="log-filter">
+                                        <span class="filter-badge filter-info active" data-level="INFO" data-agent="blue">INFO</span>
+                                        <span class="filter-badge filter-warning active" data-level="WARNING" data-agent="blue">WARN</span>
+                                        <span class="filter-badge filter-error active" data-level="ERROR" data-agent="blue">ERROR</span>
+                                        <span class="filter-badge filter-debug active" data-level="DEBUG" data-agent="blue">DEBUG</span>
+                                    </div>
+                                    <div class="log-actions">
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-copy-blue-logs">
+                                            <i class="fa fa-copy"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary" id="btn-clear-blue-logs">
+                                            <i class="fa fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="log-window" id="blue-logs">
+                                    <div class="text-center text-muted py-3">
                                         <i class="fa fa-spinner fa-spin"></i> Loading logs...
                                     </div>
                                 </div>
@@ -293,11 +439,27 @@
                         <div class="card status-card">
                             <div class="card-header agent-header">
                                 <h5 class="agent-red"><i class="fa fa-bug"></i> Red Agent (Chaos Monkey)</h5>
-                                <button class="btn btn-sm btn-outline-danger" id="btn-clear-red-logs">Clear</button>
+                                <small class="text-muted" id="red-logs-count">0 entries</small>
                             </div>
-                            <div class="card-body">
-                                <div class="log-container" id="red-logs">
-                                    <div class="text-center text-muted">
+                            <div class="card-body p-0">
+                                <div class="log-controls px-3 py-2">
+                                    <div class="log-filter">
+                                        <span class="filter-badge filter-info active" data-level="INFO" data-agent="red">INFO</span>
+                                        <span class="filter-badge filter-warning active" data-level="WARNING" data-agent="red">WARN</span>
+                                        <span class="filter-badge filter-error active" data-level="ERROR" data-agent="red">ERROR</span>
+                                        <span class="filter-badge filter-debug active" data-level="DEBUG" data-agent="red">DEBUG</span>
+                                    </div>
+                                    <div class="log-actions">
+                                        <button class="btn btn-sm btn-outline-secondary" id="btn-copy-red-logs">
+                                            <i class="fa fa-copy"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" id="btn-clear-red-logs">
+                                            <i class="fa fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="log-window" id="red-logs">
+                                    <div class="text-center text-muted py-3">
                                         <i class="fa fa-spinner fa-spin"></i> Loading logs...
                                     </div>
                                 </div>
@@ -580,26 +742,39 @@
 
             const logContainer = document.getElementById(`${agent}-logs`);
 
-            // Clear loading message if present
-            if (logContainer.innerHTML.includes('Loading logs')) {
+            // If this is the first load, clear the loading message
+            if (logContainer.querySelector('.fa-spinner')) {
                 logContainer.innerHTML = '';
             }
 
-            // Add each log entry
-            for (const log of logs) {
-                const logEntry = document.createElement('div');
-                logEntry.className = `log-entry log-${log.level || 'INFO'} log-entry-new`;
+            // Update the log count
+            document.getElementById(`${agent}-logs-count`).textContent = `${agent === 'blue' ? blueAgentLogs.length : redAgentLogs.length} entries`;
 
-                // Format timestamp
-                let timestamp = '';
-                if (log.timestamp) {
-                    const date = new Date(log.timestamp);
+            // Get current filters
+            const activeFilters = Array.from(document.querySelectorAll(`.filter-badge[data-agent="${agent}"].active`))
+                .map(badge => badge.dataset.level);
+
+            for (const log of logs) {
+                // Skip logs that don't match active filters
+                if (!activeFilters.includes(log.level)) {
+                    continue;
+                }
+
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${log.level} log-entry-new`;
+
+                // Format the timestamp
+                let timestamp = log.timestamp;
+                try {
+                    const date = new Date(timestamp);
                     timestamp = date.toLocaleTimeString();
+                } catch (e) {
+                    // Keep original timestamp if parsing fails
                 }
 
                 logEntry.innerHTML = `
-                    <span class="timestamp">[${timestamp}]</span>
-                    <div class="log-entry-content">${log.message}</div>
+                    <span class="log-timestamp">${timestamp}</span>
+                    <span class="log-message">${log.message}</span>
                 `;
 
                 logContainer.appendChild(logEntry);
@@ -622,6 +797,81 @@
             } else {
                 redAgentLogs = [];
             }
+            document.getElementById(`${agent}-logs-count`).textContent = '0 entries';
+        }
+
+        // Copy logs to clipboard
+        function copyLogs(agent) {
+            const logs = agent === 'blue' ? blueAgentLogs : redAgentLogs;
+            if (!logs || logs.length === 0) return;
+
+            const logContent = logs.map(log => {
+                let timestamp = log.timestamp;
+                try {
+                    const date = new Date(timestamp);
+                    timestamp = date.toLocaleTimeString();
+                } catch (e) {
+                    // Keep original timestamp if parsing fails
+                }
+                return `[${timestamp}] [${log.level}] ${log.message}`;
+            }).join('\n');
+
+            navigator.clipboard.writeText(logContent)
+                .then(() => {
+                    const button = document.getElementById(`btn-copy-${agent}-logs`);
+                    button.innerHTML = '<i class="fa fa-check"></i>';
+                    setTimeout(() => {
+                        button.innerHTML = '<i class="fa fa-copy"></i>';
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Failed to copy logs:', err);
+                    alert('Failed to copy logs to clipboard');
+                });
+        }
+
+        // Filter logs by level
+        function toggleLogFilter(agent, level) {
+            const badge = document.querySelector(`.filter-badge[data-agent="${agent}"][data-level="${level}"]`);
+            badge.classList.toggle('active');
+
+            const activeFilters = Array.from(document.querySelectorAll(`.filter-badge[data-agent="${agent}"].active`))
+                .map(badge => badge.dataset.level);
+
+            const logContainer = document.getElementById(`${agent}-logs`);
+            const logs = agent === 'blue' ? blueAgentLogs : redAgentLogs;
+
+            // Clear the container
+            logContainer.innerHTML = '';
+
+            // Re-render the logs with the current filters
+            for (const log of logs) {
+                if (!activeFilters.includes(log.level)) {
+                    continue;
+                }
+
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${log.level}`;
+
+                // Format the timestamp
+                let timestamp = log.timestamp;
+                try {
+                    const date = new Date(timestamp);
+                    timestamp = date.toLocaleTimeString();
+                } catch (e) {
+                    // Keep original timestamp if parsing fails
+                }
+
+                logEntry.innerHTML = `
+                    <span class="log-timestamp">${timestamp}</span>
+                    <span class="log-message">${log.message}</span>
+                `;
+
+                logContainer.appendChild(logEntry);
+            }
+
+            // Scroll to bottom
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
 
         // Socket.io event handlers
@@ -654,6 +904,18 @@
                 .then(data => {
                     redAgentLogs = data;
                     updateAgentLogs('red', redAgentLogs);
+                });
+
+            fetch('/api/overview')
+                .then(response => response.json())
+                .then(data => {
+                    // Update the counters for agent logs
+                    if (data.blue_agent_logs_count) {
+                        document.getElementById('blue-logs-count').textContent = `${data.blue_agent_logs_count} entries`;
+                    }
+                    if (data.red_agent_logs_count) {
+                        document.getElementById('red-logs-count').textContent = `${data.red_agent_logs_count} entries`;
+                    }
                 });
         });
 
@@ -697,6 +959,24 @@
 
         document.getElementById('btn-clear-red-logs').addEventListener('click', () => {
             clearAgentLogs('red');
+        });
+
+        // Copy log buttons
+        document.getElementById('btn-copy-blue-logs').addEventListener('click', () => {
+            copyLogs('blue');
+        });
+
+        document.getElementById('btn-copy-red-logs').addEventListener('click', () => {
+            copyLogs('red');
+        });
+
+        // Filter log level buttons
+        document.querySelectorAll('.filter-badge').forEach(badge => {
+            badge.addEventListener('click', () => {
+                const agent = badge.dataset.agent;
+                const level = badge.dataset.level;
+                toggleLogFilter(agent, level);
+            });
         });
 
         // Auto-refresh data periodically
