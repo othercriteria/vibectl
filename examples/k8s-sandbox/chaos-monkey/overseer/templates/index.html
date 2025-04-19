@@ -496,6 +496,11 @@
             }, 1000);
         }
 
+        // Hide refresh indicator
+        function hideRefreshIndicator() {
+            document.getElementById('refresh-indicator').classList.add('d-none');
+        }
+
         // Update status card
         function updateStatusCard(status) {
             if (!status) return;
@@ -892,6 +897,15 @@
                     updateStatusCard(data);
                 });
 
+            fetch('/api/cluster')
+                .then(response => response.json())
+                .then(data => {
+                    updateClusterStatus(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching cluster data:', error);
+                });
+
             fetch('/api/logs/blue')
                 .then(response => response.json())
                 .then(data => {
@@ -1018,6 +1032,8 @@
         });
 
         function updateClusterStatus(data) {
+            console.log('Updating cluster status with data:', data);
+
             // Update nodes table
             const nodesTable = document.getElementById('nodes-table');
             nodesTable.innerHTML = '';
@@ -1044,11 +1060,12 @@
             const namespacesContainer = document.getElementById('namespaces-container');
             namespacesContainer.innerHTML = '';
 
-            if (data.namespaces && Object.keys(data.namespaces).length > 0) {
-                for (const [namespace, pods] of Object.entries(data.namespaces)) {
-                    const nsStatus = data.namespace_status && data.namespace_status[namespace]
-                        ? data.namespace_status[namespace]
-                        : 'Unknown';
+            if (data.pods && data.pods.length > 0) {
+                // The pods array now contains namespaces
+                data.pods.forEach(namespaceData => {
+                    const namespace = namespaceData.namespace;
+                    const nsStatus = namespaceData.status || 'Unknown';
+                    const pods = namespaceData.pods || [];
 
                     const namespaceCard = document.createElement('div');
                     namespaceCard.className = 'card namespace-card';
@@ -1106,7 +1123,7 @@
                     namespaceCard.appendChild(cardHeader);
                     namespaceCard.appendChild(cardBody);
                     namespacesContainer.appendChild(namespaceCard);
-                }
+                });
             } else {
                 namespacesContainer.innerHTML = '<p class="text-center">No namespace data available</p>';
             }
@@ -1134,6 +1151,18 @@
                     const targetPane = document.querySelector(targetId);
                     targetPane.classList.add('show');
                     targetPane.classList.add('active');
+
+                    // Refresh cluster data when switching to cluster tab
+                    if (targetId === '#cluster-panel') {
+                        fetch('/api/cluster')
+                            .then(response => response.json())
+                            .then(data => {
+                                updateClusterStatus(data);
+                            })
+                            .catch(error => {
+                                console.error('Error fetching cluster data:', error);
+                            });
+                    }
                 });
             });
 
