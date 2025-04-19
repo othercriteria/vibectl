@@ -55,3 +55,28 @@ roleRef:
   kind: Role
   name: red-agent-restricted
   apiGroup: rbac.authorization.k8s.io
+---
+# Explicitly block access to system-monitoring namespace for red agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: red-agent-no-access
+  namespace: system-monitoring
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]  # Allow only read access to see pods for debugging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: red-agent-no-access-binding
+  namespace: system-monitoring
+subjects:
+- kind: ServiceAccount
+  name: red-agent
+  namespace: default
+roleRef:
+  kind: Role
+  name: red-agent-no-access
+  apiGroup: rbac.authorization.k8s.io

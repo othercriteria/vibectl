@@ -18,3 +18,11 @@ metadata:
   name: protected
   labels:
     purpose: system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: system-monitoring
+  labels:
+    purpose: system
+    protection: high

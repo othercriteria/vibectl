@@ -13,7 +13,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -52,8 +52,8 @@ def status_style_map(status: str) -> str:
 
 
 def run_command(
-    command: List[str], capture_output: bool = True, timeout: int = 30
-) -> Tuple[int, str, str]:
+    command: list[str], capture_output: bool = True, timeout: int = 30
+) -> tuple[int, str, str]:
     """Run a shell command and return exit code, stdout, and stderr."""
     try:
         if VERBOSE:
@@ -73,7 +73,7 @@ def run_command(
         return 1, "", f"Error running command: {e!s}"
 
 
-def find_sandbox_container() -> Optional[str]:
+def find_sandbox_container() -> str | None:
     """Find the Kind sandbox container name."""
     # Try with exact name
     command = [
@@ -144,7 +144,63 @@ def check_kubernetes_status(container_name: str) -> bool:
     return True
 
 
-def check_app_service(container_name: str) -> Dict[str, Any]:
+def create_curl_pod_if_needed(container_name: str) -> bool:
+    """Create a persistent curl pod for health checks if it doesn't exist."""
+    # Use the system-monitoring namespace which agents cannot modify
+    namespace = "system-monitoring"
+
+    # Check if the curl pod exists
+    command = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",
+        "--kubeconfig",
+        "/etc/kubernetes/admin.conf",
+        "get",
+        "pod",
+        "health-checker",
+        "-n",
+        namespace,
+        "--ignore-not-found",
+    ]
+    exit_code, stdout, stderr = run_command(command)
+
+    # If pod exists, we're good
+    if exit_code == 0 and "health-checker" in stdout:
+        return True
+
+    # Create the curl pod
+    create_command = (
+        "kubectl --kubeconfig=/etc/kubernetes/admin.conf "
+        f"run health-checker --image=curlimages/curl -n {namespace} "
+        "--command -- sleep infinity"
+    )
+
+    command = ["docker", "exec", container_name, "bash", "-c", create_command]
+    exit_code, stdout, stderr = run_command(command, timeout=30)
+
+    if exit_code != 0:
+        logger.error(f"Failed to create health-checker pod: {stderr}")
+        return False
+
+    # Wait for pod to be ready
+    wait_command = (
+        "kubectl --kubeconfig=/etc/kubernetes/admin.conf "
+        f"wait --for=condition=ready pod/health-checker -n {namespace} --timeout=30s"
+    )
+
+    command = ["docker", "exec", container_name, "bash", "-c", wait_command]
+    exit_code, stdout, stderr = run_command(command, timeout=35)
+
+    if exit_code != 0:
+        logger.error(f"Failed to wait for health-checker pod: {stderr}")
+        return False
+
+    return True
+
+
+def check_app_service(container_name: str) -> dict[str, Any]:
     """Check the status of the app service."""
     # Check if the app service exists
     command = [
@@ -207,33 +263,47 @@ def check_app_service(container_name: str) -> Dict[str, Any]:
             "pods": pod_status,
         }
 
-    # Check if we can connect to the service using a curlimages/curl pod
-    start_time = time.time()
-    
-    # Use a dedicated curl pod for reliable health checks
+    # Ensure our persistent curl pod exists
+    if not create_curl_pod_if_needed(container_name):
+        return {
+            "status": STATUS_DEGRADED,
+            "response_time": "N/A",
+            "message": "Could not create health check pod",
+            "endpoint": "app.services:80",
+            "pods": pod_status,
+        }
+
+    # Check if we can connect to the service using our persistent curl pod
+    # Only measure the time for the curl command itself
     check_command = (
         "KUBECONFIG=/etc/kubernetes/admin.conf "
-        "TIMESTAMP=$(date +%s); "
-        "kubectl run test-curl-$TIMESTAMP --image=curlimages/curl -n services -it --restart=Never -- "
-        "curl -s http://app/health; "
-        "RESULT=$?; "
-        "kubectl delete pod test-curl-$TIMESTAMP -n services --wait=false >/dev/null 2>&1; "
-        "exit $RESULT"
+        "kubectl --kubeconfig=/etc/kubernetes/admin.conf "
+        "exec health-checker -n system-monitoring -- "
+        "/bin/sh -c 'time -p curl -s http://app/health'"
     )
-    
-    command = [
-        "docker",
-        "exec",
-        container_name,
-        "bash",
-        "-c",
-        check_command
-    ]
-    exit_code, stdout, stderr = run_command(command, timeout=15)
-    
+
+    command = ["docker", "exec", container_name, "bash", "-c", check_command]
+    start_time = time.time()
+    exit_code, stdout, stderr = run_command(command, timeout=10)
     end_time = time.time()
-    response_time = f"{(end_time - start_time):.2f}s"
-    
+
+    # Parse the real request time from stderr if available
+    response_time = "N/A"
+    if "real" in stderr:
+        # Try to extract the real time from the time command output
+        for line in stderr.splitlines():
+            if line.startswith("real"):
+                try:
+                    real_time = float(line.split()[1])
+                    response_time = f"{real_time:.2f}s"
+                    break
+                except (ValueError, IndexError):
+                    pass
+
+    # Fallback to our own timing if we couldn't parse the time output
+    if response_time == "N/A":
+        response_time = f"{(end_time - start_time):.2f}s"
+
     # If we couldn't reach the health endpoint
     if exit_code != 0 or not stdout.strip():
         return {
@@ -243,13 +313,13 @@ def check_app_service(container_name: str) -> Dict[str, Any]:
             "endpoint": "app.services:80",
             "pods": pod_status,
         }
-    
+
     # Parse health response
     try:
         health_data = json.loads(stdout)
         status = health_data.get("status", "")
         db_status = health_data.get("db", "unknown")
-        
+
         if status == "degraded" or db_status == "down":
             return {
                 "status": STATUS_DEGRADED,
@@ -267,7 +337,7 @@ def check_app_service(container_name: str) -> Dict[str, Any]:
             "endpoint": "app.services:80",
             "pods": pod_status,
         }
-    
+
     # If all pods aren't running, service is degraded
     if pod_status["ready"] < pod_status["total"]:
         msg = (
@@ -294,7 +364,7 @@ def check_app_service(container_name: str) -> Dict[str, Any]:
     }
 
 
-def update_status_file(status: Dict[str, Any]) -> None:
+def update_status_file(status: dict[str, Any]) -> None:
     """Update the status file with the current status."""
     status_file = Path(STATUS_DIR) / "app-status.json"
     status_with_timestamp = {
@@ -313,7 +383,7 @@ def update_status_file(status: Dict[str, Any]) -> None:
         logger.error(f"Error updating status file: {e!s}")
 
 
-def print_status(status: Dict[str, Any]) -> None:
+def print_status(status: dict[str, Any]) -> None:
     """Print a formatted status report using Rich."""
     status_text = status["status"]
     status_style = status_style_map(status_text)
@@ -334,7 +404,7 @@ def print_status(status: Dict[str, Any]) -> None:
         pod_ratio = f"{pod_status['ready']}/{pod_status['total']}"
         pod_style = "green" if pod_status["ready"] == pod_status["total"] else "yellow"
         table.add_row("Pods Ready", f"[{pod_style}]{pod_ratio}[/{pod_style}]")
-        
+
     # Add database status if available
     if "db_status" in status:
         db_status = status["db_status"]
@@ -381,7 +451,7 @@ def main() -> None:
             current_time = time.time()
             if current_time >= end_time:
                 console.log(
-                    f"[green]Session duration of {SESSION_DURATION} minutes has elapsed.[/green]"
+                    f"[green]Session duration ({SESSION_DURATION} min) elapsed.[/green]"
                 )
                 sys.exit(0)
 
