@@ -107,16 +107,26 @@ def get_poller_status() -> dict[str, Any]:
 
         # Get the status file contents
         exit_code, output = poller_container.exec_run(
-            f"cat {POLLER_STATUS_DIR}/frontend-status.json"
+            f"cat {POLLER_STATUS_DIR}/app-status.json"
         )
 
         if exit_code != 0:
             logger.error(f"Error reading status file: {output.decode('utf-8')}")
-            return {
-                "status": "ERROR",
-                "message": "Failed to read status file",
-                "timestamp": datetime.now().isoformat(),
-            }
+
+            # Try the old status file name as fallback
+            fallback_exit_code, fallback_output = poller_container.exec_run(
+                f"cat {POLLER_STATUS_DIR}/frontend-status.json"
+            )
+
+            if fallback_exit_code == 0:
+                logger.info("Found status using fallback filename")
+                output = fallback_output
+            else:
+                return {
+                    "status": "ERROR",
+                    "message": "Failed to read status file",
+                    "timestamp": datetime.now().isoformat(),
+                }
 
         # Parse the JSON
         try:
@@ -333,7 +343,7 @@ def start_monitoring() -> None:
 
 
 @app.route("/")
-def index() -> Response:
+def index() -> str:
     """Render the main dashboard page."""
     return render_template("index.html")
 
@@ -393,11 +403,15 @@ def api_overview() -> Any:
     blue_entries = cast(list[dict[str, str]], agent_logs["blue"]["entries"])
     red_entries = cast(list[dict[str, str]], agent_logs["red"]["entries"])
 
+    # Add database status if available
+    db_status = latest_status.get("db_status", "unknown")
+
     overview = {
         "status_counts": status_counts,
         "uptime_percentage": uptime_percentage,
         "total_checks": total_checks,
         "latest_status": latest_status,
+        "db_status": db_status,
         "blue_agent_logs_count": len(blue_entries),
         "red_agent_logs_count": len(red_entries),
     }

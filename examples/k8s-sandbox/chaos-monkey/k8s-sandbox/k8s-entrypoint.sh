@@ -300,18 +300,89 @@ fi
 for file in /kubernetes/*.yaml; do
     if [ -f "$file" ]; then
         log "Applying $file"
-        envsubst < "$file" | kubectl apply -f -
+        echo "Applying Kubernetes manifest: $file"
+        
+        # Apply with descriptive output for debugging
+        if ! envsubst < "$file" | kubectl apply -f - ; then
+            echo "ERROR: Failed to apply $file"
+            echo "Content of $file:"
+            cat "$file" | grep -v "^\s*#" | grep -v "^\s*$"
+            exit 1
+        fi
+        
+        # Verify namespace exists after applying manifests
+        if ! kubectl get namespace services &>/dev/null; then
+            echo "ERROR: services namespace not found after applying $file"
+            echo "Available namespaces:"
+            kubectl get namespaces
+            exit 1
+        fi
     fi
 done
 
-# Wait for deployments to be ready with timeout
-log "Waiting for deployments to be ready..."
-if ! kubectl wait --for=condition=available --timeout=180s deployment --all -n services; then
-    echo "ERROR: Deployments did not become ready within the timeout period"
-    echo "Current deployment status:"
+# Add more detailed verification of the deployment
+echo "Verifying deployments in services namespace..."
+kubectl get deployments -n services --no-headers || echo "No deployments found"
+
+# Add specific check for app service
+log "Checking for app service in services namespace..."
+if ! kubectl get deployment app -n services &>/dev/null; then
+    echo "WARNING: app deployment not found in services namespace"
+    echo "Available deployments in services namespace:"
     kubectl get deployments -n services
-    exit 1
+    
+    # Look for deployment in other namespaces as a fallback
+    echo "Looking for app deployment in other namespaces:"
+    kubectl get deployments --all-namespaces | grep app || echo "No app deployment found in any namespace"
+else
+    echo "✅ app deployment found in services namespace"
 fi
+
+# Check for Redis DB service
+log "Checking for demo-db service in services namespace..."
+if ! kubectl get deployment demo-db -n services &>/dev/null; then
+    echo "WARNING: demo-db deployment not found in services namespace"
+    echo "Available deployments in services namespace:"
+    kubectl get deployments -n services
+else
+    echo "✅ demo-db deployment found in services namespace"
+fi
+
+# Wait for deployments to be ready with timeout and retries
+log "Waiting for deployments to be ready..."
+MAX_DEPLOYMENT_RETRIES=3
+DEPLOYMENT_RETRY=0
+
+while [ $DEPLOYMENT_RETRY -lt $MAX_DEPLOYMENT_RETRIES ]; do
+    if kubectl wait --for=condition=available --timeout=60s deployment --all -n services 2>/dev/null; then
+        echo "✅ All deployments in services namespace are ready"
+        DEPLOYMENT_SUCCESS=true
+        break
+    else
+        DEPLOYMENT_RETRY=$((DEPLOYMENT_RETRY + 1))
+        echo "WARNING: Deployments not ready yet, attempt $DEPLOYMENT_RETRY of $MAX_DEPLOYMENT_RETRIES"
+        echo "Current deployment status:"
+        kubectl get deployments -n services
+        
+        # Check specific app deployment status with more details
+        echo "Detailed status of app deployment:"
+        kubectl describe deployment app -n services || echo "Cannot get details for app deployment"
+        
+        # Check pod status if deployment exists
+        echo "Checking pod status for app deployment:"
+        kubectl get pods -n services -l app=app || echo "No pods found for app=app"
+        
+        if [ $DEPLOYMENT_RETRY -ge $MAX_DEPLOYMENT_RETRIES ]; then
+            echo "ERROR: Deployments did not become ready after $MAX_DEPLOYMENT_RETRIES attempts"
+            echo "Final deployment status:"
+            kubectl get deployments -n services
+            exit 1
+        else
+            echo "Retrying in 20 seconds..."
+            sleep 20
+        fi
+    fi
+done
 
 # Create a shared kubeconfig for agent containers
 log "Creating shared kubeconfig for agent containers..."
@@ -325,12 +396,22 @@ kubectl config set-cluster kind-chaos-monkey --server="https://${CONTROL_PLANE_I
 chmod 644 /config/kube/config
 log "Shared kubeconfig created at /config/kube/config with server URL: https://${CONTROL_PLANE_IP}:${API_SERVER_PORT}"
 
-# Verify all services
-log "Verifying all services..."
-kubectl get pods -n services
-kubectl get svc -n services
+# Final verification of the services
+echo "Final verification of resources in services namespace:"
+kubectl get all -n services
 
-# Note: Service accessibility checks have been removed as these ports are no longer exposed
+# Check pod logs for app deployment
+echo "Checking logs for app pods:"
+APP_POD=$(kubectl get pods -n services -l app=app -o name | head -1)
+if [ -n "$APP_POD" ]; then
+    kubectl logs "${APP_POD}" -n services || echo "Cannot get logs for app pod"
+    
+    # Check app pod status - fixed format
+    echo "App pod details:"
+    kubectl describe "${APP_POD}" -n services || echo "Cannot describe app pod"
+else
+    echo "No app pods found"
+fi
 
 # Keep container running
 echo "All services deployed. Container will keep running for the duration of the session."

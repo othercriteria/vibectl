@@ -19,11 +19,11 @@ services:
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
     healthcheck:
-      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready && test -f /config/kube/config"]
-      interval: 5s
-      timeout: 5s
+      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready"]
+      interval: 10s
+      timeout: 10s
       retries: 30
-      start_period: 10s
+      start_period: 60s
     networks:
       - chaos-monkey-network
     hostname: k8s-sandbox
