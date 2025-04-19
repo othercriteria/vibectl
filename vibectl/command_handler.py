@@ -302,7 +302,8 @@ def handle_vibe_request(
         if memory_context:
             format_params["memory_context"] = memory_context
 
-        # Use a more robust way to format the prompt that handles both positional and named formats
+        # Use a more robust way to format the prompt that handles both
+        # positional and named formats
         try:
             # First, check if there are any positional format specifiers in the prompt
             import re
@@ -310,10 +311,12 @@ def handle_vibe_request(
             positional_formats = re.findall(r"{(\d+)}", plan_prompt)
 
             if positional_formats:
-                # If positional formats exist, we need to use string replacement for all parameters
+                # If positional formats exist, we need to use string replacement
+                # for all parameters
                 # to avoid the "Replacement index X out of range" error
                 logger.info(
-                    "Detected positional format specifiers in prompt, using string replacement"
+                    "Detected positional format specifiers in prompt, "
+                    "using string replacement"
                 )
                 formatted_prompt = plan_prompt
 
@@ -325,7 +328,8 @@ def handle_vibe_request(
                 formatted_prompt = formatted_prompt.replace("{request}", request)
                 formatted_prompt = formatted_prompt.replace("{command}", command)
 
-                # Then handle any remaining positional parameters by replacing them with empty strings
+                # Then handle any remaining positional parameters by replacing
+                # them with empty strings
                 # This ensures the prompt is usable even with positional parameters
                 for pos in positional_formats:
                     formatted_prompt = formatted_prompt.replace(f"{{{pos}}}", "")

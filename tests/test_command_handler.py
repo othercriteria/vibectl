@@ -100,7 +100,8 @@ Example output format: {0}
         patch("vibectl.command_handler.console_manager"),
         patch("vibectl.command_handler.update_memory"),
     ):
-        # Attempt to call handle_vibe_request with a prompt containing positional format specifier
+        # Attempt to call handle_vibe_request with a prompt containing
+        # positional format specifier
         # This should no longer raise an IndexError after our fix
         handle_vibe_request(
             request="test request",
