@@ -157,6 +157,10 @@ kubectl apply -f /kubernetes/blue-agent-rbac.yaml
 log "Setting up RBAC for red agent..."
 kubectl apply -f /kubernetes/red-agent-rbac.yaml
 
+# Set up system monitoring namespace isolation
+log "Setting up system monitoring namespace isolation..."
+kubectl apply -f /kubernetes/system-monitoring-isolation.yaml
+
 # Create services
 log "Deploying target services..."
 

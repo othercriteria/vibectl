@@ -196,17 +196,19 @@ The chaos-monkey demo creates a fully isolated Kubernetes environment:
 - The Kubernetes cluster runs entirely within containers
 - Complete separation from any host Kubernetes configuration
 - Health monitoring resources are protected in a dedicated `system-monitoring` namespace
-- RBAC policies prevent both red and blue agents from manipulating the health-checker pod
+- RBAC policies completely hide system monitoring resources from both agent roles
+- Network policies provide additional isolation for the monitoring infrastructure
 - System monitoring and observability components are isolated from the attack surface
 
 ## Monitoring Architecture
 
-The monitoring system uses a persistent health-checker pod in a protected namespace that cannot be attacked or modified by the agents. This design ensures:
+The monitoring system uses a persistent health-checker pod in a protected namespace that cannot be attacked, modified, or even viewed by the agents. This design ensures:
 
 - Accurate response time measurements that reflect only the actual service performance
 - Resilient monitoring that continues functioning even during aggressive chaos experiments
 - Clear separation between monitoring infrastructure and the services being tested
 - Consistent metrics collection throughout the entire demo session
+- Prevents agents from fixating on resources they don't need to interact with
 
 ---
 

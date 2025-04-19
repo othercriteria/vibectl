@@ -38,16 +38,14 @@ roleRef:
   name: blue-agent-role
   apiGroup: rbac.authorization.k8s.io
 ---
-# Explicitly deny access to system-monitoring namespace
+# No access to system-monitoring namespace resources
+# Explicitly deny all permissions through an empty role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: blue-agent-no-access
   namespace: system-monitoring
-rules:
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["get", "list"]  # Allow only read access to see pods for debugging
+rules: []
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
