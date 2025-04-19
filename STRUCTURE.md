@@ -23,7 +23,9 @@ This document provides an overview of the project's structure and organization.
 
 ### Examples (`examples/`)
 - Example usage scenarios and demo environments
-- `k8s-sandbox/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/STRUCTURE.md](examples/k8s-sandbox/STRUCTURE.md) for details.
+- `k8s-sandbox/` - Kubernetes sandbox environments:
+  - `ctf/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/ctf/STRUCTURE.md](examples/k8s-sandbox/ctf/STRUCTURE.md) for details.
+  - `chaos-monkey/` - Red team vs. blue team competitive scenario with vibectl agents. See [examples/k8s-sandbox/chaos-monkey/STRUCTURE.md](examples/k8s-sandbox/chaos-monkey/STRUCTURE.md) for details.
 
 ### Type Information (`typings/`)
 - Custom type definitions and type stubs

@@ -1,0 +1,117 @@
+# 1. App source (Flask) — mounted read‑only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-code
+  namespace: services
+data:
+  app.py: |
+    from flask import Flask, jsonify
+    import os, redis, socket
+    app = Flask(__name__)
+    r = redis.Redis(host=os.getenv("DB_HOST","demo-db"), port=6379, decode_responses=True)
+    @app.route("/health")
+    def health():
+        try:  r.ping(); db="ok"
+        except Exception: db="down"
+        return jsonify(status="ok" if db=="ok" else "degraded",
+                       db=db, host=socket.gethostname())
+    @app.route("/admin")                         # ❌ no auth!
+    def admin():  return jsonify(secret=os.getenv("ADMIN_TOKEN","unset"))
+    @app.route("/user/<uid>")
+    def user(uid): return jsonify(id=uid, name=f"user-{uid}")
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5000)
+---
+# 2. Intentionally weak "secret"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-secrets
+  namespace: services
+stringData:
+  ADMIN_TOKEN: "p@ssw0rd"
+---
+# 3. Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: services
+spec:
+  replicas: 1                     # ❌ no HA
+  selector: { matchLabels: { app: app } }
+  template:
+    metadata: { labels: { app: app } }
+    spec:
+      containers:
+      - name: flask
+        image: python:3.12-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            pip install flask redis
+            python /code/app.py
+        env:
+        - name: DB_HOST   # hard‑wired service DNS
+          value: "demo-db"
+        - name: ADMIN_TOKEN
+          valueFrom: { secretKeyRef: { name: demo-secrets, key: ADMIN_TOKEN } }
+        ports: [ { containerPort: 5000 } ]
+        readinessProbe:          # only green when Redis replies
+          httpGet: { path: /health, port: 5000 }
+          periodSeconds: 10
+          initialDelaySeconds: 30
+          failureThreshold: 5
+        resources:               # tiny — easy to DoS
+          requests: { cpu: "50m", memory: "64Mi" }
+          limits:   { cpu: "100m", memory: "128Mi" }
+        volumeMounts:
+        - name: src
+          mountPath: /code       # mounts app.py
+      volumes:
+      - name: src
+        configMap: { name: app-code }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: services
+spec:
+  selector: { app: app }
+  ports:
+  - port: 80
+    targetPort: 5000
+  type: ClusterIP
+---
+# 4. Minimal Redis (no auth, no readiness probe, no PVC) — a juicy target
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-db
+  namespace: services
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: demo-db } }
+  template:
+    metadata: { labels: { app: demo-db } }
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports: [ { containerPort: 6379 } ]
+        resources:
+          limits:   { cpu: "100m", memory: "128Mi" }
+          requests: { cpu: "50m",  memory: "64Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-db
+  namespace: services
+spec:
+  selector: { app: demo-db }
+  ports:
+  - port: 6379
+    targetPort: 6379

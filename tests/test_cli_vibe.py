@@ -122,7 +122,8 @@ def test_vibe_command_with_existing_memory_plan_prompt(
     mock_get_memory: MagicMock, mock_handle_vibe: MagicMock, cli_runner: CliRunner
 ) -> None:
     """Test 'vibe' command with existing memory: plan prompt and processing message."""
-    mock_get_memory.return_value = "Working in namespace 'test' with deployment 'app'"
+    memory_value = "Working in namespace 'test' with deployment 'app'"
+    mock_get_memory.return_value = memory_value
     result = cli_runner.invoke(cli, ["vibe"])
     assert result.exit_code == 0
     mock_handle_vibe.assert_called_once()
@@ -130,8 +131,7 @@ def test_vibe_command_with_existing_memory_plan_prompt(
     assert call_args["request"] == ""
     assert call_args["command"] == "vibe"
     assert call_args["autonomous_mode"] is True
-    plan_prompt = call_args["plan_prompt"]
-    assert "Working in namespace 'test' with deployment 'app'" in plan_prompt
+    assert call_args["memory_context"] == memory_value
 
 
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request")
@@ -149,9 +149,8 @@ def test_vibe_command_with_explicit_request_plan_prompt(
     assert call_args["request"] == "scale deployment app to 3 replicas"
     assert call_args["command"] == "vibe"
     assert call_args["autonomous_mode"] is True
-    plan_prompt = call_args["plan_prompt"]
-    assert "Working in namespace 'test'" in plan_prompt
-    assert "scale deployment app to 3 replicas" in plan_prompt
+    assert call_args["memory_context"] == "Working in namespace 'test'"
+    assert "scale deployment app to 3 replicas" in result.output
     assert "Planning how to: scale deployment app to 3 replicas" in result.output
 
 
