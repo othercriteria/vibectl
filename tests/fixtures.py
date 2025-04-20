@@ -8,24 +8,25 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from vibectl.types import Error, Success
+
 
 @pytest.fixture
 def mock_run_kubectl() -> Generator[Mock, None, None]:
     """Mock the run_kubectl function to prevent actual kubectl calls.
 
     Returns:
-        Mock: Mocked run_kubectl function that returns "test output" by default.
+        Mock: Mocked run_kubectl function that returns a Success object by default.
     """
     with patch("vibectl.command_handler.run_kubectl") as mock:
         # Default to successful output
-        mock.return_value = "test output"
+        mock.return_value = Success(data="test output")
 
         # Helper for setting up error responses when needed in tests
         def set_error_response(stderr: str = "test error") -> None:
-            """Configure mock to return an error response."""
-            mock.return_value = (
-                f"Error: {stderr}" if stderr else "Error: Command failed"
-            )
+            """Configure mock to return an Error response."""
+            error_msg = stderr if stderr else "Command failed"
+            mock.return_value = Error(error=error_msg)
 
         # Add the helper method to the mock
         mock.set_error_response = set_error_response

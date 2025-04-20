@@ -201,7 +201,8 @@ def test_vibe_delete_with_confirmation_cancelled(
     # Set up confirmation to return False (user cancels)
     mock_confirm.return_value = False
 
-    # We need to mock _needs_confirmation to return False since we're bypassing the prompt
+    # We need to mock _needs_confirmation to return False since we're
+    # bypassing the prompt
     with (
         patch("vibectl.command_handler._needs_confirmation", return_value=False),
         patch(
@@ -219,10 +220,12 @@ def test_vibe_delete_with_confirmation_cancelled(
             yes=True,  # Bypass the prompt
         )
 
-        # Verify kubectl was called (unlike in the original test where it wouldn't be called)
+        # Verify kubectl was called (unlike in the original test
+        # where it wouldn't be called)
         mock_run_kubectl.assert_called_once()
 
-        # Since we're now bypassing the confirmation with yes=True, the command should execute
+        # Since we're now bypassing the confirmation with yes=True,
+        # the command should execute
         # even though mock_confirm is set to False
         args = mock_run_kubectl.call_args[0][0]
         assert "delete" in args

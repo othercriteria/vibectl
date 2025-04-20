@@ -17,8 +17,17 @@ def test_describe_basic(
         patch(
             "vibectl.command_handler.handle_command_output"
         ) as cmd_mock_handle_output,
+        patch("vibectl.types.Success") as mock_success,
     ):
-        cmd_mock_run_kubectl.return_value = "test output"
+        # Set up mock return value to return a Success object
+        success_instance = Mock()
+        mock_success.return_value = success_instance
+        success_instance.data = "test output"
+        cmd_mock_run_kubectl.return_value = success_instance
+
+        # Make handle_command_output return a Success object
+        cmd_mock_handle_output.return_value = success_instance
+
         result = cli_runner.invoke(cli, ["describe", "pod", "my-pod"])
         assert result.exit_code == 0
         cmd_mock_run_kubectl.assert_called_once_with(
@@ -47,8 +56,17 @@ def test_describe_args_variants(
         patch(
             "vibectl.command_handler.handle_command_output"
         ) as cmd_mock_handle_output,
+        patch("vibectl.types.Success") as mock_success,
     ):
-        cmd_mock_run_kubectl.return_value = "test output"
+        # Set up mock return value to return a Success object
+        success_instance = Mock()
+        mock_success.return_value = success_instance
+        success_instance.data = "test output"
+        cmd_mock_run_kubectl.return_value = success_instance
+
+        # Make handle_command_output return a Success object
+        cmd_mock_handle_output.return_value = success_instance
+
         result = cli_runner.invoke(cli, args)
         if should_succeed:
             assert result.exit_code == 0
@@ -68,8 +86,17 @@ def test_describe_with_flags(
         patch(
             "vibectl.command_handler.handle_command_output"
         ) as cmd_mock_handle_output,
+        patch("vibectl.types.Success") as mock_success,
     ):
-        cmd_mock_run_kubectl.return_value = "test output"
+        # Set up mock return value to return a Success object
+        success_instance = Mock()
+        mock_success.return_value = success_instance
+        success_instance.data = "test output"
+        cmd_mock_run_kubectl.return_value = success_instance
+
+        # Make handle_command_output return a Success object
+        cmd_mock_handle_output.return_value = success_instance
+
         result = cli_runner.invoke(
             cli,
             [
@@ -91,17 +118,29 @@ def test_describe_error_handling(
 ) -> None:
     """Test describe command when kubectl returns an error."""
     with (
-        patch("vibectl.command_handler.run_kubectl") as cmd_mock_run_kubectl,
         patch(
-            "vibectl.command_handler.handle_command_output"
-        ) as cmd_mock_handle_output,
+            "vibectl.subcommands.describe_cmd.handle_standard_command"
+        ) as mock_handle_standard_cmd,
+        patch("vibectl.types.Error") as mock_error,
     ):
-        cmd_mock_run_kubectl.side_effect = Exception("kubectl error")
-        result = cli_runner.invoke(cli, ["describe", "pod", "my-pod"])
-        assert result.exit_code != 0 or "error" in result.output.lower()
-        cmd_mock_run_kubectl.assert_called_once()
-        # handle_command_output should not be called on error
-        assert cmd_mock_handle_output.call_count == 0
+        # Set up mock to return an Error object
+        error_instance = Mock(spec=Error)
+        error_instance.error = "kubectl error"
+        error_instance.exception = Exception("kubectl error")
+        mock_error.return_value = error_instance
+
+        # Make the handle_standard_command return our error instance
+        mock_handle_standard_cmd.return_value = error_instance
+
+        # Invoke CLI with catch_exceptions=True to let Click catch the raised Abort
+        result = cli_runner.invoke(
+            cli, ["describe", "pod", "my-pod"], catch_exceptions=True
+        )
+
+        # Check that command was called
+        mock_handle_standard_cmd.assert_called_once()
+        # Exit code should indicate error
+        assert result.exit_code == 1
 
 
 @patch("vibectl.subcommands.describe_cmd.handle_vibe_request")

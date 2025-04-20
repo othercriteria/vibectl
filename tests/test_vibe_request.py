@@ -255,8 +255,13 @@ def test_handle_vibe_request_command_error(
 ) -> None:
     """Test vibe request with command execution error."""
     caplog.set_level("INFO")
-    # Set up LLM response
-    mock_llm.execute.return_value = "get pods"
+    # Set up LLM responses
+    mock_llm.execute.side_effect = [
+        "get pods",  # First call returns the command
+        "You could try using --all-namespaces flag, or specify"
+        " a namespace with -n.",  # Second call returns recovery suggestions
+    ]
+
     # Set up kubectl to throw an exception
     mock_run_kubectl.side_effect = Exception("Command failed")
     import sys
@@ -270,9 +275,15 @@ def test_handle_vibe_request_command_error(
     sys.stderr = captured_stderr
     try:
         # Call function
-        with patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: show me the pods",
+        with (
+            patch(
+                "vibectl.memory.include_memory_in_prompt",
+                return_value="Plan this: show me the pods",
+            ),
+            patch(
+                "vibectl.command_handler.recovery_prompt",
+                lambda **kwargs: f"Recovery: {kwargs.get('error')}",
+            ),
         ):
             handle_vibe_request(
                 request="show me the pods",
@@ -284,11 +295,11 @@ def test_handle_vibe_request_command_error(
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         mock_run_kubectl.assert_called_once()
-        assert mock_llm.execute.call_count >= 2
-        # Assert that the summary was printed via print_vibe
-        mock_console.print_vibe.assert_called()
-        summary_arg = mock_console.print_vibe.call_args[0][0]
-        assert isinstance(summary_arg, str) and summary_arg
+        # Now verify that execute was called twice - once for command, once for recovery
+        assert mock_llm.execute.call_count == 2
+        # Verify the second call contains error information
+        second_call_args = mock_llm.execute.call_args_list[1][0][1]
+        assert "Command failed" in second_call_args
     finally:
         sys.stdout = original_stdout
         sys.stderr = original_stderr

@@ -27,12 +27,16 @@ class OutputFlags:
 class Success:
     message: str = ""
     data: Any | None = None
+    continue_execution: bool = True  # Flag to control if execution flow should continue
+    # When False, indicates a normal termination of a command sequence (like exit)
 
 
 @dataclass
 class Error:
     error: str
     exception: Exception | None = None
+    recovery_suggestions: str | None = None
 
 
+# Union type for command results
 Result = Success | Error

@@ -7,6 +7,7 @@ This file contains fixtures that can be used across all tests.
 import os
 from collections.abc import Callable, Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -16,6 +17,7 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
+from vibectl.types import Error, Success
 
 
 @pytest.fixture
@@ -28,15 +30,15 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
         patch("vibectl.command_handler.run_kubectl") as handler_mock,
     ):
         # Set up default mock behavior for successful cases
-        handler_mock.return_value = "test output"
-        cli_mock.return_value = "test output"
+        handler_mock.return_value = Success(data="test output")
+        cli_mock.return_value = Success(data="test output")
 
         # Create a special side_effect that intelligently handles different cases
         def mock_side_effect(
             cmd: list[str], capture: bool = False, config: object = None
-        ) -> str | None:
+        ) -> Success:
             # Default success case
-            return "test output"
+            return Success(data="test output")
 
         # Make the CLI mock delegate to the handler mock to ensure consistent behavior
         handler_mock.side_effect = mock_side_effect
@@ -54,6 +56,9 @@ def mock_handle_command_output() -> Generator[Mock, None, None]:
         patch("vibectl.command_handler.handle_command_output") as cli_mock,
         patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
+        # Set default return value to be a Success object
+        handler_mock.return_value = Success(data="test output")
+
         # Keep calls in sync
         # Return handler_mock as that's the implementation used
         cli_mock.side_effect = handler_mock
@@ -174,14 +179,16 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
         ) as mock_handle_vibe_get,
     ):
         # Default to successful output
-        mock_run_kubectl.return_value = "test output"
+        mock_run_kubectl.return_value = Success(data="test output")
+        mock_handle_output.return_value = Success(data="test output")
+        mock_handle_vibe_cli.return_value = Success(data="test vibe output")
+        mock_handle_vibe_get.return_value = Success(data="test vibe output")
 
         # Helper for setting up error responses
         def set_error_response(stderr: str = "test error") -> None:
             """Configure mock to return an error response."""
-            mock_run_kubectl.return_value = (
-                f"Error: {stderr}" if stderr else "Error: Command failed"
-            )
+            error_msg = stderr if stderr else "Command failed"
+            mock_run_kubectl.return_value = Error(error=error_msg)
 
         # Add the helper method to the mock
         mock_run_kubectl.set_error_response = set_error_response
@@ -200,14 +207,13 @@ def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
     """Fixture providing patched run_kubectl function specifically for CLI tests."""
     with patch("vibectl.command_handler.run_kubectl") as mock:
         # Set up default mock behavior
-        mock.return_value = "test output"
+        mock.return_value = Success(data="test output")
 
         # Helper for setting up error responses
         def set_error_response(stderr: str = "test error") -> None:
             """Configure mock to return an error response."""
-            mock.return_value = (
-                f"Error: {stderr}" if stderr else "Error: Command failed"
-            )
+            error_msg = stderr if stderr else "Command failed"
+            mock.return_value = Error(error=error_msg)
 
         # Add the helper method to the mock
         mock.set_error_response = set_error_response
@@ -531,3 +537,54 @@ def in_memory_config() -> Generator[Config, None, None]:
         # Create config with initialization but no file operations
         config = Config()
         yield config
+
+
+@pytest.fixture
+def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
+    """Mock asyncio functionality for wait command tests to avoid coroutine warnings."""
+    # Create a mock event loop
+    mock_loop = MagicMock()
+    mock_loop.run_until_complete.side_effect = lambda coro: Success(
+        data="pod/nginx condition met"
+    )
+    mock_loop.is_running.return_value = False
+
+    # Create synchronous (non-async) mocks to avoid coroutine warnings
+    def mock_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        """Mock sleep as a regular function to avoid coroutine warnings."""
+        return None
+
+    def mock_wait_for(coro: Any, timeout: float) -> Any:
+        """Mock wait_for as a regular function to avoid coroutine warnings."""
+        return None
+
+    def mock_to_thread(func: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Mock to_thread as a regular function to avoid coroutine warnings."""
+        return Success(data="pod/nginx condition met")
+
+    def mock_create_task(coro: Any) -> MagicMock:
+        """Mock create_task to return a MagicMock instead of a Task object."""
+        task = MagicMock()
+        task.done.return_value = False
+        task.cancel.return_value = None
+        return task
+
+    # Use a patch context manager to replace all asyncio functions we use
+    with (
+        # Mock asyncio functions
+        patch("vibectl.command_handler.asyncio.get_event_loop", return_value=mock_loop),
+        patch("vibectl.command_handler.asyncio.new_event_loop", return_value=mock_loop),
+        patch("vibectl.command_handler.asyncio.set_event_loop"),
+        # Replace all async functions with synchronous versions
+        patch("vibectl.command_handler.asyncio.sleep", mock_sleep),
+        patch("vibectl.command_handler.asyncio.wait_for", mock_wait_for),
+        patch("vibectl.command_handler.asyncio.to_thread", mock_to_thread),
+        patch("vibectl.command_handler.asyncio.create_task", mock_create_task),
+        # Replace asyncio exceptions with regular Exception to avoid awaiting issues
+        patch("vibectl.command_handler.asyncio.CancelledError", Exception),
+        patch("vibectl.command_handler.asyncio.TimeoutError", Exception),
+        # Also mock any direct asyncio imports in the test module
+        patch("asyncio.create_task", mock_create_task),
+        patch("asyncio.Future", MagicMock),
+    ):
+        yield mock_loop

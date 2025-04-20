@@ -20,8 +20,10 @@ def test_logs_basic(
     cli_runner: CliRunner,
 ) -> None:
     """Test basic logs command functionality."""
+    from vibectl.types import Success
+
     mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output")
 
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
 
@@ -40,8 +42,10 @@ def test_logs_with_args(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with additional arguments."""
+    from vibectl.types import Success
+
     mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output")
 
     # Use -- to separate options from arguments
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod", "--", "-n", "default"])
@@ -63,8 +67,10 @@ def test_logs_with_flags(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with output flags."""
+    from vibectl.types import Success
+
     mock_configure_flags.return_value = (True, False, False, "test-model")
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output")
 
     result = cli_runner.invoke(
         cli,
@@ -94,8 +100,10 @@ def test_logs_no_output(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command when kubectl returns no output."""
+    from vibectl.types import Success
+
     mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
-    mock_run_kubectl.return_value = ""
+    mock_run_kubectl.return_value = Success(data="")
 
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
 
@@ -114,9 +122,12 @@ def test_logs_truncation_warning(
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with output that might need truncation."""
+    from vibectl.types import Success
+
     mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
     # Create a large output that exceeds MAX_TOKEN_LIMIT * LOGS_TRUNCATION_RATIO
-    mock_run_kubectl.return_value = "x" * (10000 * 3 + 1)  # Just over the limit
+    large_output = "x" * (10000 * 3 + 1)  # Just over the limit
+    mock_run_kubectl.return_value = Success(data=large_output)
 
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
 
@@ -144,24 +155,30 @@ def test_logs_vibe_no_request(cli_runner: CliRunner) -> None:
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
 def test_logs_error_handling(
-    mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command error handling."""
     from vibectl.command_handler import OutputFlags
+    from vibectl.types import Error
 
+    # Configure output flags
     mock_configure_flags.return_value = OutputFlags(
         show_raw=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="model-xyz-1.2.3",
+        show_kubectl=False,
     )
-    mock_run_kubectl.side_effect = Exception("Test error")
 
+    # Setup mock to return an Error
+    mock_run_kubectl.return_value = Error(error="Test error")
+
+    # Invoke the command
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+
+    # Verify error handling
     assert result.exit_code == 1
-    assert "Error: Test error" in result.output
+    assert "Error running kubectl: Test error" in result.output

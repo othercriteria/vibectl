@@ -52,40 +52,49 @@ def run_get_command(
             logger.info("Planning how to: %s", request)
             planning_msg = f"Planning how to: get {request}"
             console_manager.print_processing(planning_msg)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="get",
-                    plan_prompt=PLAN_GET_PROMPT,
-                    summary_prompt_func=get_resource_prompt,
-                    output_flags=output_flags,
-                    memory_context=get_memory() or "",
-                )
-            except Exception as e:
-                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
-                return Error(
-                    error="Exception in handle_vibe_request",
-                    exception=e,
-                )
-            logger.info("Completed 'get' subcommand for vibe request.")
-            return Success(message="Completed 'get' subcommand for vibe request.")
 
-        try:
-            handle_standard_command(
+            # Use the Result returned from handle_vibe_request
+            result = handle_vibe_request(
+                request=request,
                 command="get",
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
+                plan_prompt=PLAN_GET_PROMPT,
                 summary_prompt_func=get_resource_prompt,
+                output_flags=output_flags,
+                memory_context=get_memory() or "",
             )
-        except Exception as e:
-            logger.error("Error in handle_standard_command: %s", e, exc_info=True)
-            return Error(
-                error="Exception in handle_standard_command",
-                exception=e,
+
+            # Forward the Result from handle_vibe_request
+            if isinstance(result, Error):
+                logger.error(f"Error from handle_vibe_request: {result.error}")
+                return result
+
+            logger.info("Completed 'get' subcommand for vibe request.")
+            return Success(
+                message="Completed 'get' subcommand for vibe request.",
+                data=result.data
+                if isinstance(result, Success) and result.data
+                else None,
             )
+
+        # Use the Result returned from handle_standard_command
+        result = handle_standard_command(
+            command="get",
+            resource=resource,
+            args=args,
+            output_flags=output_flags,
+            summary_prompt_func=get_resource_prompt,
+        )
+
+        # Forward the Result from handle_standard_command
+        if isinstance(result, Error):
+            logger.error(f"Error from handle_standard_command: {result.error}")
+            return result
+
         logger.info(f"Completed 'get' subcommand for resource: {resource}")
-        return Success(message=f"Completed 'get' subcommand for resource: {resource}")
+        return Success(
+            message=f"Completed 'get' subcommand for resource: {resource}",
+            data=result.data if isinstance(result, Success) and result.data else None,
+        )
     except Exception as e:
         logger.error("Error in 'get' subcommand: %s", e, exc_info=True)
         return Error(

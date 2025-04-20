@@ -39,7 +39,6 @@ from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
-from .command_handler import ExitAutoLoopException
 from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
@@ -494,7 +493,8 @@ def list() -> None:
 @theme.command(name="set")
 @click.argument("theme_name")
 def theme_set(theme_name: str) -> None:
-    """Set the console theme.
+    """
+    Set the theme for the console output.
 
     Examples:
         vibectl theme set dark
@@ -508,8 +508,8 @@ def theme_set(theme_name: str) -> None:
                 f"Invalid theme '{theme_name}'. Available themes: "
                 f"{', '.join(available_themes)}"
             )
-            handle_result(Error(error=msg))
-            return
+            console_manager.print_error(msg)
+            sys.exit(1)
 
         # Save theme in config
         cfg = Config()
@@ -526,19 +526,7 @@ def theme_set(theme_name: str) -> None:
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--show-vibe/--no-show-vibe",
-    is_flag=True,
-    default=None,
-)
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@common_command_options(include_show_kubectl=True, include_yes=True)
 def vibe(
     request: str | None,
     show_raw_output: bool | None,
@@ -562,30 +550,18 @@ def vibe(
             yes=yes,
         )
         handle_result(result)
-    except ExitAutoLoopException as e:
-        # Handle the exit here to prevent unnecessary error output
-        if getattr(e, "is_error", False):
-            console_manager.print_error(f"Error: {e}")
-            sys.exit(1)
-        else:
-            # Normal exit, exit cleanly
-            sys.exit(0)
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
+
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort() from e
 
 
 @cli.command()
 @click.argument("request", required=False)
 @common_command_options(include_show_kubectl=True)
-@click.option(
-    "--show-vibe/--no-show-vibe",
-    is_flag=True,
-    default=None,
-)
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
 @click.option(
     "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
 )
@@ -614,37 +590,18 @@ def auto(
             semiauto=False,
         )
         handle_result(result)
-    except ExitAutoLoopException as e:
-        # Handle the exit here to prevent unnecessary error output
-        # For normal exits (is_error=False), just exit cleanly without error messages
-        if not getattr(e, "is_error", False):
-            # Normal exit, perform a clean exit with success code
-            logger.info(f"Normal exit from auto loop: {e}")
-            sys.exit(0)
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
 
-        # For error exits, show the error and exit with an error code
-        logger.error(f"Error in auto loop: {e}")
-        console_manager.print_error(f"Error: {e}")
-        sys.exit(1)
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort() from e
 
 
 @cli.command()
 @click.argument("request", required=False)
 @common_command_options(include_show_kubectl=True)
-@click.option(
-    "--show-vibe/--no-show-vibe",
-    is_flag=True,
-    default=None,
-)
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
-@click.option(
-    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
-)
 def semiauto(
     request: str | None,
     show_raw_output: bool | None,
@@ -653,7 +610,6 @@ def semiauto(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    interval: int = 5,
 ) -> None:
     """Loop vibectl vibe commands with confirmation at each step."""
     try:
@@ -665,21 +621,15 @@ def semiauto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
-            interval=interval,
         )
         handle_result(result)
-    except ExitAutoLoopException as e:
-        # Handle the exit here to prevent unnecessary error output
-        # For normal exits (is_error=False), just exit cleanly without error messages
-        if not getattr(e, "is_error", False):
-            # Normal exit, perform a clean exit with success code
-            logger.info(f"Normal exit from semiauto loop: {e}")
-            sys.exit(0)
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
 
-        # For error exits, show the error and exit with an error code
-        logger.error(f"Error in semiauto loop: {e}")
-        console_manager.print_error(f"Error: {e}")
-        sys.exit(1)
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort() from e
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1254,15 +1204,19 @@ def handle_result(result: Result) -> None:
     Use in CLI handlers to reduce boilerplate.
     """
     if isinstance(result, Success):
-        sys.exit(0)
+        # Check if we should terminate execution
+        if not result.continue_execution:
+            # This is a normal exit (like the user choosing "Exit" in semiauto mode)
+            logger.info(f"Normal termination requested: {result.message}")
+            sys.exit(0)
+        return  # Normal exit, continue
     elif isinstance(result, Error):
-        if result.exception is not None:
-            handle_exception(result.exception)
-        elif result.error:
-            handle_exception(Exception(result.error))
-        else:
-            # Fallback: print a generic error message
-            handle_exception(Exception("Unknown error occurred"))
+        # Always print the error message to console if available
+        if hasattr(result, "error") and result.error:
+            console_manager.print_error(result.error)
+
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort()
 
 
 def main() -> None:
@@ -1276,18 +1230,6 @@ def main() -> None:
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         console_manager.print_keyboard_interrupt()
-        sys.exit(1)
-    except ExitAutoLoopException as e:
-        # Handle the exit here to prevent unnecessary error output
-        # For normal exits (is_error=False), just exit cleanly without error messages
-        if not getattr(e, "is_error", False):
-            # Normal exit, perform a clean exit with success code
-            logger.info(f"Normal exit from CLI: {e}")
-            sys.exit(0)
-
-        # For error exits, show the error and exit with an error code
-        logger.error(f"Error in CLI: {e}")
-        console_manager.print_error(f"Error: {e}")
         sys.exit(1)
     except Exception as e:
         handle_exception(e)

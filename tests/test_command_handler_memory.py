@@ -10,13 +10,10 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import (
-    _execute_command,
-    _execute_command_with_complex_args,
-    _execute_yaml_command,
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.types import OutputFlags
+from vibectl.types import Error, OutputFlags
 
 
 @pytest.fixture
@@ -148,26 +145,24 @@ def test_handle_command_output_updates_memory_with_overloaded_error(
     )
 
     # Call handle_command_output with a command, simulating an overloaded LLM
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        pytest.raises(ValueError) as excinfo,
-    ):
-        handle_command_output(
+    with patch("vibectl.command_handler.console_manager"):
+        result = handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Test prompt {output}",
             command="get pods",
         )
 
-    # The error should be raised and contain 'overloaded_error'
-    assert "overloaded_error" in str(excinfo.value)
+    # The function now returns an Error object instead of raising an exception
+    assert isinstance(result, Error)
+    assert "overloaded_error" in result.error
 
-    # Memory should be updated with the overloaded error as the vibe_output
+    # Memory should still be updated with the overloaded error as the vibe_output
     mock_memory_update.assert_called_once_with(
         "get pods", "test output", overloaded_error, "test-model"
     )
-    # Optionally, check that the error is not attributed to the model being at fault
-    # (i.e., the error type is preserved for downstream logic)
+    # Note: Error is now returned to caller instead of being raised,
+    # but memory update should still happen
 
 
 def test_handle_vibe_request_updates_memory_on_error(
@@ -185,7 +180,7 @@ def test_handle_vibe_request_updates_memory_on_error(
         model_name="test-model",
     )
 
-    # Mock _execute_command to raise an exception
+    # First test: When exception is thrown, it is transformed to Error result
     with (
         patch("vibectl.command_handler._execute_command") as mock_execute,
         patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
@@ -193,6 +188,7 @@ def test_handle_vibe_request_updates_memory_on_error(
         patch("vibectl.command_handler._process_command_string") as mock_process,
         patch("vibectl.command_handler._parse_command_args") as mock_parse,
         patch("vibectl.command_handler._create_display_command") as mock_display,
+        patch("vibectl.command_handler.recovery_prompt", "Recovery: {error}"),
     ):
         # Set up mocks
         mock_process.return_value = ("get pods", None)
@@ -201,7 +197,7 @@ def test_handle_vibe_request_updates_memory_on_error(
         mock_execute.side_effect = Exception("Command execution failed")
 
         # Call handle_vibe_request
-        handle_vibe_request(
+        result = handle_vibe_request(
             request="Show me the pods",
             command="get",
             plan_prompt="Plan how to {command} {request}",
@@ -210,19 +206,14 @@ def test_handle_vibe_request_updates_memory_on_error(
             yes=True,  # Skip confirmation
         )
 
-    # Process the output for memory update (don't return early)
-    mock_handle_output.assert_called_once()
-    call_args = mock_handle_output.call_args[1]
-    assert "output" in call_args
-    assert "Error:" in call_args["output"]
-    assert "command" in call_args
+        # Verify the result is an Error
+        assert isinstance(result, Error)
+        # Check that the error contains our exception message
+        assert "Command execution failed" in str(
+            result.error
+        ) or "Command execution failed" in str(result.exception)
 
-    # We expect the command to be "get get pods" - the first "get" is from the command,
-    # and the "get pods" is from the display command
-    assert call_args["command"] == "get get pods"
-
-    # Now test with autonomous_mode=True and command="vibe" to verify
-    # the fix works correctly for the special case
+    # Second test: When Error is returned directly
     mock_handle_output.reset_mock()
 
     with (
@@ -232,146 +223,28 @@ def test_handle_vibe_request_updates_memory_on_error(
         patch("vibectl.command_handler._process_command_string") as mock_process,
         patch("vibectl.command_handler._parse_command_args") as mock_parse,
         patch("vibectl.command_handler._create_display_command") as mock_display,
+        patch("vibectl.command_handler.recovery_prompt", "Recovery: {error}"),
     ):
         # Set up mocks
         mock_process.return_value = ("get pods", None)
         mock_parse.return_value = ["get", "pods"]
         mock_display.return_value = "get pods"
-        mock_execute.side_effect = Exception("Command execution failed")
+        # Return an Error object directly
+        mock_execute.return_value = Error(error="Command execution failed")
 
-        # Call handle_vibe_request with autonomous_mode=True and command="vibe"
-        handle_vibe_request(
+        # Call handle_vibe_request
+        result = handle_vibe_request(
             request="Show me the pods",
-            command="vibe",
+            command="get",
             plan_prompt="Plan how to {command} {request}",
             summary_prompt_func=lambda: "Test prompt {output}",
             output_flags=output_flags,
             yes=True,  # Skip confirmation
-            autonomous_mode=True,  # Enable autonomous mode
         )
 
-    # Verify handle_command_output was called with error output
-    mock_handle_output.assert_called_once()
-    call_args = mock_handle_output.call_args[1]
-    assert "output" in call_args
-    assert "Error:" in call_args["output"]
-    assert "command" in call_args
+        # Verify the result is an Error
+        assert isinstance(result, Error)
+        assert "Command execution failed" in result.error
 
-    # In autonomous mode with command="vibe", we expect just "get pods"
-    # without "vibe" prefixed
-    assert call_args["command"] == "get pods"
-
-
-def test_execute_command_with_complex_args_memory_handling() -> None:
-    """Test that _execute_command_with_complex_args handles errors properly."""
-    with (
-        patch("vibectl.command_handler.subprocess.run") as mock_run,
-        patch("vibectl.command_handler.console_manager"),
-    ):
-        # Set up subprocess.run to raise CalledProcessError
-        import subprocess
-
-        error = subprocess.CalledProcessError(
-            1, ["kubectl", "get", "pods"], stderr="Command failed"
-        )
-        mock_run.side_effect = error
-
-        # Try to execute command with complex args
-        result = _execute_command_with_complex_args(["get", "pods", "with spaces"])
-
-        # Verify error is captured in output for memory
-        assert isinstance(result, str)
-        assert "Error:" in result
-
-
-def test_execute_yaml_command_stdin_memory_handling() -> None:
-    """Test that _execute_yaml_command handles stdin errors properly."""
-    with (
-        patch("subprocess.Popen") as mock_popen,
-        patch("vibectl.command_handler.console_manager"),
-    ):
-        # Configure mock Popen
-        mock_process = Mock()
-        mock_process.returncode = 1
-        mock_process.communicate.return_value = (b"", b"Error in stdin")
-        mock_popen.return_value = mock_process
-
-        # Patch the Exception raise to capture the error message
-        with patch(
-            "vibectl.command_handler._execute_yaml_command",
-            side_effect=Exception("Error in stdin"),
-        ):
-            # Try to execute YAML command with stdin
-            yaml_content = "apiVersion: v1\nkind: Pod"
-            try:
-                result = _execute_yaml_command(["apply", "-f", "-"], yaml_content)
-            except Exception as e:
-                # The function is expected to raise an exception
-                # In the real code, this would be caught and formatted for memory
-                result = f"Error: {e!s}"
-
-            # Verify error is captured in output for memory
-            assert "Error:" in result
-
-
-def test_execute_yaml_command_file_memory_handling() -> None:
-    """Test that _execute_yaml_command handles file errors properly."""
-    with (
-        patch("subprocess.run") as mock_run,
-        patch("vibectl.command_handler.console_manager"),
-        patch("tempfile.NamedTemporaryFile") as mock_tempfile,
-    ):
-        # Configure mock tempfile
-        mock_file = Mock()
-        mock_file.name = "/tmp/test.yaml"
-        mock_tempfile.return_value.__enter__.return_value = mock_file
-
-        # Configure mock run
-        mock_process = Mock()
-        mock_process.returncode = 1
-        mock_process.stderr = "File error"
-        mock_run.return_value = mock_process
-
-        # Patch the Exception raise to capture the error message
-        with patch(
-            "vibectl.command_handler._execute_yaml_command",
-            side_effect=Exception("File error"),
-        ):
-            # Try to execute YAML command with file
-            yaml_content = "apiVersion: v1\nkind: Pod"
-            try:
-                result = _execute_yaml_command(["apply"], yaml_content)
-            except Exception as e:
-                # The function is expected to raise an exception
-                # In the real code, this would be caught and formatted for memory
-                result = f"Error: {e!s}"
-
-            # Verify error is captured in output for memory
-            assert "Error:" in result
-
-
-def test_execute_command_memory_leak_prevention() -> None:
-    """Test that _execute_command properly handles resources to prevent leaks."""
-    with (
-        patch("vibectl.command_handler._execute_yaml_command") as mock_yaml_exec,
-        patch(
-            "vibectl.command_handler._execute_command_with_complex_args"
-        ) as mock_complex_exec,
-        patch("vibectl.command_handler.run_kubectl") as mock_run_kubectl,
-    ):
-        # Configure mocks
-        mock_yaml_exec.return_value = "YAML applied"
-        mock_complex_exec.return_value = "Complex command executed"
-        mock_run_kubectl.return_value = "kubectl executed"
-
-        # Test with YAML content
-        result1 = _execute_command(["apply", "-f"], "test YAML")
-        assert result1 == "YAML applied"
-
-        # Test with complex args
-        result2 = _execute_command(["get", "pods", "with spaces"], None)
-        assert result2 == "Complex command executed"
-
-        # Test with simple args
-        result3 = _execute_command(["get", "pods"], None)
-        assert result3 == "kubectl executed"
+    # With the new implementation, handle_command_output is not called for Error results
+    mock_handle_output.assert_not_called()

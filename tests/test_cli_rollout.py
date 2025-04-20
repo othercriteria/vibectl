@@ -322,7 +322,7 @@ def test_rollout_error_handling(cli_runner: CliRunner) -> None:
         assert result.exit_code == 1
         # Accept either output or exception for robust testing
         if result.output:
-            assert "Error: Test error" in result.output
+            assert "Exception running kubectl" in result.output
         else:
             assert result.exception is not None
             assert "Test error" in str(result.exception)

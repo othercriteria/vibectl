@@ -1,4 +1,10 @@
+# Standard library imports
+
+# Third-party imports
+
+# Local imports
 from vibectl.command_handler import (
+    OutputFlags,
     configure_output_flags,
     handle_standard_command,
     handle_vibe_request,
@@ -33,6 +39,8 @@ def run_describe_command(
     logger.info(
         f"Invoking 'describe' subcommand with resource: {resource}, args: {args}"
     )
+
+    # Configure output and memory settings
     try:
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
@@ -41,49 +49,76 @@ def run_describe_command(
             show_kubectl=show_kubectl,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
+    except Exception as e:
+        logger.error(f"Error configuring flags: {e}", exc_info=True)
+        return Error(error=f"Error configuring options: {e}", exception=e)
 
-        if resource == "vibe":
-            if not args:
-                msg = (
-                    "Missing request after 'vibe' command. "
-                    "Please provide a natural language request, e.g.: "
-                    'vibectl describe vibe "the nginx pod in default"'
-                )
-                return Error(error=msg)
-            request = " ".join(args)
-            logger.info("Planning how to: %s", request)
-            planning_msg = f"Planning how to: describe {request}"
-            console_manager.print_processing(planning_msg)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="describe",
-                    plan_prompt=PLAN_DESCRIBE_PROMPT,
-                    summary_prompt_func=describe_resource_prompt,
-                    output_flags=output_flags,
-                    memory_context=get_memory() or "",
-                )
-            except Exception as e:
-                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
-                return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'describe' subcommand for vibe request.")
-            return Success(message="Completed 'describe' subcommand for vibe request.")
+    # Handle 'vibe' command special case
+    if resource == "vibe":
+        return _handle_vibe_describe(args, output_flags)
 
-        try:
-            handle_standard_command(
-                command="describe",
-                resource=resource,
-                args=args,
-                output_flags=output_flags,
-                summary_prompt_func=describe_resource_prompt,
-            )
-        except Exception as e:
-            logger.error("Error in handle_standard_command: %s", e, exc_info=True)
-            return Error(error="Exception in handle_standard_command", exception=e)
+    # Handle standard describe command
+    return _handle_standard_describe(resource, args, output_flags)
+
+
+def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
+    """Handle the 'describe vibe' subcommand."""
+    # Ensure we have arguments after 'vibe'
+    if not args:
+        msg = (
+            "Missing request after 'vibe' command. "
+            "Please provide a natural language request, e.g.: "
+            'vibectl describe vibe "the nginx pod in default"'
+        )
+        return Error(error=msg)
+
+    # Process the natural language request
+    request = " ".join(args)
+    logger.info(f"Planning how to: {request}")
+    console_manager.print_processing(f"Planning how to: describe {request}")
+
+    try:
+        result = handle_vibe_request(
+            request=request,
+            command="describe",
+            plan_prompt=PLAN_DESCRIBE_PROMPT,
+            summary_prompt_func=describe_resource_prompt,
+            output_flags=output_flags,
+            memory_context=get_memory() or "",
+        )
+
+        # Return any error unchanged
+        if isinstance(result, Error):
+            return result
+
+        logger.info("Completed 'describe' subcommand for vibe request.")
+        return Success(message="Completed 'describe' subcommand for vibe request.")
+    except Exception as e:
+        logger.error(f"Error in handle_vibe_request: {e}", exc_info=True)
+        return Error(error=f"Exception in handle_vibe_request: {e}", exception=e)
+
+
+def _handle_standard_describe(
+    resource: str, args: tuple, output_flags: OutputFlags
+) -> Result:
+    """Handle a standard 'describe' command for a specific resource."""
+    try:
+        result = handle_standard_command(
+            command="describe",
+            resource=resource,
+            args=args,
+            output_flags=output_flags,
+            summary_prompt_func=describe_resource_prompt,
+        )
+        # Return any error unchanged
+        if isinstance(result, Error):
+            return result
+
         logger.info(f"Completed 'describe' subcommand for resource: {resource}")
         return Success(
             message=f"Completed 'describe' subcommand for resource: {resource}"
         )
     except Exception as e:
-        logger.error("Error in 'describe' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'describe' subcommand", exception=e)
+        logger.error(f"Error in handle_standard_command: {e}", exc_info=True)
+        err_msg = f"Exception in handle_standard_command: {e}"
+        return Error(error=err_msg, exception=e)

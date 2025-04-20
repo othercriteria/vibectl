@@ -67,14 +67,23 @@ def run_logs_command(
         # Regular logs command
         cmd = ["logs", resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
-        try:
-            output = run_kubectl(cmd, capture=True)
-        except Exception as e:
-            logger.error("Error running kubectl: %s", e, exc_info=True)
-            return Error(error="Exception running kubectl", exception=e)
+
+        # Run kubectl and check result type
+        result = run_kubectl(cmd, capture=True)
+
+        # If result is an error, return it
+        if isinstance(result, Error):
+            error_msg = f"Error running kubectl: {result.error}"
+            logger.error(error_msg)
+            console_manager.print_error(error_msg)
+            return result
+
+        # Extract output from Success result
+        output = result.data
 
         if not output:
             logger.info("No output from kubectl logs command.")
+            console_manager.print_note("No output from kubectl logs command.")
             return Success(message="No output from kubectl logs command.")
 
         # handle_command_output will handle truncation warnings and output display

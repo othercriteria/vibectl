@@ -7,7 +7,7 @@ which reifies the looping 'vibectl vibe --yes' pattern.
 
 import time
 
-from vibectl.command_handler import ExitAutoLoopException, configure_output_flags
+from vibectl.command_handler import configure_output_flags
 from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -29,7 +29,8 @@ def run_auto_command(
     exit_on_error: bool = True,
 ) -> Result:
     """
-    Implements the 'auto' subcommand logic, including looping behavior and confirmation options.
+    Implements the auto subcommand logic, including looping
+    behavior and confirmation options.
 
     Args:
         request: Natural language request from the user
@@ -39,7 +40,8 @@ def run_auto_command(
         model: Model name to use for vibe
         freeze_memory: Whether to freeze memory
         unfreeze_memory: Whether to unfreeze memory
-        yes: Whether to automatically confirm actions (default: True for auto, False for semiauto)
+        yes: Whether to automatically confirm actions (default:
+            True for auto, False for semiauto)
         interval: Seconds to wait between loop iterations
         semiauto: Whether we're in semiauto mode with manual confirmation
         exit_on_error: If True (default), errors will terminate the process.
@@ -49,7 +51,8 @@ def run_auto_command(
         Result object (Success or Error)
     """
     logger.info(
-        f"Starting '{('semi' if semiauto else '')}auto' command with request: {request!r}"
+        f"Starting '{('semi' if semiauto else '')}auto' command with "
+        f"request: {request!r}"
     )
 
     # Display a header for the auto session
@@ -68,7 +71,7 @@ def run_auto_command(
 
     try:
         # Configure output flags and memory
-        output_flags = configure_output_flags(
+        configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
             model=model,
@@ -113,35 +116,28 @@ def run_auto_command(
                     if exit_on_error:
                         raise ValueError(f"Error in vibe command: {result.error}")
 
+                # Check if we got a Success with continue_execution=False
+                elif isinstance(result, Success) and not result.continue_execution:
+                    # User requested to exit the loop
+                    logger.info("User requested exit from auto/semiauto loop")
+                    console_manager.print_note("Auto session exited by user")
+                    return Success(message="Auto session exited by user")
+
             except KeyboardInterrupt:
                 logger.info("Keyboard interrupt detected in auto loop")
                 console_manager.print_warning("Auto session interrupted by user")
                 return Success(message="Auto session stopped by user")
 
-            except ExitAutoLoopException as e:
-                # Always treat non-error exits (e.g., user choosing 'Exit') as a normal exit
-                # This should result in a clean exit without error messages
-                if not getattr(e, "is_error", False):
-                    logger.info("User requested exit from auto/semiauto loop")
-                    console_manager.print_note("Auto session exited by user")
-                    return Success(message="Auto session exited by user")
-
-                # For actual errors, report them
-                logger.error(f"Error in auto/semiauto loop: {e}")
-                console_manager.print_error(f"Error in auto loop: {e}")
-
-                # Only re-raise if exit_on_error is True, otherwise return an error
-                if exit_on_error:
-                    raise
-                return Error(error=f"Error in auto/semiauto loop: {e}", exception=e)
-
             # Wait before next iteration
             logger.info(
-                f"Completed iteration {iteration}, waiting {interval} seconds before next"
+                f"Completed iteration {iteration}, waiting {interval} "
+                f"seconds before next"
             )
 
-            # Wait between iterations unless we're in semiauto mode AND no error occurred
-            # In semiauto mode without error, user confirmation provides natural pausing
+            # Wait between iterations unless we're in semiauto mode AND
+            # no error occurred
+            # In semiauto mode without error, user confirmation provides
+            # natural pausing
             # With errors or in auto mode, we always need to sleep
             if interval > 0 and (not semiauto or error_occurred):
                 console_manager.print_note(
@@ -158,7 +154,8 @@ def run_auto_command(
 
     except Exception as e:
         logger.error(f"Error in auto command: {e}")
-        if exit_on_error:  # pragma: no cover - difficult to trigger in tests, covered by integration tests
+        if exit_on_error:  # pragma: no cover - difficult to trigger in tests,
+            # covered by integration tests
             raise
         return Error(error=f"Exception in auto command: {e}", exception=e)
 
@@ -171,11 +168,11 @@ def run_semiauto_command(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    interval: int = 5,
     exit_on_error: bool = True,
 ) -> Result:
     """
-    Implements the 'semiauto' subcommand logic, which is sugar for auto with manual confirmation.
+    Implements the semiauto subcommand logic, which is sugar
+    for auto with manual confirmation.
 
     This just calls run_auto_command with semiauto=True and yes=False.
 
@@ -187,7 +184,6 @@ def run_semiauto_command(
         model: Model name to use for vibe
         freeze_memory: Whether to freeze memory
         unfreeze_memory: Whether to unfreeze memory
-        interval: Seconds to wait between loop iterations
         exit_on_error: If True (default), errors will terminate the process.
            If False, errors are returned as Error objects for tests.
 
@@ -205,7 +201,7 @@ def run_semiauto_command(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         yes=False,  # Override to False for semiauto
-        interval=interval,
+        interval=0,  # Use 0 interval as semiauto has natural pausing through user input
         semiauto=True,  # Set semiauto mode
         exit_on_error=exit_on_error,
     )

@@ -1,5 +1,4 @@
 from vibectl.command_handler import (
-    ExitAutoLoopException,
     configure_output_flags,
     handle_vibe_request,
 )
@@ -58,7 +57,7 @@ def run_vibe_command(
             console_manager.print_processing(f"Planning how to: {request}")
 
         try:
-            handle_vibe_request(
+            result = handle_vibe_request(
                 request=request,
                 command="vibe",
                 plan_prompt=PLAN_VIBE_PROMPT,
@@ -69,23 +68,20 @@ def run_vibe_command(
                 memory_context=memory_context,
                 autonomous_mode=True,
             )
-        except ExitAutoLoopException as e:
-            # For normal exits (is_error=False), always re-raise without any logging
-            # This ensures clean propagation to the outer handlers
-            if not getattr(e, "is_error", False):
-                logger.info(f"Normal exit requested: {e}")
-                raise
 
-            # Only log and handle error cases (is_error=True)
-            logger.error(f"Error in handle_vibe_request: {e}")
-            if exit_on_error:
-                raise
-            return Error(error=f"Error in handle_vibe_request: {e}", exception=e)
+            # Log if it's a normal exit request
+            if isinstance(result, Success) and not result.continue_execution:
+                logger.info(f"Normal exit requested: {result.message}")
+
+            # Return all results (Success/Error) directly
+            return result
+
         except Exception as e:
             logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
             if exit_on_error:
                 raise
             return Error(error="Exception in handle_vibe_request", exception=e)
+
         logger.info("Completed 'vibe' subcommand.")
         return Success(message="Completed 'vibe' subcommand.")
     except Exception as e:

@@ -12,7 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-from vibectl.command_handler import OutputFlags
+from vibectl.command_handler import OutputFlags, Success
 
 
 @pytest.fixture
@@ -85,7 +85,9 @@ def test_port_forward_basic(
 ) -> None:
     """Test port-forward command with basic arguments."""
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:8080 -> 8080"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -125,7 +127,9 @@ def test_port_forward_with_args(
 ) -> None:
     """Test port-forward command with additional arguments."""
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:5000 -> 80"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:5000 -> 80"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -173,7 +177,9 @@ def test_port_forward_with_flags(
     )
 
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:8080 -> 8080"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -211,7 +217,9 @@ def test_port_forward_error_handling(
 ) -> None:
     """Test port-forward command error handling."""
     # Set up mock kubectl output for an error
-    mock_run_kubectl_for_cli.return_value = "Error: unable to forward port"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Error: unable to forward port"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),

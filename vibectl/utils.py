@@ -27,21 +27,6 @@ def handle_exception(
     Optionally print tracebacks if VIBECTL_TRACEBACK=1 or log level is DEBUG.
     Accepts an optional traceback object for robust traceback printing.
     """
-    # Handle ExitAutoLoopException differently based on is_error flag
-    from .command_handler import ExitAutoLoopException
-
-    if isinstance(e, ExitAutoLoopException):
-        if getattr(e, "is_error", False):
-            # Only print error for ones marked as errors
-            console_manager.print_error(f"Error: {e}")
-        else:
-            # For normal exits, don't print any error
-            pass
-
-        if exit_on_error:
-            sys.exit(0 if not getattr(e, "is_error", False) else 1)
-        return None
-
     # Handle 'Missing request after vibe' errors first to avoid duplicate output
     if "missing request after 'vibe'" in str(e).lower():
         console_manager.print_missing_request_error()
@@ -49,7 +34,6 @@ def handle_exception(
             sys.exit(1)
         return None
 
-    # Only show traceback for non-ExitAutoLoopException exceptions or those with is_error=True
     # Optionally print traceback if VIBECTL_TRACEBACK=1 or log level is DEBUG
     show_traceback = (
         os.environ.get("VIBECTL_TRACEBACK") == "1"
@@ -57,12 +41,10 @@ def handle_exception(
     )
 
     if show_traceback and tb is not None:
-        # Only show traceback if it's not a normal exit
-        if not isinstance(e, ExitAutoLoopException) or getattr(e, "is_error", True):
-            console_manager.error_console.print(
-                "[red]Traceback (most recent call last):[/]"
-            )
-            traceback.print_exception(type(e), e, tb)
+        console_manager.error_console.print(
+            "[red]Traceback (most recent call last):[/]"
+        )
+        traceback.print_exception(type(e), e, tb)
 
     # Handle API key related errors
     if (

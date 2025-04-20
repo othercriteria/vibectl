@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import (
+    Error,
     OutputFlags,
     handle_standard_command,
 )
@@ -231,12 +232,16 @@ def test_handle_standard_command_logs(
         # Now test error case
         mock_subprocess_run.side_effect = Exception("test error")
         mock_command_handler_logger.reset_mock()
-        with pytest.raises(Exception) as excinfo:
-            command_handler.handle_standard_command(
-                command="get",
-                resource="pods",
-                args=(),
-                output_flags=standard_output_flags,
-                summary_prompt_func=mock_summary_prompt,
-            )
-        assert "test error" in str(excinfo.value)
+
+        # Function now returns an Error object instead of raising an exception
+        result = command_handler.handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            output_flags=standard_output_flags,
+            summary_prompt_func=mock_summary_prompt,
+        )
+
+        # Verify we got an Error return type
+        assert isinstance(result, Error)
+        assert "test error" in result.error

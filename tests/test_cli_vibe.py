@@ -6,38 +6,27 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli, vibe
 from vibectl.command_handler import OutputFlags
+from vibectl.types import Error, Success
 
 
-# --- OutputFlags-focused CLI tests (from test_vibe_command.py) ---
-@pytest.fixture
-def standard_output_flags() -> OutputFlags:
-    return OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=True,
-        model_name="claude-3.7-sonnet",
-        show_kubectl=False,
-    )
-
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    return CliRunner()
-
-
+# Local fixtures specifically for these tests
 @pytest.fixture
 def mock_handle_vibe_request() -> Generator[Mock, None, None]:
+    """Mock the handle_vibe_request function in vibe_cmd for CLI tests."""
     with patch("vibectl.subcommands.vibe_cmd.handle_vibe_request") as mock:
+        mock.return_value = Success(message="Success")
         yield mock
 
 
 @pytest.fixture
 def mock_get_memory() -> Generator[Mock, None, None]:
+    """Mock the get_memory function in vibe_cmd for CLI tests."""
     with patch("vibectl.subcommands.vibe_cmd.get_memory") as mock:
         mock.return_value = "Memory context"
         yield mock
 
 
+# --- OutputFlags-focused CLI tests (from test_vibe_command.py) ---
 def test_vibe_command_with_request(
     cli_runner: CliRunner,
     mock_handle_vibe_request: Mock,
@@ -171,8 +160,6 @@ def test_vibe_command_handle_vibe_request_exception() -> None:
         result = run_vibe_command(
             "do something", None, None, None, None, exit_on_error=False
         )
-        from vibectl.types import Error
-
         assert isinstance(result, Error)
         assert "Exception in handle_vibe_request" in result.error
         mock_logger.error.assert_any_call(
@@ -195,8 +182,6 @@ def test_vibe_command_outer_exception() -> None:
         result = run_vibe_command(
             "do something", None, None, None, None, exit_on_error=False
         )
-        from vibectl.types import Error
-
         assert isinstance(result, Error)
         assert "Exception in 'vibe' subcommand" in result.error
         mock_logger.error.assert_any_call(
@@ -209,14 +194,15 @@ def test_vibe_command_logs_and_console_for_empty_request() -> None:
     from vibectl.subcommands.vibe_cmd import run_vibe_command
 
     with (
-        patch("vibectl.subcommands.vibe_cmd.handle_vibe_request"),
+        patch(
+            "vibectl.subcommands.vibe_cmd.handle_vibe_request",
+            return_value=Success(),
+        ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
         patch("vibectl.subcommands.vibe_cmd.console_manager") as mock_console,
     ):
         result = run_vibe_command(None, None, None, None, None)
-        from vibectl.types import Success
-
         assert isinstance(result, Success)
         mock_logger.info.assert_any_call(
             "No request provided; using memory context for planning."
@@ -231,14 +217,15 @@ def test_vibe_command_logs_and_console_for_nonempty_request() -> None:
     from vibectl.subcommands.vibe_cmd import run_vibe_command
 
     with (
-        patch("vibectl.subcommands.vibe_cmd.handle_vibe_request"),
+        patch(
+            "vibectl.subcommands.vibe_cmd.handle_vibe_request",
+            return_value=Success(),
+        ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
         patch("vibectl.subcommands.vibe_cmd.console_manager") as mock_console,
     ):
         result = run_vibe_command("do something", None, None, None, None)
-        from vibectl.types import Success
-
         assert isinstance(result, Success)
         mock_logger.info.assert_any_call("Planning how to: do something")
         mock_console.print_processing.assert_any_call("Planning how to: do something")

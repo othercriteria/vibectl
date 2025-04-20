@@ -256,9 +256,6 @@ def test_process_command_string_heredoc() -> None:
     assert "apiVersion: v1" in yaml_content
 
 
-# Mark these as integration tests since they mock fewer components
-@patch("vibectl.command_handler._execute_command")
-@patch("vibectl.command_handler._parse_command_args")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.run_kubectl")
@@ -266,8 +263,6 @@ def test_handle_vibe_request_with_heredoc_integration(
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
     mock_get_adapter: Mock,
-    mock_process_args: Mock,  # Mock for args processing
-    mock_execute_command: Mock,  # Added mock for execution
 ) -> None:
     """Test handle_vibe_request with heredoc syntax in the model response."""
     # Set up mocks
@@ -288,41 +283,57 @@ def test_handle_vibe_request_with_heredoc_integration(
     )
     mock_adapter.execute.return_value = heredoc_cmd
 
-    # Make args processing return valid args that would pass validation
-    mock_process_args.return_value = ["create", "deployment", "nginx-deployment"]
+    # Mock the subprocess call for create -f - instead of patching internals
+    with patch("subprocess.Popen") as mock_popen:
+        # Set up subprocess to return success
+        mock_process = Mock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (
+            b"deployment.apps/nginx-deployment created",
+            b"",
+        )
+        mock_popen.return_value = mock_process
 
-    # Set up _execute_command to return success
-    mock_execute_command.return_value = "deployment.apps/nginx-deployment created"
-
-    # Create output flags
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",
-        show_kubectl=True,
-    )
-
-    # Call handle_vibe_request with yes=True to skip confirmation
-    with patch("click.confirm", return_value=True):  # Mock confirmation
-        handle_vibe_request(
-            request="create nginx deployment with 3 replicas",
-            command="create",
-            plan_prompt="Test prompt",
-            summary_prompt_func=lambda: "Test summary",
-            output_flags=output_flags,
-            yes=True,  # Skip confirmation
+        # Create output flags
+        output_flags = OutputFlags(
+            show_raw=True,
+            show_vibe=True,
+            warn_no_output=False,
+            model_name="test-model",
+            show_kubectl=True,
         )
 
-    # Verify our mocks were called appropriately
-    mock_adapter.execute.assert_called()  # Should be called at least once
-    mock_execute_command.assert_called_once()  # Should be called exactly once
-    mock_handle_output.assert_called_once()
+        # Call handle_vibe_request with yes=True to skip confirmation
+        with (
+            patch("click.confirm", return_value=True),
+            patch(
+                "vibectl.command_handler.recovery_prompt",
+                "Recovery prompt: {error} {command} {request} {kubectl_cmd}",
+            ),
+        ):
+            handle_vibe_request(
+                request="create nginx deployment with 3 replicas",
+                command="create",
+                plan_prompt="Test prompt",
+                summary_prompt_func=lambda: "Test summary",
+                output_flags=output_flags,
+                yes=True,  # Skip confirmation
+            )
+
+        # Verify subprocess was called with YAML input
+        assert mock_popen.call_count > 0
+        # At least one call should be to kubectl with create -f -
+        kubectl_calls = [
+            call
+            for call in mock_popen.call_args_list
+            if len(call[0]) > 0
+            and isinstance(call[0][0], list)
+            and "kubectl" in call[0][0]
+            and "create" in call[0][0]
+        ]
+        assert len(kubectl_calls) > 0, "No kubectl commands were executed"
 
 
-# Mark these as integration tests since they mock fewer components
-@patch("vibectl.command_handler._execute_command")
-@patch("vibectl.command_handler._parse_command_args")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.run_kubectl")
@@ -330,8 +341,6 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
     mock_get_adapter: Mock,
-    mock_process_args: Mock,  # Mock for args processing
-    mock_execute_command: Mock,  # Added mock for execution
 ) -> None:
     """Test handle_vibe_request with heredoc syntax that produces an error."""
     # Set up mocks
@@ -350,48 +359,55 @@ def test_handle_vibe_request_with_heredoc_error_integration(
         "        image: nginx:latest\n"
         "        ports:\n        - containerPort: 80\nEOF"
     )
-    # Just return the command, no need for recovery suggestions which may not be called
-    mock_adapter.execute.return_value = heredoc_cmd
-
-    # Make args processing return valid args that would pass validation
-    mock_process_args.return_value = ["create", "deployment", "nginx-deployment"]
-
-    # Set up _execute_command to fail
-    error_msg = (
-        "Error: unable to parse YAML: mapping values are not allowed in this context"
-    )
-    mock_execute_command.side_effect = Exception(error_msg)
-
-    # Set up execute mock to return recovery suggestions
+    # Set up the model to return both the command and recovery suggestions
     mock_adapter.execute.side_effect = [
         heredoc_cmd,  # First call returns the command
         "Here are recovery suggestions",  # Second call returns recovery suggestions
     ]
 
-    # Create output flags
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",
-        show_kubectl=True,
-    )
+    # Mock the subprocess call to fail with an error
+    with patch("subprocess.Popen") as mock_popen:
+        # Set up subprocess to return an error
+        mock_process = Mock()
+        mock_process.returncode = 1
+        error_msg = (
+            "Error: unable to parse YAML: mapping values are "
+            "not allowed in this context"
+        )
+        mock_process.communicate.return_value = (b"", error_msg.encode())
+        mock_popen.return_value = mock_process
 
-    # Call handle_vibe_request with yes=True to skip confirmation
-    with patch("click.confirm", return_value=True):  # Mock confirmation
-        handle_vibe_request(
-            request="create nginx deployment with 3 replicas",
-            command="create",
-            plan_prompt="Test prompt",
-            summary_prompt_func=lambda: "Test summary",
-            output_flags=output_flags,
-            yes=True,  # Skip confirmation
+        # Create output flags
+        output_flags = OutputFlags(
+            show_raw=True,
+            show_vibe=True,
+            warn_no_output=False,
+            model_name="test-model",
+            show_kubectl=True,
         )
 
-    # Verify our mocks were called appropriately
-    assert mock_adapter.execute.call_count == 2  # Called twice (command + recovery)
-    mock_execute_command.assert_called_once()  # Should be called exactly once
-    mock_handle_output.assert_called_once()
+        # Call handle_vibe_request with yes=True to skip confirmation
+        with (
+            patch("click.confirm", return_value=True),
+            patch(
+                "vibectl.command_handler.recovery_prompt",
+                return_value="Recovery prompt for this error",
+            ),
+        ):
+            handle_vibe_request(
+                request="create nginx deployment with 3 replicas",
+                command="create",
+                plan_prompt="Test prompt",
+                summary_prompt_func=lambda: "Test summary",
+                output_flags=output_flags,
+                yes=True,  # Skip confirmation
+            )
+
+        # Verify Popen was called
+        assert mock_popen.call_count > 0
+
+        # Verify the model was called twice
+        assert mock_adapter.execute.call_count == 2
 
 
 # Use a simpler approach to directly test the YAML processing
