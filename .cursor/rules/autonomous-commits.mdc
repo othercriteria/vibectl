@@ -3,7 +3,6 @@ description: Defines criteria and behavior for autonomous commits
 globs: ["**/*"]
 alwaysApply: true
 ---
-
 # Autonomous Commits
 
 Rules for autonomous commits in the repository.
@@ -12,18 +11,22 @@ Rules for autonomous commits in the repository.
 name: autonomous_commits
 description: Defines criteria and behavior for autonomous commits
 filters:
+  # Match commit intents earlier in the process
   - type: intent
-    pattern: "code_change_complete"
+    pattern: "code_change"
   - type: content
     pattern: "(?i)\\b(commit|save|checkpoint|approved|lgtm|looks good)\\b"
   - type: content
     pattern: "(?i)\\b(skip|disable|bypass|no|ignore)[-_]?(pre[-_]?commit|hooks?)\\b"
+  # Trigger on git command patterns
+  - type: content
+    pattern: "(?i)\\bgit\\s+(commit|add)\\b"
 
 actions:
   - type: commit
     command: |
       # Always run git add to stage all intended changes before committing.
-      # Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail, unless bypassed with --no-verify (not recommended for main).
+      # Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail.
       # Check for untracked .mdc files in .cursor/rules
       UNTRACKED_RULES=$(git ls-files --others --exclude-standard .cursor/rules/*.mdc)
       if [ -n "$UNTRACKED_RULES" ]; then
@@ -46,15 +49,12 @@ actions:
       FEATURE_CHANGES=false
       echo "$CHANGED_FILES" | grep -qvE '^(CHANGELOG\.md|bump_version\.py|pyproject\.toml)$' && echo "$CHANGED_FILES" | grep -qE '\.(py|js|ts|jsx|tsx|css|html|md)$' && FEATURE_CHANGES=true
 
-      # For feature branches, changelog updates are managed by the feature-worktrees rule
-      # For direct commits to main, we need to check
-      CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-      if [ "$FEATURE_CHANGES" = true ] && [ "$CURRENT_BRANCH" = "main" ]; then
+      if [ "$FEATURE_CHANGES" = true ]; then
         if ! echo "$CHANGED_FILES" | grep -q '^CHANGELOG\.md$'; then
-          echo "Warning: Feature changes detected on main branch but CHANGELOG.md not updated."
+          echo "Warning: Feature changes detected but CHANGELOG.md not updated."
           echo "Consider adding your changes to the Unreleased section of CHANGELOG.md"
           echo "See the changelog rule for details."
-          # Don't exit, just warn - it's a reminder, not a blocker
+          # Do not exit, just warn - it is a reminder, not a blocker
         fi
       fi
 
@@ -83,73 +83,94 @@ actions:
         fi
       fi
 
-      # If --no-verify is used, require (wip) in the commit message
-      if [[ "$*" == *"--no-verify"* ]]; then
-        if ! git diff --cached --quiet; then
-          COMMIT_MSG=$(git var GIT_COMMITTER_IDENT >/dev/null 2>&1; git log -1 --pretty=%B)
-          if ! echo "$COMMIT_MSG" | grep -q "(wip)"; then
-            echo "Error: Commits made with --no-verify must include (wip) in the commit message."
-            exit 1
-          fi
-        fi
-      fi
-
       # Defer to commit-message rule for message formatting
       # The placeholder values will be filled by the commit-message rule
       git commit -m "{type}: {concise description}"
 
   - type: reject
     conditions:
-      - pattern: "(?i)\\b(skip|disable|bypass|no|ignore)[-_]?(pre[-_]?commit|hooks?)\\b"
+      - pattern: "(?i)\\b(--no-verify|\\bno-verify\\b)\\b"
         message: |
-          Disabling pre-commit hooks is not allowed. Fix reported issues or ask for guidance.
+          WARNING: We strongly discourage using --no-verify to bypass pre-commit hooks.
 
-      - pattern: "(?i)\\bfeature.*\\bwithout.*\\bchangelog\\b"
-        message: |
-          Feature PRs must include CHANGELOG.md updates.
-          See the changelog and feature-worktrees rules for details.
+          If you must use --no-verify for any reason:
+          1. Add (wip) to your commit message to indicate it is temporary
+          2. Prioritize addressing the hook failures ASAP
+          3. Follow up with a clean commit that passes all hooks
 
-      - pattern: "(?i)--no-verify(?!.*\(wip\))"
-        message: |
-          Commits made with --no-verify must include (wip) in the commit message.
-          This signals that the commit is a work in progress and may not pass all checks.
+          Instead of using --no-verify, try these approaches:
+          • For linting issues: run "ruff check --fix filename.py"
+          • For trailing whitespace: run "sed -i 's/[ \t]*$//' filename"
+          • For long lines: break function calls over multiple lines
+          • For test failures: run "pytest -v failing_test.py"
+
+          Remember: --no-verify bypasses all pre-commit hooks including
+          important quality checks, so it should be used sparingly.
 
   - type: suggest
     message: |
-      ## Autonomous Commit Guidelines
+      ## Commit Guidelines
 
-      Always run `git add` to stage all intended changes before committing.
-      Pre-commit hooks will run tests and lint checks; commits will be blocked if these fail, unless bypassed with `--no-verify` (not recommended for main).
+      Pre-commit hooks ensure code quality and avoid regressions. For successful commits:
 
-      If you use `--no-verify`, your commit message **must** include `(wip)` to indicate work in progress.
+      1. **Always run hooks**
+         • Do not use --no-verify to bypass hooks
+         • Fix issues reported by hooks before committing
 
-      Your changes will be committed with these checks:
+      2. **Resolve common issues**:
+         • Line too long (E501): Break statements at logical points
+           ```python
+           # Instead of:
+           result = function(param1, param2, param3, param4)
 
-      1. **Documentation**:
-         - STRUCTURE.md updated for structural changes
-         - CHANGELOG.md updated for user-facing changes
-         - All rule files (.mdc) tracked in git
+           # Use:
+           result = function(
+               param1,
+               param2,
+               param3,
+               param4
+           )
+           ```
 
-      2. **Code Quality**:
-         - All tests passing
-         - Test coverage meeting requirements (or documented exclusions)
-         - All linting issues resolved
-         - No debug code
+         • Trailing whitespace: Remove with sed
+           ```bash
+           sed -i 's/[ \t]*$//' filename
+           ```
 
-      3. **Message Format**:
-         - Following conventional commit format (see commit-message rule)
-         - Descriptive first line under 72 characters
-         - Imperative mood ("Add feature" not "Added feature")
+         • Format issues: Use ruff formatters
+           ```bash
+           ruff check --fix filename.py  # Fix specific issues
+           ruff format filename.py       # Format entire file
+           ```
 
-      Changes on feature branches should follow the feature-worktrees workflow.
+         • Failed tests: Debug with verbose pytest
+           ```bash
+           pytest -v filename_test.py    # Run specific test with details
+           pytest -v filename_test.py::test_function  # Run specific test function
+           ```
+
+      3. **Required updates**:
+         • STRUCTURE.md for structural code changes
+         • CHANGELOG.md for user-facing changes
+         • Track all .mdc rule files in git
+
+      4. **Quality standards**:
+         • 100% test coverage (exceptions must be documented)
+         • No debug code in production
+         • Clean linting with no warnings
+         • Properly formatted code
+
+      5. **Commit message format**:
+         • `type: concise description` (< 72 chars)
+         • Use imperative mood ("Add feature" not "Added feature")
 
 criteria:
   required:
     - All tests pass
     - Pre-commit checks pass
-    - Documentation updated if needed
-    - STRUCTURE.md up-to-date with structural changes
-    - CHANGELOG.md up-to-date with feature changes
+    - Documentation updated where needed
+    - STRUCTURE.md updated for structural changes
+    - CHANGELOG.md updated for user-facing changes
     - All .mdc files tracked in git
     - No debug code remains
     - All linting issues resolved
@@ -159,4 +180,5 @@ criteria:
 
 metadata:
   priority: critical
-  version: 2.2
+  version: 3.0
+</rule>
