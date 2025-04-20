@@ -37,20 +37,7 @@ This document provides an overview of the project's structure and organization.
 ### Configuration
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
-  - `rules/` - Project-specific Cursor rules
-    - `feature-worktrees.mdc` - Guidelines for using Git worktrees for feature development
-    - `autonomous-commits.mdc` - Defines criteria and behavior for autonomous commits
-    - `commit-message.mdc` - Defines commit message format and best practices
-    - `test-coverage.mdc` - Enforces high test coverage standards with documented exceptions
-    - `slow-tests.mdc` - Monitors and enforces resolution of slow tests
-    - `dry-test-fixtures.mdc` - Enforces DRY principles in test fixtures
-    - `project-structure.mdc` - Standards for maintaining project structure documentation
-    - `no-bazel.mdc` - Prohibits Bazel usage and recommendations
-    - `python-venv.mdc` - Python project setup guidelines
-    - `ruff-preferred.mdc` - Python linting standards with Ruff
-    - `rules.mdc` - Standards for organizing Cursor rule files
-    - `no-llm-in-tests.mdc` - Prohibits unmocked LLM calls in test code
-    - `test-mocking.mdc` - Requirements for mocking external dependencies in tests
+  - `rules/` - Project-specific Cursor rules (see `RULES.md` for a complete description of all rules)
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
 - `Makefile` - Build and development automation
