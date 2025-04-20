@@ -608,10 +608,15 @@ def semiauto(
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
 ) -> None:
-    """Loop vibectl vibe commands with confirmation at each step."""
+    """Run vibe command in semiauto mode with manual confirmation.
+
+    This is a convenience wrapper around 'vibectl auto --semiauto'.
+    In semiauto mode, you will need to confirm each step before it executes.
+    This can be useful for learning or when working with complex requests.
+    """
     try:
         result = run_semiauto_command(
             request=request,
@@ -621,14 +626,31 @@ def semiauto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
+            # No exit_on_error parameter needed - defaults to False
         )
-        handle_result(result)
+
+        # Check for error result (should only happen with programmatic API)
+        if not isinstance(result, Success):
+            # Always print the error message to console if available
+            if hasattr(result, "error") and result.error:
+                console_manager.print_error(result.error)
+            else:
+                console_manager.print_error(f"Unknown error occurred: {result!s}")
+
+            # Use Click's abort mechanism to exit with non-zero status
+            # This is only reached if there's a catastrophic error that couldn't be
+            # handled gracefully within the semiauto command itself
+            raise click.Abort() from None
     except Exception as e:
         # Always print the error message to console if available
         if hasattr(e, "error") and e.error:
             console_manager.print_error(e.error)
+        else:
+            console_manager.print_error(f"Unknown error occurred: {e!s}")
 
         # Use Click's abort mechanism to exit with non-zero status
+        # This is only reached if there's a catastrophic error that couldn't be
+        # handled gracefully within the semiauto command itself
         raise click.Abort() from e
 
 

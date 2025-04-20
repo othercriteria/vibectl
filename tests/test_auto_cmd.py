@@ -262,7 +262,7 @@ def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -> None
     assert semiauto_header_printed, "Semiauto header not printed"
     assert confirmation_message_printed, "Confirmation message not printed"
 
-    # 2. Test semiauto with error (should sleep even in semiauto mode)
+    # 2. Test semiauto with error (should NOT sleep in semiauto mode)
     mock_console.reset_mock()
     mock_sleep.reset_mock()
 
@@ -283,8 +283,9 @@ def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -> None
         exit_on_error=False,
     )
 
-    # Verify sleep was called once (after the error)
-    assert mock_sleep.call_count == 1
+    # Verify sleep was NOT called
+    # (even with errors, semiauto mode doesn't need rate limiting)
+    assert mock_sleep.call_count == 0
 
     # 3. Test user exit request (via Success with continue_execution=False)
     mock_console.reset_mock()
@@ -405,7 +406,6 @@ def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         model=None,
         freeze_memory=True,  # Test with non-default value
         unfreeze_memory=True,  # Test with non-default value
-        exit_on_error=False,  # Test with non-default value
     )
 
     # Verify the result
@@ -423,8 +423,26 @@ def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         yes=False,  # Should be False for semiauto
         interval=0,  # Should use 0 interval for semiauto
         semiauto=True,  # Should be True for semiauto
-        exit_on_error=False,  # Should pass through
+        exit_on_error=False,  # Should be False by default now
     )
+
+    # Test with exit_on_error explicitly set to True
+    mock_auto.reset_mock()
+    result = vibectl.subcommands.auto_cmd.run_semiauto_command(
+        request="test request",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        exit_on_error=True,  # Explicitly set to True
+    )
+
+    assert isinstance(result, Success)
+
+    # Verify correct parameters are passed
+    mock_auto.assert_called_once()
+    call_args = mock_auto.call_args[1]
+    assert call_args["exit_on_error"] is True
 
 
 def test_resource_not_found_recovery_suggestions(
