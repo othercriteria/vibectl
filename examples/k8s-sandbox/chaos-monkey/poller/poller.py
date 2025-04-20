@@ -138,10 +138,7 @@ def check_kubernetes_status(container_name: str) -> bool:
     ]
     exit_code, stdout, stderr = run_command(command)
 
-    if exit_code != 0 or stdout.strip() != "Active":
-        return False
-
-    return True
+    return not (exit_code != 0 or stdout.strip() != "Active")
 
 
 def create_curl_pod_if_needed(container_name: str) -> bool:

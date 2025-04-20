@@ -14,6 +14,7 @@ your cluster management more intuitive and fun!
 - 🧠 Natural language resource queries
 - 🎨 Theme support with multiple visual styles
 - 📊 Intelligent output formatting for different resource types
+- 🐒 New chaos-monkey example for testing cluster resilience
 
 ## Requirements
 
@@ -243,6 +244,29 @@ vibectl config set log_level DEBUG
 ```
 
 See warnings and errors directly in your terminal, while info/debug logs are available for advanced troubleshooting.
+
+### Chaos Monkey Example
+
+The chaos-monkey example demonstrates vibectl's capabilities for testing Kubernetes cluster resilience:
+
+```zsh
+# Navigate to the example directory
+cd examples/k8s-sandbox/chaos-monkey
+
+# Set up the demo environment
+./setup.sh
+
+# Start the red vs. blue team scenario
+./start-scenario.sh
+```
+
+Key features of the chaos-monkey example:
+- Red team vs. blue team competitive scenario
+- Containerized vibectl agents that interact with the Kubernetes cluster
+- Metrics collection for performance evaluation
+- Configurable disruption patterns and recovery strategies
+
+See the [RECENT.md](RECENT.md) file for more details on this new feature.
 
 ### Custom Instructions
 

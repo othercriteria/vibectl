@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2025-04-22
+
 ### Added
 - New chaos-monkey demo in examples/k8s-sandbox featuring:
   - Red team vs. blue team competitive scenario
