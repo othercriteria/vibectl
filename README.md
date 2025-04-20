@@ -5,16 +5,16 @@ your cluster management more intuitive and fun!
 
 ## Features
 
-- 🌟 Vibes-based interaction with Kubernetes clusters
-- 🧠 Memory-aware autonomous Kubernetes operations
-- 🚀 Intuitive commands that just feel right
-- 🎯 Simplified cluster management
-- 🔍 Smart context awareness
-- ✨ AI-powered summaries of cluster state
-- 🧠 Natural language resource queries
-- 🎨 Theme support with multiple visual styles
-- 📊 Intelligent output formatting for different resource types
-- 🐒 New chaos-monkey example for testing cluster resilience
+- 🌟 LLM-powered Kubernetes interaction with natural language support
+- 🧠 Memory-aware contextual operations across commands
+- 🚀 Intuitive commands that simplify common Kubernetes tasks
+- 🎯 Streamlined cluster management workflows
+- 🎮 **NEW:** Semi-autonomous mode with iterative feedback
+- 🔍 Context-aware command suggestions
+- ✨ AI-powered cluster state analysis and summaries
+- 🎨 Theme support with configurable visual styles
+- 📊 Resource-specific smart output formatting
+- 🐒 Chaos-monkey simulation for resilience testing
 
 ## Requirements
 
@@ -30,11 +30,13 @@ your cluster management more intuitive and fun!
 ### Option 1: Standard Pip Installation (Non-NixOS users)
 
 1. Install using pip:
+
    ```zsh
    pip install vibectl
    ```
 
 2. Install the LLM provider for your chosen model:
+
    ```zsh
    # For Anthropic (Claude) models (default)
    pip install llm-anthropic
@@ -50,20 +52,21 @@ your cluster management more intuitive and fun!
    ```
 
 3. Configure your API key (using one of these methods):
+
    ```zsh
    # For Anthropic (default model)
-   export VIBECTL_ANTHROPIC_API_KEY=your-api-key
+   export ANTHROPIC_API_KEY=your-api-key
 
    # For OpenAI
-   export VIBECTL_OPENAI_API_KEY=your-api-key
+   export OPENAI_API_KEY=your-api-key
 
-   # Using config (more permanent)
+   # Using vibectl config (more permanent)
    vibectl config set model_keys.anthropic your-api-key
 
    # Using key files (more secure)
-   echo "your-api-key" > ~/.anthropic-key
-   chmod 600 ~/.anthropic-key
-   vibectl config set model_key_files.anthropic ~/.anthropic-key
+   echo "your-api-key" > ~/.config/vibectl/keys/anthropic
+   chmod 600 ~/.config/vibectl/keys/anthropic
+   vibectl config set model_key_files.anthropic ~/.config/vibectl/keys/anthropic
    ```
 
 See [Model API Key Management](docs/MODEL_KEYS.md) for more detailed configuration options.
@@ -72,6 +75,7 @@ See [Model API Key Management](docs/MODEL_KEYS.md) for more detailed configurati
 
 1. Install [Flake](https://flake.build)
 2. Clone and set up:
+
    ```zsh
    git clone https://github.com/othercriteria/vibectl.git
    cd vibectl
@@ -111,7 +115,7 @@ The `vibe` command works by:
 
 #### Example Flow with Memory
 
-```
+```text
 Memory: "We are working in `foo` namespace. We have created deployment `bar`.
 We need to create a service for `bar`."
 
@@ -127,10 +131,9 @@ deployment `bar` with service `bar-service`. We don't know if it is alive yet."
 
 #### No-Argument Mode
 
-When run without arguments, `vibectl vibe` uses memory context to determine what
-to do next. If no memory exists, it begins with discovery commands:
+When run without arguments, `vibectl vibe` uses memory context to determine what to do next. If no memory exists, it begins with discovery commands:
 
-```
+```text
 Command: vibectl vibe
 
 Planning: Need to understand the cluster context first
@@ -142,13 +145,78 @@ with control plane at https://cluster.example.com. Next, we should understand
 what namespaces and workloads are available."
 ```
 
+### Semi-Autonomous Mode with `vibectl semiauto`
+
+The `vibectl semiauto` command provides an interactive, iterative approach to cluster management with more control than full autonomous mode:
+
+```zsh
+# Start a semi-autonomous session
+vibectl semiauto
+
+# Start with specific context
+vibectl memory set "Working in staging namespace" && vibectl semiauto
+```
+
+The `semiauto` command is ideal when you want a more controlled, step-by-step approach:
+
+1. It suggests commands based on memory context
+2. You confirm, reject, or modify each suggestion
+3. Memory updates after each iteration
+4. The session continues until you explicitly exit
+
+#### Interactive Options
+
+For each suggested command, you have multiple response options:
+
+- `[Y]es` - Execute the command as suggested
+- `[N]o` - Skip this command without updating memory
+- `yes [A]nd` - Execute command and add more context to memory
+- `no [B]ut` - Skip command and provide alternate direction
+- `[E]xit` - End the semiauto session
+
+#### Example Session
+
+```text
+❯ vibectl memory set "We're working in 'sandbox' namespace. Tear down any existing demos."
+Memory set
+
+❯ vibectl semiauto
+Note: Starting vibectl semiauto session
+Note: Commands will require confirmation.
+Note: --- Iteration 1 ---
+🔄 Planning next steps based on memory context...
+Note: Planning to run: kubectl delete all --all -n sandbox
+Note:
+[Y]es, [N]o, yes [A]nd, no [B]ut, or [E]xit? (y/n/a/b/e) b
+
+Warning: Command cancelled
+Note: Enter additional information for memory:
+Memory update: Take a quick look first, and do specific deletions.
+🔄 Updating memory...
+
+Note: --- Iteration 2 ---
+🔄 Planning next steps based on memory context...
+Note: Planning to run: kubectl get pods,deployments,services -n sandbox
+Note:
+[Y]es, [N]o, yes [A]nd, no [B]ut, or [E]xit? (y/n/a/b/e) y
+
+✨ Vibe check:
+🚀 1 pod running in sandbox namespace 🟢
+🏭 nginx-demo deployment is healthy (1/1) with age: 73m 🌱
+🔌 nginx-demo service available at 10.43.43.113:80 as ClusterIP type 🌐
+
+Note: --- Iteration 3 ---
+🔄 Planning next steps based on memory context...
+Note: Planning to run: kubectl delete deployment,service nginx-demo -n sandbox
+Note:
+[Y]es, [N]o, yes [A]nd, no [B]ut, or [E]xit? (y/n/a/b/e) y
+
+✅ Successfully deleted resources in sandbox namespace
+```
+
 ### Other Common Commands
 
 ```zsh
-# Display version and configuration
-vibectl version
-vibectl config show
-
 # Basic operations with AI-powered summaries
 vibectl get pods                                  # List pods with summary
 vibectl describe deployment my-app                # Get detailed info
@@ -197,14 +265,15 @@ especially powerful with the autonomous `vibectl vibe` command.
 # Set a custom kubeconfig file
 vibectl config set kubeconfig /path/to/kubeconfig
 
-# Use a different LLM model (default: claude-3.7-sonnet)
-vibectl config set model claude-3.7-sonnet  # Default
-vibectl config set model gpt-4              # OpenAI
-vibectl config set model ollama:llama3      # Local Ollama
+# Use a different LLM model
+vibectl config set model claude-3.7-sonnet  # Default Anthropic model
+vibectl config set model claude-3.5-sonnet  # Smaller Anthropic model
+vibectl config set model gpt-4o             # OpenAI model
+vibectl config set model ollama:llama3      # Local Ollama model
 
 # Configure API keys (multiple methods available)
 vibectl config set model_keys.anthropic your-api-key
-vibectl config set model_key_files.openai /path/to/key-file
+vibectl config set model_key_files.openai ~/.config/vibectl/keys/openai
 
 # Control output display
 vibectl config set show_raw_output true    # Always show raw kubectl output
@@ -212,6 +281,8 @@ vibectl config set show_kubectl true       # Show kubectl commands being execute
 
 # Set visual theme
 vibectl theme set dark
+vibectl theme set light
+vibectl theme set system
 ```
 
 For detailed API key management options, see [Model API Key Management](docs/MODEL_KEYS.md).
@@ -260,13 +331,13 @@ cd examples/k8s-sandbox/chaos-monkey
 ./start-scenario.sh
 ```
 
-Key features of the chaos-monkey example:
+The chaos-monkey example includes:
 - Red team vs. blue team competitive scenario
 - Containerized vibectl agents that interact with the Kubernetes cluster
 - Metrics collection for performance evaluation
 - Configurable disruption patterns and recovery strategies
 
-See the [RECENT.md](RECENT.md) file for more details on this new feature.
+See the [examples/k8s-sandbox/chaos-monkey/README.md](examples/k8s-sandbox/chaos-monkey/README.md) file for detailed setup instructions and scenarios.
 
 ### Custom Instructions
 
@@ -301,7 +372,8 @@ Commands provide AI-powered summaries using rich text formatting:
 - Timing information in *italics*
 
 Example:
-```
+
+```text
 [bold]3 pods[/bold] in [blue]default namespace[/blue], all [green]Running[/green]
 [bold]nginx-pod[/bold] [italic]running for 2 days[/italic]
 [yellow]Warning: 2 pods have high restart counts[/yellow]
