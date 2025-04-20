@@ -1,0 +1,130 @@
+# No Interactive Commands
+
+Prevents usage of interactive and blocking commands that interrupt the AI assistant workflow.
+
+<rule>
+name: no_interactive_commands
+description: Prevents usage of interactive or blocking terminal commands that the assistant cannot interact with
+
+filters:
+  # Match terminal command patterns
+  - type: content
+    pattern: "(?i)\\b(run_terminal_cmd|terminal|cmd|command|bash|sh|zsh)\\b"
+  # Match common interactive tools
+  - type: content
+    pattern: "(?i)\\b(git|less|more|head|tail|watch|top|htop|vim|nano|emacs|vi|cat|docker|docker-compose|docker\\s+compose)\\b"
+  # Match run intentions
+  - type: intent
+    pattern: "command_execution"
+
+actions:
+  - type: reject
+    conditions:
+      # Interactive editors
+      - pattern: "(?i)\\b(vim|vi|nano|emacs)\\b(?!.*-\\w)"
+        message: |
+          I cannot use interactive text editors like vim, nano, or emacs.
+          Please use the edit_file tool instead to modify files.
+
+      # Pagers without piping
+      - pattern: "(?i)\\b(less|more)\\b(?!.*\\|\\s*cat)"
+        message: |
+          I cannot use interactive pagers like 'less' or 'more'.
+          Add '| cat' to make them non-interactive: 'less file.txt | cat'
+
+      # Git commands that invoke pagers without proper flags
+      - pattern: "(?i)\\bgit\\s+(log|diff|show)\\b(?!.*(--no-pager|\\|\\s*cat|-1))"
+        message: |
+          This git command may open an interactive pager.
+          Use 'git --no-pager' prefix or append '| cat', or limit output with options like '-1'.
+
+      # Long-running services
+      - pattern: "(?i)\\b(docker\\s+compose|docker-compose)\\s+(up|run|start)\\b(?!.*(--detach|-d|&\\s*$))"
+        message: |
+          This docker compose command will block indefinitely.
+          Either add '--detach' or '-d' to run in the background, or let the user run this command themselves.
+
+      # Watch commands
+      - pattern: "(?i)\\b(watch|tail\\s+-f)\\b"
+        message: |
+          I cannot use continuously updating commands like 'watch' or 'tail -f'.
+          Consider a non-blocking alternative or let the user run this command.
+
+      # Interactive prompts
+      - pattern: "(?i)\\b(read\\s+-p|select|select\\s+case|read\\s+\\w+)\\b"
+        message: |
+          I cannot respond to shell script prompts or interactive inputs.
+          Please redesign the command to avoid interactive input.
+
+  - type: suggest
+    message: |
+      ## Guidelines for Non-Interactive Commands
+
+      When working with potentially interactive commands:
+
+      1. **Git commands**:
+         - Prefix with `git --no-pager` or append `| cat`
+         - Example: `git --no-pager log` or `git diff | cat`
+         - Limit output with `-1` for single entries: `git log -1`
+
+      2. **Pager commands**:
+         - Add `| cat` to capture output: `less file.txt | cat` or `head -n 20 file.txt`
+         - Use `head`/`tail` with specific line counts instead of full-file pagers
+
+      3. **Docker and long-running services**:
+         - Add `--detach` or `-d` flag for background operation
+         - Better yet, let the user run these commands themselves
+         - Example: `docker compose up -d` or `docker run -d image_name`
+
+      4. **Continuous output commands**:
+         - Avoid `watch`, `tail -f`, and similar commands
+         - Use one-time execution alternatives
+
+      5. **Interactive utilities**:
+         - Use file editing tools rather than `vim`/`nano`/etc.
+         - Avoid commands requiring user input like `read -p`
+
+criteria:
+  required:
+    - Use non-interactive alternatives when available
+    - Add appropriate flags to prevent interactive behavior
+    - Pipe output through cat when necessary to avoid pagers
+    - For unavoidably interactive commands, suggest the user run them manually
+    - For services that would block indefinitely, either detach or let user run them
+    - Use edit_file tool rather than terminal-based editors
+
+examples:
+  - input: "I need to see git log output"
+    output: |
+      I'll show you the git log without using an interactive pager:
+
+      ```
+      git --no-pager log -n 5
+      ```
+
+      Or alternatively:
+
+      ```
+      git log | cat
+      ```
+
+  - input: "Can you run the docker composition?"
+    output: |
+      The docker compose command would block and prevent further interaction.
+
+      I recommend you run this command yourself:
+
+      ```
+      cd examples/k8s-sandbox/chaos-monkey && ./run.sh --verbose
+      ```
+
+      If you just want me to build the images without running them:
+
+      ```
+      docker compose build
+      ```
+
+metadata:
+  priority: critical
+  version: 1.0
+</rule>

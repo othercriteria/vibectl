@@ -119,3 +119,97 @@ def test_something(..., mock_command_handler_logger: Mock):
     # After running code
     assert any("expected log message" in str(call) for call in mock_command_handler_logger.info.call_args_list)
 ```
+
+## Remaining kubectl Subcommands
+
+Below is a prioritized list of remaining kubectl subcommands to be implemented in vibectl, with consideration for complexity and implementation requirements:
+
+### High Priority
+
+1. **apply** - Critical for declarative configuration management
+   - Requires handling file input (YAML/JSON)
+   - Needs special handling for stdin redirection with -f -
+   - Implementation complexity: Medium-high
+   - Considerations: Diff visualization between current and applied state
+
+2. **patch** - Important for making specific changes to resources
+   - Requires understanding JSON patch or strategic merge patch formats
+   - Implementation complexity: Medium
+   - Considerations: Validation of patch syntax, error handling
+
+3. **edit** - Important for interactive resource modification
+   - Requires launching an editor and capturing modified content
+   - Implementation complexity: Medium-high
+   - Considerations: Similar to custom instructions editor implementation
+
+### Medium Priority
+
+4. **diff** - Useful for showing differences before applying
+   - Implementation complexity: Medium
+   - Considerations: Rich display for diff output with color highlighting
+
+5. **exec** - Execute commands in container
+   - Implementation complexity: High
+   - Considerations: Requires interactive terminal handling similar to port-forward
+   - May require additional asyncio implementation
+
+6. **cp** - Copy files to/from containers
+   - Implementation complexity: Medium
+   - Considerations: Progress reporting for large files
+
+7. **top** - Resource usage statistics
+   - Implementation complexity: Medium
+   - Considerations: Could benefit from rich, updating display similar to port-forward
+
+### Lower Priority
+
+8. **explain** - Display documentation for resources
+   - Implementation complexity: Low
+   - Considerations: Enhanced formatting of output
+
+9. **annotate** and **label** - Update metadata on resources
+   - Implementation complexity: Low
+   - Considerations: Simple wrappers around kubectl
+
+10. **auth** - Authentication related commands
+    - Implementation complexity: Medium
+    - Considerations: Security and token handling
+
+11. **cordon**, **uncordon**, **drain** - Node management
+    - Implementation complexity: Low-Medium
+    - Considerations: Safety checks before node maintenance
+
+12. **api-resources** and **api-versions** - API information commands
+    - Implementation complexity: Low
+    - Considerations: Enhanced output formatting
+
+### Implementation Considerations
+
+Several of these commands will require substantial new behaviors or patterns:
+
+1. **File Input Commands** (apply, replace)
+   - Need a standard approach for handling file inputs
+   - Consider supporting directory input with --recursive option
+   - May require temporary file handling for generated content
+
+2. **Interactive Commands** (edit, exec)
+   - Require terminal manipulation and editor integration
+   - Similar to existing patterns in custom instructions handling
+   - May need PTY handling for exec
+
+3. **Long-Running Commands** (top, exec, port-forward)
+   - Should share the asyncio implementation approach developed for port-forward
+   - Need consistent patterns for display updating
+   - Proper handling of SIGINT and graceful termination
+   - Consideration for background operation modes
+
+4. **Rich Output Formatting**
+   - Several commands (diff, explain, api-resources) would benefit from enhanced output formatting
+   - Consider a standard approach for syntax highlighting and structured display
+
+5. **Safety Considerations**
+   - Particularly important for node management commands (drain, cordon)
+   - Consider requiring confirmation for potentially destructive operations
+   - Add "dry-run" capabilities with clear previews of changes
+
+Implementation should prioritize commands that provide the most value to users while building reusable patterns that can accelerate development of subsequent commands.

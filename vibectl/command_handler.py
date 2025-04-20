@@ -272,6 +272,7 @@ def handle_vibe_request(
     yes: bool = False,  # Add parameter to control confirmation bypass
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
     live_display: bool = True,  # Add parameter for live display
+    memory_context: str = "",  # Add parameter for memory context
 ) -> None:
     """Handle a request to execute a kubectl command based on a natural language query.
 
@@ -284,6 +285,7 @@ def handle_vibe_request(
         yes: Whether to bypass confirmation prompts
         autonomous_mode: Whether this is operating in autonomous mode
         live_display: Whether to use live display for commands like port-forward
+        memory_context: Memory context to include in the prompt (for vibe mode)
 
     Returns:
         None
@@ -294,9 +296,68 @@ def handle_vibe_request(
         )
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
-        kubectl_cmd = model_adapter.execute(
-            model, plan_prompt.format(request=request, command=command)
-        )
+
+        # Prepare the format parameters
+        format_params = {"request": request, "command": command}
+        if memory_context:
+            format_params["memory_context"] = memory_context
+
+        # Use a more robust way to format the prompt that handles both
+        # positional and named formats
+        try:
+            # First, check if there are any positional format specifiers in the prompt
+            import re
+
+            positional_formats = re.findall(r"{(\d+)}", plan_prompt)
+
+            if positional_formats:
+                # If positional formats exist, we need to use string replacement
+                # for all parameters
+                # to avoid the "Replacement index X out of range" error
+                logger.info(
+                    "Detected positional format specifiers in prompt, "
+                    "using string replacement"
+                )
+                formatted_prompt = plan_prompt
+
+                # First replace all named parameters
+                if "memory_context" in plan_prompt:
+                    formatted_prompt = formatted_prompt.replace(
+                        "{memory_context}", memory_context
+                    )
+                formatted_prompt = formatted_prompt.replace("{request}", request)
+                formatted_prompt = formatted_prompt.replace("{command}", command)
+
+                # Then handle any remaining positional parameters by replacing
+                # them with empty strings
+                # This ensures the prompt is usable even with positional parameters
+                for pos in positional_formats:
+                    formatted_prompt = formatted_prompt.replace(f"{{{pos}}}", "")
+            else:
+                # No positional formats, use normal keyword formatting
+                formatted_prompt = plan_prompt.format(**format_params)
+
+        except (KeyError, IndexError) as e:
+            # Fallback to string replacement as a last resort
+            logger.warning(
+                f"Format error ({e}) in prompt. Using fallback formatting method."
+            )
+            # Use string replacement as a fallback to avoid format conflicts
+            formatted_prompt = plan_prompt
+            if "memory_context" in plan_prompt:
+                formatted_prompt = formatted_prompt.replace(
+                    "{memory_context}", memory_context
+                )
+            formatted_prompt = formatted_prompt.replace("{request}", request).replace(
+                "{command}", command
+            )
+
+            # Replace any remaining format specifiers with empty strings
+            import re
+
+            formatted_prompt = re.sub(r"{(\d+)}", "", formatted_prompt)
+
+        kubectl_cmd = model_adapter.execute(model, formatted_prompt)
 
         if not kubectl_cmd:
             logger.error(
@@ -320,6 +381,7 @@ def handle_vibe_request(
             console_manager.print_error(kubectl_cmd)
             return
 
+        # Rest of the function remains unchanged
         logger.debug(f"Processing planned command string: {kubectl_cmd}")
         try:
             cmd_args, yaml_content = _process_command_string(kubectl_cmd)
@@ -384,7 +446,7 @@ def handle_vibe_request(
                 console_manager.print_note(
                     "Recovery suggestions added to memory context"
                 )
-                output += "\n\nRecovery suggestions:\n" f"{recovery_suggestions}"
+                output += f"\n\nRecovery suggestions:\n{recovery_suggestions}"
             except Exception as rec_e:
                 logger.warning(
                     "Failed to generate recovery suggestions: %s",

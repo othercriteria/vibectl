@@ -33,8 +33,8 @@ services:
   sandbox:
     container_name: k8s-sandbox
     build:
-      context: ../..
-      dockerfile: examples/k8s-sandbox/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         # Pass the host's Docker GID to the container build
         DOCKER_GID: ${DOCKER_GID:-999}
