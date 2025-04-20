@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes` pattern
+- New `vibectl semiauto` subcommand as sugar for `auto` with negated `--yes` behavior
+- Enhanced confirmation dialog with new options:
+  - `yes [A]nd` for accepting with fuzzy memory update
+  - `no [B]ut` for rejecting with fuzzy memory update
+  - `[E]xit` option (in semiauto mode) to exit the loop cleanly
+
+### Changed
+- Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
+
 ## [0.4.1] - 2025-04-22
 
 ### Added
