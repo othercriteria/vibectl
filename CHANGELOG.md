@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Planned: Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
+- Improved interactive-commands rule to clarify the proper usage of `--no-pager` with git commands
+
+### Fixed
+- Fixed error messages shown when a user selects [E]xit in semiauto mode
+  - Updated exception handling to properly handle normal exits without displaying error messages
+  - Improves user experience by ensuring clean exit behavior
 
 ## [0.4.1] - 2025-04-22
 

@@ -36,6 +36,9 @@ actions:
       1. For standard commands (less, git, etc.):
          - Append ` | cat` to any command that might start a pager
          - Use `--no-pager` flag with git when possible
+           - IMPORTANT: Place `--no-pager` right after `git` and before the subcommand
+           - Correct: `git --no-pager log`
+           - Incorrect: `git log --no-pager`
          - Prefer non-interactive flags where available (e.g., `--yes`, `-y`, `--non-interactive`)
 
       2. For CLI applications:
@@ -57,10 +60,12 @@ actions:
           This command is a continuous, interactive display tool.
           Try a non-interactive alternative.
 
-      - pattern: "(?i)\\bgit(?!.*--no-pager).*(?!.*\\s+\\|\\s+cat)\\b(log|diff|blame|show)"
+      # Updated pattern to match any git command that might use a pager
+      - pattern: "(?i)\\bgit\\s+(?!--no-pager)(?!.*\\s+\\|\\s+cat)\\b(log|diff|blame|show|status|branch|tag|remote|stash|reflog)"
         message: |
-          Git commands like log, diff, blame, or show may open an interactive pager.
-          Use with `--no-pager` flag or pipe to cat.
+          Git commands may open an interactive pager.
+          Use with `--no-pager` flag (placed right after 'git') or pipe to cat.
+          Example: `git --no-pager log` NOT `git log --no-pager`
 
       - pattern: "(?i)python\\s+-c\\s+.*\\b(input|prompt|interactive)\\b"
         message: |
@@ -74,7 +79,10 @@ actions:
 
 examples:
   - input: "Run git log to see recent commits"
-    output: "git log --no-pager | cat"
+    output: "git --no-pager log or git log | cat"
+
+  - input: "Let's run git diff to see changes"
+    output: "git --no-pager diff (not git diff --no-pager)"
 
   - input: "Let's debug this with watch kubectl get pods"
     output: "Instead of 'watch', try: kubectl get pods; sleep 5; kubectl get pods"
@@ -96,7 +104,9 @@ criteria:
     - For unavoidably interactive commands, suggest tests instead
     - For services that would block indefinitely, either detach or let user run them
     - Use edit_file tool rather than terminal-based editors
+    - Place `--no-pager` flag immediately after `git` and before any subcommand
 
 metadata:
   priority: critical
-  version: 2.0
+  version: 2.1
+</rule>
