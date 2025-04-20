@@ -16,7 +16,6 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
-from vibectl.memory import clear_memory
 
 
 @pytest.fixture
@@ -433,10 +432,38 @@ def mock_command_handler_logger() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def reset_memory() -> Generator[None, None, None]:
-    clear_memory()
-    yield
-    clear_memory()
+def reset_memory(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+    """Reset memory between tests without file I/O.
+
+    This optimized version does not actually write to the config file,
+    making it much faster than the original implementation.
+
+    For tests marked with @pytest.mark.fast, memory reset is skipped entirely.
+    """
+    # Skip memory reset for tests marked as "fast"
+    if request.node.get_closest_marker("fast"):
+        yield
+        return
+
+    from unittest.mock import patch
+
+    from vibectl.memory import clear_memory, set_memory
+
+    # Use the original clear_memory function for tests that expect it to work properly
+    # This ensures tests that directly test clear_memory functionality still pass
+    if "test_memory" in request.node.nodeid or "test_config" in request.node.nodeid:
+        clear_memory()
+        yield
+        clear_memory()
+        return
+
+    # For all other tests, use the optimized version with no file I/O
+    with patch("vibectl.config.Config._save_config"):
+        from vibectl.config import Config
+
+        config = Config()
+        set_memory("", config)
+        yield
 
 
 @pytest.fixture
@@ -458,3 +485,49 @@ def mock_model_adapter_logger() -> Generator[Mock, None, None]:
 
     with patch.object(model_adapter, "logger") as mock_logger:
         yield mock_logger
+
+
+@pytest.fixture
+def memory_mock() -> Generator[dict[str, Mock], None, None]:
+    """Mock for memory functions to avoid file I/O operations in tests.
+
+    Use this fixture in tests that need to verify memory operations
+    instead of using real memory functions.
+    """
+    with (
+        patch("vibectl.memory.set_memory") as mock_set_memory,
+        patch("vibectl.memory.get_memory") as mock_get_memory,
+        patch("vibectl.memory.clear_memory") as mock_clear_memory,
+        patch("vibectl.memory.update_memory") as mock_update_memory,
+    ):
+        # Setup default returns
+        mock_get_memory.return_value = "Mocked memory content"
+
+        yield {
+            "set": mock_set_memory,
+            "get": mock_get_memory,
+            "clear": mock_clear_memory,
+            "update": mock_update_memory,
+        }
+
+
+@pytest.fixture
+def in_memory_config() -> Generator[Config, None, None]:
+    """Create a Config instance that doesn't perform file I/O.
+
+    This fixture provides a Config object that has been patched to avoid
+    all file operations, making it much faster for tests that need Config
+    but don't need to persist changes to disk.
+    """
+    from unittest.mock import patch
+
+    from vibectl.config import Config
+
+    # Create a config in memory with patched file operations
+    with (
+        patch.object(Config, "_save_config", return_value=None),
+        patch.object(Config, "_load_config", return_value=None) as _,
+    ):
+        # Create config with initialization but no file operations
+        config = Config()
+        yield config

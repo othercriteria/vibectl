@@ -33,48 +33,56 @@ def test_handle_standard_command_basic(
     This test ensures that all LLM calls are properly mocked to prevent
     actual API calls which would cause slow tests.
     """
-    # Set test kubeconfig
-    test_config.set("kubeconfig", "/test/kubeconfig")
+    # Patch Config._save_config to prevent file I/O
+    with (
+        patch("vibectl.config.Config._save_config"),
+        patch("vibectl.command_handler.Config") as mock_config_class,
+    ):
+        # Set up the config mock to return our test_config
+        mock_config_class.return_value = test_config
 
-    # Configure mock to return success
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_subprocess.return_value = mock_result
+        # Set test kubeconfig
+        test_config.set("kubeconfig", "/test/kubeconfig")
 
-    # Setup output processor
-    processor_instance = Mock()
-    processor_instance.process_auto.return_value = ("processed output", False)
-    mock_output_processor.return_value = processor_instance
+        # Configure mock to return success
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "test output"
+        mock_subprocess.return_value = mock_result
 
-    # Ensure the get_model_adapter returns our mock_llm
-    mock_get_adapter.return_value = mock_llm
+        # Setup output processor
+        processor_instance = Mock()
+        processor_instance.process_auto.return_value = ("processed output", False)
+        mock_output_processor.return_value = processor_instance
 
-    # Set up model adapter response for summary
-    mock_model = Mock()
-    mock_llm.get_model.return_value = mock_model
-    mock_llm.execute.return_value = "Summarized output"
+        # Ensure the get_model_adapter returns our mock_llm
+        mock_get_adapter.return_value = mock_llm
 
-    # Run command
-    handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=standard_output_flags,
-        summary_prompt_func=lambda: "Test prompt: {output}",
-    )
+        # Set up model adapter response for summary
+        mock_model = Mock()
+        mock_llm.get_model.return_value = mock_model
+        mock_llm.execute.return_value = "Summarized output"
 
-    # Verify command construction
-    mock_subprocess.assert_called_once()
-    cmd_args = mock_subprocess.call_args[0][0]
+        # Run command
+        handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            output_flags=standard_output_flags,
+            summary_prompt_func=lambda: "Test prompt: {output}",
+        )
 
-    # Don't check exact order, just make sure all parts are there
-    assert "kubectl" in cmd_args
-    assert "get" in cmd_args
-    assert "pods" in cmd_args
-    assert any(
-        arg.startswith("--kubeconfig") or arg == "--kubeconfig" for arg in cmd_args
-    )
+        # Verify command construction
+        mock_subprocess.assert_called_once()
+        cmd_args = mock_subprocess.call_args[0][0]
+
+        # Don't check exact order, just make sure all parts are there
+        assert "kubectl" in cmd_args
+        assert "get" in cmd_args
+        assert "pods" in cmd_args
+        assert any(
+            arg.startswith("--kubeconfig") or arg == "--kubeconfig" for arg in cmd_args
+        )
 
     # Verify kwargs
     kwargs = mock_subprocess.call_args[1]

@@ -321,9 +321,23 @@ management. The environment is automatically set up when you run `flake develop`
 
 ### Running Tests
 
+Several testing options are available, optimized for different needs:
+
 ```zsh
-pytest
+# Run all tests with coverage
+make test
+
+# Run tests in parallel for faster feedback (no coverage)
+make test-parallel
+
+# Run fast tests only (for quick development feedback)
+make test-fast
+
+# Run tests with detailed coverage report
+make test-coverage
 ```
+
+See [tests/TESTING.md](tests/TESTING.md) for detailed information about test performance optimizations and best practices for writing efficient tests.
 
 ### Code Quality
 

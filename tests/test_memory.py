@@ -7,6 +7,8 @@ allowing vibectl to maintain context across commands.
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from vibectl.config import Config
 from vibectl.memory import (
     clear_memory,
@@ -148,6 +150,7 @@ def test_disable_memory(mock_config_class: Mock) -> None:
     mock_config.save.assert_called_once()
 
 
+@pytest.mark.fast
 @patch("vibectl.memory.Config")
 def test_clear_memory(mock_config_class: Mock) -> None:
     """Test clearing memory content."""

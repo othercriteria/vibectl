@@ -63,6 +63,12 @@ python_files = ["test_*.py"]
 # If you need parallel tests, use: pytest -n auto --no-cov
 addopts = "--cov=vibectl --cov-report=term --cov-report=xml --cov-config=.coveragerc"
 
+# Define marker for running fast tests without memory fixtures
+markers = [
+    "fast: tests that should be very fast",
+    "slow: tests that are expected to be slow",
+]
+
 # Coverage configuration is in .coveragerc file
 
 [tool.ruff]

@@ -180,6 +180,9 @@ Detailed documentation about model key configuration can be found in [Model API 
 2. Nix/direnv for reproducible development environments
 3. pre-commit hooks for code quality
 4. pytest for testing with coverage requirements
+   - Performance-optimized test execution with parallel options
+   - Fast test markers for quick development feedback
+   - See [tests/TESTING.md](tests/TESTING.md) for details
 5. MyPy for type checking
 6. Ruff for linting
 7. VS Code/Cursor as recommended IDEs
