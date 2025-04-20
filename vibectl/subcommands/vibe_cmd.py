@@ -1,4 +1,5 @@
 from vibectl.command_handler import (
+    ExitAutoLoopException,
     configure_output_flags,
     handle_vibe_request,
 )
@@ -18,6 +19,7 @@ def run_vibe_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     yes: bool = False,
+    semiauto: bool = False,
     exit_on_error: bool = True,
 ) -> Result:
     """
@@ -26,6 +28,8 @@ def run_vibe_command(
 
     Args:
         ...
+        yes: Whether to bypass confirmation prompts
+        semiauto: Whether this call is part of a semiauto loop
         exit_on_error: If True (default), errors will terminate the process.
             If False, errors are returned as Error objects for programmatic handling
             (e.g., in tests).
@@ -61,9 +65,22 @@ def run_vibe_command(
                 summary_prompt_func=vibe_autonomous_prompt,
                 output_flags=output_flags,
                 yes=yes,
-                autonomous_mode=True,
+                semiauto=semiauto,
                 memory_context=memory_context,
+                autonomous_mode=True,
             )
+        except ExitAutoLoopException as e:
+            # For normal exits (is_error=False), always re-raise without any logging
+            # This ensures clean propagation to the outer handlers
+            if not getattr(e, "is_error", False):
+                logger.info(f"Normal exit requested: {e}")
+                raise
+
+            # Only log and handle error cases (is_error=True)
+            logger.error(f"Error in handle_vibe_request: {e}")
+            if exit_on_error:
+                raise
+            return Error(error=f"Error in handle_vibe_request: {e}", exception=e)
         except Exception as e:
             logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
             if exit_on_error:

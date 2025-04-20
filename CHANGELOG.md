@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `[E]xit` option (in semiauto mode) to exit the loop cleanly
 
 ### Changed
-- Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
+- Planned: Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
 
 ## [0.4.1] - 2025-04-22
 

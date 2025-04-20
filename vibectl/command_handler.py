@@ -18,6 +18,7 @@ from contextlib import suppress
 
 import click
 import yaml
+from rich.panel import Panel
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -33,10 +34,11 @@ from .config import (
 )
 from .console import console_manager
 from .logutil import logger as _logger
-from .memory import update_memory
+from .memory import get_memory, set_memory, update_memory
 from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
+    memory_fuzzy_update_prompt,
     port_forward_prompt,
     recovery_prompt,
     wait_resource_prompt,
@@ -61,6 +63,22 @@ __all__ = ["Table"]
 
 # Initialize output processor
 output_processor = OutputProcessor()
+
+
+# Custom exceptions
+class ExitAutoLoopException(Exception):
+    """Raised to signal an exit from auto/semiauto loop."""
+
+    def __init__(self, message: str, is_error: bool = False):
+        """Initialize the exception.
+
+        Args:
+            message: The exception message
+            is_error: Whether this should be treated as an error condition.
+                      False means it's a normal exit (like user choosing 'Exit').
+        """
+        super().__init__(message)
+        self.is_error = is_error
 
 
 def run_kubectl(
@@ -270,9 +288,10 @@ def handle_vibe_request(
     summary_prompt_func: Callable[[], str],
     output_flags: OutputFlags,
     yes: bool = False,  # Add parameter to control confirmation bypass
-    autonomous_mode: bool = False,  # Add parameter for autonomous mode
+    semiauto: bool = False,  # Add parameter for semiauto mode
     live_display: bool = True,  # Add parameter for live display
     memory_context: str = "",  # Add parameter for memory context
+    autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> None:
     """Handle a request to execute a kubectl command based on a natural language query.
 
@@ -283,9 +302,10 @@ def handle_vibe_request(
         summary_prompt_func: Function that returns the LLM prompt for summarizing
         output_flags: Output configuration flags
         yes: Whether to bypass confirmation prompts
-        autonomous_mode: Whether this is operating in autonomous mode
+        semiauto: Whether this is operating in semiauto mode
         live_display: Whether to use live display for commands like port-forward
         memory_context: Memory context to include in the prompt (for vibe mode)
+        autonomous_mode: Whether this is operating in autonomous mode
 
     Returns:
         None
@@ -392,8 +412,8 @@ def handle_vibe_request(
             console_manager.print_error(f"Command parsing error: {ve}")
             return
 
-        needs_confirm = _needs_confirmation(command, autonomous_mode) and not yes
-        should_strip_command = autonomous_mode and command == "vibe"
+        needs_confirm = _needs_confirmation(command, semiauto) and not yes
+        should_strip_command = (autonomous_mode or semiauto) and command == "vibe"
         cmd_for_display = command if not should_strip_command else ""
 
         if output_flags.show_kubectl or needs_confirm:
@@ -405,14 +425,152 @@ def handle_vibe_request(
                     f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
                 )
 
-        if needs_confirm and not click.confirm("Execute this command?"):
-            logger.info(
-                "User cancelled execution of planned command: %s %s",
-                cmd_for_display,
-                display_cmd,
-            )
-            console_manager.print_cancelled()
-            return
+        if needs_confirm and not yes:
+            # Enhanced confirmation dialog with new options: yes, no, and, but, exit
+            # Default click.confirm won't work for us, so we implement our own
+            if semiauto:
+                console_manager.print_note(
+                    "\n[Y]es, [N]o, yes [A]nd, no [B]ut, or [E]xit? (y/n/a/b/e)"
+                )
+            else:
+                console_manager.print_note(
+                    "\n[Y]es, [N]o, yes [A]nd, or no [B]ut? (y/n/a/b)"
+                )
+
+            while True:
+                choice = click.prompt(
+                    "",
+                    type=click.Choice(
+                        ["y", "n", "a", "b", "e"] if semiauto else ["y", "n", "a", "b"],
+                        case_sensitive=False,
+                    ),
+                    default="n",
+                ).lower()
+
+                # Process the choice
+                if choice in ["n", "b"]:
+                    # No or No But - don't execute the command
+                    logger.info(
+                        "User cancelled execution of planned command: %s %s",
+                        cmd_for_display,
+                        display_cmd,
+                    )
+                    console_manager.print_cancelled()
+
+                    # If "but" is chosen, do a fuzzy memory update
+                    if choice == "b":
+                        logger.info(
+                            "User requested fuzzy memory update with 'no but' option"
+                        )
+                        console_manager.print_note(
+                            "Enter additional information for memory:"
+                        )
+                        update_text = click.prompt("Memory update")
+
+                        # Update memory with the provided text
+                        from vibectl.config import Config
+
+                        try:
+                            # Get the model name from config if not specified
+                            cfg = Config()
+                            model_name = output_flags.model_name
+                            current_memory = get_memory()
+
+                            # Get the model
+                            model_adapter = get_model_adapter()
+                            model = model_adapter.get_model(model_name)
+
+                            # Create a prompt for the fuzzy memory update
+                            prompt = memory_fuzzy_update_prompt(
+                                current_memory, update_text, cfg
+                            )
+
+                            # Get the response
+                            console_manager.print_processing("Updating memory...")
+                            updated_memory = model_adapter.execute(model, prompt)
+
+                            # Set the updated memory
+                            set_memory(updated_memory, cfg)
+                            console_manager.print_success("Memory updated")
+
+                            # Display the updated memory
+                            console_manager.console.print(
+                                Panel(
+                                    updated_memory,
+                                    title="Updated Memory Content",
+                                    border_style="blue",
+                                    expand=False,
+                                )
+                            )
+                        except Exception as e:
+                            logger.error(f"Error updating memory: {e}")
+                            console_manager.print_error(f"Error updating memory: {e}")
+
+                    return
+
+                # Handle the Exit option if in semiauto mode
+                elif choice == "e" and semiauto:
+                    logger.info("User chose to exit the semiauto loop")
+                    console_manager.print_note("Exiting semiauto session")
+                    raise ExitAutoLoopException(
+                        "User requested exit from semiauto loop", is_error=False
+                    )
+
+                elif choice in ["y", "a"]:
+                    # Yes or Yes And - execute the command
+                    logger.info("User approved execution of planned command")
+
+                    # If "and" is chosen, do a fuzzy memory update
+                    if choice == "a":
+                        logger.info(
+                            "User requested fuzzy memory update with 'yes and' option"
+                        )
+                        console_manager.print_note(
+                            "Enter additional information for memory:"
+                        )
+                        update_text = click.prompt("Memory update")
+
+                        # Update memory with the provided text
+                        from vibectl.config import Config
+
+                        try:
+                            # Get the model name from config if not specified
+                            cfg = Config()
+                            model_name = output_flags.model_name
+                            current_memory = get_memory()
+
+                            # Get the model
+                            model_adapter = get_model_adapter()
+                            model = model_adapter.get_model(model_name)
+
+                            # Create a prompt for the fuzzy memory update
+                            prompt = memory_fuzzy_update_prompt(
+                                current_memory, update_text, cfg
+                            )
+
+                            # Get the response
+                            console_manager.print_processing("Updating memory...")
+                            updated_memory = model_adapter.execute(model, prompt)
+
+                            # Set the updated memory
+                            set_memory(updated_memory, cfg)
+                            console_manager.print_success("Memory updated")
+
+                            # Display the updated memory
+                            console_manager.console.print(
+                                Panel(
+                                    updated_memory,
+                                    title="Updated Memory Content",
+                                    border_style="blue",
+                                    expand=False,
+                                )
+                            )
+                        except Exception as e:
+                            logger.error(f"Error updating memory: {e}")
+                            console_manager.print_error(f"Error updating memory: {e}")
+
+                    # Continue with command execution
+                    break
 
         if command == "port-forward" and live_display and len(args) >= 1:
             logger.info(f"Handling port-forward with live display: {args}")
@@ -607,16 +765,22 @@ def _create_display_command(args: list[str], yaml_content: str | None) -> str:
         return " ".join(display_args)
 
 
-def _needs_confirmation(command: str, autonomous_mode: bool) -> bool:
-    """Determine if this command requires confirmation.
+def _needs_confirmation(command: str, semiauto: bool) -> bool:
+    """Check if a command needs confirmation.
 
     Args:
-        command: The kubectl command type
-        autonomous_mode: Whether we're in autonomous mode
+        command: Command type
+        semiauto: Whether the command is running in semiauto mode
+            (always requires confirmation)
 
     Returns:
-        True if confirmation is needed, False otherwise
+        Whether the command needs confirmation
     """
+    # Always confirm in semiauto mode
+    if semiauto:
+        return True
+
+    # These commands need confirmation due to their potentially dangerous nature
     dangerous_commands = [
         "delete",
         "scale",
@@ -626,7 +790,7 @@ def _needs_confirmation(command: str, autonomous_mode: bool) -> bool:
         "replace",
         "create",
     ]
-    return command in dangerous_commands or (autonomous_mode and command != "get")
+    return command in dangerous_commands
 
 
 def _execute_command(args: list[str], yaml_content: str | None) -> str:

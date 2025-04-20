@@ -22,6 +22,7 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
+from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -38,6 +39,7 @@ from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
 
 from . import __version__
+from .command_handler import ExitAutoLoopException
 from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
@@ -547,18 +549,137 @@ def vibe(
     unfreeze_memory: bool = False,
     yes: bool = False,
 ) -> None:
-    """Execute autonomous Kubernetes operations guided by memory and planning."""
-    result = run_vibe_command(
-        request=request,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        yes=yes,
-    )
-    handle_result(result)
+    """Run a command based on your natural language request."""
+    try:
+        result = run_vibe_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            yes=yes,
+        )
+        handle_result(result)
+    except ExitAutoLoopException as e:
+        # Handle the exit here to prevent unnecessary error output
+        if getattr(e, "is_error", False):
+            console_manager.print_error(f"Error: {e}")
+            sys.exit(1)
+        else:
+            # Normal exit, exit cleanly
+            sys.exit(0)
+
+
+@cli.command()
+@click.argument("request", required=False)
+@common_command_options(include_show_kubectl=True)
+@click.option(
+    "--show-vibe/--no-show-vibe",
+    is_flag=True,
+    default=None,
+)
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option(
+    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
+)
+def auto(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    interval: int = 5,
+) -> None:
+    """Loop vibectl vibe commands automatically."""
+    try:
+        result = run_auto_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            yes=True,
+            interval=interval,
+            semiauto=False,
+        )
+        handle_result(result)
+    except ExitAutoLoopException as e:
+        # Handle the exit here to prevent unnecessary error output
+        # For normal exits (is_error=False), just exit cleanly without error messages
+        if not getattr(e, "is_error", False):
+            # Normal exit, perform a clean exit with success code
+            logger.info(f"Normal exit from auto loop: {e}")
+            sys.exit(0)
+
+        # For error exits, show the error and exit with an error code
+        logger.error(f"Error in auto loop: {e}")
+        console_manager.print_error(f"Error: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("request", required=False)
+@common_command_options(include_show_kubectl=True)
+@click.option(
+    "--show-vibe/--no-show-vibe",
+    is_flag=True,
+    default=None,
+)
+@click.option(
+    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
+)
+@click.option(
+    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
+)
+def semiauto(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    interval: int = 5,
+) -> None:
+    """Loop vibectl vibe commands with confirmation at each step."""
+    try:
+        result = run_semiauto_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            interval=interval,
+        )
+        handle_result(result)
+    except ExitAutoLoopException as e:
+        # Handle the exit here to prevent unnecessary error output
+        # For normal exits (is_error=False), just exit cleanly without error messages
+        if not getattr(e, "is_error", False):
+            # Normal exit, perform a clean exit with success code
+            logger.info(f"Normal exit from semiauto loop: {e}")
+            sys.exit(0)
+
+        # For error exits, show the error and exit with an error code
+        logger.error(f"Error in semiauto loop: {e}")
+        console_manager.print_error(f"Error: {e}")
+        sys.exit(1)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1155,6 +1276,18 @@ def main() -> None:
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         console_manager.print_keyboard_interrupt()
+        sys.exit(1)
+    except ExitAutoLoopException as e:
+        # Handle the exit here to prevent unnecessary error output
+        # For normal exits (is_error=False), just exit cleanly without error messages
+        if not getattr(e, "is_error", False):
+            # Normal exit, perform a clean exit with success code
+            logger.info(f"Normal exit from CLI: {e}")
+            sys.exit(0)
+
+        # For error exits, show the error and exit with an error code
+        logger.error(f"Error in CLI: {e}")
+        console_manager.print_error(f"Error: {e}")
         sys.exit(1)
     except Exception as e:
         handle_exception(e)
