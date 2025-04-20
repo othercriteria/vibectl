@@ -113,6 +113,12 @@ def run_auto_command(
                     logger.error(f"Error in vibe command: {result.error}")
                     error_occurred = True
 
+                    # Display recovery suggestions if they exist
+                    if result.recovery_suggestions:
+                        logger.info("Displaying recovery suggestions")
+                        console_manager.print_note("Recovery suggestions:")
+                        console_manager.print_note(result.recovery_suggestions)
+
                     if exit_on_error:
                         raise ValueError(f"Error in vibe command: {result.error}")
 
