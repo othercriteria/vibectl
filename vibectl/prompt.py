@@ -979,7 +979,7 @@ Syntax requirements (follow these STRICTLY):
   * For multiple resources, separate each YAML document with '---' on its own
     line with NO INDENTATION
 
-Example inputs and outputs:
+# BEGIN Example inputs and outputs:
 
 Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
 'backend' services."
@@ -1006,22 +1006,6 @@ Memory: "Wait until pod 'foo' is deleted"
 Request: ""
 Output:
 ERROR: not executing kubectl wait --for=delete pod/foo because it is blocking
-
-Memory: ""
-Request: "Wait until the database pod is ready"
-Output:
-wait pod -l app=database --for=condition=ready --timeout=30s
-
-Memory: "We have deployed pod 'foo'."
-Request: "Tear down the current pod and create a new one"
-Output:
-delete pod foo
-
-Memory: "We are working on deploying a three-tier application. We've created a
-frontend deployment."
-Request: "keep working on the application deployment"
-Output:
-get deployment frontend -o yaml
 
 Memory: "We need to create multiple resources for our application."
 Request: "create the frontend and backend pods"
@@ -1057,7 +1041,10 @@ spec:
     - containerPort: 6379
 EOF
 
-Here is the user's goal:
+# END Example inputs and outputs
+
+Recall the syntax requirements above and follow them strictly in responding to
+the user's goal:
 
 Memory: "{memory_context}"
 Request: "{request}"

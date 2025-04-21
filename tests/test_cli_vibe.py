@@ -99,7 +99,7 @@ def test_vibe_command_with_no_arguments_plan_prompt(
     assert call_args["command"] == "vibe"
     assert call_args["autonomous_mode"] is True
     assert (
-        "Here is the user's goal:"
+        "Recall the syntax requirements above and follow them strictly in responding to"
         in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]
     )
     assert "Request: " in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]

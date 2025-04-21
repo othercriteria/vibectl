@@ -3,7 +3,7 @@
 A red team vs. blue team demonstration showcasing vibectl's capabilities in a Kubernetes environment. This demo simulates a "chaos monkey" scenario where:
 
 - A blue agent works to maintain system stability and uptime
-- A red agent attempts to disrupt services through various attack vectors
+- A red agent **actively attacks and destroys services** through various attack vectors
 - A poller monitors service availability in real-time
 - An overseer provides a dashboard with service monitoring, agent logs, and cluster status
 
@@ -33,15 +33,15 @@ http://localhost:8080
 
 ### Target Services
 
-The demo deploys a distributed microservice application including:
+The demo deploys a distributed microservice application **explicitly designed to be attacked** including:
 
 - Frontend web application (Nginx-based with a simple status page)
-- Backend API service (Nginx-based with intentional vulnerabilities)
-- Database (Redis instance with no persistence)
-- Cache (Memcached with minimal resource limits)
+- Backend API service (Nginx-based with **intentional vulnerabilities**)
+- Database (Redis instance with **no persistence and no security**)
+- Cache (Memcached with **minimal resource limits**)
 - Load balancer (Nginx-based)
 
-These services intentionally have vulnerabilities that the red agent can exploit and the blue agent can detect and fix.
+These services are **deliberately vulnerable** with labels like `chaos-target: "true"` and `purpose: "attack-me"` to make them clear targets for the red agent to exploit and destroy. The blue agent's job is to detect and repair these attacks.
 
 ### Overseer
 
@@ -64,19 +64,26 @@ A web-based dashboard that:
 The defensive agent that:
 
 - Monitors system health using vibectl
-- Detects anomalies and attacks
+- Detects anomalies and attack damage
 - Restarts failed services
 - Scales resources as needed
 - Implements security measures
+- Repairs service disruptions caused by the red agent
 
-### Red Agent
+### Red Agent (Chaos Monkey)
 
 The offensive agent that:
 
-- Simulates various attack vectors from the attack playbook
-- Implements disruption strategies
+- **Aggressively attacks and destroys** services marked as attack targets
+- Implements various destructive strategies including:
+  - Deleting pods and deployments
+  - Consuming resources to cause crashes
+  - Exploiting dependencies between services
+  - Targeting critical infrastructure components
 - Adapts tactics based on blue agent responses
-- Operates within safety constraints
+- **Is explicitly instructed to cause maximum disruption** to test services
+- Operates within RBAC permissions (its only constraint)
+- Specifically targets components labeled with `chaos-target: "true"` and `attack-priority: "high"`
 
 ### Poller
 
@@ -91,10 +98,10 @@ A Python-based service that:
 
 1. The demo starts by setting up a Kind Kubernetes cluster with isolated networking
 2. The overseer dashboard initializes immediately, providing visibility into the cluster setup process
-3. Target services are deployed in the cluster with known vulnerabilities
+3. Target services are deployed in the cluster with **deliberately created vulnerabilities**
 4. The poller begins monitoring service availability and feeds data to the overseer
 5. The blue agent is initialized with defensive responsibilities
-6. The red agent begins implementing attacks after a short delay
+6. The red agent begins **actively attacking services** after a short delay
 7. Throughout the demo, the overseer provides a comprehensive view of the battle between agents and the evolving cluster state
 
 ## Customization
@@ -102,10 +109,10 @@ A Python-based service that:
 Edit the following files to customize the demo:
 
 - `agent/blue-memory-init.txt`: Instructions for the blue agent
-- `agent/red-memory-init.txt`: Instructions for the red agent
+- `agent/red-memory-init.txt`: Instructions for the red agent (includes attack directives)
 - `agent/attack-playbook.txt`: Attack strategies for the red agent
 - `agent/defense-playbook.txt`: Defense strategies for the blue agent
-- `k8s-sandbox/kubernetes/demo-services.yaml`: Target service definitions
+- `k8s-sandbox/kubernetes/demo-services.yaml`: Target service definitions with vulnerability markers
 
 ## Configuration Options
 
