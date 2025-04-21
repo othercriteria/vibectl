@@ -525,3 +525,47 @@ metadata:
             any_yaml_cmd_logged = True
             break
     assert any_yaml_cmd_logged, "No yaml command execution was logged"
+
+
+def test_parse_command_args_with_natural_language() -> None:
+    """Test _parse_command_args function with natural language in the command.
+
+    This function verifies that _parse_command_args parses the entire string,
+    including natural language. The fix for handling natural language is
+    elsewhere (in the auto command and create_kubectl_error), not in this function.
+    """
+    from vibectl.command_handler import _parse_command_args
+
+    # Test case 1: Natural language before kubectl command
+    test_cmd = (
+        "I'll plan a command to gather more information about the cluster state. "
+        "get pods --all-namespaces -o wide"
+    )
+    result = _parse_command_args(test_cmd)
+    # Currently, the function just splits the string as-is, without attempting to
+    # mangle it into a kubectl command.
+    assert "I'll" in result
+    assert "plan" in result
+    assert "get" in result
+    assert "pods" in result
+    assert "--all-namespaces" in result
+    assert "-o" in result
+    assert "wide" in result
+
+    # Test case 2: Natural language mixed with kubectl command
+    test_cmd = "I need to get pods in all namespaces to understand the cluster"
+    result = _parse_command_args(test_cmd)
+    assert "I" in result
+    assert "need" in result
+    assert "get" in result
+    assert "pods" in result
+
+    # Test case 3: Command with quotes
+    test_cmd = "get pods with label 'app=nginx'"
+    result = _parse_command_args(test_cmd)
+    # Quotes should be handled correctly by shlex
+    assert "get" in result
+    assert "pods" in result
+    assert "with" in result
+    assert "label" in result
+    assert "app=nginx" in result

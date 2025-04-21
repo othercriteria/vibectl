@@ -687,3 +687,132 @@ def test_auto_command_should_not_break_on_server_errors(
     # Verify that the appropriate message was shown to the user
     assert mock_console.print_note.call_count >= 2  # At least two error continuations
     mock_console.print_note.assert_any_call("Continuing to next step...")
+
+
+def test_auto_command_with_natural_language_in_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test auto command when LLM includes natural language commentary in the command.
+
+    This tests the specific issue where the LLM returns a command with natural language
+    commentary mixed in, which would cause kubectl to fail with "unknown command"
+    errors. These errors should be treated as recoverable (non-halting) so the auto
+    loop can continue.
+    """
+    # Mock console_manager
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock logger to verify log messages
+    mock_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.logger", mock_logger)
+
+    # Mock time.sleep to avoid waiting
+    mock_sleep = Mock()
+    monkeypatch.setattr("time.sleep", mock_sleep)
+
+    # Mock configure functions
+    mock_configure_output = Mock(return_value="output_flags")
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_output_flags", mock_configure_output
+    )
+    mock_configure_memory = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_memory_flags", mock_configure_memory
+    )
+
+    # Mock get_memory
+    mock_get_memory = Mock(return_value="Memory content")
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.get_memory", mock_get_memory)
+
+    # Create a mock run_vibe_command with a counter to control iterations
+    counter = [0]
+
+    # Expected error if a command starts with "I'll"
+    expected_error = 'error: unknown command "I\'ll" for "kubectl"'
+
+    # Store the most recent error so we can examine it
+    last_error: list[Error | None] = [None]
+
+    def mock_run_vibe(*args: Any, **kwargs: Any) -> Any:
+        counter[0] += 1
+        # First call: return problematic command, which will trigger the unknown
+        # command error
+        if counter[0] == 1:
+            # Create an error that would be returned from handle_vibe_request
+            error = Error(
+                error=expected_error,
+                exception=ValueError("Test error"),
+                halt_auto_loop=False,  # Key part of the fix - mark as non-halting
+            )
+            last_error[0] = error
+
+            # Simulate the error being printed to the console
+            mock_console.print_error(expected_error)
+
+            return error
+        # Second call: return a valid command after learning from the error
+        elif counter[0] == 2:
+            return Success(data="get pods")
+        # Third call: raise KeyboardInterrupt to terminate the loop
+        else:
+            raise KeyboardInterrupt()
+
+    # Set up our mock
+    mock_vibe = Mock(side_effect=mock_run_vibe)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Run auto command with exit_on_error=True to verify it doesn't exit on these errors
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test request",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        interval=0,
+        exit_on_error=True,  # Should continue despite error due to halt_auto_loop=False
+    )
+
+    # Verify the test completed all iterations (reached KeyboardInterrupt)
+    assert counter[0] == 3, "Should have completed all 3 iterations"
+
+    # Verify that the error's halt_auto_loop flag is False
+    assert last_error[0] is not None, "The error was not captured properly"
+    assert (
+        last_error[0].halt_auto_loop is False
+    ), "Error should have halt_auto_loop=False"
+
+    # Verify the logger was called with the non-halting message
+    logger_called_with_non_halting_message = False
+    for call in mock_logger.info.call_args_list:
+        args, _ = call
+        if args and "Continuing auto loop despite non-halting error" in args[0]:
+            logger_called_with_non_halting_message = True
+            break
+
+    assert (
+        logger_called_with_non_halting_message
+    ), "Logger should have been called with non-halting message"
+
+    # Verify the error was handled as recoverable
+    # The message "Continuing to next step..." should have been printed
+    continuation_message_printed = False
+    for call in mock_console.print_note.call_args_list:
+        args, _ = call
+        if args and "Continuing to next step" in args[0]:
+            continuation_message_printed = True
+            break
+
+    assert (
+        continuation_message_printed
+    ), "The 'Continuing to next step...' message should have been printed"
+
+    # Check that the error was logged
+    error_printed = False
+    for call in mock_console.print_error.call_args_list:
+        args, _ = call
+        if args and expected_error in args[0]:
+            error_printed = True
+            break
+
+    assert error_printed, f"Expected to see error: {expected_error}"

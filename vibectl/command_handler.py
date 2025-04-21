@@ -153,6 +153,12 @@ def create_kubectl_error(
     if "Error from server" in error_message:
         return Error(error=error_message, exception=exception, halt_auto_loop=False)
 
+    # For unknown command errors (usually from malformed LLM output),
+    # set halt_auto_loop=False so the auto loop can continue and the LLM can
+    # correct itself
+    if "unknown command" in error_message.lower():
+        return Error(error=error_message, exception=exception, halt_auto_loop=False)
+
     # For other errors, use the default (halt_auto_loop=True)
     return Error(error=error_message, exception=exception)
 
