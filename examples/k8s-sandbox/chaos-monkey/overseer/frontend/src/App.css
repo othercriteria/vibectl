@@ -42,6 +42,50 @@
   border-left: 5px solid #6c757d;
 }
 
+/* Agent-specific styles */
+.text-blue-agent {
+  color: #3c6ab0;
+}
+
+.text-red-agent {
+  color: #b03c3c;
+}
+
+.nav-tabs .nav-link {
+  color: #6c757d;
+}
+
+.nav-tabs .nav-link.active {
+  font-weight: bold;
+}
+
+/* Icon enhancements */
+.card-title i,
+h1 i,
+h2 i,
+h3 i,
+h4 i {
+  opacity: 0.9;
+}
+
+.card-header i {
+  opacity: 0.8;
+}
+
+.badge i {
+  font-size: 90%;
+}
+
+/* Card hover effects */
+.card {
+  transition: all 0.2s ease-in-out;
+}
+
+.card:hover {
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   body {
@@ -57,5 +101,13 @@
   .card-header {
     background-color: #212529;
     color: #f8f9fa;
+  }
+
+  .text-primary {
+    color: #5c9aff !important;
+  }
+
+  .text-danger {
+    color: #ff7575 !important;
   }
 }
