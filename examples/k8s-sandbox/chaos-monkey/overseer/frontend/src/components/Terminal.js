@@ -84,44 +84,6 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true, agentType 
       .replace(/\u255D/g, '╝'); // DOUBLE BOTTOM-RIGHT CORNER
   };
 
-  // Fix kubectl table output that's split across multiple lines
-  const fixKubectlTableOutput = (logs) => {
-    const fixedLogs = [];
-    let isPreviousLineTableHeader = false;
-    let isPreviousLineTableRow = false;
-    let currentTimestamp = null;
-
-    for (let i = 0; i < logs.length; i++) {
-      const log = logs[i];
-      let message = log.message || '';
-      const timestamp = log.timestamp;
-
-      // Check if this is a kubectl table header (contains uppercase column names with spaces)
-      const isTableHeader = message.match(/\b[A-Z]{2,}\s+[A-Z]{2,}(\s+[A-Z]{2,})*\b/);
-
-      // Check if this is a continuation of a table row
-      const isTableRowContinuation = isPreviousLineTableHeader ||
-                                    (isPreviousLineTableRow && message.trim().length > 0 && !message.includes(':'));
-
-      // If this line is a continuation of the previous table row/header
-      if (isTableRowContinuation && fixedLogs.length > 0 && currentTimestamp === timestamp) {
-        // Get the previous log and append this message to it
-        const previousLog = fixedLogs[fixedLogs.length - 1];
-        previousLog.message = `${previousLog.message} ${message.trim()}`;
-      } else {
-        // Track for the next iteration
-        isPreviousLineTableHeader = isTableHeader ? true : false;
-        isPreviousLineTableRow = isTableRowContinuation;
-        currentTimestamp = timestamp;
-
-        // Add as a new log entry
-        fixedLogs.push({ ...log, message });
-      }
-    }
-
-    return fixedLogs;
-  };
-
   // Special handling for Memory Content display
   const fixMemoryContentDisplay = (message) => {
     // Replace problematic memory content format with fixed-width characters
@@ -221,11 +183,8 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true, agentType 
       ));
 
       if (newLogs.length > 0) {
-        // Fix kubectl table output split across multiple lines
-        const fixedLogs = fixKubectlTableOutput(newLogs);
-
         // Process and write each new log
-        fixedLogs.forEach(log => {
+        newLogs.forEach(log => {
           const timestamp = new Date(log.timestamp).toLocaleTimeString();
 
           // Clean and normalize the message
@@ -239,7 +198,7 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true, agentType 
         });
 
         // Add new logs to processed logs
-        processedLogsRef.current = [...processedLogs, ...fixedLogs];
+        processedLogsRef.current = [...processedLogs, ...newLogs];
 
         // Auto-scroll to bottom
         if (autoScroll) {

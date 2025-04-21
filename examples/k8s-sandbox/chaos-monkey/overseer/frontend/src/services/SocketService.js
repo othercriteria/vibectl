@@ -16,7 +16,8 @@ class SocketService {
       'history_update': [],
       'cluster_update': [],
       'blue_log_update': [],
-      'red_log_update': []
+      'red_log_update': [],
+      'chaos_status_update': []
     };
   }
 

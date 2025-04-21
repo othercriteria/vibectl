@@ -1,149 +1,155 @@
-import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Badge, Accordion } from 'react-bootstrap';
-import apiService from '../services/ApiService';
-import { useSocket } from '../hooks/useSocket';
+import React from 'react';
+import { Row, Col, Card, Badge, Alert } from 'react-bootstrap';
 
-const ClusterStatus = () => {
-  const clusterData = useSocket('cluster_update', null);
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
-
-  // Fetch initial data
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!initialDataLoaded && !clusterData) {
-        const data = await apiService.getClusterStatus();
-        if (data) {
-          setInitialDataLoaded(true);
-        }
-      }
-    };
-
-    fetchData();
-  }, [initialDataLoaded, clusterData]);
-
-  if (!clusterData) {
-    return (
-      <div className="text-center py-5">
-        <h2>Loading cluster status...</h2>
-        <p>This may take a few moments as we gather data from the Kubernetes cluster.</p>
-      </div>
-    );
+const ClusterStatus = ({ clusterStatus }) => {
+  if (!clusterStatus) {
+    return <Alert variant="info"><i className="fas fa-spinner fa-spin me-2"></i>Loading cluster status...</Alert>;
   }
 
-  const getStatusBadge = (status, additionalText = '') => {
-    let variant;
-    if (typeof status === 'boolean') {
-      variant = status ? 'success' : 'danger';
-      status = status ? 'Ready' : 'Not Ready';
-    } else {
-      variant = status === 'Running' || status === 'Active' ? 'success' :
-              status === 'Pending' ? 'warning' :
-              status === 'Error' || status === 'Failed' ? 'danger' : 'secondary';
-    }
+  const { nodes = [], pods = [] } = clusterStatus;
 
-    return (
-      <Badge bg={variant} className="me-1">
-        {status} {additionalText}
-      </Badge>
-    );
+  // Calculate control plane health stats
+  const controlPlanePods = [];
+  let controlPlaneReady = 0;
+  let controlPlaneTotal = 0;
+
+  // Extract all pods related to control plane
+  pods.forEach(namespace => {
+    namespace.pods.forEach(pod => {
+      if (pod.name && (
+        pod.name.includes('control-plane') ||
+        pod.name.includes('kube-') ||
+        pod.namespace === 'kube-system'
+      )) {
+        controlPlaneTotal++;
+        if (pod.status === 'Ready' || pod.status === 'Running') {
+          controlPlaneReady++;
+        }
+        controlPlanePods.push(pod);
+      }
+    });
+  });
+
+  // For debugging, show data about control plane health
+  const controlPlaneHealth = controlPlaneTotal > 0
+    ? Math.round((controlPlaneReady / controlPlaneTotal) * 100)
+    : 0;
+
+  // Determine overall control plane status
+  let controlPlaneStatus = 'Unknown';
+  if (controlPlaneTotal > 0) {
+    if (controlPlaneReady === controlPlaneTotal) {
+      controlPlaneStatus = 'Healthy';
+    } else if (controlPlaneReady > 0) {
+      controlPlaneStatus = 'Degraded';
+    } else {
+      controlPlaneStatus = 'Unhealthy';
+    }
+  }
+
+  // Helper function to get status badge styling
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'HEALTHY':
+        return <Badge bg="success"><i className="fas fa-check-circle me-1"></i>HEALTHY</Badge>;
+      case 'DEGRADED':
+        return <Badge bg="warning"><i className="fas fa-exclamation-triangle me-1"></i>DEGRADED</Badge>;
+      case 'DOWN':
+        return <Badge bg="danger"><i className="fas fa-times-circle me-1"></i>DOWN</Badge>;
+      case 'Ready':
+        return <Badge bg="success"><i className="fas fa-check-circle me-1"></i>Ready</Badge>;
+      case 'NotReady':
+        return <Badge bg="danger"><i className="fas fa-times-circle me-1"></i>Not Ready</Badge>;
+      case 'Running':
+        return <Badge bg="success"><i className="fas fa-play-circle me-1"></i>Running</Badge>;
+      case 'Pending':
+        return <Badge bg="warning"><i className="fas fa-clock me-1"></i>Pending</Badge>;
+      default:
+        return <Badge bg="secondary"><i className="fas fa-question-circle me-1"></i>{status}</Badge>;
+    }
   };
 
   return (
-    <div>
-      <h1 className="mb-4">Kubernetes Cluster Status</h1>
+    <>
+      <Card className="mb-4">
+        <Card.Body>
+          <Card.Title><i className="fas fa-server me-2"></i>Control Plane Status</Card.Title>
+          <Alert variant={controlPlaneStatus === 'Healthy' ? 'success' :
+                         controlPlaneStatus === 'Degraded' ? 'warning' : 'danger'}>
+            <h5>
+              <i className={`fas fa-${controlPlaneStatus === 'Healthy' ? 'check-circle' :
+                             controlPlaneStatus === 'Degraded' ? 'exclamation-triangle' :
+                             'times-circle'} me-2`}></i>
+              {controlPlaneStatus}
+            </h5>
+            <div className="mt-2">
+              <div><strong>Control Plane Components:</strong> {controlPlaneReady}/{controlPlaneTotal} ready</div>
+              <div><strong>Health:</strong> {controlPlaneHealth}%</div>
+            </div>
+          </Alert>
+          {clusterStatus.last_updated && (
+            <div className="text-muted small mt-2">
+              <i className="fas fa-clock me-1"></i>
+              Last updated: {new Date(clusterStatus.last_updated).toLocaleString()}
+            </div>
+          )}
+        </Card.Body>
+      </Card>
 
-      <Row className="mb-4">
-        <Col md={12}>
-          <Card className="shadow-sm">
-            <Card.Body>
-              <Card.Title>Node Status</Card.Title>
-              <Table responsive striped hover>
-                <thead>
-                  <tr>
-                    <th>Node Name</th>
-                    <th>Status</th>
-                    <th>CPU</th>
-                    <th>Memory</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clusterData.nodes && clusterData.nodes.length > 0 ? (
-                    clusterData.nodes.map((node, index) => (
-                      <tr key={index}>
-                        <td>{node.name}</td>
-                        <td>{getStatusBadge(node.ready)}</td>
-                        <td>{node.cpu}</td>
-                        <td>{node.memory}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="text-center">No nodes found</td>
-                    </tr>
-                  )}
-                </tbody>
-              </Table>
-            </Card.Body>
-          </Card>
-        </Col>
+      <h4 className="mb-3"><i className="fas fa-server me-2"></i>Node Status</h4>
+      <Row className="row-cols-1 row-cols-md-2 g-4 mb-4">
+        {nodes.map((node, idx) => (
+          <Col key={idx}>
+            <Card className={`h-100 ${node.ready ? 'border-success' : 'border-danger'}`}>
+              <Card.Body>
+                <Card.Title><i className="fas fa-server me-2"></i>{node.name}</Card.Title>
+                <div className="d-flex justify-content-between">
+                  <div>Status: {getStatusBadge(node.status || 'UNKNOWN')}</div>
+                  <div>Ready: {node.ready ? <span className="text-success"><i className="fas fa-check me-1"></i>Yes</span> : <span className="text-danger"><i className="fas fa-times me-1"></i>No</span>}</div>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        ))}
       </Row>
 
-      <Row>
-        <Col md={12}>
-          <Card className="shadow-sm">
-            <Card.Body>
-              <Card.Title>Pods by Namespace</Card.Title>
-              <Accordion defaultActiveKey="0">
-                {clusterData.pods && clusterData.pods.length > 0 ? (
-                  clusterData.pods.map((namespaceData, nsIndex) => (
-                    <Accordion.Item eventKey={nsIndex.toString()} key={nsIndex}>
-                      <Accordion.Header>
-                        <span className="me-2">Namespace: {namespaceData.namespace}</span>
-                        {getStatusBadge(namespaceData.status)}
-                        <span className="ms-2">
-                          ({namespaceData.pods.length} pods)
-                        </span>
-                      </Accordion.Header>
-                      <Accordion.Body>
-                        <Table responsive striped hover>
-                          <thead>
-                            <tr>
-                              <th>Pod Name</th>
-                              <th>Status</th>
-                              <th>Ready</th>
-                              <th>Resources</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {namespaceData.pods.map((pod, podIndex) => (
-                              <tr key={podIndex}>
-                                <td>{pod.name}</td>
-                                <td>{getStatusBadge(pod.phase)}</td>
-                                <td>{pod.ready}</td>
-                                <td>
-                                  {pod.resources && pod.resources.cpu && (
-                                    <span className="me-2">CPU: {pod.resources.cpu}</span>
-                                  )}
-                                  {pod.resources && pod.resources.memory && (
-                                    <span>Memory: {pod.resources.memory}</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </Table>
-                      </Accordion.Body>
-                    </Accordion.Item>
-                  ))
-                ) : (
-                  <div className="text-center p-4">No pod data available</div>
-                )}
-              </Accordion>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-    </div>
+      <h4 className="mb-3"><i className="fas fa-cubes me-2"></i>Pod Status</h4>
+      <div className="table-responsive">
+        <table className="table table-sm table-striped">
+          <thead>
+            <tr>
+              <th><i className="fas fa-project-diagram me-2"></i>Namespace</th>
+              <th><i className="fas fa-cube me-2"></i>Name</th>
+              <th><i className="fas fa-check-circle me-2"></i>Ready</th>
+              <th><i className="fas fa-info-circle me-2"></i>Status</th>
+              <th><i className="fas fa-sync me-2"></i>Restarts</th>
+              <th><i className="fas fa-clock me-2"></i>Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pods.flatMap((ns) =>
+              ns.pods.map((pod, idx) => (
+                <tr key={`${ns.namespace}-${idx}`}>
+                  <td>{ns.namespace || 'default'}</td>
+                  <td>{pod.name || 'unknown'}</td>
+                  <td>{pod.ready || '0/0'}</td>
+                  <td>
+                    <span className={`badge bg-${(pod.status === 'Running' || pod.status === 'Ready' ? 'success' : pod.status === 'Pending' ? 'warning' : 'danger')}`}>
+                      {pod.status === 'Running' || pod.status === 'Ready' ? <i className="fas fa-play-circle me-1"></i> :
+                       pod.status === 'Pending' ? <i className="fas fa-clock me-1"></i> :
+                       <i className="fas fa-stop-circle me-1"></i>}
+                      {pod.status || 'Unknown'}
+                    </span>
+                  </td>
+                  <td>{pod.restarts || '0'}</td>
+                  <td>{pod.age || 'N/A'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 };
 
