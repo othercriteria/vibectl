@@ -50,10 +50,13 @@ A web-based dashboard that:
 - Displays real-time pod status across all namespaces with health indicators
 - Shows resource utilization metrics for CPU, memory, and network
 - Scrapes the poller data for service availability metrics
-- Follows logs from both red and blue agents with real-time updates
-- Visualizes service health over time with trend analysis
-- Calculates uptime statistics and displays performance degradation alerts
-- Features clean, formatted logs with ANSI color codes and timestamps stripped for improved readability
+- Features a consolidated dashboard with service metrics and agent logs in one view
+- Provides a separate detailed cluster status tab
+- Displays properly formatted terminal output including:
+  - Correct rendering of ASCII box-drawing characters and tables
+  - Proper alignment of kubectl table outputs with intelligent line joining
+  - ANSI color code handling for agent log highlighting
+  - Fixed-width font for consistent rendering of status displays
 - Accessible via web interface at http://localhost:8080 as soon as the demo starts
 
 ### Blue Agent
@@ -162,6 +165,8 @@ Currently implemented features:
 ✅ Red agent for attack simulation
 ✅ Python-based poller with comprehensive service monitoring
 ✅ Improved log formatting with ANSI codes and Docker timestamp stripping
+✅ Consolidated dashboard with integrated agent logs
+✅ Enhanced terminal display with proper alignment of tables and ASCII art
 
 ## Monitoring The Demo
 
@@ -178,6 +183,7 @@ To observe the demo in action:
    - Service health metrics with response time trends
    - Real-time agent logs with activity timestamps
    - Resource consumption graphs for key components
+   - Properly rendered box-drawing characters and tables
 
 2. In one terminal, watch the blue agent's actions:
    ```bash

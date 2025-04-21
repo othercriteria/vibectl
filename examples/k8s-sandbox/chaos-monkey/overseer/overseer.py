@@ -150,6 +150,43 @@ def get_poller_status() -> dict[str, Any]:
         }
 
 
+# Function to clean problematic ANSI codes while preserving colors
+def clean_ansi(text: str) -> str:
+    """Clean problematic ANSI control codes from text while preserving colors.
+
+    This function allows color codes to pass through but removes other
+    control sequences that might cause issues in the frontend.
+
+    Args:
+        text: The text containing ANSI control codes
+
+    Returns:
+        Cleaned text with only safe ANSI codes
+    """
+    if not text:
+        return ""
+
+    # Regular expression to match ANSI escape sequences
+    ansi_escape = re.compile(
+        r"""
+        \x1B            # ESC character
+        (?:             # followed by...
+            [@-Z\\-_]   # single character from these ranges
+        |               # OR
+            \[          # CSI sequence
+            [0-?]*      # Parameter bytes
+            [ -/]*      # Intermediate bytes
+            [@-~]       # Final byte
+        )
+    """,
+        re.VERBOSE,
+    )
+
+    # Strip all control sequences except color codes
+    # This keeps only the basic color codes (30-37, 40-47, 90-97, 100-107)
+    return ansi_escape.sub("", text)
+
+
 def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]]:
     """Get the latest logs from the specified agent."""
     try:
@@ -182,7 +219,7 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
             "utf-8", errors="replace"
         )
 
-        # Process the logs - minimal processing, let frontend handle display
+        # Process the logs - clean ANSI codes before sending to frontend
         log_entries = []
         for line in logs.strip().split("\n"):
             if not line:
@@ -197,6 +234,30 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
             else:
                 timestamp = datetime.now().isoformat()
                 message = line
+
+            # Clean the message to remove problematic ANSI codes
+            message = clean_ansi(message)
+
+            # Normalize box-drawing characters to ensure proper rendering
+            # Replace known problematic Unicode box drawing chars with standard forms
+            message = message.replace("\u2500", "─")  # HORIZONTAL LINE
+            message = message.replace("\u2502", "│")  # VERTICAL LINE
+            message = message.replace("\u250c", "┌")  # TOP-LEFT CORNER
+            message = message.replace("\u2510", "┐")  # TOP-RIGHT CORNER
+            message = message.replace("\u2514", "└")  # BOTTOM-LEFT CORNER
+            message = message.replace("\u2518", "┘")  # BOTTOM-RIGHT CORNER
+            message = message.replace("\u251c", "├")  # LEFT TEE
+            message = message.replace("\u2524", "┤")  # RIGHT TEE
+            message = message.replace("\u252c", "┬")  # TOP TEE
+            message = message.replace("\u2534", "┴")  # BOTTOM TEE
+            message = message.replace("\u253c", "┼")  # CROSS
+            message = message.replace("\u2550", "═")  # DOUBLE HORIZONTAL LINE
+            message = message.replace("\u2551", "║")  # DOUBLE VERTICAL LINE
+            message = message.replace("\u2554", "╔")  # DOUBLE TOP-LEFT CORNER
+            message = message.replace("\u2557", "╗")  # DOUBLE TOP-RIGHT CORNER
+            # Double bottom corners
+            message = message.replace("\u255a", "╚")  # DOUBLE BOTTOM-LEFT CORNER
+            message = message.replace("\u255d", "╝")  # DOUBLE BOTTOM-RIGHT CORNER
 
             # All logs are treated as INFO level to avoid false positives
             log_entries.append(
@@ -553,6 +614,40 @@ def serve_react(path: str) -> Response:
             "React app not found. Check if the frontend build is correctly copied to "
             "the container.",
             status=500,
+        )
+
+
+@app.route("/manifest.json")
+def serve_manifest() -> Response:
+    """Serve the manifest.json file with the correct MIME type."""
+    try:
+        return send_file("/app/static/manifest.json", mimetype="application/json")
+    except FileNotFoundError as e:
+        logger.error(f"manifest.json not found: {e}")
+        return Response(
+            "manifest.json not found", status=404, mimetype="application/json"
+        )
+
+
+@app.route("/favicon.ico")
+def serve_favicon() -> Response:
+    """Serve the favicon.ico file with the correct MIME type."""
+    try:
+        return send_file("/app/static/favicon.ico", mimetype="image/x-icon")
+    except FileNotFoundError as e:
+        logger.error(f"favicon.ico not found: {e}")
+        return Response("favicon.ico not found", status=404, mimetype="image/x-icon")
+
+
+@app.route("/asset-manifest.json")
+def serve_asset_manifest() -> Response:
+    """Serve the asset-manifest.json file with the correct MIME type."""
+    try:
+        return send_file("/app/static/asset-manifest.json", mimetype="application/json")
+    except FileNotFoundError as e:
+        logger.error(f"asset-manifest.json not found: {e}")
+        return Response(
+            "asset-manifest.json not found", status=404, mimetype="application/json"
         )
 
 
