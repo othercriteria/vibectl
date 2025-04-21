@@ -304,6 +304,51 @@ def _handle_standard_command_error(
     return Error(error=f"Unexpected error: {exception}", exception=exception)
 
 
+def create_api_error(error_message: str, exception: Exception | None = None) -> Error:
+    """
+    Create an Error object for API failures, marking them as non-halting for auto loops.
+
+    These are errors like 'overloaded_error' or other API-related issues that shouldn't
+    break the auto loop.
+
+    Args:
+        error_message: The error message
+        exception: Optional exception that caused the error
+
+    Returns:
+        Error object with halt_auto_loop=False
+    """
+    return Error(error=error_message, exception=exception, halt_auto_loop=False)
+
+
+def is_api_error(error_message: str) -> bool:
+    """
+    Check if an error message looks like an API error.
+
+    Args:
+        error_message: The error message to check
+
+    Returns:
+        True if the error appears to be an API error, False otherwise
+    """
+    # Check for API error formats
+    api_error_patterns = [
+        "Error executing prompt",
+        "overloaded_error",
+        "rate_limit",
+        "capacity",
+        "busy",
+        "throttle",
+        "anthropic.API",
+        "openai.API",
+        "llm error",
+        "model unavailable",
+    ]
+
+    error_message_lower = error_message.lower()
+    return any(pattern.lower() in error_message_lower for pattern in api_error_patterns)
+
+
 def handle_command_output(
     output: Result | str,
     output_flags: OutputFlags,
@@ -385,8 +430,15 @@ def handle_command_output(
 
     except Exception as e:
         logger.error(f"Error in vibe output processing: {e}", exc_info=True)
-        # Don't display error here - let caller handle it
-        return Error(error=f"Error processing output: {e}", exception=e)
+        error_message = f"Error processing output: {e}"
+
+        # Check if this is an API error, which shouldn't halt auto loops
+        if is_api_error(str(e)):
+            logger.info("API error detected, marking as non-halting for auto loops")
+            return create_api_error(error_message, e)
+
+        # For non-API errors, use the default behavior (halt_auto_loop=True)
+        return Error(error=error_message, exception=e)
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -458,32 +510,47 @@ def _process_vibe_output(
         logger.warning("Output was truncated for processing.")
         console_manager.print_truncation_warning()
 
-    # Get summary from LLM
-    vibe_output = _get_llm_summary(
-        processed_output, output_flags.model_name, summary_prompt_func(), command
-    )
-
-    # Update memory if we have a command, regardless of vibe output
-    if command:
-        update_memory(command, output, vibe_output, output_flags.model_name)
-
-    # Check for empty response
-    if not vibe_output:
-        logger.info("Vibe output is empty.")
-        console_manager.print_empty_output_message()
-        return Success(
-            message="Command completed successfully, but vibe output is empty.", data=""
+    try:
+        # Get summary from LLM
+        vibe_output = _get_llm_summary(
+            processed_output, output_flags.model_name, summary_prompt_func(), command
         )
 
-    # Check for error response
-    if vibe_output.startswith("ERROR:"):
-        error_message = vibe_output[7:].strip()  # Remove "ERROR: " prefix
-        logger.error(f"Vibe model returned error: {error_message}")
-        console_manager.print_error(error_message)
-        return Error(error=error_message)
+        # Update memory if we have a command, regardless of vibe output
+        if command:
+            update_memory(command, output, vibe_output, output_flags.model_name)
 
-    # Return the vibe output
-    return Success(message="Vibe output processed successfully", data=vibe_output)
+        # Check for empty response
+        if not vibe_output:
+            logger.info("Vibe output is empty.")
+            console_manager.print_empty_output_message()
+            return Success(
+                message="Command completed successfully, but vibe output is empty.",
+                data="",
+            )
+
+        # Check for error response
+        if vibe_output.startswith("ERROR:"):
+            error_message = vibe_output[7:].strip()  # Remove "ERROR: " prefix
+            logger.error(f"Vibe model returned error: {error_message}")
+            console_manager.print_error(error_message)
+            return Error(error=error_message)
+
+        # Return the vibe output
+        return Success(message="Vibe output processed successfully", data=vibe_output)
+
+    except Exception as e:
+        error_message = f"Error getting LLM summary: {e}"
+
+        # Check if this is an API error, which shouldn't halt auto loops
+        if is_api_error(str(e)):
+            logger.info(
+                "API error in LLM summary, marking as non-halting for auto loops"
+            )
+            return create_api_error(error_message, e)
+
+        # For other errors, use the default behavior
+        return Error(error=error_message, exception=e)
 
 
 def _get_llm_summary(

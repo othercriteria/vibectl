@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed error messages shown when a user selects [E]xit in semiauto mode
   - Updated exception handling to properly handle normal exits without displaying error messages
   - Improves user experience by ensuring clean exit behavior
+- Fixed `vibectl auto` breaking on API errors like "overloaded_error"
+  - Added detection of API-related errors and marked them as non-halting
+  - Auto loop now continues despite transient API issues like rate limiting or service overload
+  - Improved resilience for automated/scheduled usage of vibectl
 
 ## [0.4.1] - 2025-04-22
 
