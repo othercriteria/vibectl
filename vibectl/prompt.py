@@ -825,7 +825,9 @@ def recovery_prompt(command: str, error: str, max_chars: int = 1500) -> str:
     """
     return f"""
 The following kubectl command failed with an error:
-kubectl {command}
+```
+{command}
+```
 
 Error:
 ```
@@ -965,19 +967,17 @@ You may be in a non-interactive context, so do NOT plan blocking commands like
 contrary, and even then use appropriate timeouts.
 
 Syntax requirements (follow these STRICTLY):
-- Output ONLY the command arguments
-- Do not include 'kubectl' in the output
 - If the request is invalid, impossible, or incoherent, output 'ERROR: <reason>'
 - If the planned command is disruptive to the cluster or contrary to the user's
   overall intent, output 'ERROR: not executing <command> because <reason>'
+- Otherwise, output ONLY the command arguments
+  * Do not include a leading 'kubectl' in the output
+  * Do not include any other text in the output
 - For creating resources with complex data (HTML, strings with spaces, etc.):
   * PREFER using YAML manifests with 'create -f -' approach
   * If command-line flags like --from-literal must be used, ensure correct quoting
   * For multiple resources, separate each YAML document with '---' on its own
     line with NO INDENTATION
-  * Every YAML document must start with '---' on a line by itself with no indentation
-- Use YAML format for creation of all non-trivial resources (configmaps, secrets, etc.)
-- Each multi-line command should be explicit about line continuation with newlines
 
 Example inputs and outputs:
 
@@ -1057,7 +1057,7 @@ spec:
     - containerPort: 6379
 EOF
 
-Here's the current memory context and request:
+Here is the user's goal:
 
 Memory: "{memory_context}"
 Request: "{request}"
