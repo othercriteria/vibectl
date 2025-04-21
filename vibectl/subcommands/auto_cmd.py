@@ -7,10 +7,13 @@ which reifies the looping 'vibectl vibe --yes' pattern.
 
 import time
 
+from rich.panel import Panel
+
 from vibectl.command_handler import configure_output_flags
+from vibectl.config import Config
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags
+from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.types import Error, Result, Success
 
@@ -27,6 +30,7 @@ def run_auto_command(
     interval: int = 5,
     semiauto: bool = False,
     exit_on_error: bool = True,
+    limit: int | None = None,
 ) -> Result:
     """
     Implements the auto subcommand logic, including looping
@@ -46,14 +50,20 @@ def run_auto_command(
         semiauto: Whether we're in semiauto mode with manual confirmation
         exit_on_error: If True (default), errors will terminate the process.
            If False, errors are returned as Error objects for tests.
+        limit: Maximum number of iterations to run (None for unlimited)
 
     Returns:
         Result object (Success or Error)
     """
     logger.info(
         f"Starting '{('semi' if semiauto else '')}auto' command with "
-        f"request: {request!r}"
+        f"request: {request!r}, limit: {limit}"
     )
+
+    # Get config
+    cfg = Config()
+    show_memory = cfg.get("show_memory", False)
+    show_iterations = cfg.get("show_iterations", False)
 
     # Display a header for the auto session
     mode_name = "semiauto" if semiauto else "auto"
@@ -65,6 +75,10 @@ def run_auto_command(
         console_manager.print_note(
             "Commands will execute automatically (no confirmation needed)."
         )
+
+    # Show limit information if applicable
+    if limit is not None and show_iterations:
+        console_manager.print_note(f"Will run for {limit} iterations")
 
     try:
         # Configure output flags and memory
@@ -79,8 +93,39 @@ def run_auto_command(
         # Keep running until stopped
         iteration = 1
         while True:
+            # Check iteration limit
+            if limit is not None and iteration > limit:
+                logger.info(f"Reached iteration limit of {limit}")
+                console_manager.print_note(f"Completed {limit} iterations as requested")
+                return Success(
+                    message=f"Auto session completed after {limit} iterations"
+                )
+
             logger.info(f"Starting iteration {iteration} of auto loop")
-            console_manager.print_note(f"--- Iteration {iteration} ---")
+
+            # Show iteration information if enabled
+            if show_iterations:
+                if limit is not None:
+                    console_manager.print_note(f"Iteration {iteration}/{limit}")
+                else:
+                    console_manager.print_note(f"Iteration {iteration}")
+
+            # Show memory content if configured
+            if show_memory:
+                memory_content = get_memory()
+                if memory_content:
+                    console_manager.console.print(
+                        Panel(
+                            memory_content,
+                            title="Memory Content",
+                            border_style="blue",
+                            expand=False,
+                        )
+                    )
+                else:
+                    console_manager.print_warning(
+                        "Memory is empty. Use 'vibectl memory set' to add content."
+                    )
 
             try:
                 # Run the vibe command with semiauto-specific settings
@@ -163,6 +208,7 @@ def run_semiauto_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     exit_on_error: bool = False,
+    limit: int | None = None,
 ) -> Result:
     """
     Implements the semiauto subcommand logic, which is sugar
@@ -181,11 +227,14 @@ def run_semiauto_command(
         exit_on_error: If True, errors will terminate the process.
            If False (default for semiauto), errors are handled gracefully
            and the loop continues.
+        limit: Maximum number of iterations to run (None for unlimited)
 
     Returns:
         Result object (Success or Error)
     """
-    logger.info(f"Starting 'semiauto' command with request: {request!r}")
+    logger.info(
+        f"Starting 'semiauto' command with request: {request!r}, limit: {limit}"
+    )
 
     return run_auto_command(
         request=request,
@@ -199,4 +248,5 @@ def run_semiauto_command(
         interval=0,  # Use 0 interval as semiauto has natural pausing through user input
         semiauto=True,  # Set semiauto mode
         exit_on_error=exit_on_error,
+        limit=limit,  # Pass the iteration limit
     )

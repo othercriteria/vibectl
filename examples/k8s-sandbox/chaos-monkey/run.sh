@@ -10,6 +10,13 @@ IFS=$'\n\t'
 # Default values
 export SESSION_DURATION=${SESSION_DURATION:-30}
 export VERBOSE=${VERBOSE:-false}
+export USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
+
+# Define package versions (should match those in docker-compose.yaml)
+export VIBECTL_VERSION="0.4.1"
+export LLM_VERSION="0.24.2"
+export LLM_ANTHROPIC_VERSION="0.15.1"
+export ANTHROPIC_SDK_VERSION="0.49.0"
 
 # Detect Docker GID
 if getent group docker >/dev/null 2>&1; then
@@ -40,11 +47,16 @@ while [[ $# -gt 0 ]]; do
       export VERBOSE="true"
       shift
       ;;
+    --use-stable-versions)
+      export USE_STABLE_VERSIONS="true"
+      shift
+      ;;
     --help)
       echo "Usage: $0 [options]"
       echo "Options:"
       echo "  --session-duration MINUTES  Set the session duration in minutes (default: 30 min)"
       echo "  --verbose                   Enable verbose logging"
+      echo "  --use-stable-versions       Use stable, known good versions of packages from PyPI"
       echo "  --help                      Show this help message"
       exit 0
       ;;
@@ -85,6 +97,16 @@ fi
 echo "Starting Chaos Monkey demo with the following configuration:"
 echo "  Session duration: ${SESSION_DURATION} minutes"
 echo "  Verbose mode: ${VERBOSE}"
+
+if [ "${USE_STABLE_VERSIONS}" = "true" ]; then
+  echo "  Using stable package versions from PyPI:"
+  echo "    - vibectl: ${VIBECTL_VERSION}"
+  echo "    - llm: ${LLM_VERSION}"
+  echo "    - llm-anthropic: ${LLM_ANTHROPIC_VERSION}"
+  echo "    - anthropic: ${ANTHROPIC_SDK_VERSION}"
+else
+  echo "  Using vibectl from local repository source"
+fi
 
 # Start k8s-sandbox first to ensure it's fully ready before starting agents
 echo "Starting Kubernetes sandbox..."

@@ -29,7 +29,7 @@ from flask_socketio import SocketIO
 from rich.console import Console
 
 # Configuration from environment variables
-METRICS_INTERVAL = int(os.environ.get("METRICS_INTERVAL", "15"))
+METRICS_INTERVAL = 1
 SESSION_DURATION = int(os.environ.get("SESSION_DURATION", "30"))
 VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 POLLER_STATUS_DIR = "/tmp/status"  # Path inside the poller container
@@ -533,7 +533,7 @@ def start_monitoring() -> None:
     scheduler.add_job(update_agent_logs, "interval", seconds=5)
     scheduler.add_job(update_cluster_status, "interval", seconds=METRICS_INTERVAL)
     scheduler.start()
-    logger.info(f"Monitoring started with {METRICS_INTERVAL}s interval")
+    logger.info(f"Monitoring started with fixed {METRICS_INTERVAL}s interval")
 
 
 @app.route("/", defaults={"path": ""})

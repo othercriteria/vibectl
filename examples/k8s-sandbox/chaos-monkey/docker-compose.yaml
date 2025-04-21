@@ -7,7 +7,6 @@ services:
     container_name: chaos-monkey-overseer
     environment:
       - SESSION_DURATION=${SESSION_DURATION:-30}
-      - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
       - VERBOSE=${VERBOSE:-false}
       - PORT=8080
       - HOST=0.0.0.0
@@ -92,6 +91,11 @@ services:
     build:
       context: .
       dockerfile: ./agent/Dockerfile
+      args:
+        VIBECTL_VERSION: "${VIBECTL_VERSION}"
+        LLM_ANTHROPIC_VERSION: "${LLM_ANTHROPIC_VERSION}"
+        ANTHROPIC_SDK_VERSION: "${ANTHROPIC_SDK_VERSION}"
+        LLM_VERSION: "${LLM_VERSION}"
     container_name: chaos-monkey-blue-agent
     depends_on:
       k8s-sandbox:
@@ -114,6 +118,7 @@ services:
       - INITIAL_DELAY=5
       - OVERSEER_HOST=overseer
       - OVERSEER_PORT=8080
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network
     volumes:
@@ -121,12 +126,18 @@ services:
       - ./agent/blue-memory-init.txt:/config/memory-init.txt:ro
       - ./agent/defense-playbook.txt:/playbooks/defense-playbook.txt:ro
       - ./agent/blue-custom-instructions.txt:/config/custom-instructions.txt:ro
+      - ../../../:/vibectl-src:ro  # Mount repository root to use local vibectl code
     dns_search: chaos-monkey-network
 
   red-agent:
     build:
       context: .
       dockerfile: ./agent/Dockerfile
+      args:
+        VIBECTL_VERSION: "${VIBECTL_VERSION}"
+        LLM_ANTHROPIC_VERSION: "${LLM_ANTHROPIC_VERSION}"
+        ANTHROPIC_SDK_VERSION: "${ANTHROPIC_SDK_VERSION}"
+        LLM_VERSION: "${LLM_VERSION}"
     container_name: chaos-monkey-red-agent
     depends_on:
       k8s-sandbox:
@@ -151,6 +162,7 @@ services:
       - INITIAL_DELAY=30
       - OVERSEER_HOST=overseer
       - OVERSEER_PORT=8080
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network
     volumes:
@@ -158,6 +170,7 @@ services:
       - ./agent/red-memory-init.txt:/config/memory-init.txt:ro
       - ./agent/attack-playbook.txt:/playbooks/attack-playbook.txt:ro
       - ./agent/red-custom-instructions.txt:/config/custom-instructions.txt:ro
+      - ../../../:/vibectl-src:ro  # Mount repository root to use local vibectl code
     dns_search: chaos-monkey-network
 
 networks:

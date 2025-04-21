@@ -835,25 +835,50 @@ def _handle_command_confirmation(
     Returns:
         Result if the command was cancelled, None if it should proceed
     """
-    # Enhanced confirmation dialog with new options: yes, no, and, but, exit
+    # Enhanced confirmation dialog with new options: yes, no, and, but, exit, memory
     if semiauto:
         console_manager.print_note(
-            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, or [E]xit? (y/n/a/b/e)"
+            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, [M]emory, or [E]xit? (y/n/a/b/m/e)"
         )
     else:
-        console_manager.print_note("\n[Y]es, [N]o, yes [A]nd, or no [B]ut? (y/n/a/b)")
+        console_manager.print_note(
+            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory? (y/n/a/b/m)"
+        )
 
     while True:
         choice = click.prompt(
             "",
             type=click.Choice(
-                ["y", "n", "a", "b", "e"] if semiauto else ["y", "n", "a", "b"],
+                ["y", "n", "a", "b", "m", "e"]
+                if semiauto
+                else ["y", "n", "a", "b", "m"],
                 case_sensitive=False,
             ),
             default="n",
         ).lower()
 
         # Process the choice
+        if choice == "m":
+            # Show memory and then show the confirmation dialog again
+            from vibectl.memory import get_memory
+
+            memory_content = get_memory()
+            if memory_content:
+                console_manager.console.print(
+                    Panel(
+                        memory_content,
+                        title="Memory Content",
+                        border_style="blue",
+                        expand=False,
+                    )
+                )
+            else:
+                console_manager.print_warning(
+                    "Memory is empty. Use 'vibectl memory set' to add content."
+                )
+            # Don't return, continue the loop to show the confirmation dialog again
+            continue
+
         if choice in ["n", "b"]:
             # No or No But - don't execute the command
             logger.info(
@@ -1530,8 +1555,7 @@ def handle_wait_with_live_display(
             console_manager.console.print(message)
             return Error(
                 error=(
-                    f"Wait operation completed with no result "
-                    f"after {elapsed_time:.2f}s"
+                    f"Wait operation completed with no result after {elapsed_time:.2f}s"
                 )
             )
 

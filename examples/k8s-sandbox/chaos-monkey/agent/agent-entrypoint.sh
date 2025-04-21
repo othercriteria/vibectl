@@ -44,6 +44,60 @@ function log() {
     fi
 }
 
+# Install vibectl based on configuration
+if [ "${USE_STABLE_VERSIONS}" = "true" ]; then
+    # Use stable versions from PyPI
+    log "Using stable versions from PyPI"
+    echo -e "${COLOR_CODE}Installing stable package versions from PyPI...${NO_COLOR}"
+
+    # Install specific versions of packages
+    pip install --no-cache-dir llm==${LLM_VERSION} llm-anthropic==${LLM_ANTHROPIC_VERSION} anthropic==${ANTHROPIC_SDK_VERSION} vibectl==${VIBECTL_VERSION}
+
+    # Make sure we're using the installed versions
+    echo -e "${COLOR_CODE}Installed stable package versions from PyPI:${NO_COLOR}"
+    echo -e "${COLOR_CODE}- vibectl: ${VIBECTL_VERSION}${NO_COLOR}"
+    echo -e "${COLOR_CODE}- llm: ${LLM_VERSION}${NO_COLOR}"
+    echo -e "${COLOR_CODE}- llm-anthropic: ${LLM_ANTHROPIC_VERSION}${NO_COLOR}"
+    echo -e "${COLOR_CODE}- anthropic: ${ANTHROPIC_SDK_VERSION}${NO_COLOR}"
+else
+    # Install dependencies first (always needed)
+    log "Installing required dependencies"
+    echo -e "${COLOR_CODE}Installing llm, llm-anthropic, and anthropic packages...${NO_COLOR}"
+    if ! pip install --no-cache-dir llm==${LLM_VERSION} llm-anthropic==${LLM_ANTHROPIC_VERSION} anthropic==${ANTHROPIC_SDK_VERSION}; then
+        echo -e "${COLOR_CODE}ERROR: Failed to install required dependencies.${NO_COLOR}"
+        echo -e "${COLOR_CODE}Consider using --use-stable-versions flag for a more reliable setup.${NO_COLOR}"
+        exit 1
+    fi
+
+    # Install vibectl from source
+    log "Checking for vibectl source installation"
+    if [ -d "/vibectl-src" ]; then
+        log "Installing vibectl from source directory"
+        cd /vibectl-src
+
+        echo -e "${COLOR_CODE}Installing vibectl from source...${NO_COLOR}"
+        if ! pip install -e .; then
+            echo -e "${COLOR_CODE}ERROR: Failed to install vibectl from source.${NO_COLOR}"
+            echo -e "${COLOR_CODE}Consider using --use-stable-versions flag for a more reliable setup.${NO_COLOR}"
+            exit 1
+        fi
+
+        echo -e "${COLOR_CODE}vibectl installed from source${NO_COLOR}"
+        cd - >/dev/null
+    else
+        echo -e "${COLOR_CODE}ERROR: vibectl source directory not found at /vibectl-src${NO_COLOR}"
+        echo -e "${COLOR_CODE}Please ensure the repository is mounted or use the --use-stable-versions flag.${NO_COLOR}"
+        exit 1
+    fi
+fi
+
+# Ensure vibectl is properly installed
+if ! command -v vibectl &> /dev/null; then
+    echo -e "${COLOR_CODE}ERROR: vibectl command not found after installation.${NO_COLOR}"
+    echo -e "${COLOR_CODE}Please use --use-stable-versions flag for a more reliable setup.${NO_COLOR}"
+    exit 1
+fi
+
 # Ensure API key is set
 if [ -z "${VIBECTL_ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
     echo -e "${COLOR_CODE}Error: No API key provided. Please set VIBECTL_ANTHROPIC_API_KEY.${NO_COLOR}"
@@ -80,6 +134,8 @@ log "LLM API key set via direct file configuration"
 # Configure other vibectl settings
 vibectl config set model "${VIBECTL_MODEL:-claude-3.7-sonnet}"
 vibectl config set memory_max_chars ${MEMORY_MAX_CHARS}
+vibectl config set show_memory true
+vibectl config set show_iterations true
 
 # Configure output options based on verbose mode
 if [ "$VERBOSE" = "true" ]; then
@@ -172,44 +228,14 @@ while ! kubectl get nodes --request-timeout=5s > /dev/null 2>&1; do
     sleep 2
 done
 
-echo -e " ${COLOR_CODE}Connected to Kubernetes!${NO_COLOR}"
+echo "" # Ensure we're on a new line after dots
+echo -e "${COLOR_CODE}Connected to Kubernetes!${NO_COLOR}"
 
 # Verify connection
 log "Cluster information:"
 kubectl cluster-info
 log "Nodes:"
 kubectl get nodes
-
-# Initialize vibectl memory with the content of memory-init.txt
-log "Initializing vibectl memory..."
-if [ -f "${MEMORY_INIT_FILE}" ]; then
-    vibectl memory clear
-    vibectl memory update "$(cat ${MEMORY_INIT_FILE})"
-    log "Memory initialized from file"
-else
-    log "Error: Memory initialization file not found at ${MEMORY_INIT_FILE}"
-    exit 1
-fi
-
-# Run the agent loop until session ends
-log "Starting ${AGENT_ROLE} agent loop..."
-
-# Add initial delay if needed (especially for red agent)
-if [ ${INITIAL_DELAY} -gt 0 ]; then
-    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Waiting ${INITIAL_DELAY} seconds before starting operations...${NO_COLOR}"
-    sleep "${INITIAL_DELAY}"
-fi
-
-# Calculate session end time
-DURATION_SECONDS=$((SESSION_DURATION * 60))
-START_TIME=$(date +%s)
-END_TIME=$((START_TIME + DURATION_SECONDS))
-
-# Initialize action counter
-ACTION_COUNT=0
-
-# Create a marker file to track playbook addition
-PLAYBOOK_ADDED=0
 
 # Function to check k8s health - fail if connection is lost
 check_k8s_health() {
@@ -229,71 +255,52 @@ check_k8s_health() {
   fi
 }
 
-# Main loop
-while true; do
-    CURRENT_TIME=$(date +%s)
-    REMAINING_SECONDS=$((END_TIME - CURRENT_TIME))
+# Initialize vibectl memory with the content of memory-init.txt
+log "Initializing vibectl memory..."
+if [ -f "${MEMORY_INIT_FILE}" ]; then
+    vibectl memory clear
+    vibectl memory update "$(cat ${MEMORY_INIT_FILE})"
+    log "Memory initialized from file"
+else
+    log "Error: Memory initialization file not found at ${MEMORY_INIT_FILE}"
+    exit 1
+fi
 
-    # Exit if time is up
-    if [ $REMAINING_SECONDS -le 0 ]; then
-        echo -e "${COLOR_CODE}Session duration completed. Exiting...${NO_COLOR}"
-        break
-    fi
+# Add initial delay if needed (especially for red agent)
+if [ ${INITIAL_DELAY} -gt 0 ]; then
+    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Waiting ${INITIAL_DELAY} seconds before starting operations...${NO_COLOR}"
+    sleep "${INITIAL_DELAY}"
+fi
 
-    # Display time remaining every minute
-    if [ $((REMAINING_SECONDS % 60)) -eq 0 ]; then
-        REMAINING_MINUTES=$((REMAINING_SECONDS / 60))
-        echo -e "${COLOR_CODE}${AGENT_ROLE^^}: $REMAINING_MINUTES minutes remaining in session.${NO_COLOR}"
-    fi
+# Check cluster health before starting
+check_k8s_health
 
-    # Increment action counter
-    ACTION_COUNT=$((ACTION_COUNT + 1))
-    log "Starting action #${ACTION_COUNT}"
+# Run the initial exploration phase with a limit of 3 iterations
+echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Starting initial exploration phase...${NO_COLOR}"
+vibectl auto --limit 3 --interval ${ACTION_PAUSE_TIME}
 
-    # After a few initial exploration actions, add the playbook to memory if it exists
-    if [ $ACTION_COUNT -eq 3 ] && [ $PLAYBOOK_ADDED -eq 0 ] && [ -f "${PLAYBOOK_FILE}" ]; then
-        echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Adding playbook to memory...${NO_COLOR}"
+# After initial exploration, add the playbook to memory if it exists
+if [ -f "${PLAYBOOK_FILE}" ]; then
+    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Adding playbook to memory...${NO_COLOR}"
 
-        if [ "$AGENT_ROLE" = "blue" ]; then
-            vibectl memory update "I've completed my initial exploration. Based on further planning, here are strategies I can use for system defense:
+    if [ "$AGENT_ROLE" = "blue" ]; then
+        vibectl memory update "I've completed my initial exploration. Based on further planning, here are strategies I can use for system defense:
 
 $(cat ${PLAYBOOK_FILE})"
-        else
-            vibectl memory update "I've completed my initial exploration. Based on further planning, here are strategies I can use for chaos testing:
-
-$(cat ${PLAYBOOK_FILE})"
-        fi
-
-        PLAYBOOK_ADDED=1
-    fi
-
-    # Check cluster health before running vibectl
-    check_k8s_health
-
-    # Show memory in verbose mode
-    if [ "${VERBOSE}" = "true" ]; then
-        vibectl memory show
-    fi
-
-    # Run vibectl with auto-confirmation
-    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Running vibectl...${NO_COLOR}"
-
-    # Capture output for debugging
-    VIBECTL_OUTPUT=$(mktemp)
-    if ! vibectl vibe --yes > "$VIBECTL_OUTPUT" 2>&1; then
-        ERROR_CODE=$?
-        echo -e "${COLOR_CODE}⚠️ vibectl exited with code $ERROR_CODE - retrying in $ACTION_PAUSE_TIME seconds${NO_COLOR}"
-        echo -e "${COLOR_CODE}──────────────────── vibectl output (for debugging) ────────────────────${NO_COLOR}"
-        cat "$VIBECTL_OUTPUT"
-        echo -e "${COLOR_CODE}──────────────────────────── end of output ─────────────────────────────${NO_COLOR}"
     else
-        cat "$VIBECTL_OUTPUT"
-    fi
-    rm -f "$VIBECTL_OUTPUT"
+        vibectl memory update "I've completed my initial exploration. Based on further planning, here are strategies I can use for chaos testing:
 
-    # Wait before next action
-    echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Waiting ${ACTION_PAUSE_TIME} seconds before next action...${NO_COLOR}"
-    sleep "${ACTION_PAUSE_TIME}"
-done
+$(cat ${PLAYBOOK_FILE})"
+    fi
+fi
+
+# Check cluster health before continuing
+check_k8s_health
+
+# Continue with auto mode until session ends or interrupted
+echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Continuing autonomous operation...${NO_COLOR}"
+
+# Run vibectl auto with interval until session time is exhausted
+vibectl auto --interval ${ACTION_PAUSE_TIME}
 
 echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Agent completed session.${NO_COLOR}"

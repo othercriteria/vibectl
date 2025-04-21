@@ -47,7 +47,6 @@ EXPOSE 8080
 
 # Environment variables with defaults
 ENV SESSION_DURATION=30 \
-    METRICS_INTERVAL=15 \
     VERBOSE=false \
     PORT=8080 \
     HOST=0.0.0.0 \

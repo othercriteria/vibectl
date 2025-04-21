@@ -118,9 +118,6 @@ export VIBECTL_MODEL=claude-3.7-haiku
 # Set session duration in minutes (defaults to 30 min)
 export SESSION_DURATION=60
 
-# Set metrics interval in seconds (defaults to 15 sec)
-export METRICS_INTERVAL=10
-
 # Run with specific configuration via command line options
 ./run.sh --session-duration 45 --verbose
 ```
@@ -128,6 +125,30 @@ export METRICS_INTERVAL=10
 Available command-line options:
 - `--session-duration MINUTES`: Set how long the demo should run
 - `--verbose`: Enable detailed logging
+- `--use-stable-versions`: Use stable, known good versions of packages from PyPI instead of the local repository
+
+## Package Versions
+
+The demo can run in two modes:
+
+1. **Development Mode (default)**: Uses the local vibectl repository code, letting you test local changes.
+2. **Stable Mode**: Uses specific known working versions from PyPI for reliable demos.
+
+To run with stable versions:
+```bash
+./run.sh --use-stable-versions
+```
+
+Current stable versions:
+- vibectl: 0.4.1
+- llm: 0.24.2
+- llm-anthropic: 0.15.1
+- anthropic: 0.49.0
+
+To update the stable versions after testing:
+1. Find the current versions using `pip index versions <package-name>`
+2. Update the versions in `run.sh` (look for the "Define package versions" section)
+3. Test the new versions with `./run.sh --use-stable-versions`
 
 ## Development Status
 

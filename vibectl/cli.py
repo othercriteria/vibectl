@@ -565,6 +565,9 @@ def vibe(
 @click.option(
     "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
 )
+@click.option(
+    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
+)
 def auto(
     request: str | None,
     show_raw_output: bool | None,
@@ -574,6 +577,7 @@ def auto(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     interval: int = 5,
+    limit: int | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -588,6 +592,7 @@ def auto(
             yes=True,
             interval=interval,
             semiauto=False,
+            limit=limit,
         )
         handle_result(result)
     except Exception as e:
@@ -602,6 +607,9 @@ def auto(
 @cli.command()
 @click.argument("request", required=False)
 @common_command_options(include_show_kubectl=True)
+@click.option(
+    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
+)
 def semiauto(
     request: str | None,
     show_raw_output: bool | None,
@@ -610,6 +618,7 @@ def semiauto(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    limit: int | None = None,
 ) -> None:
     """Run vibe command in semiauto mode with manual confirmation.
 
@@ -626,6 +635,7 @@ def semiauto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
+            limit=limit,
             # No exit_on_error parameter needed - defaults to False
         )
 

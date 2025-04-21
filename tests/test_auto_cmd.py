@@ -424,6 +424,7 @@ def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         interval=0,  # Should use 0 interval for semiauto
         semiauto=True,  # Should be True for semiauto
         exit_on_error=False,  # Should be False by default now
+        limit=None,  # Should pass through as None by default
     )
 
     # Test with exit_on_error explicitly set to True
