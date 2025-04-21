@@ -691,6 +691,17 @@ def handle_vibe_request(
                     console_manager.print_note(recovery_suggestions)
                     # Set recovery_suggestions directly on the result
                     result.recovery_suggestions = recovery_suggestions
+
+                    # Update memory with recovery suggestions
+                    update_memory(
+                        command=f"{command} {kubectl_cmd}",
+                        command_output=result.error,
+                        vibe_output=f"Recovery suggestions: {recovery_suggestions}",
+                        model_name=output_flags.model_name,
+                    )
+
+                    # Log that recovery suggestions were added to memory
+                    logger.info("Recovery suggestions added to memory context")
             except Exception as recovery_err:
                 logger.error(f"Error getting recovery suggestions: {recovery_err}")
 
