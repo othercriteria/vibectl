@@ -144,8 +144,6 @@ services:
         condition: service_healthy
       overseer:
         condition: service_started
-      blue-agent:
-        condition: service_started
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}

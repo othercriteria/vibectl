@@ -27,6 +27,7 @@ ChartJS.register(
 
 const Dashboard = () => {
   const currentStatus = useSocket('status_update', { status: 'LOADING', message: 'Loading status...' });
+  const serviceOverviewUpdate = useSocket('service_overview_update', null);
   const [history, setHistory] = useState([]);
   const [overview, setOverview] = useState({
     status_counts: { HEALTHY: 0, DEGRADED: 0, DOWN: 0, ERROR: 0 },
@@ -73,6 +74,13 @@ const Dashboard = () => {
       });
     }
   }, [currentStatus]);
+
+  // Update overview when we get a service_overview_update
+  useEffect(() => {
+    if (serviceOverviewUpdate) {
+      setOverview(serviceOverviewUpdate);
+    }
+  }, [serviceOverviewUpdate]);
 
   // Graph data
   const chartData = {

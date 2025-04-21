@@ -49,6 +49,11 @@ function App() {
       setClusterStatus(data);
     });
 
+    // Handle service overview updates
+    socket.on('service_overview_update', (data) => {
+      setOverview(data);
+    });
+
     // Initial data loading
     fetch('/api/status')
       .then(response => response.json())
@@ -82,6 +87,7 @@ function App() {
       socket.off('blue_log_update');
       socket.off('red_log_update');
       socket.off('cluster_update');
+      socket.off('service_overview_update');
     };
   }, []);
 

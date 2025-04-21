@@ -8,6 +8,11 @@ const ServiceOverview = ({ overview }) => {
 
   const { status_counts = {}, uptime_percentage = 0 } = overview;
 
+  // Handle uptime percentage whether it's a number or string
+  const formattedUptime = typeof uptime_percentage === 'number'
+    ? uptime_percentage.toFixed(1)
+    : parseFloat(uptime_percentage).toFixed(1);
+
   return (
     <Card className="mb-4">
       <Card.Body>
@@ -19,9 +24,12 @@ const ServiceOverview = ({ overview }) => {
             <div><i className="fas fa-times-circle text-danger me-2"></i><span className="text-danger fw-bold">{status_counts.DOWN || 0}</span> down</div>
           </div>
           <div className="text-end">
-            <div className="h4">{uptime_percentage.toFixed(1)}%</div>
+            <div className="h4">{formattedUptime}%</div>
             <div className="text-muted"><i className="fas fa-clock me-1"></i>Uptime</div>
           </div>
+        </div>
+        <div className="text-muted small text-end">
+          Last updated: {overview.last_updated ? new Date(overview.last_updated).toLocaleTimeString() : 'Never'}
         </div>
       </Card.Body>
     </Card>

@@ -190,7 +190,7 @@ def clean_ansi(text: str) -> str:
     return ansi_escape.sub("", text)
 
 
-def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]]:
+def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, Any]]:
     """Get the latest logs from the specified agent."""
     try:
         container_name = f"chaos-monkey-{agent_role}-agent"
@@ -206,14 +206,16 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
                 f"{agent_role.capitalize()} agent container not found - "
                 "this is normal during startup"
             )
+            # Return an overseer message without timestamp
+            agent_msg = f"[OVERSEER] {agent_role.capitalize()} agent"
             return [
                 {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": "",  # Empty timestamp for overseer messages
                     "message": (
-                        f"{agent_role.capitalize()} agent container not found - "
-                        "waiting for startup to complete"
+                        f"{agent_msg} container not found - waiting for startup"
                     ),
                     "level": "INFO",
+                    "is_overseer": "true",  # Flag as string to match expected type
                 }
             ]
 
@@ -268,6 +270,7 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
                     "timestamp": timestamp,
                     "message": message,
                     "level": "INFO",  # Default all to INFO level
+                    "is_overseer": "false",  # Regular agent logs as string
                 }
             )
 
@@ -275,11 +278,13 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, str]
 
     except Exception as e:
         logger.error(f"Error getting {agent_role} agent logs: {e}")
+        # Return an overseer error message without timestamp
         return [
             {
-                "timestamp": datetime.now().isoformat(),
-                "message": f"Error getting logs: {e!s}",
-                "level": "ERROR",  # Keep error messages from the overseer as ERROR
+                "timestamp": "",  # Empty timestamp for overseer messages
+                "message": f"[OVERSEER] Error getting logs: {e!s}",
+                "level": "ERROR",  # Keep error messages as ERROR
+                "is_overseer": "true",  # Flag as string to match expected type
             }
         ]
 

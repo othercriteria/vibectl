@@ -185,16 +185,23 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true, agentType 
       if (newLogs.length > 0) {
         // Process and write each new log
         newLogs.forEach(log => {
-          const timestamp = new Date(log.timestamp).toLocaleTimeString();
-
           // Clean and normalize the message
           let message = log.message || '';
           message = cleanAnsiCodes(message);
           message = normalizeBoxDrawing(message);
           message = fixMemoryContentDisplay(message);
 
-          // Write to terminal with timestamp
-          xtermRef.current.writeln(`[${timestamp}] ${message}`);
+          // Check if this is an overseer message - handle both string and boolean values
+          const isOverseerMessage = log.is_overseer === 'true' || log.is_overseer === true || message.startsWith('[OVERSEER]');
+
+          if (isOverseerMessage) {
+            // For overseer messages: no timestamp, use bold formatting
+            xtermRef.current.writeln(`\x1b[1m${message}\x1b[0m`);
+          } else {
+            // For regular logs: include timestamp
+            const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+            xtermRef.current.writeln(`[${timestamp}] ${message}`);
+          }
         });
 
         // Add new logs to processed logs
