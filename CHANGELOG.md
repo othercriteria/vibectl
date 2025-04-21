@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added detection of API-related errors and marked them as non-halting
   - Auto loop now continues despite transient API issues like rate limiting or service overload
   - Improved resilience for automated/scheduled usage of vibectl
+- Fixed recovery suggestions not being integrated into memory state
+  - Added update_memory call when recovery suggestions are generated
+  - Ensures that suggestions from one command are available for subsequent commands in auto mode
+  - Improves the continuity of error recovery in multi-step workflows
 
 ## [0.4.1] - 2025-04-22
 
