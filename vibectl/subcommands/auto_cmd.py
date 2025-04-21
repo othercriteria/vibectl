@@ -162,8 +162,12 @@ def run_auto_command(
                         console_manager.print_note("Recovery suggestions:")
                         console_manager.print_note(result.recovery_suggestions)
 
-                    # Exit on error unless in semiauto mode
-                    if exit_on_error and not semiauto:
+                    # Check if this error should halt the auto loop
+                    if not result.halt_auto_loop:
+                        logger.info("Continuing auto loop despite non-halting error")
+                        console_manager.print_note("Continuing to next step...")
+                    # Exit on error unless in semiauto mode or error is non-halting
+                    elif exit_on_error and not semiauto:
                         raise ValueError(f"Error in vibe command: {result.error}")
 
             except KeyboardInterrupt:

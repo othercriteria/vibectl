@@ -526,3 +526,164 @@ def test_resource_not_found_recovery_suggestions(
 
     assert header_printed, "Recovery suggestions header not printed"
     assert content_printed, "Recovery suggestions content not printed"
+
+
+def test_auto_command_continues_on_not_found_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that auto command continues when encountering NotFound errors."""
+    # First iteration returns a NotFound error, second iteration returns Success,
+    # then KeyboardInterrupt
+    counter = [0]
+
+    def side_effect(*args: Any, **kwargs: Any) -> Any:
+        counter[0] += 1
+        if counter[0] == 1:
+            # First call - return a NotFound error
+            return Error(
+                error='Error from server (NotFound): pods "nonexistent-pod" not found',
+                exception=Exception("NotFound error"),
+                halt_auto_loop=False,  # Set this to match create_kubectl_error...
+            )
+        elif counter[0] == 2:
+            # Second call - return Success
+            return Success(message="Command succeeded")
+        else:
+            # Third call - raise KeyboardInterrupt to end the test
+            raise KeyboardInterrupt()
+
+    # Mock the run_vibe_command
+    mock_vibe = Mock(side_effect=side_effect)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock time.sleep to avoid waiting
+    mock_sleep = Mock()
+    monkeypatch.setattr("time.sleep", mock_sleep)
+
+    # Mock console manager
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock logger
+    mock_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.logger", mock_logger)
+
+    # Mock other required functions
+    mock_configure_output = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_output_flags", mock_configure_output
+    )
+    mock_configure_memory = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_memory_flags", mock_configure_memory
+    )
+
+    # Run the auto command
+    result = vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test request",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        interval=0,  # No sleep
+        exit_on_error=True,  # This would normally exit on error
+    )
+
+    # Verify that the function completed successfully
+    assert isinstance(result, Success)
+    assert counter[0] == 3  # Should have made 3 calls before finishing
+
+    # Verify that the logger logged the recoverable error
+    mock_logger.info.assert_any_call("Continuing auto loop despite non-halting error")
+
+    # Verify that the console printed the note about continuing
+    mock_console.print_note.assert_any_call("Continuing to next step...")
+
+
+def test_auto_command_should_not_break_on_server_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that auto command should not break execution loop on kubectl server errors.
+
+    This test verifies that the auto command continues running through all types of
+    server errors encountered during kubernetes operations.
+    """
+    # First iteration returns a NotFound error, second iteration returns a
+    # Forbidden error, third returns Success, then KeyboardInterrupt
+    counter = [0]
+
+    def side_effect(*args: Any, **kwargs: Any) -> Any:
+        counter[0] += 1
+        if counter[0] == 1:
+            # First call - return a NotFound error
+            return Error(
+                error='Error from server (NotFound): pods "foo" not found',
+                exception=Exception("NotFound error"),
+                halt_auto_loop=False,
+            )
+        elif counter[0] == 2:
+            # Second call - return a Forbidden error
+            return Error(
+                error='Error from server (Forbidden): pods is forbidden: "blah"',
+                exception=Exception("Forbidden error"),
+                halt_auto_loop=False,
+            )
+        elif counter[0] == 3:
+            # Third call - return Success
+            return Success(message="Command succeeded")
+        else:
+            # Last call - raise KeyboardInterrupt to end the test
+            raise KeyboardInterrupt()
+
+    # Mock the run_vibe_command
+    mock_vibe = Mock(side_effect=side_effect)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock time.sleep to avoid waiting
+    mock_sleep = Mock()
+    monkeypatch.setattr("time.sleep", mock_sleep)
+
+    # Mock console manager
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock logger
+    mock_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.logger", mock_logger)
+
+    # Mock other required functions
+    mock_configure_output = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_output_flags", mock_configure_output
+    )
+    mock_configure_memory = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_memory_flags", mock_configure_memory
+    )
+
+    # Run the auto command with exit_on_error=True
+    # After fixing, it should handle server errors and continue the loop
+    result = vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test request",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        interval=0,  # No sleep
+        exit_on_error=True,  # This would normally exit on error
+    )
+
+    # These assertions confirm the function completes successfully
+    assert isinstance(result, Success)
+    assert counter[0] == 4  # Should have made 4 calls before finishing
+
+    # Verify that iteration continued after the errors
+    assert mock_vibe.call_count == 4
+
+    # Verify that appropriate logging occurred for non-halting errors
+    assert mock_logger.info.call_count >= 2  # At least two non-halting errors
+    mock_logger.info.assert_any_call("Continuing auto loop despite non-halting error")
+
+    # Verify that the appropriate message was shown to the user
+    assert mock_console.print_note.call_count >= 2  # At least two error continuations
+    mock_console.print_note.assert_any_call("Continuing to next step...")

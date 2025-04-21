@@ -114,7 +114,10 @@ def run_kubectl(
             if not error_message:
                 error_message = f"Command failed with exit code {result.returncode}"
             logger.debug(f"kubectl command failed: {error_message}")
-            return Error(error=error_message)
+
+            # Create error result, marking kubectl server errors as non-halting
+            # for auto loops
+            return create_kubectl_error(error_message)
 
         # Return output if capturing
         if capture:
@@ -129,6 +132,29 @@ def run_kubectl(
     except Exception as e:
         logger.debug(f"Exception running kubectl: {e}", exc_info=True)
         return Error(error=str(e), exception=e)
+
+
+def create_kubectl_error(
+    error_message: str, exception: Exception | None = None
+) -> Error:
+    """
+    Create an Error object for kubectl failures, marking certain errors as
+    non-halting for auto loops.
+
+    Args:
+        error_message: The error message
+        exception: Optional exception that caused the error
+
+    Returns:
+        Error object with appropriate halt_auto_loop flag set
+    """
+    # For kubectl server errors (like NotFound, Forbidden, etc.),
+    # set halt_auto_loop=False so auto loops can continue
+    if "Error from server" in error_message:
+        return Error(error=error_message, exception=exception, halt_auto_loop=False)
+
+    # For other errors, use the default (halt_auto_loop=True)
+    return Error(error=error_message, exception=exception)
 
 
 def handle_standard_command(
@@ -1140,7 +1166,7 @@ def _execute_command(args: list[str], yaml_content: str | None) -> Result:
                 return run_kubectl(args, capture=True)
     except Exception as e:
         logger.error("Error executing command: %s", e, exc_info=True)
-        return Error(error=f"Error executing command: {e}", exception=e)
+        return create_kubectl_error(f"Error executing command: {e}", exception=e)
 
 
 def _execute_command_with_complex_args(args: list[str]) -> Result:
@@ -1171,8 +1197,12 @@ def _execute_command_with_complex_args(args: list[str]) -> Result:
     except subprocess.CalledProcessError as e:
         if e.stderr:
             console_manager.print_error(e.stderr)
-            return Error(error=f"Command failed: {e.stderr}", exception=e)
-        return Error(error=f"Command failed with exit code {e.returncode}", exception=e)
+            # Use create_kubectl_error to properly set halt_auto_loop
+            return create_kubectl_error(f"Command failed: {e.stderr}", exception=e)
+        # Use create_kubectl_error for exit code errors too
+        return create_kubectl_error(
+            f"Command failed with exit code {e.returncode}", exception=e
+        )
     except Exception as e:
         logger.error("Error executing command with complex args: %s", e, exc_info=True)
         return Error(error=f"Error executing command: {e}", exception=e)
@@ -1183,7 +1213,7 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
 
     Args:
         args: List of command arguments
-        yaml_content: YAML content to be written to a file
+        yaml_content: YAML content to use
 
     Returns:
         Result with Success containing command output or Error with error information
@@ -1233,14 +1263,14 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
             stderr = stderr_bytes.decode("utf-8")
 
             if process.returncode != 0:
-                return Error(
-                    error=stderr
-                    or f"Command failed with exit code {process.returncode}"
+                error_msg = (
+                    stderr or f"Command failed with exit code {process.returncode}"
                 )
+                return create_kubectl_error(error_msg)
 
             return Success(data=stdout)
         else:
-            # For other commands, use a temporary file
+            # For the command, use a temporary file
             temp_path = None
             try:
                 with tempfile.NamedTemporaryFile(
@@ -1264,10 +1294,11 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
                 proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
                 if proc.returncode != 0:
-                    return Error(
-                        error=proc.stderr
+                    error_msg = (
+                        proc.stderr
                         or f"Command failed with exit code {proc.returncode}"
                     )
+                    return create_kubectl_error(error_msg)
 
                 return Success(data=proc.stdout)
             finally:

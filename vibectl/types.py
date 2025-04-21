@@ -36,6 +36,9 @@ class Error:
     error: str
     exception: Exception | None = None
     recovery_suggestions: str | None = None
+    # If False, auto command will continue processing after this error
+    # Default True to maintain current behavior
+    halt_auto_loop: bool = True
 
 
 # Union type for command results
