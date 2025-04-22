@@ -253,7 +253,7 @@ def _handle_empty_output(command: str, resource: str, args: tuple) -> Result:
         Success result indicating no output
     """
     logger.info(f"No output from command: {command} {resource} {' '.join(args)}")
-    console_manager.print_note("Command returned no output")
+    console_manager.print_processing("Command returned no output")
     return Success(message="Command returned no output")
 
 
@@ -454,19 +454,24 @@ def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> 
         output_flags: Output configuration flags
         command: Command string to display
     """
-    if output_flags.show_kubectl and command:
-        # For commands from auto/vibe mode with just 'vibe'
-        if command == "vibe":
-            # When there's no specific request, show a clearer message
-            console_manager.print_note("Planning next steps based on memory context...")
-        # For 'vibe' commands with actual requests (like "vibe find deployment")
-        elif command.startswith("vibe ") and len(command) > 5:
-            # Preserve the exact request but don't show the 'vibe' prefix
-            request_part = command[5:]  # Skip the 'vibe ' prefix
-            console_manager.print_note(f"Note: {request_part}")
+    # Skip display if not requested or no command
+    if not output_flags.show_kubectl or not command:
+        return
+
+    # Handle vibe command with or without a request
+    if command.startswith("vibe"):
+        # Split to check if there's a request after "vibe"
+        parts = command.split(" ", 1)
+        if len(parts) == 1 or not parts[1].strip():
+            # When there's no specific request, show message about memory context
+            console_manager.print_processing(
+                "Planning next steps based on memory context..."
+            )
         else:
-            # Regular display for all other kubectl commands, preserving format
-            console_manager.print_note(f"[kubectl] {command}")
+            # When there is a request, show the request
+            request = parts[1].strip()
+            console_manager.print_processing(f"Planning how to: {request}")
+    # Skip other cases as they're now handled in _process_and_execute_kubectl_command
 
 
 def _check_output_visibility(output_flags: OutputFlags) -> None:
@@ -698,7 +703,7 @@ def handle_vibe_request(
                     model, recovery_prompt_text
                 )
                 if recovery_suggestions:
-                    console_manager.print_note("Recovery suggestions:")
+                    console_manager.print_processing("Recovery suggestions:")
                     console_manager.print_note(recovery_suggestions)
                     # Set recovery_suggestions directly on the result
                     result.recovery_suggestions = recovery_suggestions
@@ -821,7 +826,7 @@ def _handle_planning_error(
         model_name=model_name,
     )
 
-    console_manager.print_note("Planning error added to memory context")
+    console_manager.print_processing("Planning error added to memory context")
     console_manager.print_error(kubectl_cmd)
     return Error(error=error_message)
 
@@ -867,28 +872,36 @@ def _process_and_execute_kubectl_command(
 
     # Determine if confirmation is needed
     needs_confirm = _needs_confirmation(command, semiauto) and not yes
-    should_strip_command = (autonomous_mode or semiauto) and command == "vibe"
-    cmd_for_display = command if not should_strip_command else ""
 
-    # Display the command
-    if output_flags.show_kubectl or needs_confirm:
-        logger.info(f"Planned kubectl command: {cmd_for_display} {display_cmd}")
+    # Set a flag to prevent duplicate command display in output handling
+    show_command_now = output_flags.show_kubectl or needs_confirm
+    # Always set show_kubectl to False in the modified flags to avoid
+    # duplicate command displays
+    modified_output_flags = output_flags.replace(show_kubectl=False)
 
-        # Always fully specify the kubectl command parts, preserving command structure
-        if should_strip_command:
-            # In autonomous or semiauto mode with vibe command, don't
-            # include redundant 'vibe'
-            console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
+    # Display the command if needed
+    if show_command_now:
+        logger.info(f"Planned kubectl command: {display_cmd}")
+
+        # Determine how to display the command
+        if command == "vibe" and (autonomous_mode or semiauto):
+            # When in autonomous/semiauto mode with vibe command,
+            # just show the kubectl part
+            # Show the actual kubectl command that will be executed
+            cmd_str = f"kubectl {display_cmd}"
+            console_manager.print_processing(f"Running: {cmd_str}")
         else:
-            # For other commands, preserve the full command structure
-            console_manager.print_note(
-                f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
+            # For other cmds: include vibe in cmd string if there is a request
+            display_command = (
+                f"{command} vibe {request}" if request else f"{command} vibe"
             )
+            cmd_str = f"kubectl {display_command}"
+            console_manager.print_processing(f"Running: {cmd_str}")
 
     # Handle confirmation if needed
     if needs_confirm:
         confirm_result = _handle_command_confirmation(
-            display_cmd, cmd_for_display, semiauto, output_flags.model_name
+            display_cmd, command, semiauto, output_flags.model_name
         )
         # If the user didn't confirm, return the result from confirmation
         # If they did confirm, confirm_result will be None and we continue
@@ -903,7 +916,7 @@ def _process_and_execute_kubectl_command(
         # Get the resource and args from the parsed command
         resource = args[1] if len(args) > 1 else ""
         wait_args = tuple(args[2:]) if len(args) > 2 else ()
-        return handle_wait_with_live_display(resource, wait_args, output_flags)
+        return handle_wait_with_live_display(resource, wait_args, modified_output_flags)
 
     # Handle port-forward with live display
     if (
@@ -914,7 +927,9 @@ def _process_and_execute_kubectl_command(
     ):
         resource = args[1] if len(args) > 1 else ""
         port_args = tuple(args[2:]) if len(args) > 2 else ()
-        return handle_port_forward_with_live_display(resource, port_args, output_flags)
+        return handle_port_forward_with_live_display(
+            resource, port_args, modified_output_flags
+        )
 
     # Execute the standard kubectl command
     try:
@@ -935,26 +950,20 @@ def _process_and_execute_kubectl_command(
             return result
 
         # Process the output
-        # Create command string for output processing, avoiding "vibe vibe" duplication
-        # while preserving original kubectl command structure
-        display_command = f"{command}"
-
-        # When in autonomous/semiauto mode with vibe command, avoid duplication
-        # in the result command string used for memory updates and result processing
-        if command == "vibe" and (autonomous_mode or semiauto):
-            # Just use request if provided; otherwise use command alone
-            if request:
-                display_command = f"{command} {request}"
+        # Create command string for output processing that appropriately represents
+        # what's being executed without duplication
+        if command == "vibe":
+            # For vibe commands, use "vibe <request>" or just "vibe"
+            display_command = f"{command} {request}" if request else command
         else:
-            # For all other cases, include command, vibe, and request if applicable
-            if request:
-                display_command = f"{command} vibe {request}"
-            else:
-                display_command = f"{command} vibe"
+            # For other cmds: include vibe in cmd string if there is a request
+            display_command = (
+                f"{command} vibe {request}" if request else f"{command} vibe"
+            )
 
         return handle_command_output(
             output=result,
-            output_flags=output_flags,
+            output_flags=modified_output_flags,
             summary_prompt_func=summary_prompt_func,
             command=display_command,
         )
@@ -1025,9 +1034,8 @@ def _handle_command_confirmation(
         if choice in ["n", "b"]:
             # No or No But - don't execute the command
             logger.info(
-                "User cancelled execution of planned command: %s %s",
-                cmd_for_display,
-                display_cmd,
+                f"User cancelled execution of planned command: "
+                f"kubectl {cmd_for_display} {display_cmd}"
             )
             console_manager.print_cancelled()
 
@@ -1306,8 +1314,6 @@ def _execute_command_with_complex_args(args: list[str]) -> Result:
         for arg in args:
             cmd.append(arg)
 
-        console_manager.print_processing(f"Running: {' '.join(cmd)}")
-
         # Run the command, preserving the argument structure
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return Success(data=result.stdout)
@@ -1360,7 +1366,6 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
         if is_stdin_command:
             # For commands like kubectl create -f -, use Popen with stdin
             cmd = ["kubectl", *args]
-            console_manager.print_processing(f"Running: {' '.join(cmd)}")
 
             # Use bytes mode for Popen to avoid encoding issues
             process = subprocess.Popen(
@@ -1407,7 +1412,6 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
                 ):
                     cmd.extend(["-f", temp_path])
 
-                console_manager.print_processing(f"Running: {' '.join(cmd)}")
                 proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
                 if proc.returncode != 0:

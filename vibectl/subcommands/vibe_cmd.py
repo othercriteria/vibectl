@@ -2,7 +2,6 @@ from vibectl.command_handler import (
     configure_output_flags,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.prompt import PLAN_VIBE_PROMPT, vibe_autonomous_prompt
@@ -49,12 +48,8 @@ def run_vibe_command(
         if not request:
             logger.info("No request provided; using memory context for planning.")
             request = ""
-            console_manager.print_processing(
-                "Planning next steps based on memory context..."
-            )
         else:
             logger.info(f"Planning how to: {request}")
-            console_manager.print_processing(f"Planning how to: {request}")
 
         try:
             result = handle_vibe_request(

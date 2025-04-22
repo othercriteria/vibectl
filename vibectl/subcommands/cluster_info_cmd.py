@@ -48,8 +48,7 @@ def run_cluster_info_command(
                 )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            planning_msg = f"Planning how to: cluster-info {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: get cluster info %s", request)
             try:
                 handle_vibe_request(
                     request=request,

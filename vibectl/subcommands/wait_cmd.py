@@ -4,7 +4,6 @@ from vibectl.command_handler import (
     handle_vibe_request,
     handle_wait_with_live_display,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
@@ -49,8 +48,7 @@ def run_wait_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            planning_msg = f"Planning how to: wait {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: wait for %s", request)
 
             # Use the Result returned by handle_vibe_request
             result = handle_vibe_request(

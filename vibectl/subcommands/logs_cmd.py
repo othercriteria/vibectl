@@ -48,8 +48,7 @@ def run_logs_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            planning_msg = f"Planning how to: logs {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: logs %s", request)
             try:
                 handle_vibe_request(
                     request=request,

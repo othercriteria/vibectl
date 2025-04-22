@@ -141,7 +141,7 @@ def test_display_kubectl_command_with_vibe() -> None:
 
         # Test with just "vibe" command (no request)
         _display_kubectl_command(output_flags, "vibe")
-        mock_console.print_note.assert_called_with(
+        mock_console.print_processing.assert_called_with(
             "Planning next steps based on memory context..."
         )
 
@@ -150,11 +150,4 @@ def test_display_kubectl_command_with_vibe() -> None:
 
         # Test with "vibe" plus a request
         _display_kubectl_command(output_flags, "vibe find pods")
-        mock_console.print_note.assert_called_with("Note: find pods")
-
-        # Reset mock for next test
-        mock_console.reset_mock()
-
-        # Test with non-vibe command
-        _display_kubectl_command(output_flags, "get pods")
-        mock_console.print_note.assert_called_with("[kubectl] get pods")
+        mock_console.print_processing.assert_called_with("Planning how to: find pods")

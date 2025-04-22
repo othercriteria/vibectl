@@ -9,7 +9,6 @@ from vibectl.command_handler import (
     handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -74,8 +73,7 @@ def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
 
     # Process the natural language request
     request = " ".join(args)
-    logger.info(f"Planning how to: {request}")
-    console_manager.print_processing(f"Planning how to: describe {request}")
+    logger.info("Planning how to: describe %s", request)
 
     try:
         result = handle_vibe_request(

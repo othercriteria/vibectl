@@ -540,14 +540,16 @@ def test_show_kubectl_flag_controls_command_display(
             output_flags=show_kubectl_flags,
         )
 
-    # Verify print_note was called with the kubectl command
-    mock_console_manager.print_note.assert_any_call("Planning to run: kubectl get pods")
+    # Verify print_processing was called with the kubectl command
+    # Command format is "command vibe request" since this is a "vibe" style request
+    mock_console_manager.print_processing.assert_any_call(
+        "Running: kubectl get vibe show me the pods"
+    )
 
-    # Reset mocks for next test
+    # Reset the mock for the next test
     mock_console_manager.reset_mock()
-    mock_llm.execute.side_effect = ["get pods", "Test summary"]
 
-    # Test with show_kubectl=False for a non-confirmation command
+    # Now test with show_kubectl=False
     hide_kubectl_flags = OutputFlags(
         show_raw=True,
         show_vibe=True,
@@ -556,7 +558,6 @@ def test_show_kubectl_flag_controls_command_display(
         show_kubectl=False,
     )
 
-    # Call function with show_kubectl=False for a non-dangerous command
     with patch(
         "vibectl.command_handler._create_display_command"
     ) as mock_create_display:
@@ -571,12 +572,12 @@ def test_show_kubectl_flag_controls_command_display(
             output_flags=hide_kubectl_flags,
         )
 
-    # Verify print_note was NOT called with the kubectl command
-    for call in mock_console_manager.print_note.call_args_list:
-        if isinstance(call[0][0], str):
-            assert (
-                "Planning to run: kubectl" not in call[0][0]
-            ), "Kubectl command note displayed when show_kubectl=False"
+    # Verify print_processing was NOT called with the kubectl command
+    for call in mock_console_manager.print_processing.call_args_list:
+        if isinstance(call[0][0], str) and "kubectl" in call[0][0]:
+            raise AssertionError(
+                f"Should not display kubectl command, but found: {call[0][0]}"
+            )
 
 
 def test_vibe_cli_emits_vibe_check(

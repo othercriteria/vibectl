@@ -47,8 +47,8 @@ def run_version_command(
                 )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            planning_msg = f"Planning how to: version {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: get version info %s", request)
+            console_manager.print_processing(f"Planning how to: version {request}")
             try:
                 handle_vibe_request(
                     request=request,

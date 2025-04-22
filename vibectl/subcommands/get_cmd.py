@@ -3,7 +3,6 @@ from vibectl.command_handler import (
     handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -50,8 +49,6 @@ def run_get_command(
                 return Error(error=msg)
             request = " ".join(args)
             logger.info("Planning how to: %s", request)
-            planning_msg = f"Planning how to: get {request}"
-            console_manager.print_processing(planning_msg)
 
             # Use the Result returned from handle_vibe_request
             result = handle_vibe_request(

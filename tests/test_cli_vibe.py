@@ -26,7 +26,6 @@ def mock_get_memory() -> Generator[Mock, None, None]:
         yield mock
 
 
-# --- OutputFlags-focused CLI tests (from test_vibe_command.py) ---
 def test_vibe_command_with_request(
     cli_runner: CliRunner,
     mock_handle_vibe_request: Mock,
@@ -83,7 +82,6 @@ def test_vibe_command_with_yes_flag(
     assert kwargs["yes"] is True
 
 
-# --- Plan prompt and processing message tests (from original test_cli_vibe.py) ---
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request")
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
 def test_vibe_command_with_no_arguments_plan_prompt(
@@ -126,24 +124,35 @@ def test_vibe_command_with_existing_memory_plan_prompt(
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request")
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
 def test_vibe_command_with_explicit_request_plan_prompt(
-    mock_get_memory: MagicMock, mock_handle_vibe: MagicMock, cli_runner: CliRunner
+    mock_get_memory: MagicMock, mock_handle_vibe: MagicMock
 ) -> None:
-    """Test 'vibe' command with an explicit request: plan prompt and
-    processing message."""
+    """Test 'vibe' command with an explicit request."""
+    from vibectl.subcommands.vibe_cmd import run_vibe_command
+
+    # Set up mocks
     mock_get_memory.return_value = "Working in namespace 'test'"
-    result = cli_runner.invoke(cli, ["vibe", "scale deployment app to 3 replicas"])
-    assert result.exit_code == 0
+    mock_handle_vibe.return_value = Success(message="Command executed successfully")
+
+    # Call the function directly instead of through the CLI
+    request = "scale deployment app to 3 replicas"
+    result = run_vibe_command(
+        request=request,
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+    )
+
+    # Verify results
+    assert isinstance(result, Success)
     mock_handle_vibe.assert_called_once()
     call_args = mock_handle_vibe.call_args[1]
     assert call_args["request"] == "scale deployment app to 3 replicas"
     assert call_args["command"] == "vibe"
     assert call_args["autonomous_mode"] is True
     assert call_args["memory_context"] == "Working in namespace 'test'"
-    assert "scale deployment app to 3 replicas" in result.output
-    assert "Planning how to: scale deployment app to 3 replicas" in result.output
 
 
-# --- Exception and logging/console coverage for run_vibe_command ---
 def test_vibe_command_handle_vibe_request_exception() -> None:
     """Test that an exception in handle_vibe_request is caught and returns Error."""
     from vibectl.subcommands.vibe_cmd import run_vibe_command
@@ -155,7 +164,6 @@ def test_vibe_command_handle_vibe_request_exception() -> None:
         ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager"),
     ):
         result = run_vibe_command(
             "do something", None, None, None, None, exit_on_error=False
@@ -177,7 +185,6 @@ def test_vibe_command_outer_exception() -> None:
             side_effect=Exception("outer fail"),
         ),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager"),
     ):
         result = run_vibe_command(
             "do something", None, None, None, None, exit_on_error=False
@@ -190,7 +197,7 @@ def test_vibe_command_outer_exception() -> None:
 
 
 def test_vibe_command_logs_and_console_for_empty_request() -> None:
-    """Test that logger and console_manager are called for empty request."""
+    """Test that logger is called for empty request."""
     from vibectl.subcommands.vibe_cmd import run_vibe_command
 
     with (
@@ -200,7 +207,6 @@ def test_vibe_command_logs_and_console_for_empty_request() -> None:
         ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager") as mock_console,
         patch("vibectl.subcommands.vibe_cmd.configure_output_flags"),
         patch("vibectl.subcommands.vibe_cmd.configure_memory_flags"),
     ):
@@ -209,13 +215,10 @@ def test_vibe_command_logs_and_console_for_empty_request() -> None:
         mock_logger.info.assert_any_call(
             "No request provided; using memory context for planning."
         )
-        mock_console.print_processing.assert_any_call(
-            "Planning next steps based on memory context..."
-        )
 
 
 def test_vibe_command_logs_and_console_for_nonempty_request() -> None:
-    """Test that logger and console_manager are called for non-empty request."""
+    """Test that logger is called for non-empty request."""
     from vibectl.subcommands.vibe_cmd import run_vibe_command
 
     with (
@@ -225,12 +228,10 @@ def test_vibe_command_logs_and_console_for_nonempty_request() -> None:
         ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager") as mock_console,
     ):
         result = run_vibe_command("do something", None, None, None, None)
         assert isinstance(result, Success)
         mock_logger.info.assert_any_call("Planning how to: do something")
-        mock_console.print_processing.assert_any_call("Planning how to: do something")
 
 
 def test_vibe_command_handle_vibe_request_exception_exit_on_error_true() -> None:
@@ -246,7 +247,6 @@ def test_vibe_command_handle_vibe_request_exception_exit_on_error_true() -> None
         ),
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager"),
     ):
         with pytest.raises(Exception) as excinfo:
             run_vibe_command("do something", None, None, None, None, exit_on_error=True)
@@ -268,7 +268,6 @@ def test_vibe_command_outer_exception_exit_on_error_true() -> None:
             side_effect=Exception("outer fail"),
         ),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
-        patch("vibectl.subcommands.vibe_cmd.console_manager"),
     ):
         with pytest.raises(Exception) as excinfo:
             run_vibe_command("do something", None, None, None, None, exit_on_error=True)
