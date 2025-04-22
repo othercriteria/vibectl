@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-04-25
+
 ### Added
 - New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes` pattern
 - New `vibectl semiauto` subcommand as sugar for `auto` with negated `--yes` behavior
@@ -16,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `[E]xit` option (in semiauto mode) to exit the loop cleanly
 
 ### Changed
-- Planned: Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
+- Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
 - Improved interactive-commands rule to clarify the proper usage of `--no-pager` with git commands
 
 ### Fixed

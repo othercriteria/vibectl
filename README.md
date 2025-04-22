@@ -318,7 +318,7 @@ See warnings and errors directly in your terminal, while info/debug logs are ava
 
 ### Chaos Monkey Example
 
-The chaos-monkey example demonstrates vibectl's capabilities for testing Kubernetes cluster resilience:
+The chaos-monkey example demonstrates vibectl's capabilities for testing Kubernetes cluster resilience using the new `auto` subcommand:
 
 ```zsh
 # Navigate to the example directory
@@ -333,9 +333,11 @@ cd examples/k8s-sandbox/chaos-monkey
 
 The chaos-monkey example includes:
 - Red team vs. blue team competitive scenario
-- Containerized vibectl agents that interact with the Kubernetes cluster
+- Containerized vibectl agents using `vibectl auto` for continuous operation
+- Autonomous mode with memory-based decision making
 - Metrics collection for performance evaluation
 - Configurable disruption patterns and recovery strategies
+- Real-time dashboard for monitoring the simulation
 
 See the [examples/k8s-sandbox/chaos-monkey/README.md](examples/k8s-sandbox/chaos-monkey/README.md) file for detailed setup instructions and scenarios.
 
