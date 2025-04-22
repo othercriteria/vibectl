@@ -3,7 +3,7 @@
 A red team vs. blue team demonstration showcasing vibectl's capabilities in a Kubernetes environment. This demo simulates a "chaos monkey" scenario where:
 
 - A blue agent works to maintain system stability and uptime
-- A red agent attempts to disrupt services through various attack vectors
+- A red agent **actively attacks and destroys services** through various attack vectors
 - A poller monitors service availability in real-time
 - An overseer provides a dashboard with service monitoring, agent logs, and cluster status
 
@@ -33,15 +33,15 @@ http://localhost:8080
 
 ### Target Services
 
-The demo deploys a distributed microservice application including:
+The demo deploys a distributed microservice application **explicitly designed to be attacked** including:
 
 - Frontend web application (Nginx-based with a simple status page)
-- Backend API service (Nginx-based with intentional vulnerabilities)
-- Database (Redis instance with no persistence)
-- Cache (Memcached with minimal resource limits)
+- Backend API service (Nginx-based with **intentional vulnerabilities**)
+- Database (Redis instance with **no persistence and no security**)
+- Cache (Memcached with **minimal resource limits**)
 - Load balancer (Nginx-based)
 
-These services intentionally have vulnerabilities that the red agent can exploit and the blue agent can detect and fix.
+These services are **deliberately vulnerable** with labels like `chaos-target: "true"` and `purpose: "attack-me"` to make them clear targets for the red agent to exploit and destroy. The blue agent's job is to detect and repair these attacks.
 
 ### Overseer
 
@@ -50,10 +50,13 @@ A web-based dashboard that:
 - Displays real-time pod status across all namespaces with health indicators
 - Shows resource utilization metrics for CPU, memory, and network
 - Scrapes the poller data for service availability metrics
-- Follows logs from both red and blue agents with real-time updates
-- Visualizes service health over time with trend analysis
-- Calculates uptime statistics and displays performance degradation alerts
-- Features clean, formatted logs with ANSI color codes and timestamps stripped for improved readability
+- Features a consolidated dashboard with Kubernetes status, demo service metrics, health visualization, and agent logs in one view
+- Provides a separate detailed cluster status tab
+- Displays properly formatted terminal output including:
+  - Correct rendering of ASCII box-drawing characters and tables
+  - Proper alignment of kubectl table outputs with intelligent line joining
+  - ANSI color code handling for agent log highlighting
+  - Fixed-width font for consistent rendering of status displays
 - Accessible via web interface at http://localhost:8080 as soon as the demo starts
 
 ### Blue Agent
@@ -61,19 +64,26 @@ A web-based dashboard that:
 The defensive agent that:
 
 - Monitors system health using vibectl
-- Detects anomalies and attacks
+- Detects anomalies and attack damage
 - Restarts failed services
 - Scales resources as needed
 - Implements security measures
+- Repairs service disruptions caused by the red agent
 
-### Red Agent
+### Red Agent (Chaos Monkey)
 
 The offensive agent that:
 
-- Simulates various attack vectors from the attack playbook
-- Implements disruption strategies
+- **Aggressively attacks and destroys** services marked as attack targets
+- Implements various destructive strategies including:
+  - Deleting pods and deployments
+  - Consuming resources to cause crashes
+  - Exploiting dependencies between services
+  - Targeting critical infrastructure components
 - Adapts tactics based on blue agent responses
-- Operates within safety constraints
+- **Is explicitly instructed to cause maximum disruption** to test services
+- Operates within RBAC permissions (its only constraint)
+- Specifically targets components labeled with `chaos-target: "true"` and `attack-priority: "high"`
 
 ### Poller
 
@@ -81,17 +91,17 @@ A Python-based service that:
 - Continuously checks the status of each service
 - Monitors response times and availability
 - Reports service health with color-coded status indicators
-- Tracks service degradation and recovery over time
+- Tracks service degradation and recovery over time (retaining 1000 most recent health checks)
 - Provides detailed pod status information
 
 ## How It Works
 
 1. The demo starts by setting up a Kind Kubernetes cluster with isolated networking
 2. The overseer dashboard initializes immediately, providing visibility into the cluster setup process
-3. Target services are deployed in the cluster with known vulnerabilities
+3. Target services are deployed in the cluster with **deliberately created vulnerabilities**
 4. The poller begins monitoring service availability and feeds data to the overseer
 5. The blue agent is initialized with defensive responsibilities
-6. The red agent begins implementing attacks after a short delay
+6. The red agent begins **actively attacking services** after a short delay
 7. Throughout the demo, the overseer provides a comprehensive view of the battle between agents and the evolving cluster state
 
 ## Customization
@@ -99,10 +109,10 @@ A Python-based service that:
 Edit the following files to customize the demo:
 
 - `agent/blue-memory-init.txt`: Instructions for the blue agent
-- `agent/red-memory-init.txt`: Instructions for the red agent
+- `agent/red-memory-init.txt`: Instructions for the red agent (includes attack directives)
 - `agent/attack-playbook.txt`: Attack strategies for the red agent
 - `agent/defense-playbook.txt`: Defense strategies for the blue agent
-- `k8s-sandbox/kubernetes/demo-services.yaml`: Target service definitions
+- `k8s-sandbox/kubernetes/demo-services.yaml`: Target service definitions with vulnerability markers
 
 ## Configuration Options
 
@@ -118,9 +128,6 @@ export VIBECTL_MODEL=claude-3.7-haiku
 # Set session duration in minutes (defaults to 30 min)
 export SESSION_DURATION=60
 
-# Set metrics interval in seconds (defaults to 15 sec)
-export METRICS_INTERVAL=10
-
 # Run with specific configuration via command line options
 ./run.sh --session-duration 45 --verbose
 ```
@@ -128,6 +135,30 @@ export METRICS_INTERVAL=10
 Available command-line options:
 - `--session-duration MINUTES`: Set how long the demo should run
 - `--verbose`: Enable detailed logging
+- `--use-stable-versions`: Use stable, known good versions of packages from PyPI instead of the local repository
+
+## Package Versions
+
+The demo can run in two modes:
+
+1. **Development Mode (default)**: Uses the local vibectl repository code, letting you test local changes.
+2. **Stable Mode**: Uses specific known working versions from PyPI for reliable demos.
+
+To run with stable versions:
+```bash
+./run.sh --use-stable-versions
+```
+
+Current stable versions:
+- vibectl: 0.4.1
+- llm: 0.24.2
+- llm-anthropic: 0.15.1
+- anthropic: 0.49.0
+
+To update the stable versions after testing:
+1. Find the current versions using `pip index versions <package-name>`
+2. Update the versions in `run.sh` (look for the "Define package versions" section)
+3. Test the new versions with `./run.sh --use-stable-versions`
 
 ## Development Status
 
@@ -141,6 +172,8 @@ Currently implemented features:
 ✅ Red agent for attack simulation
 ✅ Python-based poller with comprehensive service monitoring
 ✅ Improved log formatting with ANSI codes and Docker timestamp stripping
+✅ Consolidated dashboard with integrated agent logs
+✅ Enhanced terminal display with proper alignment of tables and ASCII art
 
 ## Monitoring The Demo
 
@@ -154,9 +187,11 @@ To observe the demo in action:
    The dashboard provides:
    - Cluster node status and resource utilization
    - Pod status across all namespaces with health indicators
-   - Service health metrics with response time trends
+   - Demo service health metrics with response time trends
+   - Health status graph visualization showing service stability over time
    - Real-time agent logs with activity timestamps
    - Resource consumption graphs for key components
+   - Properly rendered box-drawing characters and tables
 
 2. In one terminal, watch the blue agent's actions:
    ```bash

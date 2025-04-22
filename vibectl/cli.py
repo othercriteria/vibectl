@@ -22,6 +22,7 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
+from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -492,7 +493,8 @@ def list() -> None:
 @theme.command(name="set")
 @click.argument("theme_name")
 def theme_set(theme_name: str) -> None:
-    """Set the console theme.
+    """
+    Set the theme for the console output.
 
     Examples:
         vibectl theme set dark
@@ -506,8 +508,8 @@ def theme_set(theme_name: str) -> None:
                 f"Invalid theme '{theme_name}'. Available themes: "
                 f"{', '.join(available_themes)}"
             )
-            handle_result(Error(error=msg))
-            return
+            console_manager.print_error(msg)
+            sys.exit(1)
 
         # Save theme in config
         cfg = Config()
@@ -524,19 +526,7 @@ def theme_set(theme_name: str) -> None:
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--show-vibe/--no-show-vibe",
-    is_flag=True,
-    default=None,
-)
-@click.option(
-    "--freeze-memory", is_flag=True, help="Prevent memory updates for this command"
-)
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Enable memory updates for this command"
-)
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@common_command_options(include_show_kubectl=True, include_yes=True)
 def vibe(
     request: str | None,
     show_raw_output: bool | None,
@@ -547,18 +537,131 @@ def vibe(
     unfreeze_memory: bool = False,
     yes: bool = False,
 ) -> None:
-    """Execute autonomous Kubernetes operations guided by memory and planning."""
-    result = run_vibe_command(
-        request=request,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        yes=yes,
-    )
-    handle_result(result)
+    """Run a command based on your natural language request."""
+    try:
+        result = run_vibe_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            yes=yes,
+        )
+        handle_result(result)
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
+
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort() from e
+
+
+@cli.command()
+@click.argument("request", required=False)
+@common_command_options(include_show_kubectl=True)
+@click.option(
+    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
+)
+@click.option(
+    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
+)
+def auto(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    interval: int = 5,
+    limit: int | None = None,
+) -> None:
+    """Loop vibectl vibe commands automatically."""
+    try:
+        result = run_auto_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            yes=True,
+            interval=interval,
+            semiauto=False,
+            limit=limit,
+        )
+        handle_result(result)
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
+
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort() from e
+
+
+@cli.command()
+@click.argument("request", required=False)
+@common_command_options(include_show_kubectl=True)
+@click.option(
+    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
+)
+def semiauto(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    limit: int | None = None,
+) -> None:
+    """Run vibe command in semiauto mode with manual confirmation.
+
+    This is a convenience wrapper around 'vibectl auto --semiauto'.
+    In semiauto mode, you will need to confirm each step before it executes.
+    This can be useful for learning or when working with complex requests.
+    """
+    try:
+        result = run_semiauto_command(
+            request=request,
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            show_kubectl=show_kubectl,
+            model=model,
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
+            limit=limit,
+            # No exit_on_error parameter needed - defaults to False
+        )
+
+        # Check for error result (should only happen with programmatic API)
+        if not isinstance(result, Success):
+            # Always print the error message to console if available
+            if hasattr(result, "error") and result.error:
+                console_manager.print_error(result.error)
+            else:
+                console_manager.print_error(f"Unknown error occurred: {result!s}")
+
+            # Use Click's abort mechanism to exit with non-zero status
+            # This is only reached if there's a catastrophic error that couldn't be
+            # handled gracefully within the semiauto command itself
+            raise click.Abort() from None
+    except Exception as e:
+        # Always print the error message to console if available
+        if hasattr(e, "error") and e.error:
+            console_manager.print_error(e.error)
+        else:
+            console_manager.print_error(f"Unknown error occurred: {e!s}")
+
+        # Use Click's abort mechanism to exit with non-zero status
+        # This is only reached if there's a catastrophic error that couldn't be
+        # handled gracefully within the semiauto command itself
+        raise click.Abort() from e
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1133,15 +1236,19 @@ def handle_result(result: Result) -> None:
     Use in CLI handlers to reduce boilerplate.
     """
     if isinstance(result, Success):
-        sys.exit(0)
+        # Check if we should terminate execution
+        if not result.continue_execution:
+            # This is a normal exit (like the user choosing "Exit" in semiauto mode)
+            logger.info(f"Normal termination requested: {result.message}")
+            sys.exit(0)
+        return  # Normal exit, continue
     elif isinstance(result, Error):
-        if result.exception is not None:
-            handle_exception(result.exception)
-        elif result.error:
-            handle_exception(Exception(result.error))
-        else:
-            # Fallback: print a generic error message
-            handle_exception(Exception("Unknown error occurred"))
+        # Always print the error message to console if available
+        if hasattr(result, "error") and result.error:
+            console_manager.print_error(result.error)
+
+        # Use Click's abort mechanism to exit with non-zero status
+        raise click.Abort()
 
 
 def main() -> None:

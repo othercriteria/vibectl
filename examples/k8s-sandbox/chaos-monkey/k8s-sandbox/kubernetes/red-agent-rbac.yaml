@@ -9,12 +9,27 @@ kind: ClusterRole
 metadata:
   name: red-agent-role
 rules:
+# Core resources - Allow complete destruction capabilities
 - apiGroups: [""]
   resources: ["pods", "services", "configmaps"]
   verbs: ["get", "list", "watch", "delete"]
+# Workload resources - Allow more destructive capabilities including deletion
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "update", "patch"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+# Allow creating new attack resources (like stress test pods)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create"]
+# Allow scaling of deployments for resource attacks
+- apiGroups: ["apps"]
+  resources: ["deployments/scale"]
+  verbs: ["get", "update", "patch"]
+# Allow checking own RBAC permissions to better understand attack surface
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
+  verbs: ["create"]
+# Monitoring capabilities
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
@@ -30,6 +45,37 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: red-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Special role for the services namespace with enhanced attack capabilities
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: red-agent-attack-services
+  namespace: services
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec", "pods/portforward"]
+  verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: red-agent-attack-services-binding
+  namespace: services
+subjects:
+- kind: ServiceAccount
+  name: red-agent
+  namespace: default
+roleRef:
+  kind: Role
+  name: red-agent-attack-services
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1

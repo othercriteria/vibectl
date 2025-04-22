@@ -1,3 +1,8 @@
+---
+description: Logging and error handling best practices for Python CLI projects
+globs: ["**/*.py"]
+alwaysApply: true
+---
 # Logging and Error Handling Best Practices for Python CLI Projects
 
 This rule codifies robust, user-friendly, and debuggable logging and error handling for Python CLI projects. It ensures that logging, exception handling, and CLI entry points are set up to:

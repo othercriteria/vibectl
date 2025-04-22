@@ -26,12 +26,27 @@ def test_scale_vibe_request(cli_runner: CliRunner) -> None:
         assert kwargs["plan_prompt"] == PLAN_SCALE_PROMPT
 
 
-def test_scale_vibe_no_request(cli_runner: CliRunner) -> None:
-    """Test that the scale command properly handles missing vibe request."""
-    with patch("vibectl.subcommands.scale_cmd.console_manager"):
-        result = cli_runner.invoke(scale, ["vibe"])
-        assert result.exit_code == 1
-        assert "Missing request after 'vibe'" in result.output
+def test_scale_vibe_no_request() -> None:
+    """Test that the scale command properly handles missing vibe request
+    by directly testing the run_scale_command function."""
+    from vibectl.subcommands.scale_cmd import run_scale_command
+    from vibectl.types import Error
+
+    # Call the function directly with 'vibe' resource and no args
+    result = run_scale_command(
+        resource="vibe",
+        args=(),  # empty tuple for no arguments
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+    )
+
+    # The function should return an Error result
+    assert isinstance(result, Error)
+    assert "Missing request after 'vibe'" in result.error
 
 
 def test_scale_no_subcommand(cli_runner: CliRunner) -> None:

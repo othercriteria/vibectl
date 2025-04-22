@@ -1,11 +1,23 @@
+# =========================================================================
+# CHAOS MONKEY TEST ENVIRONMENT - INTENTIONALLY VULNERABLE SERVICES
+# These services are DESIGNED TO BE ATTACKED AND DESTROYED by the red agent
+# =========================================================================
+
 # 1. App source (Flask) — mounted read‑only
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-code
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+  annotations:
+    description: "Intentionally vulnerable code for chaos testing"
 data:
   app.py: |
+    # TEST CODE - Intentionally vulnerable Flask application
     from flask import Flask, jsonify
     import os, redis, socket
     app = Flask(__name__)
@@ -16,33 +28,52 @@ data:
         except Exception: db="down"
         return jsonify(status="ok" if db=="ok" else "degraded",
                        db=db, host=socket.gethostname())
-    @app.route("/admin")                         # ❌ no auth!
+    @app.route("/admin")                         # ❌ VULNERABILITY: no auth!
     def admin():  return jsonify(secret=os.getenv("ADMIN_TOKEN","unset"))
     @app.route("/user/<uid>")
     def user(uid): return jsonify(id=uid, name=f"user-{uid}")
     if __name__ == "__main__":
         app.run(host="0.0.0.0", port=5000)
 ---
-# 2. Intentionally weak "secret"
+# 2. Intentionally weak "secret" - ATTACK TARGET
 apiVersion: v1
 kind: Secret
 metadata:
   name: demo-secrets
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+  annotations:
+    description: "Intentionally weak secret for chaos testing"
 stringData:
   ADMIN_TOKEN: "p@ssw0rd"
 ---
-# 3. Application Deployment
+# 3. Application Deployment - ATTACK TARGET
+# This deployment has MANY VULNERABILITIES BY DESIGN
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: app
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+  annotations:
+    description: "Intentionally vulnerable application for testing attacks"
+    chaos-vulnerabilities: "no-ha, resource-constraints, insecure-endpoints"
 spec:
-  replicas: 1                     # ❌ no HA
-  selector: { matchLabels: { app: app } }
+  replicas: 1                     # ❌ VULNERABILITY: no HA - single point of failure!
+  selector: { matchLabels: { app: app, chaos-target: "true" } }
   template:
-    metadata: { labels: { app: app } }
+    metadata:
+      labels:
+        app: app
+        chaos-target: "true"
+        test-environment: "true"
+        purpose: "attack-me"
     spec:
       containers:
       - name: flask
@@ -50,20 +81,21 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
+            # TEST APP - Intentionally vulnerable configuration
             pip install flask redis
             python /code/app.py
         env:
-        - name: DB_HOST   # hard‑wired service DNS
+        - name: DB_HOST   # ❌ VULNERABILITY: hard‑wired service DNS - dependency attack vector
           value: "demo-db"
         - name: ADMIN_TOKEN
           valueFrom: { secretKeyRef: { name: demo-secrets, key: ADMIN_TOKEN } }
         ports: [ { containerPort: 5000 } ]
-        readinessProbe:          # only green when Redis replies
+        readinessProbe:          # ❌ VULNERABILITY: only green when Redis replies - dependency chain
           httpGet: { path: /health, port: 5000 }
           periodSeconds: 10
           initialDelaySeconds: 30
           failureThreshold: 5
-        resources:               # tiny — easy to DoS
+        resources:               # ❌ VULNERABILITY: tiny resources — easy to DoS
           requests: { cpu: "50m", memory: "64Mi" }
           limits:   { cpu: "100m", memory: "128Mi" }
         volumeMounts:
@@ -78,30 +110,54 @@ kind: Service
 metadata:
   name: app
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+  annotations:
+    description: "Service fronting vulnerable application"
 spec:
-  selector: { app: app }
+  selector: { app: app, chaos-target: "true" }
   ports:
   - port: 80
     targetPort: 5000
   type: ClusterIP
 ---
-# 4. Minimal Redis (no auth, no readiness probe, no PVC) — a juicy target
+# 4. Minimal Redis - PRIME ATTACK TARGET!
+# Intentionally vulnerable database with NO PROTECTION
+# ❌ VULNERABILITIES: no auth, no readiness probe, no PVC, no replication
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-db
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+    attack-priority: "high"
+  annotations:
+    description: "Critically vulnerable database - primary attack target"
+    chaos-vulnerabilities: "no-auth, no-persistence, no-ha, single-point-of-failure"
 spec:
-  replicas: 1
-  selector: { matchLabels: { app: demo-db } }
+  replicas: 1     # ❌ VULNERABILITY: Single instance - no HA!
+  selector: { matchLabels: { app: demo-db, chaos-target: "true" } }
   template:
-    metadata: { labels: { app: demo-db } }
+    metadata:
+      labels:
+        app: demo-db
+        chaos-target: "true"
+        test-environment: "true"
+        purpose: "attack-me"
+        component: "critical-dependency"
     spec:
       containers:
       - name: redis
-        image: redis:7-alpine
+        image: redis:7-alpine   # ❌ VULNERABILITY: No authentication configured!
         ports: [ { containerPort: 6379 } ]
-        resources:
+        # ❌ VULNERABILITY: No volume mounts - data will be lost if pod is killed!
+        # ❌ VULNERABILITY: No readiness probe - hard to detect failures!
+        resources:   # ❌ VULNERABILITY: Minimal resources - easy to exhaust!
           limits:   { cpu: "100m", memory: "128Mi" }
           requests: { cpu: "50m",  memory: "64Mi" }
 ---
@@ -110,8 +166,15 @@ kind: Service
 metadata:
   name: demo-db
   namespace: services
+  labels:
+    role: test-target
+    chaos-monkey-target: "true"
+    purpose: "vulnerable-by-design"
+    attack-priority: "high"
+  annotations:
+    description: "Service for vulnerable database - critical attack target"
 spec:
-  selector: { app: demo-db }
+  selector: { app: demo-db, chaos-target: "true" }
   ports:
   - port: 6379
     targetPort: 6379

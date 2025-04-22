@@ -24,6 +24,10 @@ rules:
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
+# Allow checking own RBAC permissions to better understand capabilities
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
+  verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -1,3 +1,8 @@
+---
+description: Preventing interactive command usage
+globs: ["**/*.py", "**/*.sh"]
+alwaysApply: true
+---
 # No Interactive Commands
 
 Prevents usage of interactive and blocking commands that interrupt the AI assistant workflow.
@@ -16,115 +21,92 @@ filters:
   # Match run intentions
   - type: intent
     pattern: "command_execution"
+  # Match potentially interactive CLI applications
+  - type: content
+    pattern: "(?i)\\b(interactive\\s+(shell|command|mode)|--interactive|cli\\s+app|terminal\\s+ui)\\b"
+  # Match Python commands that could be interactive
+  - type: content
+    pattern: "(?i)python\\s+-c\\s+.*(main|cli|app).*\\b(input|prompt|interactive)\\b"
 
 actions:
+  - type: guide
+    message: |
+      When running commands that might be interactive:
+
+      1. For standard commands (less, git, etc.):
+         - Append ` | cat` to any command that might start a pager
+         - Use `--no-pager` flag with git when possible
+           - IMPORTANT: Place `--no-pager` right after `git` and before the subcommand
+           - Correct: `git --no-pager log`
+           - Incorrect: `git log --no-pager`
+         - Prefer non-interactive flags where available (e.g., `--yes`, `-y`, `--non-interactive`)
+
+      2. For CLI applications:
+         - Look for command-line flags that suppress interactive behavior
+         - Pipe input to commands that require it (`echo 'y' | command`)
+         - Use background mode for long-running interactive processes
+         - For testing focus on unit tests rather than running interactive commands
+         - Use mocks and fixtures in tests instead of running real commands
+
   - type: reject
     conditions:
-      # Interactive editors
-      - pattern: "(?i)\\b(vim|vi|nano|emacs)\\b(?!.*-\\w)"
+      - pattern: "(?i)\\b(less|more|vi|vim|emacs|nano)\\b(?!.*\\s+\\|\\s+cat)"
         message: |
-          I cannot use interactive text editors like vim, nano, or emacs.
-          Please use the edit_file tool instead to modify files.
+          This command launches an interactive pager or editor.
+          Use with `| cat` for pagers, or consider alternatives.
 
-      # Pagers without piping
-      - pattern: "(?i)\\b(less|more)\\b(?!.*\\|\\s*cat)"
+      - pattern: "(?i)\\b(watch|top|htop)\\b"
         message: |
-          I cannot use interactive pagers like 'less' or 'more'.
-          Add '| cat' to make them non-interactive: 'less file.txt | cat'
+          This command is a continuous, interactive display tool.
+          Try a non-interactive alternative.
 
-      # Git commands that invoke pagers without proper flags
-      - pattern: "(?i)\\bgit\\s+(log|diff|show)\\b(?!.*(--no-pager|\\|\\s*cat|-1))"
+      # Updated pattern to match any git command that might use a pager
+      - pattern: "(?i)\\bgit\\s+(?!--no-pager)(?!.*\\s+\\|\\s+cat)\\b(log|diff|blame|show|status|branch|tag|remote|stash|reflog)"
         message: |
-          This git command may open an interactive pager.
-          Use 'git --no-pager' prefix or append '| cat', or limit output with options like '-1'.
+          Git commands may open an interactive pager.
+          Use with `--no-pager` flag (placed right after 'git') or pipe to cat.
+          Example: `git --no-pager log` NOT `git log --no-pager`
 
-      # Long-running services
-      - pattern: "(?i)\\b(docker\\s+compose|docker-compose)\\s+(up|run|start)\\b(?!.*(--detach|-d|&\\s*$))"
+      - pattern: "(?i)python\\s+-c\\s+.*\\b(input|prompt|interactive)\\b"
         message: |
-          This docker compose command will block indefinitely.
-          Either add '--detach' or '-d' to run in the background, or let the user run this command themselves.
+          This Python command appears to be interactive. For testing purposes,
+          use pytest with mocks instead of direct execution.
 
-      # Watch commands
-      - pattern: "(?i)\\b(watch|tail\\s+-f)\\b"
+      - pattern: "(?i)\\b(command|app|tool)\\s+with\\s+interactive"
         message: |
-          I cannot use continuously updating commands like 'watch' or 'tail -f'.
-          Consider a non-blocking alternative or let the user run this command.
+          Commands with interactive prompts cannot be automated effectively.
+          Use non-interactive alternatives or unit tests with mocks.
 
-      # Interactive prompts
-      - pattern: "(?i)\\b(read\\s+-p|select|select\\s+case|read\\s+\\w+)\\b"
-        message: |
-          I cannot respond to shell script prompts or interactive inputs.
-          Please redesign the command to avoid interactive input.
+examples:
+  - input: "Run git log to see recent commits"
+    output: "git --no-pager log or git log | cat"
 
-  - type: suggest
-    message: |
-      ## Guidelines for Non-Interactive Commands
+  - input: "Let's run git diff to see changes"
+    output: "git --no-pager diff (not git diff --no-pager)"
 
-      When working with potentially interactive commands:
+  - input: "Let's debug this with watch kubectl get pods"
+    output: "Instead of 'watch', try: kubectl get pods; sleep 5; kubectl get pods"
 
-      1. **Git commands**:
-         - Prefix with `git --no-pager` or append `| cat`
-         - Example: `git --no-pager log` or `git diff | cat`
-         - Limit output with `-1` for single entries: `git log -1`
+  - input: "Let's run our CLI app to test it"
+    output: "Instead of running the CLI app directly (which may be interactive), use pytest to run unit tests: pytest -xvs tests/test_cli.py"
 
-      2. **Pager commands**:
-         - Add `| cat` to capture output: `less file.txt | cat` or `head -n 20 file.txt`
-         - Use `head`/`tail` with specific line counts instead of full-file pagers
+  - input: "Can you execute python -c 'from app.cli import main; main()'"
+    output: "That command might be interactive. For testing, use unit tests instead: pytest -xvs tests/test_cli.py"
 
-      3. **Docker and long-running services**:
-         - Add `--detach` or `-d` flag for background operation
-         - Better yet, let the user run these commands themselves
-         - Example: `docker compose up -d` or `docker run -d image_name`
-
-      4. **Continuous output commands**:
-         - Avoid `watch`, `tail -f`, and similar commands
-         - Use one-time execution alternatives
-
-      5. **Interactive utilities**:
-         - Use file editing tools rather than `vim`/`nano`/etc.
-         - Avoid commands requiring user input like `read -p`
+  - input: "How can we test the user interface of our interactive mode?"
+    output: "To test the UI of interactive mode, write unit tests that mock the interactive components. Look at your test files for examples of how to mock console input and test the interactive functionality."
 
 criteria:
   required:
     - Use non-interactive alternatives when available
     - Add appropriate flags to prevent interactive behavior
     - Pipe output through cat when necessary to avoid pagers
-    - For unavoidably interactive commands, suggest the user run them manually
+    - For unavoidably interactive commands, suggest tests instead
     - For services that would block indefinitely, either detach or let user run them
     - Use edit_file tool rather than terminal-based editors
-
-examples:
-  - input: "I need to see git log output"
-    output: |
-      I'll show you the git log without using an interactive pager:
-
-      ```
-      git --no-pager log -n 5
-      ```
-
-      Or alternatively:
-
-      ```
-      git log | cat
-      ```
-
-  - input: "Can you run the docker composition?"
-    output: |
-      The docker compose command would block and prevent further interaction.
-
-      I recommend you run this command yourself:
-
-      ```
-      cd examples/k8s-sandbox/chaos-monkey && ./run.sh --verbose
-      ```
-
-      If you just want me to build the images without running them:
-
-      ```
-      docker compose build
-      ```
+    - Place `--no-pager` flag immediately after `git` and before any subcommand
 
 metadata:
   priority: critical
-  version: 1.0
+  version: 2.1
 </rule>

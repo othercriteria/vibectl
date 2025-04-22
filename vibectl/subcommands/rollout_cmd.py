@@ -63,9 +63,8 @@ def run_rollout_command(
                 )
                 logger.error(msg + " in rollout subcommand.", exc_info=True)
                 return Error(error=msg)
-            request = " ".join((resource, *args))
-            planning_msg = f"Planning how to: rollout {request}"
-            console_manager.print_processing(planning_msg)
+            request = " ".join(args)
+            logger.info("Planning how to: rollout %s", request)
             try:
                 handle_vibe_request(
                     request=request,
@@ -115,7 +114,6 @@ def run_rollout_command(
 
         if not output:
             logger.info("No output from kubectl rollout command.")
-            console_manager.print_processing("No output from kubectl rollout command.")
             return Success(message="No output from kubectl rollout command.")
 
         try:

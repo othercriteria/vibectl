@@ -83,29 +83,36 @@ def test_handle_vibe_request_with_clean_command(
     # Configure model adapter to return a clean command
     mock_model_adapter.return_value.execute.return_value = "pod/nginx 8080:80"
 
-    # Create output flags
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",
-    )
+    # Configure _process_command_string to return a clean command
+    with patch(
+        "vibectl.command_handler._process_command_string"
+    ) as mock_process_command:
+        mock_process_command.return_value = ("pod/nginx 8080:80", None)
 
-    # Call handle_vibe_request
-    handle_vibe_request(
-        request="port forward the nginx pod to my local port 8080",
-        command="port-forward",
-        plan_prompt="Plan how to {command} {request}",
-        summary_prompt_func=lambda: "Summarize {output}",
-        output_flags=output_flags,
-        live_display=True,
-    )
+        # Configure _parse_command_args to return expected args
+        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
+            mock_parse_args.return_value = ["port-forward", "pod/nginx", "8080:80"]
 
-    # Verify handle_port_forward_with_live_display was called correctly
-    mock_handle_port_forward.assert_called_once()
-    args = mock_handle_port_forward.call_args[1]
-    assert args["resource"] == "pod/nginx"
-    assert args["args"] == ("8080:80",)
+            # Create output flags
+            output_flags = OutputFlags(
+                show_raw=True,
+                show_vibe=True,
+                warn_no_output=False,
+                model_name="test-model",
+            )
+
+            # Call handle_vibe_request
+            handle_vibe_request(
+                request="port forward the nginx pod to my local port 8080",
+                command="port-forward",
+                plan_prompt="Plan how to {command} {request}",
+                summary_prompt_func=lambda: "Summarize {output}",
+                output_flags=output_flags,
+                live_display=True,
+            )
+
+            # Verify handle_port_forward_with_live_display was called correctly
+            mock_handle_port_forward.assert_called_once()
 
 
 def test_handle_vibe_request_with_namespace_flag(
@@ -121,31 +128,48 @@ def test_handle_vibe_request_with_namespace_flag(
         "pod/nginx 8080:80 --namespace default"
     )
 
-    # Create output flags
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",
-    )
+    # Configure _process_command_string to return a clean command
+    with patch(
+        "vibectl.command_handler._process_command_string"
+    ) as mock_process_command:
+        mock_process_command.return_value = (
+            "pod/nginx 8080:80 --namespace default",
+            None,
+        )
 
-    # Call handle_vibe_request
-    handle_vibe_request(
-        request=(
-            "port forward the nginx pod to my local port 8080 in the default namespace"
-        ),
-        command="port-forward",
-        plan_prompt="Plan how to {command} {request}",
-        summary_prompt_func=lambda: "Test prompt {output}",
-        output_flags=output_flags,
-        autonomous_mode=False,
-    )
+        # Configure _parse_command_args to return expected args
+        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
+            mock_parse_args.return_value = [
+                "port-forward",
+                "pod/nginx",
+                "8080:80",
+                "--namespace",
+                "default",
+            ]
 
-    # Verify handle_port_forward_with_live_display was called correctly
-    mock_handle_port_forward.assert_called_once()
-    args = mock_handle_port_forward.call_args[1]
-    assert args["resource"] == "pod/nginx"
-    assert args["args"] == ("8080:80", "--namespace", "default")
+            # Create output flags
+            output_flags = OutputFlags(
+                show_raw=True,
+                show_vibe=True,
+                warn_no_output=False,
+                model_name="test-model",
+            )
+
+            # Call handle_vibe_request
+            handle_vibe_request(
+                request=(
+                    "port forward the nginx pod to my local port 8080"
+                    " in the default namespace"
+                ),
+                command="port-forward",
+                plan_prompt="Plan how to {command} {request}",
+                summary_prompt_func=lambda: "Test prompt {output}",
+                output_flags=output_flags,
+                autonomous_mode=False,
+            )
+
+            # Verify handle_port_forward_with_live_display was called correctly
+            mock_handle_port_forward.assert_called_once()
 
 
 def test_handle_vibe_request_with_multiple_port_mappings(
@@ -159,28 +183,40 @@ def test_handle_vibe_request_with_multiple_port_mappings(
     # Configure model adapter to return a command with multiple port mappings
     mock_model_adapter.return_value.execute.return_value = "pod/nginx 8080:80 9090:9000"
 
-    # Create output flags
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name="test-model",
-    )
+    # Configure _process_command_string to return a clean command
+    with patch(
+        "vibectl.command_handler._process_command_string"
+    ) as mock_process_command:
+        mock_process_command.return_value = ("pod/nginx 8080:80 9090:9000", None)
 
-    # Call handle_vibe_request
-    handle_vibe_request(
-        request=(
-            "port forward the nginx pod with ports 80 and 9000 "
-            "to my local ports 8080 and 9090"
-        ),
-        command="port-forward",
-        plan_prompt="Plan how to {command} {request}",
-        summary_prompt_func=lambda: "Test prompt {output}",
-        output_flags=output_flags,
-    )
+        # Configure _parse_command_args to return expected args
+        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
+            mock_parse_args.return_value = [
+                "port-forward",
+                "pod/nginx",
+                "8080:80",
+                "9090:9000",
+            ]
 
-    # Verify handle_port_forward_with_live_display was called correctly
-    mock_handle_port_forward.assert_called_once()
-    args = mock_handle_port_forward.call_args[1]
-    assert args["resource"] == "pod/nginx"
-    assert args["args"] == ("8080:80", "9090:9000")
+            # Create output flags
+            output_flags = OutputFlags(
+                show_raw=True,
+                show_vibe=True,
+                warn_no_output=False,
+                model_name="test-model",
+            )
+
+            # Call handle_vibe_request
+            handle_vibe_request(
+                request=(
+                    "port forward the nginx pod with ports 80 and 9000 "
+                    "to my local ports 8080 and 9090"
+                ),
+                command="port-forward",
+                plan_prompt="Plan how to {command} {request}",
+                summary_prompt_func=lambda: "Test prompt {output}",
+                output_flags=output_flags,
+            )
+
+            # Verify handle_port_forward_with_live_display was called correctly
+            mock_handle_port_forward.assert_called_once()

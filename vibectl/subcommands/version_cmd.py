@@ -47,8 +47,8 @@ def run_version_command(
                 )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            planning_msg = f"Planning how to: version {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: get version info %s", request)
+            console_manager.print_processing(f"Planning how to: version {request}")
             try:
                 handle_vibe_request(
                     request=request,
@@ -65,6 +65,7 @@ def run_version_command(
 
         # For standard version command with no args, run kubectl version
         try:
+            # run_kubectl returns a Result object (Success or Error)
             output = run_kubectl(["version", "--output=json"], capture=True)
 
             if not output:
@@ -72,7 +73,8 @@ def run_version_command(
                 logger.info("No output from kubectl version.")
                 return Success(message="No output from kubectl version.")
 
-            # Handle output display based on flags
+            # Output is a Result object, which handle_command_output now
+            # handles properly
             handle_command_output(
                 output=output,
                 output_flags=output_flags,

@@ -1,0 +1,123 @@
+.terminal-container {
+  width: 100%;
+  height: 500px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #444;
+  background-color: #1e1e1e;
+}
+
+/* Terminal header styling */
+.terminal-header {
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  padding: 5px 10px;
+  font-size: 14px;
+  font-weight: bold;
+  border-bottom: 1px solid #444;
+}
+
+/* Agent-specific styling - Blue agent */
+.terminal-container.blue-agent {
+  border-color: #3c6ab0;
+  box-shadow: 0 0 5px rgba(60, 106, 176, 0.2);
+}
+
+.terminal-container.blue-agent .terminal-header {
+  background-color: #2c3e50;
+  border-bottom-color: #3c6ab0;
+  background-image: linear-gradient(to right, #2c3e50, #34495e);
+}
+
+/* Agent-specific styling - Red agent */
+.terminal-container.red-agent {
+  border-color: #b03c3c;
+  box-shadow: 0 0 5px rgba(176, 60, 60, 0.2);
+}
+
+.terminal-container.red-agent .terminal-header {
+  background-color: #502c2c;
+  border-bottom-color: #b03c3c;
+  background-image: linear-gradient(to right, #502c2c, #5e3434);
+}
+
+.terminal-content {
+  flex: 1;
+  background-color: #1e1e1e;
+  font-family: "DejaVu Sans Mono", "Cascadia Mono", "Consolas", monospace;
+}
+
+/* Ensure the terminal occupies the full available height */
+.xterm {
+  height: 100%;
+  padding: 5px;
+  background-color: #1e1e1e;
+}
+
+/* Set background color for viewport to prevent white gaps */
+.xterm-viewport {
+  overflow-y: auto !important;
+  background-color: #1e1e1e;
+}
+
+/* Ensure the screen container has background color */
+.xterm-screen {
+  background-color: #1e1e1e;
+  padding-bottom: 5px;
+}
+
+.xterm-rows {
+  /* Ensure proper spacing for box-drawing characters */
+  letter-spacing: 0;
+  word-spacing: 0;
+  background-color: #1e1e1e;
+  padding-bottom: 2em;
+}
+
+/* Ensure proper font selection for box characters */
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  src: local('DejaVu Sans Mono'),
+       url('https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSansMono.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* High-contrast text for better visibility */
+.xterm .xterm-helpers {
+  color: #f0f0f0;
+}
+
+/* ANSI color overrides for better visibility */
+.xterm-bold {
+  font-weight: bold !important;
+}
+
+/* Custom scrollbar for terminal */
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: #333;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: #666;
+  border-radius: 4px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: #888;
+}
+
+/* Custom scrollbar for agent-specific terminals */
+.terminal-container.blue-agent .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: #3c6ab0;
+}
+
+.terminal-container.red-agent .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: #b03c3c;
+}

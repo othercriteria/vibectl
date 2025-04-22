@@ -135,8 +135,19 @@ class OutputProcessor:
         # Add some processing specific to Kubernetes resources
         return output
 
-    def detect_output_type(self, output: str) -> str:
-        """Detect the type of output."""
+    def detect_output_type(self, output: Any) -> str:
+        """Detect the type of output.
+
+        Args:
+            output: The output to determine the type of (may be string or other types)
+
+        Returns:
+            String indicating the detected type: "json", "yaml", "logs", or "text"
+        """
+        # Handle non-string inputs
+        if not isinstance(output, str):
+            return "text"
+
         # Try to determine if output is JSON
         try:
             json.loads(output)
@@ -217,15 +228,20 @@ class OutputProcessor:
 
         return sections
 
-    def process_auto(self, output: str) -> tuple[str, bool]:
+    def process_auto(self, output: Any) -> tuple[str, bool]:
         """Process output based on auto-detection of type.
 
         Args:
-            output: Output to process
+            output: Output to process (may be string or other types)
 
         Returns:
             Tuple of (processed output, whether truncation occurred)
         """
+        # Handle non-string inputs
+        if not isinstance(output, str):
+            # Convert to string and return
+            return str(output), False
+
         # Detect output type
         output_type = self.detect_output_type(output)
 
@@ -240,8 +256,19 @@ class OutputProcessor:
             case _:  # Default case
                 return self.process_for_llm(output)
 
-    def process_output_for_vibe(self, output: str) -> tuple[str, bool]:
-        """Process output for vibe, truncating if necessary."""
+    def process_output_for_vibe(self, output: Any) -> tuple[str, bool]:
+        """Process output for vibe, truncating if necessary.
+
+        Args:
+            output: Output to process (may be string or other types)
+
+        Returns:
+            Tuple of (processed output, whether truncation occurred)
+        """
+        # Handle non-string inputs
+        if not isinstance(output, str):
+            return str(output), False
+
         output_type = self.detect_output_type(output)
 
         if output_type == "json":

@@ -21,18 +21,70 @@ class OutputFlags:
         True  # Flag to control warnings about missing proxy configuration
     )
 
+    def replace(self, **kwargs: Any) -> "OutputFlags":
+        """Create a new OutputFlags instance with specified fields replaced.
+
+        Similar to dataclasses.replace(), this allows creating a modified copy
+        with only specific fields changed.
+
+        Args:
+            **kwargs: Field values to change in the new instance
+
+        Returns:
+            A new OutputFlags instance with the specified changes
+        """
+        # Start with current values
+        show_raw = self.show_raw
+        show_vibe = self.show_vibe
+        warn_no_output = self.warn_no_output
+        model_name = self.model_name
+        show_kubectl = self.show_kubectl
+        warn_no_proxy = self.warn_no_proxy
+
+        # Update with any provided values
+        for key, value in kwargs.items():
+            if key == "show_raw":
+                show_raw = value
+            elif key == "show_vibe":
+                show_vibe = value
+            elif key == "warn_no_output":
+                warn_no_output = value
+            elif key == "model_name":
+                model_name = value
+            elif key == "show_kubectl":
+                show_kubectl = value
+            elif key == "warn_no_proxy":
+                warn_no_proxy = value
+
+        # Create new instance with updated values
+        return OutputFlags(
+            show_raw=show_raw,
+            show_vibe=show_vibe,
+            warn_no_output=warn_no_output,
+            model_name=model_name,
+            show_kubectl=show_kubectl,
+            warn_no_proxy=warn_no_proxy,
+        )
+
 
 # Structured result types for subcommands
 @dataclass
 class Success:
     message: str = ""
     data: Any | None = None
+    continue_execution: bool = True  # Flag to control if execution flow should continue
+    # When False, indicates a normal termination of a command sequence (like exit)
 
 
 @dataclass
 class Error:
     error: str
     exception: Exception | None = None
+    recovery_suggestions: str | None = None
+    # If False, auto command will continue processing after this error
+    # Default True to maintain current behavior
+    halt_auto_loop: bool = True
 
 
+# Union type for command results
 Result = Success | Error

@@ -23,6 +23,15 @@ filters:
   # Match dependency discussions
   - type: content
     pattern: "(?i)\\b(dependencies|packages|requirements|pip)\\b"
+  # Improve pip detection pattern to catch pip install commands
+  - type: content
+    pattern: "(?i)\\b(pip\\s+(install|download|uninstall)|python\\s+-m\\s+pip\\s+)\\b"
+  # Detect direct installation attempts
+  - type: content
+    pattern: "(?i)\\b(install|add)\\s+(package|dependency|module|library|pytest|pytest-\\w+)\\b"
+  # Catch questions about installing packages
+  - type: content
+    pattern: "(?i)\\b(how\\s+to\\s+install|can\\s+we\\s+add|need\\s+to\\s+install|add\\s+the\\s+package)\\b"
 
 actions:
   - type: guide
@@ -38,12 +47,29 @@ actions:
       Add dependencies to pyproject.toml, not Flake buildInputs.
       Use pip install -e ".[dev]" in the development shell.
 
+  - type: reject
+    conditions:
+      - pattern: "(?i)\\bpip\\s+install\\b(?!\\s+-e\\s+\".\\[dev\\]\"|\\s+-e\\s+'.\\[dev\\]')"
+        message: "Direct pip install commands are discouraged. Use pip install -e \".[dev]\" instead and add dependencies to pyproject.toml."
+
+      - pattern: "(?i)\\b(install|download)\\s+(the\\s+)?package\\b"
+        message: "Instead of installing packages directly, add dependencies to pyproject.toml and run pip install -e \".[dev]\"."
+
 examples:
   - input: "How do I add a new dependency?"
     output: "Add it to pyproject.toml under [project.dependencies] or [project.optional-dependencies], not to flake.nix buildInputs."
 
+  - input: "pip install pytest-timeout"
+    output: "Instead of installing packages directly with pip, add pytest-timeout to pyproject.toml under [project.optional-dependencies] dev section and then run pip install -e \".[dev]\"."
+
+  - input: "Let's install the package to fix this issue"
+    output: "Instead of installing packages directly, add the needed dependency to pyproject.toml under the appropriate section ([project.dependencies] for runtime or [project.optional-dependencies] for dev tools), then run pip install -e \".[dev]\" to update your environment."
+
+  - input: "We need to add a test dependency"
+    output: "Add the test dependency to pyproject.toml under [project.optional-dependencies] in the dev section, then run pip install -e \".[dev]\" to update your environment."
+
 metadata:
   priority: high
-  version: 1.1
+  version: 1.2
   applies_to: ["*.py", "pyproject.toml", "flake.nix"]
 </rule>

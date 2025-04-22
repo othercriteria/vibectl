@@ -3,7 +3,6 @@ from vibectl.command_handler import (
     handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_DELETE_PROMPT, delete_resource_prompt
@@ -46,8 +45,7 @@ def run_delete_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            planning_msg = f"Planning how to: delete {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: delete %s", request)
             try:
                 handle_vibe_request(
                     request=request,

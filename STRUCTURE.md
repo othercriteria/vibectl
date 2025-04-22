@@ -15,11 +15,34 @@ This document provides an overview of the project's structure and organization.
 - `model_adapter.py` - Abstraction layer for LLM model interactions
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
+- `types.py` - Custom type definitions
+- `logutil.py` - Logging setup and configuration
+- `proxy.py` - Proxy-related functionality
+- `py.typed` - Marker file for PEP 561 compliance
+- `subcommands/` - Command implementation modules
+  - `auto_cmd.py` - Auto command implementation
+  - `vibe_cmd.py` - Vibe command implementation
+  - `describe_cmd.py` - Describe command implementation
+  - `version_cmd.py` - Version command implementation
+  - `get_cmd.py` - Get command implementation
+  - `wait_cmd.py` - Wait command implementation
+  - `port_forward_cmd.py` - Port-forward command implementation
+  - `scale_cmd.py` - Scale command implementation
+  - `rollout_cmd.py` - Rollout command implementation
+  - `just_cmd.py` - Just command implementation
+  - `delete_cmd.py` - Delete command implementation
+  - `logs_cmd.py` - Logs command implementation
+  - `events_cmd.py` - Events command implementation
+  - `create_cmd.py` - Create command implementation
+  - `cluster_info_cmd.py` - Cluster-info command implementation
 
 ### Testing (`tests/`)
 - Test files and test resources
 - Coverage tracking with pytest-cov
 - `.coveragerc` - Coverage measurement configuration
+- `conftest.py` - Pytest fixtures and configuration
+- `fixtures.py` - Shared test fixtures
+- `TESTING.md` - Test documentation and guidelines
 
 ### Examples (`examples/`)
 - Example usage scenarios and demo environments
@@ -32,30 +55,22 @@ This document provides an overview of the project's structure and organization.
 
 ### Documentation (`docs/`)
 - `MODEL_KEYS.md` - Comprehensive guide for model API key management
+- `CONFIG.md` - Configuration options and settings
+- `PORT_FORWARD.md` - Documentation for port-forwarding functionality
 - Additional documentation files
 
 ### Configuration
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
-  - `rules/` - Project-specific Cursor rules
-    - `feature-worktrees.mdc` - Guidelines for using Git worktrees for feature development
-    - `autonomous-commits.mdc` - Defines criteria and behavior for autonomous commits
-    - `commit-message.mdc` - Defines commit message format and best practices
-    - `test-coverage.mdc` - Enforces high test coverage standards with documented exceptions
-    - `slow-tests.mdc` - Monitors and enforces resolution of slow tests
-    - `dry-test-fixtures.mdc` - Enforces DRY principles in test fixtures
-    - `project-structure.mdc` - Standards for maintaining project structure documentation
-    - `no-bazel.mdc` - Prohibits Bazel usage and recommendations
-    - `python-venv.mdc` - Python project setup guidelines
-    - `ruff-preferred.mdc` - Python linting standards with Ruff
-    - `rules.mdc` - Standards for organizing Cursor rule files
-    - `no-llm-in-tests.mdc` - Prohibits unmocked LLM calls in test code
-    - `test-mocking.mdc` - Requirements for mocking external dependencies in tests
+  - `rules/` - Project-specific Cursor rules (see `RULES.md` for a complete description of all rules)
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
 - `Makefile` - Build and development automation
 - `flake.nix` & `flake.lock` - Nix development environment
 - `.envrc` - direnv configuration for environment activation
+
+### Scripts (`scripts/`)
+- Helper scripts for development and maintenance
 
 ## Key Files
 
@@ -66,35 +81,51 @@ This document provides an overview of the project's structure and organization.
 - `docs/MODEL_KEYS.md` - Guide for configuring model API keys
 - `CHANGELOG.md` - Documentation of notable changes for each version
 - `DISTRIBUTION.md` - Guide for publishing to PyPI
+- `TESTING.md` - Documentation for testing practices
+- `TODO.md` - Task tracker and planned work
+- `UPDATES.md` - Recent updates and changes tracking
+- `PLANNED_CHANGES.md` - Feature planning document
 - `bump_version.py` - Script for semantic version management
 
 ## Architecture
+
+### Command Systems
+1. `cli.py` - Core command-line interface definitions and routing
+2. `subcommands/` - Implementations of individual commands:
+   - `auto_cmd.py` - Autonomous command execution
+   - `vibe_cmd.py` - AI-assisted command execution
+   - `describe_cmd.py` - Resource description
+   - `get_cmd.py` - Resource retrieval
+   - `delete_cmd.py` - Resource deletion
+   - `scale_cmd.py` - Resource scaling
+   - `rollout_cmd.py` - Deployment rollout management
+   - `wait_cmd.py` - Waiting for resource conditions
+   - `port_forward_cmd.py` - Port forwarding
+   - `logs_cmd.py` - Container logs retrieval
+   - `events_cmd.py` - Event retrieval
+   - `create_cmd.py` - Resource creation
+   - `cluster_info_cmd.py` - Cluster information
+   - `just_cmd.py` - Plain execution with memory
+   - `version_cmd.py` - Version information
 
 ### Console Management
 1. `console.py` - Typed output methods with theme support
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
 
-### Command Systems
-1. `cli.py` - Core command-line interface implementations
-   - Get command with standard and vibe-based resource retrieval
-   - Describe command for detailed resource information
-   - Delete command with confirmation safety and vibe-based deletion
-   - Scale command for scaling resource replicas
-   - Rollout command group for managing deployment rollouts
-   - Memory management commands
-   - Configuration and theme commands
-2. `prompt.py` - Command-specific prompt templates
-   - `PLAN_DELETE_PROMPT` for planning deletions safely
-   - `delete_resource_prompt()` for summarizing deletion results
-   - `PLAN_SCALE_PROMPT` for planning scaling operations
-   - `scale_resource_prompt()` for summarizing scaling results
-   - `PLAN_ROLLOUT_PROMPT` for planning rollout operations
-   - `rollout_status_prompt()`, `rollout_history_prompt()`, and `rollout_general_prompt()` for summarizing rollout operations
-3. `command_handler.py` - Generic command execution patterns
+### Prompt System
+1. `prompt.py` - Command-specific prompt templates
+   - Resource-specific prompts for each command
+   - Memory integration templates
+   - System messages and context
+
+### Common Command Patterns
+1. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
    - Execute kubectl commands safely
    - Process command output for user feedback
+   - Port-forwarding functionality
+   - Memory integration
 
 ### Memory System
 1. `memory.py` - Core memory management with functions for:
@@ -113,9 +144,8 @@ This document provides an overview of the project's structure and organization.
 4. `command_handler.py` - Memory updates after command execution
    - Updates memory with command context
    - Tracks command execution flow
-5. `cli.py` - Memory CLI commands
-   - Dedicated memory command group with subcommands
-   - Memory-related flags in all main commands
+5. Subcommands - Memory integration in commands
+   - Memory flags in all main commands
    - Configuration for memory behavior
 
 ### Model Key Management System
@@ -138,10 +168,21 @@ This document provides an overview of the project's structure and organization.
 
 Detailed documentation about model key configuration can be found in [Model API Key Management](docs/MODEL_KEYS.md).
 
+### Logging System
+1. `logutil.py` - Logging configuration and setup
+   - Standardized logging format
+   - Log level configuration
+   - Environment variable control for logging
+2. Command implementations - Consistent logging patterns
+   - Error handling with appropriate logging
+   - User-facing vs. debug logging separation
+   - Traceback control based on log level
+
 ### Type Safety
-- Extensive type annotations throughout codebase
+- Extensive type annotations throughout codebase (`types.py` and inline)
 - Generic type parameters and TypeVar for flexible interfaces
 - Requires Python 3.10+, uses Python 3.10 features like match statements and union operators
+- PEP 561 compliance with `py.typed` marker
 
 ### Configuration System
 - Type-safe configuration with validation
@@ -170,6 +211,12 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Command-specific prompt templates
    - Formatting instructions
    - Consistent prompt structure for all LLM interactions
+
+### Proxy Support
+1. `proxy.py` - Proxy handling for model requests
+   - Environment variable detection and configuration
+   - HTTP/HTTPS proxy support
+   - SSL certificate verification options
 
 ## Development Workflow
 

@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
+from vibectl.types import Error, Success
 
 
 @pytest.fixture
@@ -26,8 +27,8 @@ def mock_run_kubectl_for_cli() -> Generator[MagicMock, None, None]:
         patch("vibectl.command_handler.handle_command_output") as handler_mock,
     ):
         # Set up default responses
-        handler_mock.return_value = "test wait output"
-        cli_mock.return_value = "test wait output"
+        handler_mock.return_value = Success(data="test wait output")
+        cli_mock.return_value = Success(data="test wait output")
 
         # Make CLI mock delegate to handler mock for consistent behavior
         cli_mock.side_effect = handler_mock
@@ -35,9 +36,10 @@ def mock_run_kubectl_for_cli() -> Generator[MagicMock, None, None]:
         # Add error response helper
         def set_error_response(stderr: str = "test error") -> None:
             """Configure mock to return an error response."""
-            response = f"Error: {stderr}" if stderr else "Error: Command failed"
-            handler_mock.return_value = response
-            cli_mock.return_value = response
+            error_msg = stderr if stderr else "Command failed"
+            error_obj = Error(error=error_msg)
+            handler_mock.return_value = error_obj
+            cli_mock.return_value = error_obj
 
         handler_mock.set_error_response = set_error_response
 
@@ -129,11 +131,15 @@ def test_wait_basic(
     mock_memory: Mock,
 ) -> None:
     """Test wait command with basic arguments."""
+    from vibectl.types import Success
+
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "pod/nginx condition met"
+    mock_run_kubectl_for_cli.return_value = Success(data="pod/nginx condition met")
 
     # Configure mock_asyncio_for_wait to return our result
-    mock_asyncio_for_wait.run_until_complete.return_value = "pod/nginx condition met"
+    mock_asyncio_for_wait.run_until_complete.return_value = Success(
+        data="pod/nginx condition met"
+    )
 
     # Invoke CLI with --no-live-display to use the standard command handler
     result = cli_runner.invoke(
@@ -166,8 +172,10 @@ def test_wait_with_args(
     mock_memory: Mock,
 ) -> None:
     """Test wait command with additional arguments."""
+    from vibectl.types import Success
+
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "pod/nginx condition met"
+    mock_run_kubectl_for_cli.return_value = Success(data="pod/nginx condition met")
 
     # Invoke CLI with wait command and additional args, and no live display
     result = cli_runner.invoke(
@@ -199,6 +207,8 @@ def test_wait_with_flags(
     mock_memory: Mock,
 ) -> None:
     """Test wait command with vibectl-specific flags."""
+    from vibectl.types import Success
+
     # Configure output flags
     mock_configure_flags.return_value = OutputFlags(
         show_raw=True,
@@ -208,7 +218,7 @@ def test_wait_with_flags(
     )
 
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "pod/nginx condition met"
+    mock_run_kubectl_for_cli.return_value = Success(data="pod/nginx condition met")
 
     # Invoke CLI with vibectl-specific flags and no live display
     result = cli_runner.invoke(
@@ -254,10 +264,10 @@ def test_wait_error_handling(
         ],
     )
 
-    # Check results
-    assert result.exit_code == 0  # CLI should handle the error gracefully
-    # Make sure the output was processed
-    mock_handle_output_for_cli.assert_called_once()
+    # Check results - CLI should exit with non-zero status for errors
+    assert result.exit_code == 1
+    # Make sure the error is being processed
+    assert "timed out waiting for the condition" in result.output
 
 
 @patch("vibectl.subcommands.wait_cmd.handle_vibe_request")
@@ -303,12 +313,13 @@ def test_wait_with_live_display_asyncio(
     from unittest.mock import patch
 
     from vibectl.subcommands import wait_cmd as wait_cmd_module
+    from vibectl.types import Success
 
-    result_value = "pod/nginx condition met"
+    result_value = Success(data="pod/nginx condition met")
     mock_run_kubectl_for_cli.return_value = result_value
 
     with patch.object(
-        wait_cmd_module, "handle_wait_with_live_display", return_value=None
+        wait_cmd_module, "handle_wait_with_live_display", return_value=Success()
     ) as mock_wait_live_display:
         cli_runner.invoke(
             cli, ["wait", "pod/nginx", "--for=condition=Ready", "--live-display"]
@@ -328,12 +339,13 @@ def test_wait_with_live_display_error_asyncio(
     from unittest.mock import patch
 
     from vibectl.subcommands import wait_cmd as wait_cmd_module
+    from vibectl.types import Error
 
-    error_response = "Error: timed out waiting for the condition"
+    error_response = Error(error="timed out waiting for the condition")
     mock_run_kubectl_for_cli.return_value = error_response
 
     with patch.object(
-        wait_cmd_module, "handle_wait_with_live_display", return_value=None
+        wait_cmd_module, "handle_wait_with_live_display", return_value=error_response
     ) as mock_wait_live_display:
         cli_runner.invoke(
             cli,

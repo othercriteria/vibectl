@@ -12,7 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
-from vibectl.command_handler import OutputFlags
+from vibectl.command_handler import OutputFlags, Success
 
 
 @pytest.fixture
@@ -85,7 +85,9 @@ def test_port_forward_basic(
 ) -> None:
     """Test port-forward command with basic arguments."""
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:8080 -> 8080"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -125,7 +127,9 @@ def test_port_forward_with_args(
 ) -> None:
     """Test port-forward command with additional arguments."""
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:5000 -> 80"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:5000 -> 80"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -173,7 +177,9 @@ def test_port_forward_with_flags(
     )
 
     # Set up mock kubectl output
-    mock_run_kubectl_for_cli.return_value = "Forwarding from 127.0.0.1:8080 -> 8080"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Forwarding from 127.0.0.1:8080 -> 8080"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -211,7 +217,9 @@ def test_port_forward_error_handling(
 ) -> None:
     """Test port-forward command error handling."""
     # Set up mock kubectl output for an error
-    mock_run_kubectl_for_cli.return_value = "Error: unable to forward port"
+    mock_run_kubectl_for_cli.return_value = Success(
+        data="Error: unable to forward port"
+    )
 
     with (
         patch("vibectl.command_handler.run_kubectl", mock_run_kubectl_for_cli),
@@ -283,9 +291,21 @@ def test_port_forward_vibe_with_live_display_flag(
     assert mock_handle_vibe.call_args[1]["live_display"] is False
 
 
-def test_port_forward_vibe_no_request(cli_runner: CliRunner, mock_memory: Mock) -> None:
-    """Test port-forward vibe command with no request."""
-    with patch("vibectl.subcommands.port_forward_cmd.console_manager"):
-        result = cli_runner.invoke(cli, ["port-forward", "vibe"])
-        assert result.exit_code == 1
-        assert "Missing request after 'vibe'" in result.output
+def test_port_forward_vibe_no_request(mock_memory: Mock) -> None:
+    """Test port-forward vibe command with no request by directly testing
+    the run_port_forward_command function."""
+    from vibectl.subcommands.port_forward_cmd import run_port_forward_command
+    from vibectl.types import Error
+
+    result = run_port_forward_command(
+        resource="vibe",
+        args=(),  # empty tuple for no arguments
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+    )
+
+    # Verify the result is an Error
+    assert isinstance(result, Error)
+    assert "Missing request after 'vibe'" in result.error

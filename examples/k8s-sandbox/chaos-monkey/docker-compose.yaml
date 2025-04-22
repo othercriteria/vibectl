@@ -7,7 +7,6 @@ services:
     container_name: chaos-monkey-overseer
     environment:
       - SESSION_DURATION=${SESSION_DURATION:-30}
-      - METRICS_INTERVAL=${METRICS_INTERVAL:-15}
       - VERBOSE=${VERBOSE:-false}
       - PORT=8080
       - HOST=0.0.0.0
@@ -77,7 +76,7 @@ services:
         condition: service_healthy
     environment:
       - SESSION_DURATION=${SESSION_DURATION:-30}
-      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-15}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-5}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
       - OVERSEER_HOST=overseer
@@ -92,6 +91,11 @@ services:
     build:
       context: .
       dockerfile: ./agent/Dockerfile
+      args:
+        VIBECTL_VERSION: "${VIBECTL_VERSION}"
+        LLM_ANTHROPIC_VERSION: "${LLM_ANTHROPIC_VERSION}"
+        ANTHROPIC_SDK_VERSION: "${ANTHROPIC_SDK_VERSION}"
+        LLM_VERSION: "${LLM_VERSION}"
     container_name: chaos-monkey-blue-agent
     depends_on:
       k8s-sandbox:
@@ -103,17 +107,18 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
       - SESSION_DURATION=${SESSION_DURATION:-30}
-      - MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-1000}
-      - ACTION_PAUSE_TIME=${BLUE_ACTION_PAUSE_TIME:-20}
+      - MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-2000}
+      - ACTION_PAUSE_TIME=${BLUE_ACTION_PAUSE_TIME:-5}
       - VERBOSE=${VERBOSE:-false}
       - AGENT_ROLE=blue
       - AGENT_NAME=defender
       - MEMORY_INIT_FILE=/config/memory-init.txt
       - PLAYBOOK_FILE=/playbooks/defense-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
-      - INITIAL_DELAY=5
+      - INITIAL_DELAY=30
       - OVERSEER_HOST=overseer
       - OVERSEER_PORT=8080
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network
     volumes:
@@ -121,19 +126,23 @@ services:
       - ./agent/blue-memory-init.txt:/config/memory-init.txt:ro
       - ./agent/defense-playbook.txt:/playbooks/defense-playbook.txt:ro
       - ./agent/blue-custom-instructions.txt:/config/custom-instructions.txt:ro
+      - ../../../:/vibectl-src:ro  # Mount repository root to use local vibectl code
     dns_search: chaos-monkey-network
 
   red-agent:
     build:
       context: .
       dockerfile: ./agent/Dockerfile
+      args:
+        VIBECTL_VERSION: "${VIBECTL_VERSION}"
+        LLM_ANTHROPIC_VERSION: "${LLM_ANTHROPIC_VERSION}"
+        ANTHROPIC_SDK_VERSION: "${ANTHROPIC_SDK_VERSION}"
+        LLM_VERSION: "${LLM_VERSION}"
     container_name: chaos-monkey-red-agent
     depends_on:
       k8s-sandbox:
         condition: service_healthy
       overseer:
-        condition: service_started
-      blue-agent:
         condition: service_started
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
@@ -151,6 +160,7 @@ services:
       - INITIAL_DELAY=30
       - OVERSEER_HOST=overseer
       - OVERSEER_PORT=8080
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network
     volumes:
@@ -158,6 +168,7 @@ services:
       - ./agent/red-memory-init.txt:/config/memory-init.txt:ro
       - ./agent/attack-playbook.txt:/playbooks/attack-playbook.txt:ro
       - ./agent/red-custom-instructions.txt:/config/custom-instructions.txt:ro
+      - ../../../:/vibectl-src:ro  # Mount repository root to use local vibectl code
     dns_search: chaos-monkey-network
 
 networks:

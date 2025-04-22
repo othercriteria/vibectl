@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Tabs, Tab, Container, Row, Col, Card, Badge, Alert } from 'react-bootstrap';
+import { Tabs, Tab, Container, Row, Col } from 'react-bootstrap';
 import { io } from 'socket.io-client';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
+
+// Import components
+import ServiceStatus from './components/ServiceStatus';
+import ServiceOverview from './components/ServiceOverview';
+import ClusterStatus from './components/ClusterStatus';
+import ClusterSummary from './components/ClusterSummary';
+import AgentLogs from './components/AgentLogs';
+import HealthStatusGraph from './components/HealthStatusGraph';
 
 // Initialize socket connection
 const socket = io();
@@ -13,6 +21,8 @@ function App() {
   const [redAgentLogs, setRedAgentLogs] = useState([]);
   const [clusterStatus, setClusterStatus] = useState(null);
   const [overview, setOverview] = useState(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
     // Handle socket connections
@@ -38,6 +48,11 @@ function App() {
     // Handle cluster status updates
     socket.on('cluster_update', (data) => {
       setClusterStatus(data);
+    });
+
+    // Handle service overview updates
+    socket.on('service_overview_update', (data) => {
+      setOverview(data);
     });
 
     // Initial data loading
@@ -73,212 +88,63 @@ function App() {
       socket.off('blue_log_update');
       socket.off('red_log_update');
       socket.off('cluster_update');
+      socket.off('service_overview_update');
     };
   }, []);
 
-  // Helper function to get status badge styling
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'HEALTHY':
-        return <Badge bg="success">HEALTHY</Badge>;
-      case 'DEGRADED':
-        return <Badge bg="warning">DEGRADED</Badge>;
-      case 'DOWN':
-        return <Badge bg="danger">DOWN</Badge>;
-      default:
-        return <Badge bg="secondary">{status}</Badge>;
-    }
-  };
-
-  // Render log entries
-  const renderLogs = (logs) => {
-    return (
-      <div className="log-container">
-        {logs.map((log, index) => {
-          let levelClass = '';
-          switch (log.level) {
-            case 'ERROR':
-              levelClass = 'text-danger';
-              break;
-            case 'WARNING':
-              levelClass = 'text-warning';
-              break;
-            case 'INFO':
-              levelClass = 'text-info';
-              break;
-            default:
-              levelClass = 'text-secondary';
-          }
-
-          const timestamp = new Date(log.timestamp).toLocaleTimeString();
-
-          return (
-            <div key={index} className={`log-entry ${levelClass}`}>
-              <span className="log-timestamp">[{timestamp}]</span> {log.message}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // Render cluster status
-  const renderClusterStatus = () => {
-    if (!clusterStatus) {
-      return <Alert variant="info">Loading cluster information...</Alert>;
-    }
-
-    return (
-      <div>
-        <h3>Nodes</h3>
-        <ul>
-          {clusterStatus.nodes && clusterStatus.nodes.length > 0 ? (
-            clusterStatus.nodes.map((node, index) => (
-              <li key={index}>
-                {node.name}: {node.ready ? 'Ready' : 'Not Ready'} (CPU: {node.cpu}, Memory: {node.memory})
-              </li>
-            ))
-          ) : (
-            <li>No nodes found</li>
-          )}
-        </ul>
-
-        <h3>Namespaces</h3>
-        {clusterStatus.pods && clusterStatus.pods.length > 0 ? (
-          clusterStatus.pods.map((ns, index) => (
-            <Card key={index} className="mb-3">
-              <Card.Header>{ns.namespace} ({ns.status})</Card.Header>
-              <Card.Body>
-                <h6>{ns.pods.length} Pods</h6>
-                <ul>
-                  {ns.pods.map((pod, podIndex) => (
-                    <li key={podIndex}>
-                      {pod.name}: {pod.phase} ({pod.ready})
-                    </li>
-                  ))}
-                </ul>
-              </Card.Body>
-            </Card>
-          ))
-        ) : (
-          <p>No namespace data available</p>
-        )}
-      </div>
-    );
-  };
-
-  // Render system overview
-  const renderOverview = () => {
-    if (!overview) {
-      return <Alert variant="info">Loading system overview...</Alert>;
-    }
-
-    const uptime = overview.uptime_percentage || 0;
-    const counts = overview.status_counts || { HEALTHY: 0, DEGRADED: 0, DOWN: 0, ERROR: 0 };
-
-    return (
-      <Card>
-        <Card.Body>
-          <h5>System Overview</h5>
-          <div className="mb-3">
-            <h6>Uptime: {uptime}%</h6>
-            <div className="progress">
-              <div
-                className={`progress-bar ${uptime > 90 ? 'bg-success' : uptime > 70 ? 'bg-warning' : 'bg-danger'}`}
-                role="progressbar"
-                style={{ width: `${uptime}%` }}
-                aria-valuenow={uptime}
-                aria-valuemin="0"
-                aria-valuemax="100">
-                {uptime}%
-              </div>
-            </div>
-          </div>
-
-          <Row className="text-center">
-            <Col xs={3}>
-              <h6>{counts.HEALTHY || 0}</h6>
-              <small className="text-success">Healthy</small>
-            </Col>
-            <Col xs={3}>
-              <h6>{counts.DEGRADED || 0}</h6>
-              <small className="text-warning">Degraded</small>
-            </Col>
-            <Col xs={3}>
-              <h6>{counts.DOWN || 0}</h6>
-              <small className="text-danger">Down</small>
-            </Col>
-            <Col xs={3}>
-              <h6>{counts.ERROR || 0}</h6>
-              <small className="text-info">Error</small>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
-    );
-  };
-
   return (
     <Container fluid>
-      <h1 className="my-4">Chaos Monkey Overseer</h1>
+      <h1 className="my-4"><i className="fas fa-robot me-2"></i>Chaos Monkey Overseer</h1>
 
-      <Tabs defaultActiveKey="dashboard" className="mb-4">
-        <Tab eventKey="dashboard" title="Dashboard">
+      <Tabs
+        activeKey={activeTab}
+        onSelect={(k) => setActiveTab(k)}
+        className="mb-4"
+        id="main-tabs"
+      >
+        <Tab eventKey="dashboard" title={<span><i className="fas fa-tachometer-alt me-2"></i>Dashboard</span>}>
           <Row>
-            <Col md={6}>
-              <Card className="mb-4">
-                <Card.Body>
-                  <Card.Title>Service Status</Card.Title>
-                  <div className="d-flex align-items-center">
-                    <h3 className="me-2">{getStatusBadge(status.status)}</h3>
+            <Col md={12}>
+              <Row>
+                <Col md={12}>
+                  <ClusterSummary clusterStatus={clusterStatus} />
+                </Col>
+              </Row>
+
+              <Row>
+                <Col md={6}>
+                  <ServiceStatus status={status} />
+                </Col>
+                <Col md={6}>
+                  <ServiceOverview overview={overview} />
+                </Col>
+              </Row>
+
+              <Row>
+                <Col md={12}>
+                  <div className="mb-4">
+                    <HealthStatusGraph history={status} overview={overview} />
                   </div>
-                  <p>{status.message}</p>
-                  {status.timestamp && (
-                    <small className="text-muted">
-                      Last updated: {new Date(status.timestamp).toLocaleString()}
-                    </small>
-                  )}
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6}>
-              {renderOverview()}
+                </Col>
+              </Row>
+
+              <AgentLogs
+                blueAgentLogs={blueAgentLogs}
+                redAgentLogs={redAgentLogs}
+                autoScroll={autoScroll}
+                onAutoScrollChange={setAutoScroll}
+              />
             </Col>
           </Row>
         </Tab>
 
-        <Tab eventKey="logs" title="Agent Logs">
-          <Row>
-            <Col md={6}>
-              <Card className="mb-4">
-                <Card.Header>Blue Agent (Defender)</Card.Header>
-                <Card.Body>
-                  {renderLogs(blueAgentLogs)}
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6}>
-              <Card className="mb-4">
-                <Card.Header>Red Agent (Chaos Monkey)</Card.Header>
-                <Card.Body>
-                  {renderLogs(redAgentLogs)}
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        </Tab>
-
-        <Tab eventKey="cluster" title="Cluster Status">
-          <Card>
-            <Card.Body>
-              {renderClusterStatus()}
-            </Card.Body>
-          </Card>
+        <Tab eventKey="cluster" title={<span><i className="fas fa-project-diagram me-2"></i>Cluster Status</span>}>
+          <ClusterStatus clusterStatus={clusterStatus} />
         </Tab>
       </Tabs>
 
       <footer className="my-4 pt-3 text-muted border-top">
-        &copy; 2025 Daniel Klein | <a href="https://github.com/othercriteria/vibectl" target="_blank" rel="noreferrer">vibectl on GitHub</a>
+        <i className="far fa-copyright me-1"></i> 2025 Daniel Klein | <a href="https://github.com/othercriteria/vibectl" target="_blank" rel="noreferrer"><i className="fab fa-github me-1"></i>vibectl on GitHub</a>
       </footer>
     </Container>
   );

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import (
+    Error,
     OutputFlags,
     configure_output_flags,
     handle_command_output,
@@ -158,13 +159,15 @@ def test_handle_command_output_llm_error(
     )
 
     # Call the function and check for error handling
-    with pytest.raises(ValueError) as excinfo:
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=lambda: "error test",  # Trigger error response
-        )
-    assert "Test error" in str(excinfo.value)
+    result = handle_command_output(
+        output="test output",
+        output_flags=output_flags,
+        summary_prompt_func=lambda: "Test prompt {output}",
+    )
+
+    # Verify we get an Error object with the right message
+    assert isinstance(result, Error)
+    assert "Test error" in result.error
 
 
 @patch("vibectl.command_handler.get_model_adapter")

@@ -50,8 +50,7 @@ def run_events_command(
                 )
                 return Error(error=msg)
             request = " ".join(args[1:])
-            planning_msg = f"Planning how to: events {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: get events for %s", request)
             try:
                 handle_vibe_request(
                     request=request,

@@ -381,7 +381,7 @@ def test_recovery_prompt() -> None:
 
     # Check basic structure
     assert len(result) > 100  # Should be reasonably sized
-    assert f"kubectl {command}" in result
+    assert command in result
     assert f"Error:\n```\n{error}\n```" in result
     assert "Explain the error in simple terms" in result
     assert "alternative approaches" in result

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes` pattern
+- New `vibectl semiauto` subcommand as sugar for `auto` with negated `--yes` behavior
+- Enhanced confirmation dialog with new options:
+  - `yes [A]nd` for accepting with fuzzy memory update
+  - `no [B]ut` for rejecting with fuzzy memory update
+  - `[E]xit` option (in semiauto mode) to exit the loop cleanly
+
+### Changed
+- Planned: Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
+- Improved interactive-commands rule to clarify the proper usage of `--no-pager` with git commands
+
+### Fixed
+- Fixed error messages shown when a user selects [E]xit in semiauto mode
+  - Updated exception handling to properly handle normal exits without displaying error messages
+  - Improves user experience by ensuring clean exit behavior
+- Fixed `vibectl auto` breaking on API errors like "overloaded_error"
+  - Added detection of API-related errors and marked them as non-halting
+  - Auto loop now continues despite transient API issues like rate limiting or service overload
+  - Improved resilience for automated/scheduled usage of vibectl
+- Fixed recovery suggestions not being integrated into memory state
+  - Added update_memory call when recovery suggestions are generated
+  - Ensures that suggestions from one command are available for subsequent commands in auto mode
+  - Improves the continuity of error recovery in multi-step workflows
+
 ## [0.4.1] - 2025-04-22
 
 ### Added

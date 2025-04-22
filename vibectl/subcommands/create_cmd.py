@@ -4,7 +4,6 @@ from vibectl.command_handler import (
     handle_vibe_request,
     run_kubectl,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
@@ -50,9 +49,7 @@ def run_create_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            planning_msg = f"Planning how to: create {request}"
-            console_manager.print_processing(planning_msg)
-            logger.info("Planning how to: %s", request)
+            logger.info("Planning how to: create %s", request)
             try:
                 handle_vibe_request(
                     request=request,
@@ -78,7 +75,6 @@ def run_create_command(
 
         if not output:
             logger.info("No output from kubectl create command.")
-            console_manager.print_processing("No output from kubectl create command.")
             return Success(message="No output from kubectl create command.")
 
         try:

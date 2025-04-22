@@ -4,7 +4,6 @@ from vibectl.command_handler import (
     handle_standard_command,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.prompt import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
@@ -47,10 +46,9 @@ def run_port_forward_command(
                 msg = "Missing request after 'vibe'"
                 return Error(error=msg)
             request = " ".join(args)
-            logger.info("Planning how to: %s", request)
-            # Use subcommand name in planning note for clarity
-            planning_msg = f"Planning how to: port-forward {request}"
-            console_manager.print_processing(planning_msg)
+            logger.info("Planning how to: port-forward %s", request)
+
+            # Use the Result returned from handle_vibe_request
             try:
                 handle_vibe_request(
                     request=request,
