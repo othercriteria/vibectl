@@ -5,18 +5,20 @@ the command handler is robust against unexpected or malformed inputs.
 """
 
 from collections.abc import Generator
+from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from vibectl.command_handler import (
     _execute_command_with_complex_args,
+    _execute_yaml_command,
     _parse_command_args,
     _process_command_string,
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.types import OutputFlags, Success
+from vibectl.types import Error, OutputFlags, Success
 
 
 @pytest.fixture
@@ -493,7 +495,14 @@ metadata:
         patch("vibectl.command_handler.click.confirm", return_value=True),
         patch("vibectl.command_handler.handle_command_output"),
         patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
+        patch("vibectl.command_handler.subprocess.Popen") as mock_popen,
     ):
+        # Configure the mock subprocess
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (b"success", b"")
+        mock_popen.return_value = mock_process
+
         # This should not raise an exception after the fix
         handle_vibe_request(
             request="create a pod",
@@ -561,3 +570,64 @@ def test_parse_command_args_with_natural_language() -> None:
     assert "with" in result
     assert "label" in result
     assert "app=nginx" in result
+
+
+def test_execute_yaml_command_timeout_handling() -> None:
+    """Test that _execute_yaml_command properly handles subprocess timeouts.
+
+    This tests the code path added to handle subprocess.TimeoutExpired exceptions
+    gracefully with a proper error message.
+    """
+    from vibectl.command_handler import _execute_yaml_command
+
+    # Mock subprocess.Popen to simulate a TimeoutExpired exception
+    with patch("vibectl.command_handler.subprocess.Popen") as mock_popen:
+        # Create a mock process that raises TimeoutExpired when communicate is called
+        mock_process = MagicMock()
+        mock_process.communicate.side_effect = TimeoutExpired(
+            cmd=["kubectl"], timeout=30
+        )
+
+        # Set up mock to return a process object that will raise an exception
+        mock_popen.return_value = mock_process
+
+        # Call _execute_yaml_command with stdin pipe command
+        result = _execute_yaml_command(
+            ["create", "-f", "-"], "---\napiVersion: v1\nkind: Pod"
+        )
+
+        # Verify timeout was handled gracefully
+        assert isinstance(result, Error)
+        assert "timed out after 30 seconds" in result.error
+
+        # Verify the process was killed
+        mock_process.kill.assert_called_once()
+
+        # Verify we tried to get any output after the timeout
+        assert mock_process.communicate.call_count == 2
+
+
+def test_execute_yaml_command_sets_timeout() -> None:
+    """Test that _execute_yaml_command sets the timeout parameter.
+
+    Verifies the timeout parameter is correctly passed to subprocess.communicate().
+    """
+
+    # Mock subprocess.Popen
+    with patch("vibectl.command_handler.subprocess.Popen") as mock_popen:
+        # Create a mock process
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (b"success", b"")
+
+        # Set up mock to return our process
+        mock_popen.return_value = mock_process
+
+        # Call _execute_yaml_command with stdin pipe command
+        _execute_yaml_command(["create", "-f", "-"], "---\napiVersion: v1\nkind: Pod")
+
+        # Verify the timeout parameter was passed to communicate
+        mock_process.communicate.assert_called_once()
+        args, kwargs = mock_process.communicate.call_args
+        assert "timeout" in kwargs
+        assert kwargs["timeout"] == 30

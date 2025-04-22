@@ -1344,6 +1344,7 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
     import re
     import subprocess
     import tempfile
+    from subprocess import TimeoutExpired
 
     try:
         # Fix multi-document YAML formatting issues
@@ -1378,7 +1379,20 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
 
             # Encode the YAML content to bytes
             yaml_bytes = yaml_content.encode("utf-8")
-            stdout_bytes, stderr_bytes = process.communicate(input=yaml_bytes)
+            try:
+                stdout_bytes, stderr_bytes = process.communicate(
+                    input=yaml_bytes, timeout=30
+                )  # Add 30-second timeout
+            except TimeoutExpired:
+                # Try to terminate the process if it's still running
+                process.kill()
+                # Attempt to collect any output that might be available
+                stdout_bytes, stderr_bytes = process.communicate()
+                # Return an error with a clear message
+                return Error(
+                    error="Command timed out after 30 seconds",
+                    exception=Exception("Subprocess timeout"),
+                )
 
             # Decode the output back to strings
             stdout = stdout_bytes.decode("utf-8")
