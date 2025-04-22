@@ -10,6 +10,7 @@ import ServiceOverview from './components/ServiceOverview';
 import ClusterStatus from './components/ClusterStatus';
 import ClusterSummary from './components/ClusterSummary';
 import AgentLogs from './components/AgentLogs';
+import HealthStatusGraph from './components/HealthStatusGraph';
 
 // Initialize socket connection
 const socket = io();
@@ -105,6 +106,12 @@ function App() {
           <Row>
             <Col md={12}>
               <Row>
+                <Col md={12}>
+                  <ClusterSummary clusterStatus={clusterStatus} />
+                </Col>
+              </Row>
+
+              <Row>
                 <Col md={6}>
                   <ServiceStatus status={status} />
                 </Col>
@@ -115,7 +122,9 @@ function App() {
 
               <Row>
                 <Col md={12}>
-                  <ClusterSummary clusterStatus={clusterStatus} />
+                  <div className="mb-4">
+                    <HealthStatusGraph history={status} overview={overview} />
+                  </div>
                 </Col>
               </Row>
 

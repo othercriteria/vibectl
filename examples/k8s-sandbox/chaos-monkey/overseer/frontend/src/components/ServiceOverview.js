@@ -16,7 +16,7 @@ const ServiceOverview = ({ overview }) => {
   return (
     <Card className="mb-4">
       <Card.Body>
-        <Card.Title><i className="fas fa-chart-pie me-2"></i>Service Overview</Card.Title>
+        <Card.Title><i className="fas fa-chart-pie me-2"></i>Demo Service Overview</Card.Title>
         <div className="d-flex justify-content-between align-items-center mb-3">
           <div>
             <div><i className="fas fa-check-circle text-success me-2"></i><span className="text-success fw-bold">{status_counts.HEALTHY || 0}</span> healthy</div>

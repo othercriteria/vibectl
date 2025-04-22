@@ -305,11 +305,12 @@ def update_service_status() -> None:
     if "timestamp" not in new_status:
         new_status["timestamp"] = datetime.now().isoformat()
 
+    # Save to history
     service_history.append(new_status)
 
-    # Keep only the last 100 entries to avoid memory issues
-    if len(service_history) > 100:
-        service_history = service_history[-100:]
+    # Limit history length
+    if len(service_history) > 1000:
+        service_history = service_history[-1000:]
 
     # Add last_updated timestamp to help track freshness
     update_timestamp = datetime.now().isoformat()

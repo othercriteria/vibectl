@@ -21,7 +21,7 @@ const ServiceStatus = ({ status }) => {
   return (
     <Card className="mb-4">
       <Card.Body>
-        <Card.Title><i className="fas fa-heartbeat me-2"></i>Service Status</Card.Title>
+        <Card.Title><i className="fas fa-heartbeat me-2"></i>Demo Service Status</Card.Title>
         <div className="d-flex align-items-center">
           <h3 className="me-2">{getStatusBadge(status.status)}</h3>
         </div>

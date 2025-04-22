@@ -50,7 +50,7 @@ A web-based dashboard that:
 - Displays real-time pod status across all namespaces with health indicators
 - Shows resource utilization metrics for CPU, memory, and network
 - Scrapes the poller data for service availability metrics
-- Features a consolidated dashboard with service metrics and agent logs in one view
+- Features a consolidated dashboard with Kubernetes status, demo service metrics, health visualization, and agent logs in one view
 - Provides a separate detailed cluster status tab
 - Displays properly formatted terminal output including:
   - Correct rendering of ASCII box-drawing characters and tables
@@ -91,7 +91,7 @@ A Python-based service that:
 - Continuously checks the status of each service
 - Monitors response times and availability
 - Reports service health with color-coded status indicators
-- Tracks service degradation and recovery over time
+- Tracks service degradation and recovery over time (retaining 1000 most recent health checks)
 - Provides detailed pod status information
 
 ## How It Works
@@ -187,7 +187,8 @@ To observe the demo in action:
    The dashboard provides:
    - Cluster node status and resource utilization
    - Pod status across all namespaces with health indicators
-   - Service health metrics with response time trends
+   - Demo service health metrics with response time trends
+   - Health status graph visualization showing service stability over time
    - Real-time agent logs with activity timestamps
    - Resource consumption graphs for key components
    - Properly rendered box-drawing characters and tables

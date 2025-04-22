@@ -76,7 +76,7 @@ services:
         condition: service_healthy
     environment:
       - SESSION_DURATION=${SESSION_DURATION:-30}
-      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-15}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-5}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
       - OVERSEER_HOST=overseer
