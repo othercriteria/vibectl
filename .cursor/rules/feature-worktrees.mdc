@@ -13,10 +13,10 @@ description: Guidelines for managing feature development using Git worktrees
 filters:
   # Match feature development queries
   - type: content
-    pattern: "(?i)\\b(new feature|worktree|branch to work on|feature branch|develop feature)\\b"
+    pattern: "(?i)\b(new feature|worktree|branch to work on|feature branch|develop feature)\b"
   # Match Git branch commands
   - type: content
-    pattern: "(?i)\\b(git (checkout|branch|switch)|new branch)\\b"
+    pattern: "(?i)\b(git (checkout|branch|switch)|new branch)\b"
   # Match development workflow discussions
   - type: intent
     pattern: "development_workflow"
@@ -25,25 +25,21 @@ actions:
   - type: suggest
     message: |
       For feature development:
-      1. Create a feature branch from main:
+      1. **IMPORTANT**: Start directly with creating a worktree for the new feature to avoid conflicts:
          ```
-         # First ensure you're on main
+         # First ensure you're on main and it's up to date
          git checkout main
+         git pull
 
-         # Create the feature branch
-         git checkout -b feature/name-of-feature main
-         ```
-
-      2. **IMPORTANT**: Add and switch to the worktree BEFORE creating any files:
-         ```
          # Create worktrees directory if it doesn't exist
          mkdir -p ../worktrees/
 
          # Get project name from the current directory
          PROJECT_NAME=$(basename $(pwd))
 
-         # Add worktree with project and feature name to avoid collisions
-         git worktree add ../worktrees/${PROJECT_NAME}-feature-name feature/name-of-feature
+         # Add worktree with project and feature name to avoid conflicts
+         # This creates both the branch and the worktree in one step, avoiding branch conflicts
+         git worktree add -b feature/name-of-feature ../worktrees/${PROJECT_NAME}-feature-name main
 
          # Switch to the worktree directory
          cd ../worktrees/${PROJECT_NAME}-feature-name
@@ -52,7 +48,7 @@ actions:
          git status
          ```
 
-      3. Set up development environment in the worktree:
+      2. Set up development environment in the worktree:
          ```
          # Allow direnv in the worktree
          direnv allow
@@ -61,7 +57,7 @@ actions:
          nix develop --quiet -c make install-pre-commit 2>/dev/null
          ```
 
-      4. **IDE-SPECIFIC CONSIDERATIONS**:
+      3. **IDE-SPECIFIC CONSIDERATIONS**:
          - For Cursor/VS Code: Open a new window pointed directly at the worktree
            ```
            # From the terminal in your worktree directory
@@ -73,7 +69,7 @@ actions:
          - Never try to edit worktree files from your main workspace IDE window
          - Keep a terminal open and use command-line tools when needed for cross-worktree operations
 
-      5. Create a minimal PR for visibility early in development:
+      4. Create a minimal PR for visibility early in development:
          ```
          # IMPORTANT: Do this ONLY in a terminal or IDE window that's in the worktree directory
          # Check current directory to be sure you're in the worktree
@@ -82,7 +78,10 @@ actions:
 
          # Make initial commit with planned changes
          touch PLANNED_CHANGES.md
-         echo "# Planned Changes\n\n- Feature 1\n- Feature 2" > PLANNED_CHANGES.md
+         echo "# Planned Changes
+
+- Feature 1
+- Feature 2" > PLANNED_CHANGES.md
 
          # Update CHANGELOG.md with planned changes under [Unreleased]
          # First, check the current changelog content to see where to add entries
@@ -107,7 +106,7 @@ actions:
          nix develop --quiet -c gh pr create --title "WIP: feature-name" --body "Work in progress" --draft 2>/dev/null
          ```
 
-      6. Always do your work in the worktree directory, not the main workspace:
+      5. Always do your work in the worktree directory, not the main workspace:
          ```
          # Check which branch you're on before starting work
          git status
@@ -116,7 +115,7 @@ actions:
          cd ../worktrees/${PROJECT_NAME}-feature-name
          ```
 
-      7. When complete, commit final changes from the worktree:
+      6. When complete, commit final changes from the worktree:
          ```
          # Update CHANGELOG.md with final changes under [Unreleased]
          # Make sure all your feature changes are properly documented
@@ -134,7 +133,7 @@ actions:
          nix develop --quiet -c gh pr ready 2>/dev/null
          ```
 
-      8. Before merging, ensure the changelog is up-to-date:
+      7. Before merging, ensure the changelog is up-to-date:
          ```
          # Check if CHANGELOG.md is updated correctly
          git diff HEAD~ CHANGELOG.md
@@ -148,7 +147,7 @@ actions:
          git push
          ```
 
-      9. Clean up after PR merge completion:
+      8. Clean up after PR merge completion:
          ```
          # First, get back to main and pull latest changes
          cd ~/workspace/${PROJECT_NAME}
@@ -159,7 +158,7 @@ actions:
          git worktree remove ../worktrees/${PROJECT_NAME}-feature-name
 
          # Delete the local branch
-         git branch -d feature/name-of-feature
+         git branch -D feature/name-of-feature 2>/dev/null || true
 
          # Delete the remote branch (once PR is merged and you're done with it)
          git push origin --delete feature/name-of-feature
@@ -207,31 +206,56 @@ actions:
       git reset --hard HEAD~1
       ```
 
+      ### Problem: You created a feature branch in the main workspace and need to move to worktree
+      **Solution**:
+      ```
+      # 1. First check if you have a feature branch already in main workspace
+      cd ~/workspace/${PROJECT_NAME}
+      git branch | grep feature
+
+      # 2. If you have a feature branch and need to use it with worktree
+      # First check if there are any uncommitted changes
+      git status
+
+      # 3. Create worktree from existing branch without checked out changes
+      PROJECT_NAME=$(basename $(pwd))
+      git branch -f feature/name-of-feature main   # Reset branch to main if needed
+      git worktree add ../worktrees/${PROJECT_NAME}-feature-name feature/name-of-feature
+
+      # 4. Switch to the worktree and continue work there
+      cd ../worktrees/${PROJECT_NAME}-feature-name
+      git status
+      ```
+
   - type: reject
     conditions:
       # Discourage direct work on main
-      - pattern: "(?i)\\b(work|develop|implement)\\s+.*\\s+(on|in)\\s+main\\b"
+      - pattern: "(?i)\b(work|develop|implement)\s+.*\s+(on|in)\s+main\b"
         message: "Avoid developing features directly on main. Use feature branches with worktrees instead."
       # Warn about working in main workspace instead of worktree
-      - pattern: "(?i)git\\s+status.*feature.*main"
+      - pattern: "(?i)git\s+status.*feature.*main"
         message: "You appear to be in the main workspace but working on a feature. Use 'cd ../worktrees/${PROJECT_NAME}-feature-name' to work in the worktree."
       # Warn about not using pre-commit in worktree
-      - pattern: "(?i)git\\s+commit.*(?!.*pre-commit|make lint).*worktree"
+      - pattern: "(?i)git\s+commit.*(?!.*pre-commit|make lint).*worktree"
         message: "Make sure to run pre-commit checks before committing in the worktree: nix develop --quiet -c make lint"
       # Warn about creating files for feature work before switching to worktree
-      - pattern: "(?i)(touch|echo|create file|new file).*(?!cd\\s+\\.\\./worktrees).*feature"
+      - pattern: "(?i)(touch|echo|create file|new file).*(?!cd\s+\.\./worktrees).*feature"
         message: "Always switch to the feature worktree BEFORE creating any files: cd ../worktrees/${PROJECT_NAME}-feature-name"
       # Warn about not updating CHANGELOG.md in feature PR
-      - pattern: "(?i)gh\\s+pr\\s+(create|ready).*(?!.*CHANGELOG\\.md)"
+      - pattern: "(?i)gh\s+pr\s+(create|ready).*(?!.*CHANGELOG\.md)"
         message: "Make sure to update CHANGELOG.md with your changes before finalizing the PR. Add your changes to the [Unreleased] section."
       # Warn about using Cursor to edit worktree files from main workspace
-      - pattern: "(?i)(cursor|code|ide).*\\.\\./worktrees"
+      - pattern: "(?i)(cursor|code|ide).*\.\./worktrees"
         message: "Some IDEs (including Cursor) have limitations editing files outside the main workspace. Open a new IDE window directly in the worktree: cd ../worktrees/${PROJECT_NAME}-feature-name && cursor ."
+      # Warn about creating separate feature branch and worktree
+      - pattern: "(?i)git\s+checkout\s+-b\s+feature/.*(?!.*\s+worktree\s+)"
+        message: "Create branch and worktree in one step to avoid conflicts: git worktree add -b feature/name-of-feature ../worktrees/${PROJECT_NAME}-feature-name main"
 
 criteria:
   required:
     - Create feature branches with descriptive names (feature/name-of-feature)
     - Use worktrees with project-prefixed directories to avoid collisions
+    - Create branch and worktree in one step with `git worktree add -b feature/name-of-feature`
     - ALWAYS switch to the worktree BEFORE creating or editing any files
     - For IDE usage, open a new window directly in the worktree directory
     - Never attempt to edit worktree files from main workspace IDE window
@@ -250,15 +274,13 @@ criteria:
 examples:
   - input: "I need to start developing a new feature"
     output: |
-      Create a feature branch, worktree, initial PR, and update CHANGELOG.md:
+      Create a feature branch and worktree in one step, update CHANGELOG.md, and create initial PR:
       ```
-      # Create the feature branch from main
+      # Start from main and create branch+worktree in one step
       git checkout main
-      git checkout -b feature/my-new-feature main
-
-      # Setup worktree with project name and SWITCH to it
+      git pull
       PROJECT_NAME=$(basename $(pwd))
-      git worktree add ../worktrees/${PROJECT_NAME}-my-new-feature feature/my-new-feature
+      git worktree add -b feature/my-new-feature ../worktrees/${PROJECT_NAME}-my-new-feature main
       cd ../worktrees/${PROJECT_NAME}-my-new-feature
 
       # Verify you're in the correct branch
@@ -276,7 +298,10 @@ examples:
 
       # Create initial PR (only after switching to worktree)
       touch PLANNED_CHANGES.md
-      echo "# Planned Changes\n\n- Add new functionality\n- Update documentation" > PLANNED_CHANGES.md
+      echo "# Planned Changes
+
+- Add new functionality
+- Update documentation" > PLANNED_CHANGES.md
 
       # Update CHANGELOG.md with planned changes
       vi CHANGELOG.md
@@ -336,49 +361,59 @@ examples:
       git reset --hard HEAD~1
       ```
 
-  - input: "How do I deal with accidentally committing to main instead of worktree?"
+  - input: "How do I deal with branch conflicts between main workspace and worktree?"
     output: |
-      If you accidentally committed changes in main workspace instead of worktree:
+      To avoid branch conflicts between main workspace and worktree:
 
+      1. **Create branch and worktree in one step** (preferred approach):
       ```
-      # 1. Create a patch from your changes in main
-      cd ~/workspace/vibectl
-      git format-patch HEAD~1
+      # Start from main
+      git checkout main
+      git pull
 
-      # 2. Move the patch to your worktree and apply it
-      mv 0001-*.patch ../worktrees/vibectl-my-feature/
-      cd ../worktrees/vibectl-my-feature
-      git am 0001-*.patch
+      # Create branch and worktree in one command
+      PROJECT_NAME=$(basename $(pwd))
+      git worktree add -b feature/my-feature ../worktrees/${PROJECT_NAME}-my-feature main
 
-      # 3. Reset main workspace back to the proper state
-      cd ~/workspace/vibectl
-      git reset --hard HEAD~1
-
-      # 4. Verify everything is correct
-      # In main:
-      cd ~/workspace/vibectl
-      git status  # Should be clean
-
-      # In worktree:
-      cd ../worktrees/vibectl-my-feature
-      git status  # Should show your feature branch with the changes
+      # Switch to the worktree
+      cd ../worktrees/${PROJECT_NAME}-my-feature
+      git status
       ```
 
-      For multiple commits, create patch series:
+      2. If you already created a branch in main workspace:
       ```
-      # Create patches for last N commits
-      cd ~/workspace/vibectl
-      git format-patch HEAD~N
+      # Check if there are any changes
+      git status
 
-      # Apply the series in worktree
-      mv 0001-*.patch ../worktrees/vibectl-my-feature/
-      cd ../worktrees/vibectl-my-feature
-      git am 0001-*.patch
+      # If needed, reset the branch to main
+      git branch -f feature/my-feature main
 
-      # Reset main (be careful with this!)
-      cd ~/workspace/vibectl
-      git reset --hard HEAD~N
+      # Create worktree using existing branch
+      PROJECT_NAME=$(basename $(pwd))
+      git worktree add ../worktrees/${PROJECT_NAME}-my-feature feature/my-feature
+
+      # Switch to worktree
+      cd ../worktrees/${PROJECT_NAME}-my-feature
+      git status
       ```
+
+      3. When cleaning up, handle branch deletion carefully:
+      ```
+      # Clean up worktree
+      cd ~/workspace/vibectl
+      git worktree remove ../worktrees/${PROJECT_NAME}-my-feature
+
+      # Delete local branch (with force if needed)
+      git branch -D feature/my-feature 2>/dev/null || true
+
+      # Delete remote branch
+      git push origin --delete feature/my-feature
+      ```
+
+metadata:
+  priority: high
+  version: 1.9
+</rule>
 
 metadata:
   priority: high
