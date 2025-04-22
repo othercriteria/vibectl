@@ -1,6 +1,11 @@
 from unittest.mock import MagicMock, patch
 
-from vibectl.command_handler import configure_output_flags, handle_vibe_request
+from vibectl.command_handler import (
+    OutputFlags,
+    _display_kubectl_command,
+    configure_output_flags,
+    handle_vibe_request,
+)
 
 
 def test_handle_vibe_request_with_preformatted_prompt() -> None:
@@ -120,3 +125,36 @@ Example output format: {0}
                 request="test request", command="vibe"
             ),
         )
+
+
+def test_display_kubectl_command_with_vibe() -> None:
+    """Test that command display works correctly with the vibe command."""
+    with patch("vibectl.command_handler.console_manager") as mock_console:
+        # Create output flags with show_kubectl=True
+        output_flags = OutputFlags(
+            show_raw=True,
+            show_vibe=True,
+            warn_no_output=True,
+            model_name="test-model",
+            show_kubectl=True,
+        )
+
+        # Test with just "vibe" command (no request)
+        _display_kubectl_command(output_flags, "vibe")
+        mock_console.print_note.assert_called_with(
+            "Planning next steps based on memory context..."
+        )
+
+        # Reset mock for next test
+        mock_console.reset_mock()
+
+        # Test with "vibe" plus a request
+        _display_kubectl_command(output_flags, "vibe find pods")
+        mock_console.print_note.assert_called_with("Note: find pods")
+
+        # Reset mock for next test
+        mock_console.reset_mock()
+
+        # Test with non-vibe command
+        _display_kubectl_command(output_flags, "get pods")
+        mock_console.print_note.assert_called_with("[kubectl] get pods")

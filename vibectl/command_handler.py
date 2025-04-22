@@ -455,7 +455,18 @@ def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> 
         command: Command string to display
     """
     if output_flags.show_kubectl and command:
-        console_manager.print_note(f"[kubectl] {command}")
+        # For commands from auto/vibe mode with just 'vibe'
+        if command == "vibe":
+            # When there's no specific request, show a clearer message
+            console_manager.print_note("Planning next steps based on memory context...")
+        # For 'vibe' commands with actual requests (like "vibe find deployment")
+        elif command.startswith("vibe ") and len(command) > 5:
+            # Preserve the exact request but don't show the 'vibe' prefix
+            request_part = command[5:]  # Skip the 'vibe ' prefix
+            console_manager.print_note(f"Note: {request_part}")
+        else:
+            # Regular display for all other kubectl commands, preserving format
+            console_manager.print_note(f"[kubectl] {command}")
 
 
 def _check_output_visibility(output_flags: OutputFlags) -> None:
@@ -862,9 +873,14 @@ def _process_and_execute_kubectl_command(
     # Display the command
     if output_flags.show_kubectl or needs_confirm:
         logger.info(f"Planned kubectl command: {cmd_for_display} {display_cmd}")
+
+        # Always fully specify the kubectl command parts, preserving command structure
         if should_strip_command:
+            # In autonomous or semiauto mode with vibe command, don't
+            # include redundant 'vibe'
             console_manager.print_note(f"Planning to run: kubectl {display_cmd}")
         else:
+            # For other commands, preserve the full command structure
             console_manager.print_note(
                 f"Planning to run: kubectl {cmd_for_display} {display_cmd}"
             )
@@ -919,11 +935,28 @@ def _process_and_execute_kubectl_command(
             return result
 
         # Process the output
+        # Create command string for output processing, avoiding "vibe vibe" duplication
+        # while preserving original kubectl command structure
+        display_command = f"{command}"
+
+        # When in autonomous/semiauto mode with vibe command, avoid duplication
+        # in the result command string used for memory updates and result processing
+        if command == "vibe" and (autonomous_mode or semiauto):
+            # Just use request if provided; otherwise use command alone
+            if request:
+                display_command = f"{command} {request}"
+        else:
+            # For all other cases, include command, vibe, and request if applicable
+            if request:
+                display_command = f"{command} vibe {request}"
+            else:
+                display_command = f"{command} vibe"
+
         return handle_command_output(
             output=result,
             output_flags=output_flags,
             summary_prompt_func=summary_prompt_func,
-            command=f"{command} vibe {request}",
+            command=display_command,
         )
     except Exception as e:
         logger.error(f"Error executing planned command: {e}", exc_info=True)

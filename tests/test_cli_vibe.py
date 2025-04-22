@@ -201,8 +201,10 @@ def test_vibe_command_logs_and_console_for_empty_request() -> None:
         patch("vibectl.subcommands.vibe_cmd.get_memory", return_value="mem"),
         patch("vibectl.subcommands.vibe_cmd.logger") as mock_logger,
         patch("vibectl.subcommands.vibe_cmd.console_manager") as mock_console,
+        patch("vibectl.subcommands.vibe_cmd.configure_output_flags"),
+        patch("vibectl.subcommands.vibe_cmd.configure_memory_flags"),
     ):
-        result = run_vibe_command(None, None, None, None, None)
+        result = run_vibe_command("", None, None, None, None, exit_on_error=False)
         assert isinstance(result, Success)
         mock_logger.info.assert_any_call(
             "No request provided; using memory context for planning."
