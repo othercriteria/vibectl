@@ -362,22 +362,23 @@ def config_set(key: str, value: str) -> None:
 
 @config.command()
 def show() -> None:
-    """Show current configuration."""
+    """Show all configuration values.
+
+    Examples:
+        vibectl config show
+    """
     try:
         cfg = Config()
         config_data = cfg.get_all()
-        if not config_data:
-            console_manager.print_note("No configuration set")
-            return
 
-        table = Table(title="vibectl Configuration")
-        table.add_column("Key", style="cyan")
+        table = Table(title="Configuration")
+        table.add_column("Key")
         table.add_column("Value", style="green")
 
         for key, value in config_data.items():
             table.add_row(key, str(value))
 
-        console_manager.console.print(table)
+        console_manager.safe_print(console_manager.console, table)
     except Exception as e:
         handle_exception(e)
 
@@ -752,13 +753,14 @@ def memory_show() -> None:
     try:
         memory_content = get_memory()
         if memory_content:
-            console_manager.console.print(
+            console_manager.safe_print(
+                console_manager.console,
                 Panel(
                     memory_content,
                     title="Memory Content",
                     border_style="blue",
                     expand=False,
-                )
+                ),
             )
         else:
             console_manager.print_warning(
@@ -884,13 +886,14 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
         console_manager.print_success("Memory updated")
 
         # Display the updated memory
-        console_manager.console.print(
+        console_manager.safe_print(
+            console_manager.console,
             Panel(
                 updated_memory,
                 title="Updated Memory Content",
                 border_style="blue",
                 expand=False,
-            )
+            ),
         )
     except Exception as e:
         handle_exception(e)

@@ -1018,13 +1018,14 @@ def _handle_command_confirmation(
 
             memory_content = get_memory()
             if memory_content:
-                console_manager.console.print(
+                console_manager.safe_print(
+                    console_manager.console,
                     Panel(
                         memory_content,
                         title="Memory Content",
                         border_style="blue",
                         expand=False,
-                    )
+                    ),
                 )
             else:
                 console_manager.print_warning(
@@ -1109,13 +1110,14 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         console_manager.print_success("Memory updated")
 
         # Display the updated memory
-        console_manager.console.print(
+        console_manager.safe_print(
+            console_manager.console,
             Panel(
                 updated_memory,
                 title="Updated Memory Content",
                 border_style="blue",
                 expand=False,
-            )
+            ),
         )
 
         return Success(message="Memory updated successfully")
@@ -1690,7 +1692,7 @@ def handle_wait_with_live_display(
             f"[bold green]✓[/] {resource} now meets condition '[bold]{condition}[/]' "
             f"(completed in [bold]{elapsed_time:.2f}s[/])"
         )
-        console_manager.console.print(success_message)
+        console_manager.safe_print(console_manager.console, success_message)
 
         # Add a small note if no output will be shown
         if not output_flags.show_raw and not output_flags.show_vibe:
@@ -1713,7 +1715,7 @@ def handle_wait_with_live_display(
                 f"[bold red]✗[/] Wait operation failed after "
                 f"[bold]{elapsed_time:.2f}s[/]: {result.error}"
             )
-            console_manager.console.print(message)
+            console_manager.safe_print(console_manager.console, message)
             return result
         else:
             message = (

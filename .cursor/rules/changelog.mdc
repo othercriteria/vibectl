@@ -105,11 +105,11 @@ actions:
           1. Add entries to the "Unreleased" section.
           2. Use "Planned:" prefix for each entry.
           3. Add "(WIP)" suffix to indicate work-in-progress status.
-          
+
           Example:
           ```markdown
           ## [Unreleased]
-          
+
           ### Added
           - Planned: New bootstrap demo for easy demonstration of capabilities (WIP)
           ```
@@ -120,11 +120,11 @@ actions:
           Planned features in the Unreleased section must be marked with:
           1. "Planned:" prefix at the beginning of the entry
           2. "(WIP)" suffix at the end of the entry
-          
+
           Example:
           ```markdown
           ## [Unreleased]
-          
+
           ### Added
           - Planned: New feature description (WIP)
           ```
