@@ -222,14 +222,25 @@ def test_config_invalid_type_conversion(test_config: MockConfig) -> None:
 
 
 def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
-    """Test invalid allowed values."""
-    # Test invalid theme
-    with pytest.raises(ValueError, match="Invalid value for theme"):
-        test_config.set("theme", "invalid_theme")
-
-    # Test invalid model
-    with pytest.raises(ValueError, match="Invalid value for model"):
-        test_config.set("model", "invalid_model")
+    """Test that invalid values for config keys raise ValueError."""
+    # theme: invalid value
+    with pytest.raises(ValueError):
+        test_config.set("theme", "not-a-theme")
+    # log_level: invalid value
+    with pytest.raises(ValueError):
+        test_config.set("log_level", "not-a-level")
+    # model: valid providerless alias (should NOT raise)
+    test_config.set("model", "tinyllama")  # Now allowed
+    # model: invalid value (not a known model or valid alias)
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Invalid value for model: !!!not-a-model!!!\. Valid values are: gpt-4, "
+            r"gpt-3.5-turbo, claude-3.7-sonnet, claude-3.7-opus, ollama:llama3, "
+            r"ollama:<model>, or a registered alias \(see 'llm models'\)"
+        ),
+    ):
+        test_config.set("model", "!!!not-a-model!!!")
 
 
 def test_config_convert_type_first_non_none(test_config: MockConfig) -> None:
@@ -912,3 +923,12 @@ def test_mockconfig_get_model_key_none_behavior() -> None:
     config = MockConfig()
     config._config["model_keys"] = {"openai": None}
     assert config.get_model_key("openai") is None
+
+
+def test_config_ollama_model_pattern_allowed(test_config: MockConfig) -> None:
+    """Test that any ollama:<model> value is accepted for model config key."""
+    # Should not raise
+    test_config.set("model", "ollama:tinyllama")
+    assert test_config.get("model") == "ollama:tinyllama"
+    test_config.set("model", "ollama:foobar")
+    assert test_config.get("model") == "ollama:foobar"

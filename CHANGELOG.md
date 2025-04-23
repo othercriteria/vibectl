@@ -8,11 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Planned: New bootstrap demo in examples/k8s-sandbox featuring (WIP):
+- New bootstrap demo in examples/k8s-sandbox featuring:
   - Self-contained kind cluster with Ollama LLM
-  - Vibectl configured to use local Ollama instance
-  - Demonstration of vibectl self-improvement capabilities
-  - Single-command setup for easy getting started experience
+  - Single-container setup with Docker-in-Docker
+  - Vibectl configured to use local Ollama instance via kubectl port-forward
+  - Support for installing from local source or stable PyPI packages
+  - Automated demonstration of vibectl K8s analysis capabilities
+  - Single-command unattended setup and execution
 
 ## [0.5.0] - 2025-04-25
 

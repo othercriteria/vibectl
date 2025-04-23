@@ -213,3 +213,12 @@ Several of these commands will require substantial new behaviors or patterns:
    - Add "dry-run" capabilities with clear previews of changes
 
 Implementation should prioritize commands that provide the most value to users while building reusable patterns that can accelerate development of subsequent commands.
+
+## Ollama Model String Handling and Error Messaging
+- Improve error handling in vibectl/model_adapter.py to distinguish between 'unknown model' and 'missing API key' errors. If llm.UnknownModelError is raised, surface a message suggesting to check llm models for available names/aliases, rather than defaulting to an API key error.
+- Consider normalizing model names: if user sets ollama:<model>, try ollama:<model>:latest if the first fails.
+- Add tests for these behaviors.
+
+## Model Value Validation
+- Revisit model value validation: consider stricter validation or a more robust alias/provider detection system.
+- Document the current workaround: providerless model aliases (like 'tinyllama') are accepted for compatibility with llm-ollama, but this may change in the future.

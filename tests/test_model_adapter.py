@@ -304,3 +304,31 @@ def test_model_environment_all_branches(monkeypatch: pytest.MonkeyPatch) -> None
     assert os.environ["OPENAI_API_KEY"] == "test-key"
     env.__exit__(None, None, None)
     assert os.environ["OPENAI_API_KEY"] == "orig-key"
+
+
+def test_get_model_ollama_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama models should not require an API key, even if none is set."""
+    from vibectl.model_adapter import LLMModelAdapter
+
+    adapter = LLMModelAdapter()
+    # Patch llm.get_model to return a dummy model
+    monkeypatch.setattr("vibectl.model_adapter.llm.get_model", lambda name: object())
+    # Should not raise
+    adapter.get_model("ollama:tinyllama")
+
+
+def test_get_model_ollama_with_dummy_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama models should not error if a dummy API key is set."""
+    from vibectl.model_adapter import LLMModelAdapter
+
+    adapter = LLMModelAdapter()
+    # Patch config.get_model_key to return a dummy key for ollama
+    monkeypatch.setattr(
+        adapter.config,
+        "get_model_key",
+        lambda provider: "dummy" if provider == "ollama" else None,
+    )
+    # Patch llm.get_model to return a dummy model
+    monkeypatch.setattr("vibectl.model_adapter.llm.get_model", lambda name: object())
+    # Should not raise
+    adapter.get_model("ollama:tinyllama")
