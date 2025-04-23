@@ -269,7 +269,13 @@ vibectl config set kubeconfig /path/to/kubeconfig
 vibectl config set model claude-3.7-sonnet  # Default Anthropic model
 vibectl config set model claude-3.5-sonnet  # Smaller Anthropic model
 vibectl config set model gpt-4o             # OpenAI model
-vibectl config set model ollama:llama3      # Local Ollama model
+vibectl config set model ollama:llama3:latest  # Local Ollama model (or just llama3 if that's the alias)
+
+# ⚠️ **Ollama Model String Requirements:**
+# The model string must match the name or alias as shown in `llm models`.
+# For example, if `llm models` shows `Ollama: tinyllama:latest (aliases: tinyllama)`, you can use `tinyllama` (the alias) or the full name.
+# vibectl now accepts providerless model aliases (like `tinyllama`) as valid model values for compatibility with llm-ollama. This is a recent change and may be revisited for stricter validation in the future.
+# If you get an 'Unknown model' error, run `llm models` and use one of the listed names/aliases.
 
 # Configure API keys (multiple methods available)
 vibectl config set model_keys.anthropic your-api-key
@@ -435,3 +441,16 @@ purpose and implementation, see [RULES.md](RULES.md).
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 for details.
+
+# Troubleshooting
+
+#### Unknown model errors with Ollama
+
+If you see an error like `Unknown model: ollama:tinyllama`, it means the model string does not match any registered model in `llm`.
+
+**How to fix:**
+- Run `llm models` to see the exact model names and aliases available.
+- Use the full name (e.g., `ollama:tinyllama:latest`) or the alias (e.g., `tinyllama`) as your model string in vibectl.
+- If you pulled a model but don't see it, try restarting the Ollama server and running `llm models` again.
+
+See [Model API Key Management](docs/MODEL_KEYS.md) for more details.
