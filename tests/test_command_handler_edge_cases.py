@@ -4,6 +4,7 @@ This module tests edge cases, extreme inputs, and error conditions to ensure
 the command handler is robust against unexpected or malformed inputs.
 """
 
+import unittest.mock as mock
 from collections.abc import Generator
 from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, Mock, patch
@@ -18,6 +19,7 @@ from vibectl.command_handler import (
     handle_command_output,
     handle_vibe_request,
 )
+from vibectl.prompt import PLAN_VIBE_PROMPT
 from vibectl.types import Error, OutputFlags, Success
 
 
@@ -631,3 +633,118 @@ def test_execute_yaml_command_sets_timeout() -> None:
         args, kwargs = mock_process.communicate.call_args
         assert "timeout" in kwargs
         assert kwargs["timeout"] == 30
+
+
+def test_handle_vibe_request_with_malformed_memory_context(
+    mock_model_adapter: MagicMock,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Test handle_vibe_request with malformed memory_context that causes format errors.
+
+    This test is designed to reproduce the issue where memory content containing
+    strings that might confuse the string formatter leads to format errors with the
+    'memory_context' key, which then leads to malformed kubectl commands.
+    """
+    # Set up model adapter to properly handle execute
+    mock_adapter = Mock()
+    mock_model = Mock()
+    mock_adapter.get_model.return_value = mock_model
+
+    # First call to execute raises KeyError, simulating the format error
+    mock_adapter.execute.side_effect = [
+        KeyError("memory_context"),  # First call fails with KeyError
+        "To get pods in namespace",  # Second call succeeds if retry happens
+    ]
+    mock_model_adapter.return_value = mock_adapter
+
+    # Memory content that contains elements that might confuse formatting
+    problematic_memory = (
+        "To ensure proper function of our service, need to check our db connection.\n"
+        "Try to use kubectl to access the database {stats} and verify it's working.\n"
+        "Output the {service.status} of the database to continue with deployment."
+    )
+
+    # Create output flags
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=False,
+        warn_no_output=False,
+        model_name="test-model",
+        show_kubectl=True,
+    )
+
+    # Patch necessary dependencies
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
+    ):
+        # This should NOT raise an exception, even when model_adapter.execute fails
+        result = handle_vibe_request(
+            request="show me pod status",
+            command="vibe",
+            plan_prompt=PLAN_VIBE_PROMPT,
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+            memory_context=problematic_memory,
+        )
+
+        # Verify we get a proper error result
+        assert isinstance(result, Error)
+        assert "Error processing vibe request" in result.error
+        assert "memory_context" in result.error
+
+        # Verify an error is logged
+        mock_logger.error.assert_any_call(
+            mock.ANY,  # The error message string may vary
+            exc_info=True,  # But we should be logging with exc_info=True
+        )
+
+
+def test_handle_vibe_request_with_unknown_model(
+    mock_model_adapter: MagicMock,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Test handle_vibe_request with an unknown model name.
+
+    This test verifies that the code handles the case gracefully when
+    an unknown or invalid model name is provided in the output flags.
+    """
+    # Set up model adapter to raise a ValueError for an unknown model
+    mock_adapter = Mock()
+    mock_adapter.get_model.side_effect = ValueError("Unknown model: unknown-model")
+    mock_model_adapter.return_value = mock_adapter
+
+    # Create output flags with an unknown model name
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="unknown-model",
+        show_kubectl=True,
+    )
+
+    # Patch necessary dependencies
+    with patch("vibectl.command_handler.logger", autospec=True) as mock_logger:
+        # Call handle_vibe_request with the unknown model
+        result = handle_vibe_request(
+            request="show pod status",
+            command="vibe",
+            plan_prompt=PLAN_VIBE_PROMPT,
+            summary_prompt_func=lambda: "Test prompt {output}",
+            output_flags=output_flags,
+        )
+
+        # Verify we get a proper error result
+        assert isinstance(result, Error)
+        assert "Error processing vibe request" in result.error
+        assert "Unknown model" in result.error
+
+        # The current implementation doesn't call console_manager.print_error
+        # for exceptions caught in the general exception handler
+        # So we shouldn't assert that it was called
+
+        # Verify errors are logged appropriately
+        mock_logger.error.assert_any_call(
+            "Error in vibe request processing: Unknown model: unknown-model",
+            exc_info=True,
+        )

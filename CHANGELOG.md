@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automated demonstration of vibectl K8s analysis capabilities
   - Single-command unattended setup and execution
 
+### Fixed
+- Fixed handling of unknown model names with proper error messages
+- Fixed potential KeyError when prompt contains {memory_context} placeholder but memory_context is empty
+- Improved string format handling to handle malformed format strings in memory context
+
 ## [0.5.0] - 2025-04-25
 
 ### Added

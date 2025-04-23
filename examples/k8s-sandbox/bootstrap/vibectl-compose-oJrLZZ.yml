@@ -1,0 +1,28 @@
+services:
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DOCKER_GID: 131
+    container_name: vibectl-k3d-demo
+    privileged: true
+    environment:
+      - OLLAMA_MODEL=tinyllama
+      - K3D_CLUSTER_NAME=vibectl-demo
+      # Note: RESOURCE_LIMIT_CPU and RESOURCE_LIMIT_MEMORY are set at the k8s/Ollama pod level, not at the container level
+      - USE_STABLE_VERSIONS=false
+      - VIBECTL_VERSION=0.5.0
+      - LLM_VERSION=0.24.2
+      - DOCKER_GID=131
+    volumes:
+      - ../../..:/home/bootstrap/vibectl-src:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - bootstrap-status:/tmp/status
+    ports:
+      - "11434:11434"
+    working_dir: /home/bootstrap
+    command: ./bootstrap-entrypoint.sh
+
+volumes:
+  bootstrap-status:

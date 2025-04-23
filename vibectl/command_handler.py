@@ -743,8 +743,10 @@ def _format_vibe_prompt(
     """
     # Prepare the format parameters
     format_params = {"request": request, "command": command}
-    if memory_context:
-        format_params["memory_context"] = memory_context
+
+    # Always provide memory_context in format_params, even if empty
+    # This prevents KeyError when the prompt contains {memory_context}
+    format_params["memory_context"] = memory_context or ""
 
     try:
         # First, check if there are any positional format specifiers in the prompt
@@ -760,11 +762,10 @@ def _format_vibe_prompt(
             )
             formatted_prompt = plan_prompt
 
-            # First replace all named parameters
-            if "memory_context" in plan_prompt:
-                formatted_prompt = formatted_prompt.replace(
-                    "{memory_context}", memory_context
-                )
+            # Replace all named parameters
+            formatted_prompt = formatted_prompt.replace(
+                "{memory_context}", memory_context or ""
+            )
             formatted_prompt = formatted_prompt.replace("{request}", request)
             formatted_prompt = formatted_prompt.replace("{command}", command)
 
@@ -783,10 +784,9 @@ def _format_vibe_prompt(
         )
         # Use string replacement as a fallback to avoid format conflicts
         formatted_prompt = plan_prompt
-        if "memory_context" in plan_prompt:
-            formatted_prompt = formatted_prompt.replace(
-                "{memory_context}", memory_context
-            )
+        formatted_prompt = formatted_prompt.replace(
+            "{memory_context}", memory_context or ""
+        )
         formatted_prompt = formatted_prompt.replace("{request}", request).replace(
             "{command}", command
         )
@@ -795,6 +795,8 @@ def _format_vibe_prompt(
         import re
 
         formatted_prompt = re.sub(r"{(\d+)}", "", formatted_prompt)
+        # Also replace any remaining {name} format specifiers
+        formatted_prompt = re.sub(r"{[a-zA-Z0-9_]+}", "", formatted_prompt)
 
     return formatted_prompt
 
