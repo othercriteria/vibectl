@@ -15,34 +15,23 @@ mkdir -p "${STATUS_DIR}"
 PHASE1_COMPLETE="${STATUS_DIR}/phase1_complete"
 PHASE2_COMPLETE="${STATUS_DIR}/phase2_complete"
 
-# --- Phase 1: Cluster and Ollama Setup ---
-if [ -f "$PHASE1_COMPLETE" ]; then
-    echo "[INFO] Phase 1 (cluster and Ollama) already complete. Skipping."
-else
-    echo "[INFO] Starting Phase 1: Cluster and Ollama setup."
-
-    # Function to handle cleanup on exit (only for this phase)
-    function cleanup_phase1() {
-        echo "Cleaning up..."
-        k3d cluster delete ${K3D_CLUSTER_NAME} 2>/dev/null || true
-        echo "Cleanup complete"
-    }
-    trap cleanup_phase1 EXIT
-
+# --- Functions ---
+function setup_k3d_cluster() {
     echo "Checking for existing K3d cluster '${K3D_CLUSTER_NAME}'..."
     if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then
         echo "Found existing cluster with the same name. Removing it first..."
         k3d cluster delete ${K3D_CLUSTER_NAME} || true
         sleep 5
     fi
-
     echo "Creating K3d cluster with minimal configuration..."
     if ! k3d cluster create ${K3D_CLUSTER_NAME}; then
         echo "Error: Failed to create K3d cluster."
         exit 1
     fi
     echo "K3d cluster created successfully!"
+}
 
+function patch_kubeconfig() {
     export KUBECONFIG="/home/bootstrap/kubeconfig"
     echo "Using kubeconfig at: ${KUBECONFIG}"
     k3d kubeconfig get ${K3D_CLUSTER_NAME} > ${KUBECONFIG}
@@ -58,10 +47,9 @@ else
     sed -i '/certificate-authority-data/d' ${KUBECONFIG}
     awk '/server: /{print; print "    insecure-skip-tls-verify: true"; next}1' ${KUBECONFIG} > ${KUBECONFIG}.tmp && mv ${KUBECONFIG}.tmp ${KUBECONFIG}
     chmod 600 ${KUBECONFIG}
+}
 
-    echo "Kubernetes API server address from kubeconfig:"
-    grep "server:" ${KUBECONFIG}
-
+function wait_for_k8s_ready() {
     echo "Waiting for Kubernetes cluster to be ready..."
     for i in {1..30}; do
         if kubectl cluster-info; then
@@ -75,60 +63,117 @@ else
         echo "Waiting for Kubernetes API to be accessible... ($i/30)"
         sleep 10
     done
-
     echo "Verifying cluster connectivity..."
     kubectl get nodes
+    echo "Checking Kubernetes API server connectivity..."
+    if ! kubectl cluster-info; then
+        echo "[ERROR] Kubernetes API server is not reachable. Check k3d cluster status and kubeconfig."
+        exit 1
+    fi
+}
 
-    kubectl create namespace ollama
-
+function install_helm_if_needed() {
     echo "Checking for Helm..."
     if ! command -v helm &> /dev/null; then
         echo "Installing Helm..."
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
     fi
+}
 
+function add_ollama_helm_repo() {
     echo "Adding ollama-helm repository..."
-    helm repo add ollama-helm https://otwld.github.io/ollama-helm/
+    if ! helm repo list | grep -q ollama-helm; then
+        helm repo add ollama-helm https://otwld.github.io/ollama-helm/
+    fi
     helm repo update
+}
 
+function create_ollama_values() {
     echo "Creating Helm values file for Ollama..."
-    echo "[WARNING] Ollama pod resource limits (CPU/memory) may not be enforced due to Helm chart or upstream Ollama limitations. See https://github.com/otwld/ollama-helm for details."
     cat <<EOF > /tmp/ollama-values.yaml
+image:
+  repository: vibectl-ollama
+  tag: ${OLLAMA_MODEL}
+  pullPolicy: IfNotPresent
+
+resources:
+  limits:
+    cpu: "${RESOURCE_LIMIT_CPU}"
+    memory: "${RESOURCE_LIMIT_MEMORY}"
+  requests:
+    cpu: "0.5"
+    memory: "1Gi"
+
+env:
+  - name: OLLAMA_MODELS
+    value: /root/.ollama
+
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+
 ollama:
-  # resources.limits and resources.requests may not be enforced; see https://github.com/otwld/ollama-helm
-  resources:
-    limits:
-      cpu: "${RESOURCE_LIMIT_CPU}"
-      memory: "${RESOURCE_LIMIT_MEMORY}"
-    requests:
-      cpu: "0.5"
-      memory: "1Gi"
   models:
     pull:
       - ${OLLAMA_MODEL}
+
 service:
   type: ClusterIP
   port: 11434
-persistentVolume:
-  enabled: true
-  size: 10Gi
-EOF
 
+persistentVolume:
+  enabled: false
+EOF
+}
+
+function create_post_renderer() {
+    # Inlined for permissions reasons; see repo history for details.
+    cat > /home/bootstrap/remove-ollama-volume.py <<'EOF'
+#!/usr/bin/env python3
+import sys
+import yaml
+
+docs = list(yaml.safe_load_all(sys.stdin))
+out_docs = []
+for doc in docs:
+    if not doc:
+        continue
+    if doc.get('kind') == 'Deployment' and doc['metadata']['name'].startswith('ollama'):
+        containers = doc['spec']['template']['spec']['containers']
+        for c in containers:
+            if 'volumeMounts' in c:
+                c['volumeMounts'] = [vm for vm in c['volumeMounts'] if vm.get('name') != 'ollama-data']
+        if 'volumes' in doc['spec']['template']['spec']:
+            doc['spec']['template']['spec']['volumes'] = [
+                v for v in doc['spec']['template']['spec']['volumes'] if v.get('name') != 'ollama-data'
+            ]
+    out_docs.append(doc)
+yaml.safe_dump_all(out_docs, sys.stdout, sort_keys=False)
+EOF
+    chmod +x /home/bootstrap/remove-ollama-volume.py
+}
+
+function install_ollama_helm() {
+    CHART_VERSION="1.14.0"
+    echo "==== Downloading Ollama Helm chart version ${CHART_VERSION} ===="
+    helm pull ollama-helm/ollama --version ${CHART_VERSION} --untar --untardir /tmp
     echo "Installing Ollama using Helm chart..."
-    helm install ollama ollama-helm/ollama \
+    helm install ollama /tmp/ollama \
       --namespace ollama \
+      --create-namespace \
       --values /tmp/ollama-values.yaml \
       --wait \
-      --timeout 10m
+      --timeout 10m \
+      --post-renderer /home/bootstrap/remove-ollama-volume.py
+}
 
+function wait_for_ollama_ready() {
     echo "Waiting for Ollama pod to be ready..."
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=ollama -n ollama --timeout=10m
-
     echo "Setting up port forwarding to Ollama service..."
     kubectl port-forward -n ollama svc/ollama 11434:11434 --address 0.0.0.0 &
     PORT_FORWARD_PID=$!
     trap "kill $PORT_FORWARD_PID 2>/dev/null || true; cleanup_phase1" EXIT
-
     echo "Waiting for Ollama API to be accessible..."
     for i in {1..60}; do
         if curl -s -f "http://localhost:11434/api/tags" > /dev/null; then
@@ -146,24 +191,15 @@ EOF
         echo "Waiting for Ollama API... ($i/60)"
         sleep 5
     done
-
     if ! curl -s "http://localhost:11434/api/tags" | grep -q "${OLLAMA_MODEL}"; then
         echo "Warning: Model ${OLLAMA_MODEL} not found in Ollama. It might still be pulling."
         echo "You can check model status with: curl http://localhost:11434/api/tags"
     else
         echo "Model ${OLLAMA_MODEL} is ready!"
     fi
+}
 
-    echo "Phase 1 complete!" > "$PHASE1_COMPLETE"
-    echo "[INFO] Phase 1 complete."
-fi
-
-# --- Phase 2: Vibectl Setup ---
-if [ -f "$PHASE2_COMPLETE" ]; then
-    echo "[INFO] Phase 2 (vibectl setup) already complete. Skipping."
-else
-    echo "[INFO] Starting Phase 2: Vibectl setup."
-
+function setup_vibectl() {
     echo "Installing required packages..."
     if [ "${USE_STABLE_VERSIONS}" = "true" ]; then
         echo "Using stable versions from PyPI"
@@ -191,22 +227,17 @@ else
             exit 1
         fi
     fi
-
     if ! command -v vibectl &> /dev/null; then
         echo "Error: vibectl command not found after installation."
         echo "Please use --use-stable-versions flag for a more reliable setup."
         exit 1
     fi
-
     echo "Vibectl version: $(vibectl --version)"
     echo "Configuring vibectl..."
-    # Use the providerless alias (e.g., 'tinyllama') for best compatibility with llm-ollama
     vibectl config set model "${OLLAMA_MODEL}"
-    # Ensure vibectl uses the correct kubeconfig and kubectl command
     vibectl config set kubeconfig /home/bootstrap/kubeconfig
     vibectl config set kubectl_command kubectl
     vibectl config show
-
     cat > /home/bootstrap/COMMANDS.md <<EOF
 # Vibectl Command Examples
 
@@ -233,7 +264,35 @@ else
 For more information, see the full documentation at:
 https://github.com/othercriteria/vibectl
 EOF
+}
 
+# --- Main Script ---
+
+if [ -f "$PHASE1_COMPLETE" ]; then
+    echo "[INFO] Phase 1 (cluster and Ollama) already complete. Skipping."
+else
+    echo "[INFO] Starting Phase 1: Cluster and Ollama setup."
+    setup_k3d_cluster
+    patch_kubeconfig
+    wait_for_k8s_ready
+    install_helm_if_needed
+    add_ollama_helm_repo
+    create_ollama_values
+    create_post_renderer
+    # Import the pre-built Ollama image into k3d
+    echo "==== Importing Ollama image into k3d cluster '${K3D_CLUSTER_NAME}' (inside container) ===="
+    k3d image import vibectl-ollama:${OLLAMA_MODEL} -c ${K3D_CLUSTER_NAME}
+    install_ollama_helm
+    wait_for_ollama_ready
+    echo "Phase 1 complete!" > "$PHASE1_COMPLETE"
+    echo "[INFO] Phase 1 complete."
+fi
+
+if [ -f "$PHASE2_COMPLETE" ]; then
+    echo "[INFO] Phase 2 (vibectl setup) already complete. Skipping."
+else
+    echo "[INFO] Starting Phase 2: Vibectl setup."
+    setup_vibectl
     echo "Phase 2 complete!" > "$PHASE2_COMPLETE"
     echo "[INFO] Phase 2 complete."
 fi
@@ -244,6 +303,7 @@ echo "K3d cluster name: ${K3D_CLUSTER_NAME}"
 echo "Ollama is running inside the cluster and accessible via http://localhost:11434"
 echo "See /home/bootstrap/COMMANDS.md for example vibectl commands"
 
+echo "To shut down, run: touch ${STATUS_DIR}/shutdown or use cleanup.sh."
 while true; do
     if [ -f ${STATUS_DIR}/shutdown ]; then
         echo "Shutdown requested. Exiting..."

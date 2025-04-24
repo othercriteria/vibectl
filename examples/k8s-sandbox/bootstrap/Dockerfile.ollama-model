@@ -1,0 +1,14 @@
+FROM ollama/ollama:latest AS builder
+
+ARG OLLAMA_MODEL=tinyllama
+
+RUN ollama serve & \
+    OLLAMA_PID=$! && \
+    sleep 2 && \
+    ollama pull $OLLAMA_MODEL && \
+    kill $OLLAMA_PID && \
+    chmod -R a+rX /root/.ollama
+
+FROM ollama/ollama:latest
+COPY --from=builder /root/.ollama /root/.ollama
+RUN chmod -R a+rX /root/.ollama

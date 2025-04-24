@@ -103,9 +103,6 @@ fi
 # Ensure we're in the script directory
 cd "$(dirname "$0")"
 
-echo "==== K3D Kubernetes Demo with vibectl ===="
-echo "Building and starting bootstrap container..."
-
 # Use docker-compose or docker compose depending on what's available
 if command -v docker-compose &> /dev/null; then
     COMPOSE_CMD="docker-compose"
@@ -120,6 +117,14 @@ trap 'rm -f "$COMPOSE_FILE"' EXIT
 # Create the compose file
 cat > ${COMPOSE_FILE} <<EOF
 services:
+  ollama-model:
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama-model
+      args:
+        OLLAMA_MODEL: ${OLLAMA_MODEL}
+    image: vibectl-ollama:${OLLAMA_MODEL}
+
   bootstrap:
     build:
       context: .
@@ -144,13 +149,15 @@ services:
       - "11434:11434"
     working_dir: /home/bootstrap
     command: ./bootstrap-entrypoint.sh
+    depends_on:
+      - ollama-model
 
 volumes:
   bootstrap-status:
 EOF
 
-# Build and start the container
-${COMPOSE_CMD} -f ${COMPOSE_FILE} build --build-arg DOCKER_GID=${DOCKER_GID}
+# Build all images first
+${COMPOSE_CMD} -f ${COMPOSE_FILE} build --build-arg DOCKER_GID=${DOCKER_GID} --build-arg OLLAMA_MODEL=${OLLAMA_MODEL}
 ${COMPOSE_CMD} -f ${COMPOSE_FILE} up -d
 
 # Simplified health check: wait for both phase1_complete and phase2_complete

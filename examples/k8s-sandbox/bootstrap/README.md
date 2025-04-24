@@ -65,9 +65,11 @@ docker exec -it vibectl-k3d-demo bash
 ### Cleaning Up
 
 ```bash
-# Remove only the status volume (no effect on Ollama model persistence)
+# Remove all demo containers, volumes, and the k3d cluster
 ./cleanup.sh
 ```
+
+Running `cleanup.sh` will now also delete the k3d cluster (`vibectl-demo`), ensuring a fully clean state for the next run. Use this if you want to reset everything, including the Kubernetes environment. The next run will recreate the cluster from scratch.
 
 ## Requirements
 

@@ -241,6 +241,8 @@
             pypi-dist-script   # custom distribution helper
             bump-version-script # version bumping helper
             gh  # GitHub CLI for interacting with GitHub
+            docker
+            docker-buildx
           ];
 
           shellHook = ''
