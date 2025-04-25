@@ -91,13 +91,37 @@ Result = Success | Error
 
 
 @dataclass
+class InvalidOutput:
+    """Represents an input that is fundamentally invalid for processing."""
+
+    original: Any
+    reason: str
+
+    def __str__(self) -> str:
+        orig_repr = str(self.original)[:50]
+        return f"InvalidOutput(reason='{self.reason}', original={orig_repr}...)"
+
+
+@dataclass
 class Truncation:
     """Represents the result of a truncation operation."""
+
     original: str
     truncated: str
+    original_type: str | None = None
     plug: str | None = None
-    was_truncated: bool = False
 
-    def __post_init__(self) -> None:
-        # Automatically set was_truncated based on content
-        self.was_truncated = self.original != self.truncated
+    def __str__(self) -> str:
+        return (
+            f"Truncation(original=<len {len(self.original)}>, "
+            f"truncated=<len {len(self.truncated)}>, type={self.original_type})"
+        )
+
+
+# Type alias for processing result before final truncation
+Output = Truncation | InvalidOutput
+
+# Type alias for YAML sections dictionary
+YamlSections = dict[str, str]
+
+# --- Kubectl Command Types ---

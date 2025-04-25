@@ -257,28 +257,6 @@ class ConsoleManager:
         if show_vibe and vibe_output:
             self.print_vibe(vibe_output)
 
-    def process_output_for_vibe(self, output: Any) -> tuple[str, bool]:
-        """Process output for vibe, truncating if necessary.
-
-        Args:
-            output: Output to process (may be string or other types)
-
-        Returns:
-            Tuple of (processed output, whether truncation occurred)
-        """
-        # Handle non-string inputs
-        if not isinstance(output, str):
-            return str(output), False
-
-        if len(output) <= 1000:
-            return output, False
-
-        # Keep first 500 and last 500 characters
-        first_part = output[:500]
-        last_part = output[-500:]
-        truncated_output = f"{first_part}\n... (truncated) ...\n{last_part}"
-        return truncated_output, True
-
 
 # Create global instance for easy import
 console_manager = ConsoleManager()

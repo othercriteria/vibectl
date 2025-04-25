@@ -62,7 +62,7 @@ __all__ = ["Table"]
 # Use values from config.py's DEFAULT_CONFIG instead
 
 # Initialize output processor
-output_processor = OutputProcessor()
+output_processor = OutputProcessor(max_chars=2000, llm_max_chars=2000)
 
 
 def run_kubectl(
@@ -527,10 +527,10 @@ def _process_vibe_output(
     # Process output to avoid token limits
     truncation_result = output_processor.process_auto(output)
     processed_output = truncation_result.truncated
-    was_truncated = truncation_result.was_truncated
 
     # Show truncation warning if needed
-    if was_truncated:
+    # Simplification: Check if truncated content is different from original
+    if truncation_result.original != truncation_result.truncated:
         logger.warning("Output was truncated for processing.")
         console_manager.print_truncation_warning()
 

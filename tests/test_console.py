@@ -175,21 +175,6 @@ def test_console_handle_vibe_output(test_console: ConsoleManager) -> None:
     assert not test_console.console.export_text()  # No output should be printed
 
 
-def test_console_process_output_for_vibe(test_console: ConsoleManager) -> None:
-    """Test processing output for vibe with token limits."""
-    # Test short output (no truncation needed)
-    short_output = "Short test output"
-    processed, truncated = test_console.process_output_for_vibe(short_output)
-    assert processed == short_output
-    assert not truncated
-
-    # Test long output (needs truncation)
-    long_output = "x" * 2000
-    processed, truncated = test_console.process_output_for_vibe(long_output)
-    assert len(processed) < len(long_output)
-    assert truncated
-
-
 def test_console_print_error_methods(test_console: ConsoleManager) -> None:
     """Test specific error print methods."""
     # Test printing missing API key error

@@ -54,7 +54,7 @@ def test_handle_standard_command_basic(
 
         # Setup output processor mock to return Truncation
         mock_processor.process_auto.return_value = Truncation(
-            original="test output", truncated="processed output", was_truncated=False
+            original="test output", truncated="processed output"
         )
 
         # Ensure the get_model_adapter returns our mock_llm
@@ -131,7 +131,7 @@ def test_handle_standard_command(
     """
     # Setup output processor mock to return Truncation
     mock_processor.process_auto.return_value = Truncation(
-        original="test output", truncated="processed output", was_truncated=False
+        original="test output", truncated="processed output"
     )
 
     # Ensure the get_model_adapter returns our mock_llm
@@ -203,7 +203,7 @@ def test_handle_standard_command_logs(
     ):
         # Setup output processor instance mock
         mock_output_processor.process_auto.return_value = Truncation(
-            original="test output", truncated="processed output", was_truncated=False
+            original="test output", truncated="processed output"
         )
 
         # Setup LLM

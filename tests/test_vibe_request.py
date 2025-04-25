@@ -42,7 +42,9 @@ def test_handle_vibe_request_success(
 
     # Patch the output processor used within handle_vibe_request
     with patch("vibectl.command_handler.output_processor") as mock_processor:
-        mock_processor.process_auto.return_value = Truncation(original="kubectl output", truncated="processed kubectl output")
+        mock_processor.process_auto.return_value = Truncation(
+            original="kubectl output", truncated="processed kubectl output"
+        )
 
         # Call function
         handle_vibe_request(
@@ -236,7 +238,9 @@ def test_handle_vibe_request_llm_output_parsing(
         mock_subprocess.return_value = mock_process
 
         # Configure mock processor
-        mock_processor.process_auto.return_value = Truncation(original="pod-list-output", truncated="processed pods")
+        mock_processor.process_auto.return_value = Truncation(
+            original="pod-list-output", truncated="processed pods"
+        )
 
         handle_vibe_request(
             request="show me the pods",
@@ -607,6 +611,7 @@ def test_vibe_cli_emits_vibe_check(
     # Patch model adapter to return a known command and summary
     class DummyModel:
         _call_count = 0
+
         class Resp:
             def __init__(self, text: str) -> None:
                 self._text = text
@@ -633,7 +638,9 @@ def test_vibe_cli_emits_vibe_check(
     # Patch the output processor
     monkeypatch.setattr(
         "vibectl.command_handler.output_processor.process_auto",
-        lambda *a, **kw: Truncation(original="dummy output", truncated="processed dummy")
+        lambda *a, **kw: Truncation(
+            original="dummy output", truncated="processed dummy"
+        ),
     )
 
     # Patch update_memory to no-op

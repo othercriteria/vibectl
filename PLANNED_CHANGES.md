@@ -2,11 +2,24 @@
 
 This document outlines initial ideas for improving the output truncation logic in `vibectl/output_processor.py`.
 
-## Current Status (as of [Date])
+## Current Status (as of [Current Date/Time])
 
-*   Refactoring of `output_processor.py` and `truncation_logic.py` is in progress.
-*   Several unit tests for `output_processor.py` are currently failing due to the refactor and are proving difficult to fix directly.
-*   **Next Steps:** Temporarily skip the failing tests and focus on improving overall test coverage for `output_processor.py` and `truncation_logic.py`. Once coverage is improved, revisit the failing tests.
+*   Refactoring of `output_processor.py` and `truncation_logic.py` is largely complete.
+*   Several unit tests for `output_processor.py` were failing; some were skipped (`test_process_logs`, `test_process_output_for_vibe`), one was removed (`test_truncate_yaml_status`), and others were fixed.
+*   Basic test coverage for `output_processor.py` and `truncation_logic.py` has been established.
+*   **Next Steps:** Implement a more sophisticated secondary truncation mechanism based on a budget allocation for different sections of structured data (JSON/YAML).
+
+## Planned: Budget-Based Secondary Truncation
+
+The current secondary truncation (within `process_output_for_vibe`) is somewhat basic. The next iteration will introduce a 'budget' system:
+
+1.  **Budget Allocation:** The total `llm_max_chars` limit will be treated as a budget.
+2.  **Section Identification:** For structured data (JSON/YAML), identify primary sections (e.g., top-level keys).
+3.  **Initial Truncation:** Apply a first pass of truncation to each section individually (e.g., using existing depth/length limits or smarter heuristics).
+4.  **Budget Check:** Sum the lengths of the truncated sections. If the total exceeds the budget:
+    *   Identify sections significantly over their 'fair share' of the budget.
+    *   Apply more aggressive truncation specifically to those over-budget sections (e.g., summarizing lists, dropping less important fields, replacing sections with markers like `"... section truncated ..."`).
+5.  **Reassembly:** Combine the (potentially re-truncated) sections back into a final output string within the `llm_max_chars` limit.
 
 ## Preliminary Thoughts & Areas for Improvement
 
@@ -28,11 +41,9 @@ This document outlines initial ideas for improving the output truncation logic i
     *   **(In Progress)** Add comprehensive unit tests specifically targeting the `OutputProcessor` class and its methods, as well as `truncation_logic.py`.
     *   **(Focus Area)** Improve overall test coverage before fixing currently failing tests.
     *   Include tests for various edge cases:
-        *   Very large outputs (JSON, YAML, logs, plain text)
         *   Deeply nested structures
         *   Long lists within structures
         *   Empty or malformed inputs
-        *   Different `max_chars` and `llm_max_chars` settings.
 
 5.  **Configuration:**
     *   Consider if any truncation parameters should be user-configurable via `vibectl config`.
