@@ -253,9 +253,9 @@ class Config:
             if key == "model" and isinstance(value, str):
                 if value.startswith("ollama:"):
                     return
-                # Allow providerless alias (e.g., 'tinyllama') if
+                # Allow providerless alias (e.g., 'llama3.2:1b-text-q2_K') if
                 # it looks like a valid alias
-                if re.match(r"^[a-zA-Z0-9_\-]+$", value) and not (
+                if re.match(r"^[a-zA-Z0-9_\-:./]+$", value) and not (
                     value.startswith("gpt-") or value.startswith("claude-")
                 ):
                     return
@@ -269,8 +269,7 @@ class Config:
                 else:
                     valid_str = ", ".join(str(v) for v in valid_values)
                 raise ValueError(
-                    f"Invalid value for {key}: {value}. "
-                    f"Valid values are: {valid_str}"
+                    f"Invalid value for {key}: {value}. Valid values are: {valid_str}"
                 )
 
     def set(self, key: str, value: Any) -> None:

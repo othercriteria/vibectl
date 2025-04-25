@@ -10,21 +10,11 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     docker.io \
-    netcat-openbsd \
-    iproute2 \
-    procps \
-    jq \
     apt-transport-https \
     ca-certificates \
     gnupg \
     lsb-release \
     dirmngr \
-    net-tools \
-    iputils-ping \
-    dnsutils \
-    tcpdump \
-    less \
-    vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker Buildx (official method)

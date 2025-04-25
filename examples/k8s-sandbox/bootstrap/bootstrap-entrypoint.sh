@@ -2,14 +2,18 @@
 set -euo pipefail
 
 # Configure environment
-export OLLAMA_MODEL=${OLLAMA_MODEL:-tinyllama}
-export RESOURCE_LIMIT_CPU=${RESOURCE_LIMIT_CPU:-2}
-export RESOURCE_LIMIT_MEMORY=${RESOURCE_LIMIT_MEMORY:-4Gi}
+# Only set STATUS_DIR and calculate RESOURCE_LIMIT_CPU if not set
 export STATUS_DIR="/home/bootstrap/status"
-export USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
-export VIBECTL_VERSION=${VIBECTL_VERSION:-0.5.0}
-export LLM_VERSION=${LLM_VERSION:-0.24.2}
-export K3D_CLUSTER_NAME=${K3D_CLUSTER_NAME:-vibectl-demo}
+if [ -z "${RESOURCE_LIMIT_CPU:-}" ]; then
+    if command -v nproc &> /dev/null; then
+        TOTAL_CORES=$(nproc)
+        CPU_LIMIT=$(( TOTAL_CORES * 75 / 100 ))
+        if [ "$CPU_LIMIT" -lt 1 ]; then CPU_LIMIT=1; fi
+        export RESOURCE_LIMIT_CPU=$CPU_LIMIT
+    else
+        export RESOURCE_LIMIT_CPU=2
+    fi
+fi
 
 mkdir -p "${STATUS_DIR}"
 PHASE1_COMPLETE="${STATUS_DIR}/phase1_complete"
@@ -61,7 +65,7 @@ function wait_for_k8s_ready() {
             exit 1
         fi
         echo "Waiting for Kubernetes API to be accessible... ($i/30)"
-        sleep 10
+        sleep 1
     done
     echo "Verifying cluster connectivity..."
     kubectl get nodes
@@ -93,7 +97,7 @@ function create_ollama_values() {
     cat <<EOF > /tmp/ollama-values.yaml
 image:
   repository: vibectl-ollama
-  tag: ${OLLAMA_MODEL}
+  tag: ${image_tag}
   pullPolicy: IfNotPresent
 
 resources:
@@ -101,8 +105,8 @@ resources:
     cpu: "${RESOURCE_LIMIT_CPU}"
     memory: "${RESOURCE_LIMIT_MEMORY}"
   requests:
-    cpu: "0.5"
-    memory: "1Gi"
+    cpu: "${RESOURCE_LIMIT_CPU}"
+    memory: "${RESOURCE_LIMIT_MEMORY}"
 
 env:
   - name: OLLAMA_MODELS
@@ -126,8 +130,10 @@ persistentVolume:
 EOF
 }
 
+# Reinstate post-renderer patching to ensure baked-in models are used by Ollama pod.
+# The Helm chart mounts a volume over /root/.ollama by default, which hides baked-in models.
+# The post-renderer removes the volume and mount from the deployment.
 function create_post_renderer() {
-    # Inlined for permissions reasons; see repo history for details.
     cat > /home/bootstrap/remove-ollama-volume.py <<'EOF'
 #!/usr/bin/env python3
 import sys
@@ -173,7 +179,7 @@ function wait_for_ollama_ready() {
     echo "Setting up port forwarding to Ollama service..."
     kubectl port-forward -n ollama svc/ollama 11434:11434 --address 0.0.0.0 &
     PORT_FORWARD_PID=$!
-    trap "kill $PORT_FORWARD_PID 2>/dev/null || true; cleanup_phase1" EXIT
+    trap "kill $PORT_FORWARD_PID 2>/dev/null || true" EXIT
     echo "Waiting for Ollama API to be accessible..."
     for i in {1..60}; do
         if curl -s -f "http://localhost:11434/api/tags" > /dev/null; then
@@ -189,7 +195,7 @@ function wait_for_ollama_ready() {
             exit 1
         fi
         echo "Waiting for Ollama API... ($i/60)"
-        sleep 5
+        sleep 1
     done
     if ! curl -s "http://localhost:11434/api/tags" | grep -q "${OLLAMA_MODEL}"; then
         echo "Warning: Model ${OLLAMA_MODEL} not found in Ollama. It might still be pulling."
@@ -197,6 +203,49 @@ function wait_for_ollama_ready() {
     else
         echo "Model ${OLLAMA_MODEL} is ready!"
     fi
+}
+
+function ensure_llm_alias_for_ollama_model() {
+    # Wait for llm to be available
+    if ! command -v llm &> /dev/null; then
+        echo "[WARN] llm command not found; skipping alias setup."
+        return
+    fi
+
+    # Get the requested model alias
+    local requested_alias="${OLLAMA_MODEL}"
+
+    # Try to find a model line that matches the alias exactly
+    local model_line
+    model_line=$(llm models | grep -E "Ollama: " | grep -F "${requested_alias}" || true)
+
+    if [ -z "$model_line" ]; then
+        # Try to find a close match (normalize dashes, underscores, dots, colons)
+        local norm_alias norm_line
+        norm_alias=$(echo "$requested_alias" | tr '.: ' '-')
+        model_line=$(llm models | grep -E "Ollama: " | grep -F "$norm_alias" || true)
+    fi
+
+    if [ -z "$model_line" ]; then
+        echo "[WARN] Could not find a matching Ollama model for alias '${requested_alias}' in llm models."
+        echo "Available Ollama models:"
+        llm models | grep "Ollama:" || true
+        return
+    fi
+
+    # Extract the canonical model name (the first word after 'Ollama:')
+    local canonical_model
+    canonical_model=$(echo "$model_line" | awk '{print $2}')
+
+    # Check if the requested alias is already set
+    if llm models | grep -E "Ollama: " | grep -q "aliases:.*\\b${requested_alias}\\b"; then
+        echo "[INFO] Alias '${requested_alias}' already set for model '${canonical_model}'."
+        return
+    fi
+
+    # Set the alias
+    echo "[INFO] Setting llm alias: ${requested_alias} -> ${canonical_model}"
+    llm aliases set "${requested_alias}" "${canonical_model}"
 }
 
 function setup_vibectl() {
@@ -238,32 +287,6 @@ function setup_vibectl() {
     vibectl config set kubeconfig /home/bootstrap/kubeconfig
     vibectl config set kubectl_command kubectl
     vibectl config show
-    cat > /home/bootstrap/COMMANDS.md <<EOF
-# Vibectl Command Examples
-
-## Basic Commands
-
-- View configuration: `vibectl config show`
-- Get resources with AI analysis: `vibectl get pods`
-- Describe resources with AI insights: `vibectl describe deployment`
-- Analyze your Kubernetes resources: `vibectl vibe "analyze my cluster resources"`
-
-## AI-Powered Commands
-
-- Let vibectl suggest improvements: `vibectl vibe "suggest improvements for my cluster"`
-- Ask questions: `vibectl vibe "How do I scale a deployment?"`
-- Use memory context to continue work: `vibectl vibe "continue working on our cluster"`
-- Check cluster state: `vibectl vibe "what's the status of our cluster?"`
-
-## Memory Features
-
-- View current memory: `vibectl memory show`
-- Set memory manually: `vibectl memory set "Working on cluster configuration"`
-- Clear memory: `vibectl memory clear`
-
-For more information, see the full documentation at:
-https://github.com/othercriteria/vibectl
-EOF
 }
 
 # --- Main Script ---
@@ -277,13 +300,15 @@ else
     wait_for_k8s_ready
     install_helm_if_needed
     add_ollama_helm_repo
+    image_tag="${IMAGE_TAG:-$(echo "${OLLAMA_MODEL}" | tr ':/. ' '_')}"
     create_ollama_values
     create_post_renderer
     # Import the pre-built Ollama image into k3d
     echo "==== Importing Ollama image into k3d cluster '${K3D_CLUSTER_NAME}' (inside container) ===="
-    k3d image import vibectl-ollama:${OLLAMA_MODEL} -c ${K3D_CLUSTER_NAME}
+    k3d image import vibectl-ollama:${image_tag} -c ${K3D_CLUSTER_NAME}
     install_ollama_helm
     wait_for_ollama_ready
+    ensure_llm_alias_for_ollama_model
     echo "Phase 1 complete!" > "$PHASE1_COMPLETE"
     echo "[INFO] Phase 1 complete."
 fi
@@ -297,13 +322,7 @@ else
     echo "[INFO] Phase 2 complete."
 fi
 
-echo "==== Kubernetes demo environment is ready! ===="
-echo "Container will remain running to allow vibectl commands to be executed"
-echo "K3d cluster name: ${K3D_CLUSTER_NAME}"
-echo "Ollama is running inside the cluster and accessible via http://localhost:11434"
-echo "See /home/bootstrap/COMMANDS.md for example vibectl commands"
-
-echo "To shut down, run: touch ${STATUS_DIR}/shutdown or use cleanup.sh."
+# Keep the container running for interactive use
 while true; do
     if [ -f ${STATUS_DIR}/shutdown ]; then
         echo "Shutdown requested. Exiting..."

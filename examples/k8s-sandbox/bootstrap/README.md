@@ -12,7 +12,7 @@ This demo creates a self-contained environment with Ollama as an LLM backend for
 
 ## How it Works
 
-1. The `run.sh` script builds and starts a Docker container with all necessary tools
+1. The `launch.sh` script builds and starts a Docker container with all necessary tools
 2. Inside the container, `bootstrap-entrypoint.sh`:
    - Installs vibectl and its dependencies
    - Creates a K3d Kubernetes cluster
@@ -29,16 +29,22 @@ This demo creates a self-contained environment with Ollama as an LLM backend for
 
 ```bash
 # Run with defaults (uses tinyllama model)
-./run.sh
+./launch.sh
 
 # Use PyPI-released versions instead of source code
-./run.sh --use-stable-versions
+./launch.sh --use-stable-versions
 
 # Change the model (if you have a more powerful system)
-OLLAMA_MODEL=llama2 ./run.sh
+OLLAMA_MODEL=llama2 ./launch.sh
 
 # Adjust resource limits
-RESOURCE_LIMIT_CPU=4 RESOURCE_LIMIT_MEMORY=8Gi ./run.sh
+RESOURCE_LIMIT_CPU=4 RESOURCE_LIMIT_MEMORY=8Gi ./launch.sh
+```
+
+After the demo launches, you can run a guided demonstration of vibectl's capabilities:
+
+```bash
+./demo-commands.sh
 ```
 
 ### Interacting with the Demo
@@ -69,7 +75,7 @@ docker exec -it vibectl-k3d-demo bash
 ./cleanup.sh
 ```
 
-Running `cleanup.sh` will now also delete the k3d cluster (`vibectl-demo`), ensuring a fully clean state for the next run. Use this if you want to reset everything, including the Kubernetes environment. The next run will recreate the cluster from scratch.
+Running `cleanup.sh` will also delete the k3d cluster (`vibectl-demo`), ensuring a fully clean state for the next run. Use this if you want to reset everything, including the Kubernetes environment. The next run will recreate the cluster from scratch.
 
 ## Requirements
 
@@ -79,29 +85,35 @@ Running `cleanup.sh` will now also delete the k3d cluster (`vibectl-demo`), ensu
 
 ## Customization
 
-You can customize the demo with environment variables:
+You can specify any model string for `OLLAMA_MODEL` (including those with dots, colons, underscores, etc.). The demo will automatically register your requested model string as an alias in `llm`, ensuring compatibility regardless of how Ollama or llm normalizes model names. This prevents 'Unknown model' errors due to alias mismatches.
+
+When you launch the demo, the requested model is baked into the Docker image at build time, so it is available immediately when the environment starts. You can bake multiple models into the image by editing the Dockerfile.ollama-model or customizing the build process.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| OLLAMA_MODEL | tinyllama | Model to use (e.g., llama2, tinyllama). Use the alias from `llm models`. |
-| RESOURCE_LIMIT_CPU | 2 | CPU limit for Ollama (may not be enforced; see below) |
-| RESOURCE_LIMIT_MEMORY | 4Gi | Memory limit for Ollama (may not be enforced; see below) |
+| OLLAMA_MODEL | tinyllama | Default model for vibectl and Helm (must be baked into the image) |
+| RESOURCE_LIMIT_CPU | (dynamic) | CPU limit for Ollama; dynamically set to 75% of available CPU cores (minimum 1) unless explicitly specified |
+| RESOURCE_LIMIT_MEMORY | 6Gi | Memory limit for Ollama |
 | USE_STABLE_VERSIONS | false | Use stable versions from PyPI instead of source |
 | VIBECTL_VERSION | 0.5.0 | Version of vibectl to install when using stable versions |
 | LLM_VERSION | 0.24.2 | Version of LLM to install when using stable versions |
 
 **Notes:**
-- Ollama model downloads are ephemeral and tied to the k3d cluster lifecycle. Models will be re-downloaded each time the cluster is recreated. Persistent model storage is not supported in this demo setup.
-- Ollama pod resource limits (CPU/memory) may not be enforced due to Helm chart or upstream Ollama limitations. See https://github.com/otwld/ollama-helm for details.
+- All default values are set directly in `launch.sh`.
+- `RESOURCE_LIMIT_CPU` is dynamically determined at runtime as 75% of available CPU cores (minimum 1), unless you explicitly set it. This ensures optimal performance for most systems.
+- The demo automatically ensures that your `OLLAMA_MODEL` value is always available as an alias in `llm`, regardless of normalization (dots, dashes, colons, etc.).
+- You can check available models and aliases inside the container with `llm models`.
+- Temporary Compose files are generated for each run and are ignored by git via `.gitignore`.
 
 ## Troubleshooting
 
 - **Container fails to start**: Check Docker has sufficient resources (5GB+ RAM recommended)
 - **Ollama doesn't initialize**: Check logs with `docker logs vibectl-k3d-demo`
 - **Model download timeout**: For larger models, increase timeout in bootstrap-entrypoint.sh
-- **Out of memory errors**: Reduce memory requirements with `RESOURCE_LIMIT_MEMORY=2Gi ./run.sh`
-- **Source install fails**: Try using stable versions with `./run.sh --use-stable-versions`
-- **High CPU usage**: LLM generation may use all available CPU cores for best performance. If you want to restrict usage, set Docker resource limits or adjust the k8s pod spec (note: Ollama pod limits may not be enforced).
+- **Out of memory errors**: Reduce memory requirements with `RESOURCE_LIMIT_MEMORY=2Gi ./launch.sh`
+- **Source install fails**: Try using stable versions with `./launch.sh --use-stable-versions`
+- **High CPU usage**: LLM generation may use up to the specified CPU limit for best performance. Adjust RESOURCE_LIMIT_CPU to restrict usage if needed.
+- **Unknown model errors**: The demo now automatically registers your requested `OLLAMA_MODEL` as an alias in `llm`. If you still encounter issues, check the logs for aliasing actions and verify with `llm models` inside the container.
 
 ## Architecture
 
@@ -123,12 +135,5 @@ Contributions to improve the demo are welcome! Please:
 
 ## Notes
 
-- The `run.sh` script generates a temporary Compose file for each run. Do not edit it directly; use environment variables or script arguments to customize the demo.
-
-# Change the model (if you have a more powerful system)
-OLLAMA_MODEL=llama2 ./run.sh
-
-# ⚠️ Model string should be a providerless alias (e.g., 'tinyllama') for best compatibility. See `llm models` for available aliases.
-
-# Adjust resource limits
-RESOURCE_LIMIT_CPU=4 RESOURCE_LIMIT_MEMORY=8Gi ./run.sh
+- The `launch.sh` script generates a temporary Compose file for each run. Do not edit it directly; use environment variables or script arguments to customize the demo.
+- The `demo-commands.sh` script provides a guided demonstration of vibectl's capabilities. Run it after launching the demo for a quick tour.
