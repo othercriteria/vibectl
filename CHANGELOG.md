@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-04-25
+
 ### Added
 - New bootstrap demo in examples/k8s-sandbox featuring:
   - Self-contained k3d (K3s in Docker) cluster with Ollama LLM
@@ -24,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed potential KeyError when prompt contains {memory_context} placeholder but memory_context is empty
 - Improved string format handling to handle malformed format strings in memory context
 
-## [0.5.0] - 2025-04-25
+## [0.5.0] - 2025-04-22
 
 ### Added
 - New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes` pattern
@@ -51,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ensures that suggestions from one command are available for subsequent commands in auto mode
   - Improves the continuity of error recovery in multi-step workflows
 
-## [0.4.1] - 2025-04-22
+## [0.4.1] - 2025-04-19
 
 ### Added
 - New chaos-monkey demo in examples/k8s-sandbox featuring:
