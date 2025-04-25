@@ -16,7 +16,6 @@ def processor() -> OutputProcessor:
     return OutputProcessor(max_chars=200, llm_max_chars=50)
 
 
-# @pytest.mark.skip(reason="Log marker heuristic under review") # Unskipped
 def test_process_logs_budgeted(processor: OutputProcessor) -> None:
     # Test that log processing respects an explicit budget
     lines = [f"2024-01-01T12:{i:02}:00 INFO Line {i}" for i in range(300)]
@@ -54,7 +53,6 @@ def test_process_logs_budgeted(processor: OutputProcessor) -> None:
     assert result_short.truncated == short_logs
 
 
-# @pytest.mark.skip(reason="Skipping until truncation logic is fully tested and stable") # Unskip
 def test_process_json_valid(processor: OutputProcessor) -> None:
     """Test processing valid JSON output."""
     # Test small JSON (no truncation needed)
@@ -88,7 +86,6 @@ def test_process_json_valid(processor: OutputProcessor) -> None:
     # so don't parse result_large.truncated
 
 
-# @pytest.mark.skip(reason="Skipping until truncation logic is fully tested and stable") # Unskip
 def test_process_json_invalid(processor: OutputProcessor) -> None:
     """Test processing invalid JSON output."""
     invalid_json = "{invalid: json}"
@@ -167,9 +164,11 @@ def test_validate_output_type(processor: OutputProcessor) -> None:
     assert result_text.original_type == "text"
 
 
-# @pytest.mark.skip(reason="Skipping until truncation logic is fully tested and stable") # Unskip
 def test_process_auto(processor: OutputProcessor) -> None:
-    """Test automatic output processing based on type using standard budgets (max_chars)."""
+    """
+    Test automatic output processing based on type using standard budgets
+    (max_chars).
+    """
     # Test JSON processing (using max_chars)
     large_data_json = {
         "items": [
@@ -282,7 +281,6 @@ def test_extract_yaml_sections() -> None:
     # We don't care about exact sections, just that it was parsed
 
 
-# @pytest.mark.skip(reason="Skipping until truncation logic is fully tested and stable") # Unskipped
 def test_process_auto_llm_budget() -> None:
     """Test process_auto with explicit llm_max_chars budget."""
     processor = OutputProcessor(max_chars=1000, llm_max_chars=50)

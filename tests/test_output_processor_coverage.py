@@ -161,7 +161,6 @@ def test_process_json_within_limits(processor_short_limits: OutputProcessor) -> 
     assert result.truncated == json_str
 
 
-# @pytest.mark.skip(reason="Temporarily skipped due to output truncation refactor") # Unskip
 def test_process_json_serialization_error(
     processor_short_limits: OutputProcessor,
 ) -> None:
@@ -173,7 +172,8 @@ def test_process_json_serialization_error(
         len(original_json_str) > processor_short_limits.max_chars
     )  # Ensure truncation happens
 
-    # Simulate the expected truncated structure (implementation detail, adjust if logic changes)
+    # Simulate the expected truncated structure (implementation detail,
+    # adjust if logic changes)
     # Depth=3, list len=10. List gets truncated.
     expected_truncated_data = tl.truncate_json_like_object(
         original_data, max_depth=3, max_list_len=10
@@ -445,7 +445,8 @@ status:
     assert "status:" in result.truncated
     # Check that the long section was truncated (look for marker)
     # With simple string truncation, the key itself might be truncated away.
-    # We just check that the overall length is correct and the original full content is gone.
+    # We just check that the overall length is correct and the original full
+    # content is gone.
     # assert "long_section:" in result.truncated # Key might be truncated
     assert "..." in result.truncated  # Simple check for string truncation marker
     assert "x" * 50 not in result.truncated  # Ensure the full long string is gone

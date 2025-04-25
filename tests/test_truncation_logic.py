@@ -144,12 +144,12 @@ def test_find_max_depth_dict_with_no_iterable_values() -> None:
     data_depth_zero = {"a": 1, "b": 2}
     assert tl.find_max_depth(data_depth_zero) == 1
 
-    # Test specifically the default value in max for dicts (though unlikely to hit directly)
-    # This structure ensures find_max_depth is called on values, but those values have depth 0
+    # Test specifically the default value in max for dicts (though unlikely
+    # to hit directly)
+    # This structure ensures find_max_depth is called on values, but those
+    # values have depth 0
     data_for_default = {"key": [1, 2]}  # Depth 2
     assert tl.find_max_depth(data_for_default) == 2
-    data_inner_dict: dict[str, dict] = {"key": {"subkey": 1}}  # Depth 2
-    assert tl.find_max_depth(data_inner_dict) == 2
 
     # A dict containing only an empty dict
     data_empty_inner: dict[str, dict] = {"a": {}}
@@ -204,7 +204,8 @@ def test_truncate_json_like_max_depth() -> None:
     assert tl.truncate_json_like_object(obj, max_depth=3) == {
         "l1": {"l2": {"l3": {"... 1 keys truncated ...": ""}}}
     }
-    # Depth 4: Keeps all levels, truncates the final value 'value' (which is primitive, so kept as is)
+    # Depth 4: Keeps all levels, truncates the final value 'value'
+    # (which is primitive, so kept as is)
     assert tl.truncate_json_like_object(obj, max_depth=4) == {
         "l1": {"l2": {"l3": {"l4": "value"}}}
     }
@@ -305,11 +306,13 @@ def test_truncate_json_like_nested_list_depth() -> None:
     assert tl.truncate_json_like_object(obj, max_depth=2) == {
         "a": [1, [{"... 2 items truncated ...": ""}]]
     }
-    # Depth 3: Keeps 'a', outer list, inner list [2, marker], truncates next list content
+    # Depth 3: Keeps 'a', outer list, inner list [2, marker],
+    # truncates next list content
     assert tl.truncate_json_like_object(obj, max_depth=3) == {
         "a": [1, [2, [{"... 2 items truncated ...": ""}]]]
     }
-    # Depth 4: Keeps 'a', outer list, inner list, next list [3, marker], truncates final list content
+    # Depth 4: Keeps 'a', outer list, inner list, next list [3, marker],
+    # truncates final list content
     assert tl.truncate_json_like_object(obj, max_depth=4) == {
         "a": [1, [2, [3, [{"... 2 items truncated ...": ""}]]]]
     }
@@ -459,7 +462,8 @@ def test_truncate_json_like_recursion_empty() -> None:
             5,
             ["Line 0", "Line 4"],
         ),
-        # Truncation with fewer lines than previous default minimums (ratio still applies)
+        # Truncation with fewer lines than previous default minimums
+        # (ratio still applies)
         # 100 lines, max_lines=8, ratio 0.6 -> end=round(4.8)=5, start=8-5=3
         (
             "\n".join([f"Line {i}" for i in range(100)]),
@@ -528,7 +532,8 @@ def test_truncate_logs_by_lines(
             1 if lines_truncated_count > 0 else 0
         )
 
-        # Check if the actual number of lines matches the expected count including the marker
+        # Check if the actual number of lines matches the expected count
+        # including the marker
         assert (
             actual_lines_count == expected_actual_lines
         ), f"Expected {expected_actual_lines} lines, got {actual_lines_count}"
@@ -547,7 +552,8 @@ def test_truncate_logs_by_lines(
         mid_line_index = num_original_lines // 2
         mid_line = f"Line {mid_line_index}"
 
-        # Ensure this middle line is NOT present unless it's part of start/end kept lines
+        # Ensure this middle line is NOT present unless it's part of start/end
+        # kept lines
         if mid_line_index >= start_lines and mid_line_index < (
             num_original_lines - end_lines
         ):

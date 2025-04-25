@@ -133,7 +133,8 @@ class OutputProcessor:
                 truncated_data, indent=2
             )  # Pretty print slightly
         except (TypeError, OverflowError) as e:
-            # Fallback 1: If serialization fails on truncated data, string truncate the *original*
+            # Fallback 1: If serialization fails on truncated data, string
+            # truncate the *original*
             logger.warning(
                 f"JSON serialization failed after structural truncation ({e}), "
                 "falling back to string truncation."
@@ -196,7 +197,7 @@ class OutputProcessor:
             pass  # Not JSON, proceed
 
         # 2. Check for log-like format (Moved before YAML)
-        log_pattern = r"^\s*\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[-+]\d{2}:?\d{2})?\b"
+        log_pattern = r"^\s*\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[-+]\d{2}:?\d{2})?\b"  # noqa: E501
         lines_to_check = output.splitlines()
         num_lines_to_check = len(lines_to_check)
         if num_lines_to_check > 0:
@@ -239,13 +240,9 @@ class OutputProcessor:
             if docs:  # If parsing yielded something
                 logger.debug(f"First doc type: {type(docs[0])}")
                 # Check for explicit YAML markers even if parsed as a single string
-                # REMOVED: has_yaml_markers = ":\n" in output or output.strip().startswith("---")
 
                 if len(docs) == 1 and isinstance(docs[0], str):
                     # Parsed as a single string -> Treat as TEXT
-                    # REMOVED: if has_yaml_markers:
-                    # REMOVED:     logger.debug("Classifying as YAML based on string content markers (newline/doc start).")
-                    # REMOVED:     return Truncation(original=output, truncated=output, original_type="yaml")
                     logger.debug("Parsed as single string, classifying as TEXT.")
                     return Truncation(
                         original=output, truncated=output, original_type="text"
@@ -253,14 +250,12 @@ class OutputProcessor:
                 else:
                     # Multiple docs OR single complex doc (dict/list/etc.) -> YAML
                     logger.debug(
-                        "Classifying as YAML based on multiple docs or complex first doc."
+                        "Classifying as YAML based on multiple docs or complex "
+                        "first doc."
                     )
                     return Truncation(
                         original=output, truncated=output, original_type="yaml"
                     )
-            # REMOVED: elif output.strip().startswith("---"): # Catch case where loader returns empty list but starts with ---
-            # REMOVED:      logger.debug("Classifying as YAML based on document separator even with empty parse result.")
-            # REMOVED:      return Truncation(original=output, truncated=output, original_type="yaml")
             else:
                 # Empty parse result, and doesn't start with --- -> TEXT
                 logger.debug(
@@ -299,7 +294,8 @@ class OutputProcessor:
            c. Apply secondary, more aggressive truncation ONLY to over-budget sections.
               (Currently uses simple string truncation on the section's YAML string).
            d. Reconstruct YAML from potentially truncated sections.
-        4. Apply a final string truncation if the reconstructed YAML still exceeds char_limit.
+        4. Apply a final string truncation if the reconstructed YAML still
+            exceeds char_limit.
         """
         try:
             # Quick check if valid YAML before extensive processing
@@ -380,7 +376,8 @@ class OutputProcessor:
         # Final check: Apply simple string truncation if still over budget
         if len(reconstructed_yaml) > char_limit:
             logger.debug(
-                f"Final YAML truncation needed: {len(reconstructed_yaml)} > {char_limit}"
+                f"Final YAML truncation needed: "
+                f"{len(reconstructed_yaml)} > {char_limit}"
             )
             final_truncated_yaml = tl.truncate_string(reconstructed_yaml, char_limit)
         else:
@@ -394,7 +391,8 @@ class OutputProcessor:
         )
 
     def extract_yaml_sections(self, yaml_output: str) -> YamlSections:
-        """Extract sections from YAML output based on top-level keys of the first document."""
+        """Extract sections from YAML output based on top-level keys of the
+        first document."""
         sections: YamlSections = {}
         try:
             # Use safe_load_all for multi-document YAML, process first doc mainly
@@ -453,7 +451,8 @@ class OutputProcessor:
                 return {"content": yaml_output.strip()}
 
         except yaml.YAMLError:
-            # If initial safe_load_all fails, treat the whole output as a single 'content' section
+            # If initial safe_load_all fails, treat the whole output as a single
+            # 'content' section
             logger.warning("Initial YAMLError during safe_load_all, falling back.")
             return {"content": yaml_output.strip()}
 

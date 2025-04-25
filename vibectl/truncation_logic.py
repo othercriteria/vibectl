@@ -46,9 +46,10 @@ def truncate_string(text: str, max_length: int) -> str:
     result = f"{start}{ellipsis}{end}"
 
     # Assert final length is exactly max_length
-    assert (
-        len(result) == max_length
-    ), f"Expected length {max_length}, got {len(result)} (start:{start_length}, end:{end_length})"
+    assert len(result) == max_length, (
+        f"Expected length {max_length}, got {len(result)} "
+        f"(start:{start_length}, end:{end_length})"
+    )
     return result
 
 
@@ -75,12 +76,14 @@ def find_max_depth(obj: Any, current_depth: int = 0) -> int:
 def truncate_json_like_object(
     obj: Any, max_depth: int = 3, max_list_len: int = 10
 ) -> Any:
-    """Recursively truncate a JSON-like object (dict/list) to a maximum depth/list length.
+    """Recursively truncate a JSON-like object (dict/list) to a maximum
+    depth/list length.
 
     Args:
         obj: The dict or list to truncate.
         max_depth: The maximum nesting depth to preserve.
-        max_list_len: The maximum number of items to keep in lists (split between start/end).
+        max_list_len: The maximum number of items to keep in lists
+                      (split between start/end).
 
     Returns:
         A truncated version of the object.
@@ -177,7 +180,8 @@ def _truncate_logs_by_lines(
         start_lines_count = 1
         end_lines_count = 1
     else:
-        # For max_lines > 2, adjust if rounding led to negative or zero counts unexpectedly
+        # For max_lines > 2, adjust if rounding led to negative or zero
+        # counts unexpectedly
         start_lines_count = max(0, start_lines_count)
         end_lines_count = max(0, end_lines_count)
         # Ensure total does not exceed max_lines after adjustment
@@ -216,10 +220,12 @@ def _truncate_logs_by_lines(
 
 
 def _calculate_yaml_overhead(num_sections: int) -> int:
-    """Estimate overhead for keys, colons, newlines, indentation in reconstructed YAML."""
+    """Estimate overhead for keys, colons, newlines, indentation in
+    reconstructed YAML."""
     # Use double newline for better separation between top-level keys/docs
     # Estimate overhead for keys, colons, newlines, indentation in reconstructed YAML.
-    # Rough estimate: key + colon + space + newline + potential indent (2) + inter-section newline
+    # Rough estimate: key + colon + space + newline + potential indent (2)
+    # + inter-section newline
     # Let's estimate ~ 5 chars overhead per key line, plus 2 newlines between sections.
     if num_sections <= 0:
         return 0
