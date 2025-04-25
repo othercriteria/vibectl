@@ -743,8 +743,10 @@ def _format_vibe_prompt(
     """
     # Prepare the format parameters
     format_params = {"request": request, "command": command}
-    if memory_context:
-        format_params["memory_context"] = memory_context
+
+    # Always provide memory_context in format_params, even if empty
+    # This prevents KeyError when the prompt contains {memory_context}
+    format_params["memory_context"] = memory_context or ""
 
     try:
         # First, check if there are any positional format specifiers in the prompt
@@ -760,11 +762,10 @@ def _format_vibe_prompt(
             )
             formatted_prompt = plan_prompt
 
-            # First replace all named parameters
-            if "memory_context" in plan_prompt:
-                formatted_prompt = formatted_prompt.replace(
-                    "{memory_context}", memory_context
-                )
+            # Replace all named parameters
+            formatted_prompt = formatted_prompt.replace(
+                "{memory_context}", memory_context or ""
+            )
             formatted_prompt = formatted_prompt.replace("{request}", request)
             formatted_prompt = formatted_prompt.replace("{command}", command)
 
@@ -783,10 +784,9 @@ def _format_vibe_prompt(
         )
         # Use string replacement as a fallback to avoid format conflicts
         formatted_prompt = plan_prompt
-        if "memory_context" in plan_prompt:
-            formatted_prompt = formatted_prompt.replace(
-                "{memory_context}", memory_context
-            )
+        formatted_prompt = formatted_prompt.replace(
+            "{memory_context}", memory_context or ""
+        )
         formatted_prompt = formatted_prompt.replace("{request}", request).replace(
             "{command}", command
         )
@@ -795,6 +795,8 @@ def _format_vibe_prompt(
         import re
 
         formatted_prompt = re.sub(r"{(\d+)}", "", formatted_prompt)
+        # Also replace any remaining {name} format specifiers
+        formatted_prompt = re.sub(r"{[a-zA-Z0-9_]+}", "", formatted_prompt)
 
     return formatted_prompt
 
@@ -1016,13 +1018,14 @@ def _handle_command_confirmation(
 
             memory_content = get_memory()
             if memory_content:
-                console_manager.console.print(
+                console_manager.safe_print(
+                    console_manager.console,
                     Panel(
                         memory_content,
                         title="Memory Content",
                         border_style="blue",
                         expand=False,
-                    )
+                    ),
                 )
             else:
                 console_manager.print_warning(
@@ -1107,13 +1110,14 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         console_manager.print_success("Memory updated")
 
         # Display the updated memory
-        console_manager.console.print(
+        console_manager.safe_print(
+            console_manager.console,
             Panel(
                 updated_memory,
                 title="Updated Memory Content",
                 border_style="blue",
                 expand=False,
-            )
+            ),
         )
 
         return Success(message="Memory updated successfully")
@@ -1344,6 +1348,7 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
     import re
     import subprocess
     import tempfile
+    from subprocess import TimeoutExpired
 
     try:
         # Fix multi-document YAML formatting issues
@@ -1378,7 +1383,20 @@ def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
 
             # Encode the YAML content to bytes
             yaml_bytes = yaml_content.encode("utf-8")
-            stdout_bytes, stderr_bytes = process.communicate(input=yaml_bytes)
+            try:
+                stdout_bytes, stderr_bytes = process.communicate(
+                    input=yaml_bytes, timeout=30
+                )  # Add 30-second timeout
+            except TimeoutExpired:
+                # Try to terminate the process if it's still running
+                process.kill()
+                # Attempt to collect any output that might be available
+                stdout_bytes, stderr_bytes = process.communicate()
+                # Return an error with a clear message
+                return Error(
+                    error="Command timed out after 30 seconds",
+                    exception=Exception("Subprocess timeout"),
+                )
 
             # Decode the output back to strings
             stdout = stdout_bytes.decode("utf-8")
@@ -1674,7 +1692,7 @@ def handle_wait_with_live_display(
             f"[bold green]✓[/] {resource} now meets condition '[bold]{condition}[/]' "
             f"(completed in [bold]{elapsed_time:.2f}s[/])"
         )
-        console_manager.console.print(success_message)
+        console_manager.safe_print(console_manager.console, success_message)
 
         # Add a small note if no output will be shown
         if not output_flags.show_raw and not output_flags.show_vibe:
@@ -1697,7 +1715,7 @@ def handle_wait_with_live_display(
                 f"[bold red]✗[/] Wait operation failed after "
                 f"[bold]{elapsed_time:.2f}s[/]: {result.error}"
             )
-            console_manager.console.print(message)
+            console_manager.safe_print(console_manager.console, message)
             return result
         else:
             message = (

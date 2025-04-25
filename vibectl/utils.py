@@ -41,8 +41,8 @@ def handle_exception(
     )
 
     if show_traceback and tb is not None:
-        console_manager.error_console.print(
-            "[red]Traceback (most recent call last):[/]"
+        console_manager.safe_print(
+            console_manager.error_console, "[red]Traceback (most recent call last):[/]"
         )
         traceback.print_exception(type(e), e, tb)
 
@@ -58,7 +58,7 @@ def handle_exception(
     elif isinstance(e, subprocess.CalledProcessError):
         if hasattr(e, "stderr") and e.stderr:
             # kubectl errors will have stderr content
-            console_manager.error_console.print(e.stderr, end="")
+            console_manager.safe_print(console_manager.error_console, e.stderr, end="")
         else:
             # Generic subprocess error
             console_manager.print_error(

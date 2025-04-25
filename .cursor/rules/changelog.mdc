@@ -1,6 +1,6 @@
 ---
 description: Rules for maintaining a comprehensive changelog
-globs: ["CHANGELOG.md", "bump_version.py", "pyproject.toml"]
+globs: ["**/*"]
 alwaysApply: true
 ---
 # Changelog Management
@@ -26,6 +26,12 @@ filters:
   # Match feature workflow content
   - type: content
     pattern: "(?i)\\b(feature|worktree|branch|pr|merge)\\b"
+  # Match feature planning activities
+  - type: content
+    pattern: "(?i)\\b(new|initial|start|begin|sketch|plan|flesh|idea)\\s+.*\\b(feature|demo|example|change)\\b"
+  # Match for intent to plan features
+  - type: intent
+    pattern: "feature_planning"
 
 actions:
   - type: suggest
@@ -92,6 +98,37 @@ actions:
           2. Update with final changes before marking as ready for review.
           See feature-worktrees rule for workflow details.
 
+      # Reject feature planning without proper WIP indicators
+      - pattern: "(?i)\\b(new|initial|start|begin|sketch|plan|flesh|idea)\\s+.*\\b(feature|demo|example|change)\\b"
+        message: |
+          When planning new features, always update CHANGELOG.md with:
+          1. Add entries to the "Unreleased" section.
+          2. Use "Planned:" prefix for each entry.
+          3. Add "(WIP)" suffix to indicate work-in-progress status.
+
+          Example:
+          ```markdown
+          ## [Unreleased]
+
+          ### Added
+          - Planned: New bootstrap demo for easy demonstration of capabilities (WIP)
+          ```
+
+      # Reject unreleased changelog entries without proper WIP marking
+      - pattern: "## \\[Unreleased\\][\\s\\S]*?### Added[\\s\\S]*?- (?!Planned:)[^\\n]*(?<!\\(WIP\\))[\\s\\S]*?##"
+        message: |
+          Planned features in the Unreleased section must be marked with:
+          1. "Planned:" prefix at the beginning of the entry
+          2. "(WIP)" suffix at the end of the entry
+
+          Example:
+          ```markdown
+          ## [Unreleased]
+
+          ### Added
+          - Planned: New feature description (WIP)
+          ```
+
       # Reject edits that add unreleased or planned changes to a released section
       - pattern: "^## \\[\\d+\\.\\d+\\.\\d+\\]"
         message: |
@@ -110,6 +147,7 @@ criteria:
     - Coordination with feature worktree development workflow
     - **All previous release sections must be preserved when updating [Unreleased].**
     - **New entries must be inserted after the [Unreleased] header and before any subsequent version headers.**
+    - **Planned features must be prefixed with "Planned:" and suffixed with "(WIP)"**
 
 examples:
   - input: "How should I update the changelog after merging a PR?"
@@ -143,5 +181,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.1
+  version: 1.2
 </rule>

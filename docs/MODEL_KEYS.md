@@ -113,9 +113,20 @@ To use local Ollama models:
    ```sh
    ollama pull llama3
    ```
-4. Configure vibectl to use Ollama model:
+4. **Check available models and aliases:**
    ```sh
-   vibectl config set model ollama:llama3
+   llm models
+   ```
+   Look for lines like:
+   ```
+   Ollama: tinyllama:latest (aliases: tinyllama)
+   ```
+   You can use either the full name (`ollama:tinyllama:latest`) or the alias (`tinyllama`).
+   **Note:** The model string must match exactly as shown in `llm models`. For example, `ollama:tinyllama` may not work if only `ollama:tinyllama:latest` or `tinyllama` is registered.
+
+5. Configure vibectl to use the Ollama model:
+   ```sh
+   vibectl config set model ollama:llama3:latest  # or just llama3 if that's the alias
    ```
 
 Example:
@@ -126,8 +137,11 @@ ollama serve &
 # Pull your preferred model
 ollama pull llama3
 
+# Check available models
+llm models
+
 # Configure vibectl to use this model
-vibectl config set model ollama:llama3
+vibectl config set model ollama:llama3:latest  # or llama3
 
 # Use your local model
 vibectl get pods
@@ -164,4 +178,15 @@ If you encounter authentication errors:
 3. Ensure proper permissions on key files
 4. Try using an environment variable to rule out file reading issues
 
+**If you encounter an 'Unknown model' error:**
+- Run `llm models` to see the exact model names and aliases available.
+- Make sure your model string in vibectl matches one of these exactly (e.g., `ollama:tinyllama:latest` or `tinyllama`).
+- If you pulled a model but don't see it, try restarting the Ollama server and running `llm models` again.
+
 For missing API key errors, vibectl will show detailed instructions on how to set up your key.
+
+## Model Aliases and Providerless Names
+
+vibectl now accepts providerless model aliases (e.g., `tinyllama`) as valid model values, in addition to fully qualified names like `ollama:tinyllama:latest`. This is required for compatibility with the llm-ollama plugin, which often registers models only under their alias.
+
+**Note:** This is a recent change and may be revisited for stricter validation in the future. If you encounter issues, check your available models with `llm models` and use the alias shown there.

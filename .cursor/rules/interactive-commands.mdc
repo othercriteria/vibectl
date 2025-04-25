@@ -1,6 +1,6 @@
 ---
 description: Preventing interactive command usage
-globs: ["**/*.py", "**/*.sh"]
+globs: ["**/*"]
 alwaysApply: true
 ---
 # No Interactive Commands

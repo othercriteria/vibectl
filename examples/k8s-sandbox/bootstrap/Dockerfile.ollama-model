@@ -1,0 +1,18 @@
+FROM ollama/ollama:latest AS builder
+
+ARG OLLAMA_MODEL
+
+RUN if [ -z "$OLLAMA_MODEL" ]; then \
+      echo "[WARNING] OLLAMA_MODEL not set. Skipping model pull. No model will be baked into the image."; \
+    else \
+      ollama serve & \
+      OLLAMA_PID=$! && \
+      sleep 2 && \
+      ollama pull "$OLLAMA_MODEL" && \
+      kill $OLLAMA_PID && \
+      chmod -R a+rX /root/.ollama; \
+    fi
+
+FROM ollama/ollama:latest
+COPY --from=builder /root/.ollama /root/.ollama
+RUN chmod -R a+rX /root/.ollama

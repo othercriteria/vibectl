@@ -275,3 +275,25 @@ def test_vibe_command_outer_exception_exit_on_error_true() -> None:
         mock_logger.error.assert_any_call(
             "Error in 'vibe' subcommand: %s", ANY, exc_info=True
         )
+
+
+def test_handle_vibe_with_unknown_model(cli_runner: CliRunner) -> None:
+    """Test that the vibe command properly reports errors for unknown model names."""
+    # Setup test mocks to simulate model failure
+    with patch("vibectl.subcommands.vibe_cmd.handle_vibe_request") as mock_vibe:
+        # Configure handle_vibe_request to raise an exception about an unknown model
+        mock_vibe.side_effect = ValueError("Unknown model: invalid-model-name")
+
+        # Call the CLI command with an unknown model
+        result = cli_runner.invoke(
+            cli,
+            ["vibe", "show me pods", "--model", "invalid-model-name"],
+            catch_exceptions=True,
+        )
+
+        # Check the result - should have a non-zero exit code due to SystemExit
+        assert result.exit_code != 0
+        assert isinstance(result.exception, SystemExit)
+
+        # The error message should be displayed in the output
+        assert "Unknown model: invalid-model-name" in result.output

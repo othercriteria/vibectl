@@ -1,6 +1,7 @@
 """Configuration management for vibectl"""
 
 import os
+import re
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -248,10 +249,27 @@ class Config:
         """Validate that a value is allowed for a given key, if applicable."""
         if key in CONFIG_VALID_VALUES:
             valid_values = CONFIG_VALID_VALUES[key]
+            # Allow any ollama:<model> value
+            if key == "model" and isinstance(value, str):
+                if value.startswith("ollama:"):
+                    return
+                # Allow providerless alias (e.g., 'llama3.2:1b-text-q2_K') if
+                # it looks like a valid alias
+                if re.match(r"^[a-zA-Z0-9_\-:./]+$", value) and not (
+                    value.startswith("gpt-") or value.startswith("claude-")
+                ):
+                    return
             if value not in valid_values:
+                # For model, show pattern in error message
+                if key == "model":
+                    valid_str = (
+                        ", ".join(str(v) for v in valid_values)
+                        + ", ollama:<model>, or a registered alias (see 'llm models')"
+                    )
+                else:
+                    valid_str = ", ".join(str(v) for v in valid_values)
                 raise ValueError(
-                    f"Invalid value for {key}: {value}. "
-                    f"Valid values are: {', '.join(str(v) for v in valid_values)}"
+                    f"Invalid value for {key}: {value}. Valid values are: {valid_str}"
                 )
 
     def set(self, key: str, value: Any) -> None:
