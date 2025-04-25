@@ -49,6 +49,7 @@ This document provides an overview of the project's structure and organization.
 - `k8s-sandbox/` - Kubernetes sandbox environments:
   - `ctf/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/ctf/STRUCTURE.md](examples/k8s-sandbox/ctf/STRUCTURE.md) for details.
   - `chaos-monkey/` - Red team vs. blue team competitive scenario with vibectl agents. See [examples/k8s-sandbox/chaos-monkey/STRUCTURE.md](examples/k8s-sandbox/chaos-monkey/STRUCTURE.md) for details.
+  - `bootstrap/` - Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis. See [examples/k8s-sandbox/bootstrap/STRUCTURE.md](examples/k8s-sandbox/bootstrap/STRUCTURE.md) for details.
 
 ### Type Information (`typings/`)
 - Custom type definitions and type stubs
@@ -224,6 +225,7 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Feature branches created from main
    - Worktrees placed in `../worktrees/` directory
    - One feature per worktree for isolated development
+   - **Always use the improved worktree workflow in `.cursor/rules/feature-worktrees.mdc` for all new features.**
 2. Nix/direnv for reproducible development environments
 3. pre-commit hooks for code quality
 4. pytest for testing with coverage requirements

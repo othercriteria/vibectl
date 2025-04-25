@@ -442,15 +442,12 @@ purpose and implementation, see [RULES.md](RULES.md).
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 for details.
 
-# Troubleshooting
+## Examples and Demos
 
-#### Unknown model errors with Ollama
+- **Kubernetes CTF Sandbox**: Challenge-based learning environment for vibectl autonomy. See `examples/k8s-sandbox/ctf/README.md`.
+- **Chaos Monkey**: Red/blue team competitive scenario for resilience testing. See `examples/k8s-sandbox/chaos-monkey/README.md`.
+- **Bootstrap Demo**: Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis. See `examples/k8s-sandbox/bootstrap/README.md`.
 
-If you see an error like `Unknown model: ollama:tinyllama`, it means the model string does not match any registered model in `llm`.
+## Development Workflow
 
-**How to fix:**
-- Run `llm models` to see the exact model names and aliases available.
-- Use the full name (e.g., `ollama:tinyllama:latest`) or the alias (e.g., `tinyllama`) as your model string in vibectl.
-- If you pulled a model but don't see it, try restarting the Ollama server and running `llm models` again.
-
-See [Model API Key Management](docs/MODEL_KEYS.md) for more details.
+- Use Git worktrees for all feature development. See `.cursor/rules/feature-worktrees.mdc` for the required workflow.

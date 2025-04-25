@@ -1,9 +1,10 @@
 # Kubernetes Sandbox Environments
 
-This directory contains sandbox environments for testing and demonstrating vibectl's capabilities in Kubernetes environments. Currently, it includes two main demos:
+This directory contains sandbox environments for testing and demonstrating vibectl's capabilities in Kubernetes environments. Currently, it includes three main demos:
 
 1. **CTF (Capture The Flag)**: A challenge-based learning environment
 2. **Chaos Monkey**: A red team vs. blue team competitive scenario
+3. **Bootstrap Demo**: Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis
 
 ## Directory Structure
 
@@ -11,6 +12,8 @@ This directory contains sandbox environments for testing and demonstrating vibec
   - See [ctf/STRUCTURE.md](ctf/STRUCTURE.md) for detailed documentation
 - `chaos-monkey/`: Red team vs. blue team competitive environment
   - See [chaos-monkey/STRUCTURE.md](chaos-monkey/STRUCTURE.md) for detailed documentation
+- `bootstrap/`: Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis
+  - See [bootstrap/STRUCTURE.md](bootstrap/STRUCTURE.md) for detailed documentation
 
 ## Common Features
 
@@ -54,7 +57,7 @@ Both environments use Docker containers, but with different approaches:
 
 Each environment has its own README.md with specific setup instructions. In general:
 
-1. Choose which environment to run (ctf or chaos-monkey)
+1. Choose which environment to run (ctf, chaos-monkey, or bootstrap)
 2. Navigate to the chosen directory
 3. Follow the setup instructions in the README.md file
 4. Ensure you have the required API keys configured
