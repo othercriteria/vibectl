@@ -2,6 +2,12 @@
 
 This document outlines initial ideas for improving the output truncation logic in `vibectl/output_processor.py`.
 
+## Current Status (as of [Date])
+
+*   Refactoring of `output_processor.py` and `truncation_logic.py` is in progress.
+*   Several unit tests for `output_processor.py` are currently failing due to the refactor and are proving difficult to fix directly.
+*   **Next Steps:** Temporarily skip the failing tests and focus on improving overall test coverage for `output_processor.py` and `truncation_logic.py`. Once coverage is improved, revisit the failing tests.
+
 ## Preliminary Thoughts & Areas for Improvement
 
 1.  **Context-Aware Truncation:**
@@ -19,7 +25,8 @@ This document outlines initial ideas for improving the output truncation logic i
     *   `process_logs` keeps the first 40 and last 60 lines. This seems reasonable for preserving recent events, but could be configurable or smarter (e.g., detect error patterns and preserve context around them).
 
 4.  **Testing:**
-    *   Add comprehensive unit tests specifically targeting the `OutputProcessor` class and its methods.
+    *   **(In Progress)** Add comprehensive unit tests specifically targeting the `OutputProcessor` class and its methods, as well as `truncation_logic.py`.
+    *   **(Focus Area)** Improve overall test coverage before fixing currently failing tests.
     *   Include tests for various edge cases:
         *   Very large outputs (JSON, YAML, logs, plain text)
         *   Deeply nested structures

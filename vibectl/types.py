@@ -88,3 +88,16 @@ class Error:
 
 # Union type for command results
 Result = Success | Error
+
+
+@dataclass
+class Truncation:
+    """Represents the result of a truncation operation."""
+    original: str
+    truncated: str
+    plug: str | None = None
+    was_truncated: bool = False
+
+    def __post_init__(self) -> None:
+        # Automatically set was_truncated based on content
+        self.was_truncated = self.original != self.truncated

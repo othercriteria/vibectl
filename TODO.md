@@ -222,3 +222,7 @@ Implementation should prioritize commands that provide the most value to users w
 ## Model Value Validation
 - Revisit model value validation: consider stricter validation or a more robust alias/provider detection system.
 - Document the current workaround: providerless model aliases (like 'tinyllama') are accepted for compatibility with llm-ollama, but this may change in the future.
+
+## Test Structure Cleanup
+- Flattened `tests/coverage/` into `tests/` for now.
+- Revisit test organization and structure comprehensively later.

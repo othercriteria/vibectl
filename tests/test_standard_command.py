@@ -11,16 +11,17 @@ from vibectl.command_handler import (
     OutputFlags,
     handle_standard_command,
 )
+from vibectl.types import Truncation
 
 # The test_config and mock_subprocess fixtures are now provided by conftest.py
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.OutputProcessor")
+@patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.update_memory")
 def test_handle_standard_command_basic(
     mock_update_memory: MagicMock,
-    mock_output_processor: MagicMock,
+    mock_processor: MagicMock,
     mock_get_adapter: MagicMock,
     mock_subprocess: MagicMock,
     mock_llm: MagicMock,
@@ -51,10 +52,10 @@ def test_handle_standard_command_basic(
         mock_result.stdout = "test output"
         mock_subprocess.return_value = mock_result
 
-        # Setup output processor
-        processor_instance = Mock()
-        processor_instance.process_auto.return_value = ("processed output", False)
-        mock_output_processor.return_value = processor_instance
+        # Setup output processor mock to return Truncation
+        mock_processor.process_auto.return_value = Truncation(
+            original="test output", truncated="processed output", was_truncated=False
+        )
 
         # Ensure the get_model_adapter returns our mock_llm
         mock_get_adapter.return_value = mock_llm
@@ -90,8 +91,11 @@ def test_handle_standard_command_basic(
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
 
-    # Verify model adapter was called
+    # Verify model adapter was called with processed output
     mock_llm.execute.assert_called_once()
+    # Check the prompt passed to the LLM
+    prompt_arg = mock_llm.execute.call_args[0][1]
+    assert "processed output" in prompt_arg
 
     # Verify sys.exit was not called
     prevent_exit.assert_not_called()
@@ -106,9 +110,9 @@ def mock_summary_prompt() -> Callable[[], str]:
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.memory.include_memory_in_prompt")
 @patch("vibectl.command_handler.update_memory")
-@patch("vibectl.command_handler.OutputProcessor")
+@patch("vibectl.command_handler.output_processor")
 def test_handle_standard_command(
-    mock_output_processor: MagicMock,
+    mock_processor: MagicMock,
     mock_update_memory: MagicMock,
     mock_include_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -125,10 +129,10 @@ def test_handle_standard_command(
     This test ensures that all LLM calls are properly mocked to prevent
     actual API calls which would cause slow tests.
     """
-    # Setup output processor
-    processor_instance = Mock()
-    processor_instance.process_auto.return_value = ("processed output", False)
-    mock_output_processor.return_value = processor_instance
+    # Setup output processor mock to return Truncation
+    mock_processor.process_auto.return_value = Truncation(
+        original="test output", truncated="processed output", was_truncated=False
+    )
 
     # Ensure the get_model_adapter returns our mock_llm
     mock_get_adapter.return_value = mock_llm
@@ -142,6 +146,12 @@ def test_handle_standard_command(
 
     # Ensure no kubeconfig is set
     test_config.set("kubeconfig", None)
+
+    # Configure mock subprocess to return success
+    mock_result = Mock()
+    mock_result.returncode = 0
+    mock_result.stdout = "test output"
+    mock_subprocess.return_value = mock_result
 
     # Set up model adapter response for summary
     mock_llm.execute.return_value = "Summarized output"
@@ -160,8 +170,11 @@ def test_handle_standard_command(
     cmd = mock_subprocess.call_args[0][0]
     assert cmd == ["kubectl", "get", "pods"]
 
-    # Verify model adapter was called
+    # Verify model adapter was called with processed output
     mock_llm.execute.assert_called_once()
+    # Check the prompt passed to the LLM
+    prompt_arg = mock_llm.execute.call_args[0][1]
+    assert "processed output" in prompt_arg
 
     # Verify sys.exit was not called
     prevent_exit.assert_not_called()
@@ -182,21 +195,16 @@ def test_handle_standard_command_logs(
     from vibectl import command_handler
 
     with (
-        patch.object(command_handler, "OutputProcessor") as mock_output_processor,
+        patch.object(command_handler, "output_processor") as mock_output_processor,
         patch.object(command_handler, "get_model_adapter") as mock_get_adapter,
-        patch.object(
-            command_handler.OutputProcessor,
-            "process_auto",
-            return_value=("processed output", False),
-        ),
         patch.object(command_handler.console_manager, "print_raw"),
         patch.object(command_handler.console_manager, "print_vibe"),
         patch.object(command_handler, "update_memory"),
     ):
-        # Setup output processor
-        processor_instance = Mock()
-        processor_instance.process_auto.return_value = ("processed output", False)
-        mock_output_processor.return_value = processor_instance
+        # Setup output processor instance mock
+        mock_output_processor.process_auto.return_value = Truncation(
+            original="test output", truncated="processed output", was_truncated=False
+        )
 
         # Setup LLM
         mock_model_adapter = mock_llm

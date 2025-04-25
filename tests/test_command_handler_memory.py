@@ -13,7 +13,7 @@ from vibectl.command_handler import (
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.types import Error, OutputFlags
+from vibectl.types import Error, OutputFlags, Truncation
 
 
 @pytest.fixture
@@ -27,8 +27,10 @@ def mock_memory_update() -> Generator[Mock, None, None]:
 def mock_process_auto() -> Generator[Mock, None, None]:
     """Mock output processor's process_auto method."""
     with patch("vibectl.command_handler.output_processor.process_auto") as mock:
-        # Default return no truncation
-        mock.return_value = ("processed content", False)
+        # Default return no truncation, but as a Truncation object
+        mock.return_value = Truncation(
+            original="processed content", truncated="processed content", was_truncated=False
+        )
         yield mock
 
 
@@ -58,6 +60,9 @@ def test_handle_command_output_updates_memory(
 
     # Call handle_command_output with a command
     with patch("vibectl.command_handler.console_manager"):
+        # Configure mock_process_auto for this specific test
+        mock_process_auto.return_value = Truncation(original="test output", truncated="processed test output")
+        # Assume LLM returns "Test response" based on mock_get_adapter fixture
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -85,6 +90,8 @@ def test_handle_command_output_does_not_update_memory_without_command(
 
     # Call handle_command_output without a command
     with patch("vibectl.command_handler.console_manager"):
+        # Configure mock_process_auto for this specific test
+        mock_process_auto.return_value = Truncation(original="test output", truncated="processed test output")
         handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -109,6 +116,9 @@ def test_handle_command_output_updates_memory_with_error_output(
 
     # Call handle_command_output with error output
     with patch("vibectl.command_handler.console_manager"):
+        # Configure mock_process_auto for this specific test
+        mock_process_auto.return_value = Truncation(original="Error: Command failed with exit code 1", truncated="processed error output")
+        # Assume LLM returns "Test response" based on mock_get_adapter fixture
         handle_command_output(
             output="Error: Command failed with exit code 1",
             output_flags=output_flags,
@@ -146,6 +156,8 @@ def test_handle_command_output_updates_memory_with_overloaded_error(
 
     # Call handle_command_output with a command, simulating an overloaded LLM
     with patch("vibectl.command_handler.console_manager"):
+        # Configure mock_process_auto for this specific test
+        mock_process_auto.return_value = Truncation(original="test output", truncated="processed test output")
         result = handle_command_output(
             output="test output",
             output_flags=output_flags,
@@ -158,11 +170,12 @@ def test_handle_command_output_updates_memory_with_overloaded_error(
     assert "overloaded_error" in result.error
 
     # Memory should still be updated with the overloaded error as the vibe_output
+    # The vibe_output in update_memory comes AFTER the LLM call, which returned the error
     mock_memory_update.assert_called_once_with(
         "get pods", "test output", overloaded_error, "test-model"
     )
     # Note: Error is now returned to caller instead of being raised,
-    # but memory update should still happen
+    # but memory update should still happen BEFORE the function returns the Error
 
 
 def test_handle_vibe_request_updates_memory_on_error(

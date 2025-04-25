@@ -525,7 +525,9 @@ def _process_vibe_output(
     logger.debug("Processing output for vibe summary.")
 
     # Process output to avoid token limits
-    processed_output, was_truncated = output_processor.process_auto(output)
+    truncation_result = output_processor.process_auto(output)
+    processed_output = truncation_result.truncated
+    was_truncated = truncation_result.was_truncated
 
     # Show truncation warning if needed
     if was_truncated:

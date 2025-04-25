@@ -14,6 +14,7 @@ from vibectl.command_handler import (
     handle_command_output,
 )
 from vibectl.config import DEFAULT_CONFIG
+from vibectl.types import Truncation
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
 DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
@@ -140,8 +141,9 @@ def test_handle_command_output_no_output(
 
 
 @patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.output_processor")
 def test_handle_command_output_llm_error(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_processor: MagicMock, mock_llm: MagicMock, prevent_exit: MagicMock
 ) -> None:
     """Test handle_command_output with LLM error."""
     # Set up adapter mock to return an error
@@ -149,6 +151,9 @@ def test_handle_command_output_llm_error(
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "ERROR: Test error"
     mock_llm.return_value = mock_adapter
+
+    # Set up processor mock to return Truncation object
+    mock_processor.process_auto.return_value = Truncation(original="test output", truncated="test output")
 
     # Create output flags
     output_flags = OutputFlags(
@@ -171,8 +176,9 @@ def test_handle_command_output_llm_error(
 
 
 @patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.output_processor")
 def test_handle_command_output_empty_response(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_processor: MagicMock, mock_llm: MagicMock, prevent_exit: MagicMock
 ) -> None:
     """Test handle_command_output with empty LLM response."""
     # Set up adapter mock to return empty response
@@ -180,6 +186,9 @@ def test_handle_command_output_empty_response(
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = ""
     mock_llm.return_value = mock_adapter
+
+    # Set up processor mock
+    mock_processor.process_auto.return_value = Truncation(original="test output", truncated="test output")
 
     # Create output flags
     output_flags = OutputFlags(
@@ -199,8 +208,9 @@ def test_handle_command_output_empty_response(
 
 
 @patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.output_processor")
 def test_handle_command_output_with_command(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_processor: MagicMock, mock_llm: MagicMock, prevent_exit: MagicMock
 ) -> None:
     """Test handle_command_output with command parameter."""
     # Set up adapter mock
@@ -223,8 +233,10 @@ def test_handle_command_output_with_command(
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
         patch("vibectl.command_handler.output_processor") as mock_processor,
     ):
-        # Set up output processor mock
-        mock_processor.process_auto.return_value = ("test output", False)
+        # Set up output processor mock to return Truncation object
+        mock_processor.process_auto.return_value = Truncation(
+            original="test output", truncated="test output", was_truncated=False
+        )
 
         handle_command_output(
             output="test output",
