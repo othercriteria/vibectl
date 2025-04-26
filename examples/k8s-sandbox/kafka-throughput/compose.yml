@@ -1,0 +1,127 @@
+services:
+  k8s-sandbox:
+    container_name: kafka-k8s-sandbox
+    build:
+      context: ./k8s-sandbox
+      dockerfile: Dockerfile
+      args:
+        # Pass the host's Docker GID for k3d permissions
+        DOCKER_GID: ${DOCKER_GID:-999}
+    privileged: true # Needed for running k3d
+    environment:
+      # API keys (Add VIBECTL_ANTHROPIC_API_KEY handling in run.sh)
+      - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY} # Legacy fallback
+      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
+      - STATUS_DIR=/tmp/status
+      # K3d Cluster Name
+      - K3D_CLUSTER_NAME=kafka-demo-cluster
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - status-volume:/tmp/status:rw
+      # Mount source code for vibectl development/installation if needed
+      - ../../..:/home/sandbox/vibectl-src:ro
+    networks:
+      - kafka-demo-network
+    # Healthcheck: Wait for k3d cluster + Kafka to be ready (implement in entrypoint.sh)
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/status/kafka_ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30 # Wait up to 5 minutes
+      start_period: 60s # Allow time for initial setup
+
+  producer:
+    container_name: kafka-producer
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+        restart: true
+    environment:
+      - KAFKA_BROKERS=kafka-k8s-sandbox:9092 # Target exposed port on sandbox
+      - STATUS_DIR=/tmp/status # Potentially report status here
+      # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh
+    networks:
+      - kafka-demo-network
+    # Healthcheck: Check connectivity to Kafka
+    healthcheck:
+      test: ["CMD", "true"] # Placeholder - implement check
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  consumer:
+    container_name: kafka-consumer
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+        restart: true
+      producer: # Ensure producer starts first (optional, but might be cleaner)
+        condition: service_healthy # Placeholder, define real check
+        restart: true
+    environment:
+      - KAFKA_BROKERS=kafka-k8s-sandbox:9092 # Target exposed port on sandbox
+      - STATUS_DIR=/tmp/status # Write latency metrics here
+      # Add config: TOPICS, SHARED_SECRET etc. via run.sh
+    volumes:
+      # Mount status volume to write latency metrics
+      - status-volume:/tmp/status:rw
+    networks:
+      - kafka-demo-network
+    # Healthcheck: Check connectivity to Kafka
+    healthcheck:
+      test: ["CMD", "true"] # Placeholder - implement check
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  overseer:
+    container_name: kafka-overseer
+    build:
+      context: ./overseer
+      dockerfile: Dockerfile
+    depends_on:
+      k8s-sandbox: # Needed to potentially inject commands/read vibectl status?
+        condition: service_healthy
+        restart: true
+      producer:
+        condition: service_healthy # Placeholder, define real check
+        restart: true
+      consumer:
+        condition: service_healthy # Placeholder, define real check
+        restart: true
+    environment:
+      - STATUS_DIR=/tmp/status # Read latency from here, write commands?
+      # Add config: TARGET_LATENCY, RATE_ADJUST_STEP etc. via run.sh
+    volumes:
+      # Mount status volume to read latency and potentially control producer/vibectl
+      - status-volume:/tmp/status:rw
+      # Mount docker socket if needed to interact with other containers directly
+      # - /var/run/docker.sock:/var/run/docker.sock:rw
+    networks:
+      - kafka-demo-network
+    # Healthcheck: Check if overseer process/server is running
+    healthcheck:
+      test: ["CMD", "true"] # Placeholder - implement check
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  kafka-demo-network:
+    driver: bridge
+
+volumes:
+  status-volume: # Named volume for shared status/metrics
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=10m,mode=1777" # Small tmpfs, world-writable
