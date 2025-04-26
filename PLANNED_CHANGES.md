@@ -27,9 +27,10 @@ Use `vibectl` to automatically optimize a Kafka cluster running in K3d to maximi
 2.  **Orchestration:** `compose.yml`, `Makefile`, and `run.sh` helper setup.
 3.  **Configuration:** De-optimized Kafka defaults, resource limits, healthchecks, `vibectl setup` goal/constraints defined.
 4.  **Documentation:** Initial `README.md` and `STRUCTURE.md` created.
+5.  **Orchestration Fixes:** Resolved issues with GID/ClusterID generation and environment variable passing between Makefile, run.sh, and Docker Compose.
 
 **Next Steps:**
 
-1.  **Testing & Iteration:** Run the demo (`make up`), observe behavior, debug issues, and refine components.
+1.  **Testing & Iteration:** Run the demo (`make up`), observe behavior, debug issues, and refine components. (Current focus: Debugging runtime failure)
 2.  **Documentation Refinement:** Update `README.md` and `STRUCTURE.md` with final details and observations from testing.
 3.  **Overseer Enhancement (Optional):** Add logic to potentially adjust producer rate based on latency or `vibectl` status.

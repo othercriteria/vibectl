@@ -13,6 +13,11 @@ examples/k8s-sandbox/kafka-throughput/
 ├── compose.yml             # Docker Compose file defining the services.
 ├── Dockerfile              # (Not used directly, components have their own)
 ├── Makefile                # For managing common tasks (build, up, down, logs, etc.).
+├── run.sh                  # Main script to launch, manage, and clean up the demo.
+├── README.md               # Explains the demo, setup, and usage.
+├── STRUCTURE.md            # This file: describes the directory layout.
+├── .gitignore              # Specifies intentionally untracked files.
+├── .env.generated          # (Created by run.sh) Holds runtime env vars for compose.
 ├── k8s-sandbox/            # Contains files for the K3d + Kafka + vibectl service.
 │   ├── Dockerfile          # Builds the k8s-sandbox container image.
 │   ├── entrypoint.sh       # Script run inside the container to set up K3d, Kafka, and vibectl.
@@ -26,9 +31,6 @@ examples/k8s-sandbox/kafka-throughput/
 ├── overseer/               # (Placeholder) Contains files for the monitoring/control service.
 │   └── Dockerfile          # Placeholder Dockerfile.
 │   └── overseer.py         # (Placeholder) Script to observe latency and potentially adjust producer.
-├── run.sh                  # Main script to launch, manage, and clean up the demo.
-├── README.md               # This file: explains the demo, setup, and usage.
-├── STRUCTURE.md            # This file: describes the directory layout.
 └── status-volume/          # (Created at runtime) Shared volume for status/metric files.
     ├── kafka_ready         # (Created by k8s-sandbox) Signals Kafka broker is ready.
     └── latency.txt         # (Created by consumer) Contains latest consumer latency.

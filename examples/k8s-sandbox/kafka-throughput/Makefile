@@ -10,13 +10,16 @@ endif
 RUN_SH := ./run.sh
 $(shell chmod +x $(RUN_SH) > /dev/null 2>&1)
 
-# Get Docker GID using the helper flag in run.sh
+# Get Docker GID using the helper flag in run.sh -> REMOVED: run.sh handles this internally now.
 # We need to export it so it's available to the compose command in the build target
-export DOCKER_GID := $(shell $(RUN_SH) --get-gid)
+# export DOCKER_GID := $(shell $(RUN_SH) --get-gid)
 
 # Get list of services from compose file
 # Filter out top-level network/volume definitions if any
-SERVICES := $(shell $(COMPOSE_CMD) config --services)
+# Ignore stderr to suppress unset variable warnings during parsing
+# SERVICES := $(shell $(COMPOSE_CMD) config --services 2>/dev/null)
+# Hardcode services to avoid potential side effects of `config` command
+SERVICES := k8s-sandbox producer consumer overseer
 
 # Default target: Show help
 .PHONY: help
@@ -35,23 +38,20 @@ help: ## Show this help message
 # Pass DOCKER_GID as build-arg, using the value detected via run.sh
 .PHONY: build
 build: ## Build all Docker images (using DOCKER_GID=$(DOCKER_GID))
-	@echo "🛠️ Building Docker images with DOCKER_GID=$(DOCKER_GID)..."
-	$(COMPOSE_CMD) build --build-arg DOCKER_GID=$(DOCKER_GID)
+	@echo "🛠️ Building Docker images via ./run.sh --build-only..."
+	./run.sh --build-only
 
-# Start services
-# Note: `up` implicitly builds if images don't exist
+# Start services via run.sh
 .PHONY: up
-up: ## Start services in detached mode (builds if needed)
-	@echo "🚢 Starting services (will build if needed)..."
-	# Pass DOCKER_GID as environment variable for the sandbox container's build arg if needed by 'up'
-	$(COMPOSE_CMD) up -d
-	@echo "🎉 Demo is running! Use 'make logs' or 'make ps' to check status."
+up: ## Start services via run.sh (handles GID, API key, Cluster ID, build, up, wait)
+	@echo "🚀 Launching demo via ./run.sh..."
+	./run.sh
 
 # Stop and remove everything
 .PHONY: down
 down: ## Stop and remove containers, networks, volumes
 	@echo "🧹 Cleaning up Kafka Demo resources..."
-	$(COMPOSE_CMD) down --volumes --remove-orphans --timeout 30
+	$(COMPOSE_CMD) -f compose.yml down --volumes --remove-orphans --timeout 30 2>/dev/null || true
 
 # Show status
 .PHONY: ps
