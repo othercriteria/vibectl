@@ -14,6 +14,7 @@ export KAFKA_SERVICE="kafka-service"
 export KAFKA_PORT=9092
 export KAFKA_STATEFULSET="kafka-controller"
 export KAFKA_REPLICAS=1 # Assuming 1 replica for KRaft initially
+export KAFKA_CLUSTER_ID_CM="kafka-cluster-id" # Define the ConfigMap name
 
 # Status files
 mkdir -p "${STATUS_DIR}"
@@ -29,17 +30,18 @@ SHUTDOWN_FILE="${STATUS_DIR}/shutdown"
 function setup_k3d_cluster() {
     echo "🔧 Checking for existing K3d cluster '${K3D_CLUSTER_NAME}'..."
     if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then
-        echo "🧹 Found existing cluster with the same name. Removing it first..."
-        k3d cluster delete ${K3D_CLUSTER_NAME} || true
-        sleep 5
+        echo "✅ Found existing cluster '${K3D_CLUSTER_NAME}'. Reusing it."
+        # Optionally, verify cluster health here if needed in the future.
+        return 0 # Cluster already exists, no need to create
+    else
+        echo "🤔 Cluster '${K3D_CLUSTER_NAME}' not found. Creating it..."
+        # Note: Add any specific k3d flags if needed (e.g., ports, agents)
+        if ! k3d cluster create ${K3D_CLUSTER_NAME}; then
+            echo "❌ Error: Failed to create K3d cluster."
+            exit 1
+        fi
+        echo "✅ K3d cluster created successfully!"
     fi
-    echo "✨ Creating K3d cluster '${K3D_CLUSTER_NAME}'..."
-    # Note: Add any specific k3d flags if needed (e.g., ports, agents)
-    if ! k3d cluster create ${K3D_CLUSTER_NAME}; then
-        echo "❌ Error: Failed to create K3d cluster."
-        exit 1
-    fi
-    echo "✅ K3d cluster created successfully!"
 }
 
 # Reusable function from Bootstrap demo (adapted path)
@@ -83,39 +85,26 @@ function wait_for_k8s_ready() {
     done
 }
 
-function ensure_kafka_cluster_id() {
-    local cluster_id_cm="kafka-cluster-id-config"
-    echo "🔧 Ensuring Kafka Cluster ID ConfigMap (${cluster_id_cm}) exists..."
-    if kubectl get configmap "${cluster_id_cm}" -n "${KAFKA_NAMESPACE}" > /dev/null 2>&1; then
+function ensure_kafka_cluster_id_cm() {
+    echo "🔧 Ensuring Kafka Cluster ID ConfigMap (${KAFKA_CLUSTER_ID_CM}) exists..."
+    if kubectl get configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" >/dev/null 2>&1; then
         echo "✅ Cluster ID ConfigMap already exists."
-        return 0
+    else
+        echo "🤔 Cluster ID ConfigMap not found. Creating it using generated ID..."
+        # Get the generated ID from the environment variable passed by run.sh/compose
+        if [ -z "${GENERATED_KAFKA_CLUSTER_ID:-}" ]; then
+             echo "❌ Error: GENERATED_KAFKA_CLUSTER_ID environment variable is not set." >&2
+             echo "   This should have been generated and passed by the run.sh script." >&2
+             exit 1
+        fi
+        echo "🔑 Using pre-generated Kafka Cluster ID: ${GENERATED_KAFKA_CLUSTER_ID}"
+        # Create the ConfigMap
+        if ! kubectl create configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" --from-literal=clusterId="${GENERATED_KAFKA_CLUSTER_ID}"; then
+            echo "❌ Error: Failed to create Kafka Cluster ID ConfigMap." >&2
+            exit 1
+        fi
+        echo "✅ Cluster ID ConfigMap created."
     fi
-
-    echo "🤔 Cluster ID ConfigMap not found. Generating new Cluster ID..."
-    # Note: Assumes kafka-storage.sh is available in the image PATH
-    # May need to adjust path depending on the Kafka image used (e.g., /opt/kafka/bin/kafka-storage.sh)
-    local cluster_id
-    if ! cluster_id=$(kafka-storage.sh random-uuid); then
-        echo "❌ Error: Failed to generate Kafka Cluster ID using kafka-storage.sh random-uuid" >&2
-        exit 1
-    fi
-    echo "🔑 Generated Cluster ID: ${cluster_id}"
-
-    echo "📝 Creating ConfigMap ${cluster_id_cm} with Cluster ID..."
-    cat <<EOF | kubectl apply -n "${KAFKA_NAMESPACE}" -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ${cluster_id_cm}
-  namespace: ${KAFKA_NAMESPACE}
-data:
-  clusterId: "${cluster_id}"
-EOF
-    if [ $? -ne 0 ]; then
-        echo "❌ Error: Failed to create Cluster ID ConfigMap." >&2
-        exit 1
-    fi
-    echo "✅ Cluster ID ConfigMap created successfully."
 }
 
 function deploy_kafka() {
@@ -123,7 +112,7 @@ function deploy_kafka() {
     kubectl create namespace ${KAFKA_NAMESPACE} || echo "Namespace ${KAFKA_NAMESPACE} likely already exists."
 
     # Ensure the cluster ID exists BEFORE applying the main manifest
-    ensure_kafka_cluster_id
+    ensure_kafka_cluster_id_cm
 
     echo "🔧 Deploying Kafka from manifest: ${KAFKA_MANIFEST}..."
     if ! kubectl apply -f "${KAFKA_MANIFEST}" -n ${KAFKA_NAMESPACE}; then

@@ -22,6 +22,8 @@ services:
       - STATUS_DIR=/tmp/status
       # K3d Cluster Name
       - K3D_CLUSTER_NAME=kafka-demo-cluster
+      # Explicitly pass the generated Kafka Cluster ID
+      - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - status-volume:/tmp/status:rw

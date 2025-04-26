@@ -85,6 +85,7 @@ else
     echo "${GENERATED_KAFKA_CLUSTER_ID}" > "${CLUSTER_ID_FILE}"
     echo "✅ Generated and saved new Kafka Cluster ID: ${GENERATED_KAFKA_CLUSTER_ID}"
 fi
+export GENERATED_KAFKA_CLUSTER_ID # Export for compose file interpolation
 # Write variables needed by compose up to the .env file
 echo "Writing runtime env vars to ${ENV_FILE}..."
 cat > "${ENV_FILE}" << EOF
@@ -139,10 +140,6 @@ cleanup() {
   echo "✅ Cleanup attempt finished."
 }
 
-# --- Trap for Cleanup ---
-# Trigger cleanup function on exit, interrupt, or termination signals
-trap cleanup EXIT SIGINT SIGTERM
-
 # --- Main Execution ---
 echo "🚀 Building and starting Docker containers..."
 
@@ -172,10 +169,12 @@ fi
 
 # --- Step 2: Start Containers ---
 echo "🚢 Starting services..."
+# Use the determined compose command
+# Use --project-name to avoid conflicts if needed, but compose.yml in dir should be sufficient
+# Use --env-file to pass the generated variables
 if ! ${COMPOSE_CMD} -f compose.yml up -d; then
     echo "❌ Error: Docker compose up failed." >&2
     # Cleanup might already be triggered by failed container, but attempt explicit cleanup
-    cleanup
     exit 1
 fi
 
