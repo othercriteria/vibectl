@@ -2,10 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies (e.g., requests, Flask/FastAPI?)
-# RUN pip install --no-cache-dir requests
+# No external dependencies needed for the basic overseer
+# RUN pip install --no-cache-dir ...
 
-COPY . /app
+# Copy the overseer script into the container
+COPY overseer.py /app/
 
-# Placeholder command
-CMD ["python", "-m", "http.server", "8002"]
+# Set the command to run the overseer script by default
+CMD ["python", "./overseer.py"]

@@ -140,9 +140,14 @@ spec:
             value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
           - name: KAFKA_LOG_DIRS
             value: "/var/lib/kafka/data"
-          # JVM Heap settings (example - these could be tuning targets)
+          # JVM Heap settings (Intentionally low initial setting)
           - name: KAFKA_HEAP_OPTS
-            value: "-Xms512m -Xmx512m"
+            value: "-Xms256m -Xmx256m"
+          # Network and I/O threads (Intentionally low initial settings)
+          - name: KAFKA_NUM_NETWORK_THREADS
+            value: "1" # Default is 3
+          - name: KAFKA_NUM_IO_THREADS
+            value: "2" # Default is 8
         # Command to format storage and start Kafka
         # Note: Bitnami images might have different entrypoints/config methods
         command:

@@ -8,7 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Planned: New Kafka throughput demo for demonstrating vibectl's ability to tune Kafka performance under synthetic load (WIP)
+- Added initial Kafka throughput optimization demo (`examples/k8s-sandbox/kafka-throughput/`) featuring:
+  - K3d Kubernetes cluster running a single-node KRaft Kafka instance.
+  - Python producer/consumer applications generating load and reporting P99 latency.
+  - A `vibectl` agent configured with the goal to maximize throughput and minimize latency by tuning Kafka broker environment variables (`KAFKA_HEAP_OPTS`, `KAFKA_NUM_NETWORK_THREADS`, `KAFKA_NUM_IO_THREADS`).
+  - Resource limits on the sandbox container and de-optimized Kafka defaults to create a clear optimization scenario.
+  - Makefile for easy management (`make up`, `make down`, `make logs`, etc.).
+
+### Changed
+- Updated root `STRUCTURE.md` to include Kafka demo.
 
 ## [0.5.2] - 2025-04-26
 

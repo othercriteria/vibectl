@@ -7,7 +7,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     curl \
     python3.11 \
-    python3.11-pip \
     python3.11-venv \
     docker.io \
     apt-transport-https \

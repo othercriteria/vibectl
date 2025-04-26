@@ -205,14 +205,44 @@ function setup_vibectl() {
     fi
     echo "Current vibectl config:"
     vibectl config show
-    echo "✅ vibectl configured."
+
+    # Define goal and constraints using vibectl setup
+    CPU_LIMIT="${K8S_SANDBOX_CPU_LIMIT:-4.0}" # Read from env, default if unset
+    MEM_LIMIT="${K8S_SANDBOX_MEM_LIMIT:-4G}" # Read from env, default if unset
+
+    echo "🔧 Setting up vibectl goal and constraints (CPU: ${CPU_LIMIT}, Memory: ${MEM_LIMIT})..."
+    # Use heredoc for multiline instructions
+    vibectl setup --goal "Maximize Kafka producer throughput while minimizing consumer P99 latency, observed via /tmp/status/latency.txt." --instructions - <<-EOF
+	You are operating within a resource-constrained Kubernetes sandbox (k3d).
+	The container hosting Kubernetes and Kafka is limited to approximately ${CPU_LIMIT} CPUs and ${MEM_LIMIT} Memory.
+	The Kafka cluster runs as a StatefulSet named 'kafka-controller' in the 'kafka' namespace.
+	You can tune the following Kafka parameters by patching the StatefulSet's environment variables:
+	- KAFKA_HEAP_OPTS (e.g., -Xms<size>m -Xmx<size>m)
+	- KAFKA_NUM_NETWORK_THREADS (integer)
+	- KAFKA_NUM_IO_THREADS (integer)
+
+	Monitor the P99 latency reported by the consumer in /tmp/status/latency.txt (mounted in this container).
+	Use 'kubectl patch statefulset kafka-controller -n kafka --type=strategic -p ...' to apply changes.
+	Ensure changes respect the resource limits of the sandbox.
+	Start with the initial low settings and iteratively improve them.
+	The Kafka broker service inside Kubernetes is kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9092.
+	The external Kafka endpoint (via port-forward) is localhost:9092 from this container's perspective.
+	Focus on tuning the env vars mentioned above.
+	EOF
+
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to run vibectl setup." >&2
+        exit 1
+    fi
+
+    echo "✅ vibectl configured and setup complete."
 }
 
 function run_vibectl_loop() {
     echo "🔄 Starting vibectl monitoring loop..."
-    # Clear initial memory
-    vibectl memory clear
-    vibectl memory set "Initial state: KRaft Kafka cluster running in k3d. Producer and consumer are external. Goal is to optimize Kafka throughput by adjusting broker config, observed via consumer latency." || echo "Warning: Failed to set initial memory."
+    # No longer need to clear memory here, setup handles initial instructions
+    # vibectl memory clear
+    # vibectl memory set "Initial state: KRaft Kafka cluster running in k3d..."
 
     LAST_LATENCY=""
     while true; do

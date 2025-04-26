@@ -1,6 +1,11 @@
 services:
   k8s-sandbox:
     container_name: kafka-k8s-sandbox
+    deploy: # Add resource limits
+      resources:
+        limits:
+          cpus: "${K8S_SANDBOX_CPU_LIMIT:-4.0}"
+          memory: "${K8S_SANDBOX_MEM_LIMIT:-4G}"
     build:
       context: ./k8s-sandbox
       dockerfile: Dockerfile
@@ -49,10 +54,9 @@ services:
       - kafka-demo-network
     # Healthcheck: Check connectivity to Kafka
     healthcheck:
-      test: ["CMD", "true"] # Placeholder - implement check
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 15s # Check less frequently than sandbox
+      timeout: 10s
 
   consumer:
     container_name: kafka-consumer
@@ -77,10 +81,9 @@ services:
       - kafka-demo-network
     # Healthcheck: Check connectivity to Kafka
     healthcheck:
-      test: ["CMD", "true"] # Placeholder - implement check
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 15s
+      timeout: 10s
 
   overseer:
     container_name: kafka-overseer
@@ -109,10 +112,10 @@ services:
       - kafka-demo-network
     # Healthcheck: Check if overseer process/server is running
     healthcheck:
-      test: ["CMD", "true"] # Placeholder - implement check
-      interval: 10s
+      # Check if the overseer.py script is running
+      test: ["CMD-SHELL", "pgrep -f 'python ./overseer.py' || exit 1"]
+      interval: 15s
       timeout: 5s
-      retries: 5
 
 networks:
   kafka-demo-network:
