@@ -627,8 +627,19 @@ def test_truncate_logs_by_lines_edge_counts() -> None:
     assert truncated_9 == expected_9
 
 
+def test_truncate_logs_by_lines_max_1() -> None:
+    """Test _truncate_logs_by_lines specifically with max_lines=1."""
+    log_text = "Line 1\nLine 2\nLine 3\nLine 4"
+    # With max_lines=1, it should keep only the last line (end_ratio >= 0.5)
+    expected_result = "[... 3 lines truncated ...]\nLine 4"
+    assert tl._truncate_logs_by_lines(log_text, 1) == expected_result
+
+    # Test with only one line input
+    assert tl._truncate_logs_by_lines("Single line", 1) == "Single line"
+
+
 def test_calculate_yaml_overhead() -> None:
-    """Test YAML overhead calculation."""
+    """Test the YAML overhead calculation."""
     assert tl._calculate_yaml_overhead(0) == 0
     assert tl._calculate_yaml_overhead(1) == 5  # 1*5 + (1-1)*2
     assert tl._calculate_yaml_overhead(2) == 12  # 2*5 + (2-1)*2

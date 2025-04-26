@@ -223,6 +223,12 @@ Implementation should prioritize commands that provide the most value to users w
 - Revisit model value validation: consider stricter validation or a more robust alias/provider detection system.
 - Document the current workaround: providerless model aliases (like 'tinyllama') are accepted for compatibility with llm-ollama, but this may change in the future.
 
+## Output Truncation Future Enhancements
+- **Refine Budget Truncation Heuristics:** Implement more sophisticated YAML budget allocation (e.g., prioritizing `status`, `spec`) and smarter, section-specific truncation methods (e.g., summarizing lists in `status.conditions`, `items`) instead of simple string truncation for over-budget sections.
+- **Improve JSON Budgeting:** Apply a per-section budget approach (similar to the current YAML implementation) to JSON output for more balanced truncation, instead of relying solely on depth/list limits followed by string truncation.
+- **Context-Aware Truncation:** Use the `vibe` command's intent (if available/passed) to dynamically prioritize sections during truncation, preserving information most relevant to the user's query.
+- **User Configuration:** Add user configuration options (via `vibectl config`) for truncation parameters (e.g., depth, list length, log line counts, budget ratios, priority sections).
+
 ## Test Structure Cleanup
 - Flattened `tests/coverage/` into `tests/` for now.
 - Revisit test organization and structure comprehensively later.

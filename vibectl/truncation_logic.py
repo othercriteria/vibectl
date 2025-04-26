@@ -167,11 +167,12 @@ def _truncate_logs_by_lines(
 
     # Calculate ideal end/start counts based purely on ratio
     # Use round() for potentially more balanced distribution on small numbers
-    end_lines_count = round(max_lines * end_ratio)
+    # Ensure end_lines_count is non-negative
+    end_lines_count = max(0, round(max_lines * end_ratio))
+    # start_lines_count is now guaranteed non-negative if max_lines is non-negative
     start_lines_count = max_lines - end_lines_count
 
     # Ensure counts are non-negative and handle cases where max_lines is very small
-    # If max_lines is 1, favour the end line due to rounding end_ratio >= 0.5
     if max_lines == 1:
         start_lines_count = 0
         end_lines_count = 1
@@ -179,16 +180,6 @@ def _truncate_logs_by_lines(
         # Ensure start and end get at least 1 if possible
         start_lines_count = 1
         end_lines_count = 1
-    else:
-        # For max_lines > 2, adjust if rounding led to negative or zero
-        # counts unexpectedly
-        start_lines_count = max(0, start_lines_count)
-        end_lines_count = max(0, end_lines_count)
-        # Ensure total does not exceed max_lines after adjustment
-        if start_lines_count + end_lines_count > max_lines:
-            # Prioritize end ratio if adjustment needed
-            end_lines_count = round(max_lines * end_ratio)
-            start_lines_count = max_lines - end_lines_count
 
     # Ensure counts do not exceed num_lines (redundant due to initial check, but safe)
     start_lines_count = min(start_lines_count, num_lines)
@@ -201,18 +192,13 @@ def _truncate_logs_by_lines(
 
     lines_truncated_count = num_lines - len(first_chunk_lines) - len(last_chunk_lines)
 
-    # Remove defensive check as it should be handled by initial checks
-    # if lines_truncated_count <= 0:
-    #      return log_text # Avoid nonsensical marker
-
     marker = f"[... {lines_truncated_count} lines truncated ...]"
 
     # Combine parts
     result_parts = []
     if first_chunk_lines:
         result_parts.append("\n".join(first_chunk_lines))
-    if marker:
-        result_parts.append(marker)
+    result_parts.append(marker)
     if last_chunk_lines:
         result_parts.append("\n".join(last_chunk_lines))
 

@@ -297,21 +297,9 @@ class OutputProcessor:
         4. Apply a final string truncation if the reconstructed YAML still
             exceeds char_limit.
         """
-        try:
-            # Quick check if valid YAML before extensive processing
-            if not output or output.isspace():
-                return Truncation(original=output, truncated="", original_type="yaml")
-            # Test YAML validity by parsing (needed for section extraction anyway)
-            list(yaml.safe_load_all(output))
-        except yaml.YAMLError:
-            # If invalid YAML, treat as plain text using the limit
-            return Truncation(
-                original=output,
-                truncated=tl.truncate_string(output, char_limit),
-                original_type="text",
-            )
-
-        # If we reach here, initial parsing succeeded
+        # If we reach here, initial parsing succeeded (or will be attempted)
+        if not output or output.isspace():
+            return Truncation(original=output, truncated="", original_type="yaml")
 
         original_length = len(output)
         if original_length <= char_limit:
@@ -353,6 +341,7 @@ class OutputProcessor:
                 f"Usable: {usable_budget}, Fair Share: {fair_share}"
             )
 
+            # Apply secondary truncation to over-budget sections
             sections_to_reconstruct = {}
             for key, section_content in current_sections.items():
                 section_len = len(section_content)
@@ -366,6 +355,24 @@ class OutputProcessor:
                     )
                     # Simple approach: Truncate the entire section string
                     truncated_section = tl.truncate_string(section_content, fair_share)
+
+                    # Ensure subsequent document sections retain their separator
+                    # after truncation.
+                    is_subsequent_doc = key.startswith("document_")
+                    missing_separator = not truncated_section.strip().startswith(
+                        "--- \n"
+                    )
+                    # Check content validity carefully
+                    is_valid_content = (
+                        truncated_section.strip() and "..." not in truncated_section
+                    )
+
+                    if is_subsequent_doc and missing_separator and is_valid_content:
+                        # Check if it looks like a fragment that lost its separator
+                        # Avoid adding separator to completely empty/marker strings
+                        logger.debug(f"Prepending --- to truncated section {key}")
+                        # Combine with newline
+                        truncated_section = f"---\n{truncated_section.lstrip()}"
                     sections_to_reconstruct[key] = truncated_section
                 else:
                     sections_to_reconstruct[key] = section_content  # Keep as is
@@ -392,68 +399,104 @@ class OutputProcessor:
 
     def extract_yaml_sections(self, yaml_output: str) -> YamlSections:
         """Extract sections from YAML output based on top-level keys of the
-        first document."""
+        first document, treating subsequent documents as whole sections."""
         sections: YamlSections = {}
         try:
-            # Use safe_load_all for multi-document YAML, process first doc mainly
-            documents = list(yaml.safe_load_all(yaml_output))
+            # Use safe_load_all for multi-document YAML
+            # Store the generator to avoid consuming it prematurely
+            docs_generator = yaml.safe_load_all(yaml_output)
+            # Convert to list to handle potential errors during loading
+            documents = list(docs_generator)
+
             if not documents:
                 # If parsing yields nothing, treat as single content section
+                # (Handles empty strings, comment-only strings, etc.)
+                logger.debug("YAML parse yielded no documents, treating as content.")
                 return {"content": yaml_output.strip()}
 
-            # Wrap document processing in its own try/except
-            try:
-                data = documents[0]  # Focus on the first document
+            # Process the first document
+            first_doc = documents[0]
+            if isinstance(first_doc, dict):
+                # Extract top-level keys as sections from the first dict
+                for key, value in first_doc.items():
+                    # Dump each section back to YAML string
+                    # Ensure flow style is block and width is infinite to prevent
+                    # wrapping
+                    try:
+                        sections[key] = yaml.dump(
+                            {key: value},
+                            default_flow_style=False,
+                            width=float("inf"),
+                            allow_unicode=True,  # Preserve unicode characters
+                            sort_keys=False,
+                        ).strip()
+                    except yaml.YAMLError as dump_error:
+                        logger.warning(f"Error dumping section '{key}': {dump_error}")
+                        # Fallback: use a simple string representation
+                        sections[key] = f"{key}: [Error dumping value]"
+            elif first_doc is not None:
+                # If first doc is not a dict (list, primitive, etc.), use it directly
+                # if it's a string, otherwise dump it.
+                logger.debug("First document is not a dict.")
+                if isinstance(first_doc, str):
+                    logger.debug("First document is string, using directly as content.")
+                    sections["content"] = first_doc  # Use the string directly
+                else:
+                    # Dump non-string, non-dict first docs (e.g., list)
+                    logger.debug("First document is not string, dumping as content.")
+                    try:
+                        sections["content"] = yaml.dump(
+                            first_doc,
+                            default_flow_style=False,
+                            explicit_start=True,  # Add --- for lists etc.
+                            width=float("inf"),
+                            allow_unicode=True,
+                            sort_keys=False,
+                        ).strip()
+                    except yaml.YAMLError as dump_error:
+                        # Log error dumping non-dict/non-string first doc
+                        logger.warning(
+                            f"Error dumping non-dict/non-string first "
+                            f"document: {dump_error}"
+                        )
+                        sections["content"] = "[Error dumping first document]"
+            # If first_doc is None (e.g., `---`), skip adding it explicitly.
 
-                if data is None:
-                    return {"content": yaml_output.strip()}
-
-                if not isinstance(data, dict) or not data:
-                    # If not a dict or empty, check if it was originally just a string.
-                    # If so, return the original string content directly.
-                    if isinstance(data, str):
-                        return {"content": yaml_output.strip()}
-                    # Otherwise, dump the parsed non-dict item back.
-                    content_yaml = yaml.dump(
-                        data,
-                        default_flow_style=False,
-                        explicit_start=True,
-                        width=float("inf"),
-                    )
-                    return {"content": content_yaml.strip()}
-
-                # Extract top-level keys as sections
-                for key, value in data.items():
-                    # Dump each section back to YAML string, preserve width if possible
-                    sections[key] = yaml.dump(
-                        {key: value}, default_flow_style=False, width=float("inf")
-                    ).strip()
-
-                # Handle multi-document case: add subsequent docs as separate sections
-                if len(documents) > 1:
-                    for i, doc_data in enumerate(documents[1:], start=2):
-                        doc_key = f"document_{i}"
-                        # Dump subsequent documents completely
+            # Handle multi-document case: add subsequent docs as separate sections
+            if len(documents) > 1:
+                for i, doc_data in enumerate(documents[1:], start=2):
+                    doc_key = f"document_{i}"
+                    try:
+                        # Dump subsequent documents completely, adding --- separator
                         doc_yaml = yaml.dump(
                             doc_data,
                             default_flow_style=False,
                             explicit_start=True,
                             width=float("inf"),
+                            allow_unicode=True,
+                            sort_keys=False,
                         )
                         sections[doc_key] = doc_yaml.strip()
+                    except yaml.YAMLError as dump_error:
+                        logger.warning(f"Error dumping document {i}: {dump_error}")
+                        sections[doc_key] = f"---\n[Error dumping document {i}]"
 
-            except yaml.YAMLError:
-                # If error occurs *during* processing of loaded documents, fallback
-                logger.warning(
-                    "YAMLError during section extraction from loaded documents, "
-                    "falling back."
-                )
-                return {"content": yaml_output.strip()}
-
-        except yaml.YAMLError:
+        except yaml.YAMLError as load_error:
             # If initial safe_load_all fails, treat the whole output as a single
             # 'content' section
-            logger.warning("Initial YAMLError during safe_load_all, falling back.")
+            logger.warning(
+                f"Initial YAML load error ({load_error}), "
+                f"falling back to content section."
+            )
+            # Ensure we strip whitespace from the original output here
+            return {"content": yaml_output.strip()}
+
+        # Handle the case where processing resulted in no sections
+        # (e.g., only None docs).
+        if not sections:
+            logger.debug(
+                "Processing resulted in no sections, returning original content."
+            )
             return {"content": yaml_output.strip()}
 
         return sections

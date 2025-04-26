@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Enhanced YAML output processing (`OutputProcessor`) with budget-based secondary truncation for better LLM context management.
+- Improved robustness of `extract_yaml_sections` for various YAML structures, including multi-document files.
+- Refined iterative log truncation logic (`_truncate_logs_by_lines`) for improved character budget adherence.
+
+### Added
+- Extensive new unit tests for `OutputProcessor` focusing on YAML section extraction, budget calculation, and multi-document handling.
+- Additional test coverage for `truncation_logic` edge cases.
 - Planned: Overhaul output truncation logic for improved context awareness and consistency (WIP)
 
 ## [0.5.1] - 2025-04-25
