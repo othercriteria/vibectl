@@ -3,36 +3,46 @@
 ## Core Components
 
 - **Kubernetes Sandbox (k8s):**
-    - Evaluate Kind vs. k3d for setup (consider ease of port-forwarding/networking vs. startup time).
-    - Run Kafka cluster (e.g., using Strimzi operator or Helm chart).
+    - Use K3d (simpler networking via internal port-forwarding pattern from Bootstrap demo).
+    - Run Kafka cluster using basic Kubernetes manifests (StatefulSet, Service, ConfigMap) aiming for KRaft mode (no Zookeeper) for simplicity.
     - Run `vibectl` agent within the cluster.
-- **Producer Container:**
-    - Develop Python script to generate configurable Kafka messages (rate, size).
-    - Implement topic distribution logic.
-    - Use acknowledgements (`acks=all`) for reliable production.
-    - Include a timestamp and potentially a hash payload for latency/integrity check.
-- **Consumer Container:**
-    - Develop Python script to consume messages from Kafka topics.
-    - Verify message integrity (e.g., hash check using a shared secret unknown to `vibectl`).
-    - Calculate end-to-end latency based on producer timestamp.
-    - Expose latency metrics (e.g., via a simple HTTP endpoint).
-- **Overseer Container:**
-    - Develop a simple web UI (e.g., Flask/FastAPI + basic HTML/JS) or CLI tool.
-    - Display key metrics: producer rate, consumer latency (p50, p99), `vibectl` actions/logs.
-    - Implement logic to adjust producer rate based on observed latency thresholds.
-    - Inject latency feedback into the k8s sandbox container (mechanism TBD: e.g., write to a file mount, exec into `vibectl` pod, custom endpoint).
-    - Trigger periodic `vibectl auto --limit 5` runs within the k8s container after injecting feedback.
+
+### Changed
+- Use a file on the shared volume (e.g., `/tmp/status/latency.txt`) for latency feedback. Overseer writes to it, `k8s-sandbox` entrypoint reads it, injects into `vibectl` memory (e.g., `vibectl memory update "Latest consumer p99 latency: X ms"`), then runs `vibectl auto`.
 
 ## `vibectl` Integration
 
-- Define the `vibectl` agent's goal: Minimize consumer latency while maximizing producer throughput by tuning Kafka broker configurations (e.g., `num.io.threads`, `num.network.threads`, JVM heap).
-- Develop mechanism for injecting latency metrics into `vibectl`'s memory or observation space.
+- Define the `vibectl` agent's goal: Minimize consumer latency while maximizing producer throughput by tuning Kafka broker configurations (e.g., `num.io.threads`, `num.network.threads`, JVM heap size/GC settings) via direct modification of Kafka ConfigMaps/StatefulSet.
+- Develop mechanism for injecting latency metrics into `vibectl`'s memory or observation space via the shared volume file (`/tmp/status/latency.txt`).
 
 ## Demo Infrastructure & Documentation
 
 - Create `examples/kafka-throughput-demo` directory.
-- Develop Dockerfiles for each container.
-- Create configuration/orchestration files (docker-compose, Kubernetes manifests, Kind/k3d config).
+- Develop Dockerfiles for each container (Producer, Consumer, Overseer, k8s-sandbox).
+    - k8s-sandbox Dockerfile should include K3d, kubectl.
+    - Reuse Docker GID detection logic from CTF `run.sh` (`lines 102-112`) for k8s-sandbox container.
+- Develop entrypoint script(s) for containers, especially k8s-sandbox.
+    - Use modular functions (Bootstrap `bootstrap-entrypoint.sh`).
+    - Implement K3d setup and kubeconfig patching (Bootstrap `bootstrap-entrypoint.sh` `lines 20-51`).
+    - Deploy Kafka using basic manifests (apply YAML).
+    - Implement loop to check shared volume file (`/tmp/status/latency.txt`), update `vibectl` memory, and run `vibectl auto`.
+    - Use `kubectl port-forward` in background with `trap` for cleanup to expose internal K8s services (e.g., Kafka broker endpoint 9092) to other containers (Bootstrap `bootstrap-entrypoint.sh` `lines 163-165`).
+    - Use phased execution with status files for idempotency (Bootstrap `bootstrap-entrypoint.sh` `lines 290-316`).
+    - End k8s-sandbox entrypoint with keep-alive loop (Bootstrap `bootstrap-entrypoint.sh` `lines 319-325`).
+- Create `compose.yml` defining services and dependencies.
+    - Use `depends_on` with `condition: service_healthy` for startup order (Kafka -> Producer/Consumer -> Overseer) (CTF `compose.yml` `lines 33-36`, `79-82`).
+    - Implement service `healthcheck`s (Kafka brokers, producer/consumer readiness) (CTF `compose.yml` `lines 25-30`, `68-74`).
+    - Consider shared volume (`tmpfs`) for metric/status passing or simple HTTP endpoints (CTF `compose.yml` `lines 22-23`, `64-65`, `89-90`, `105-109`).
+    - Define a dedicated Docker network (CTF `compose.yml` `lines 101-103`).
+- Develop `run.sh` script to orchestrate setup and cleanup.
+    - Adapt argument parsing for Kafka-specific parameters (CTF `run.sh` `lines 5-29`).
+    - Handle required configuration/secrets via environment variables (prompt if missing) (CTF `run.sh` `lines 59-69`).
+    - Add prerequisite checks (Docker, compose, memory?) (Bootstrap `launch.sh` `lines 61-98`).
+    - Consider generating a temporary Compose file if complex runtime config is needed (Bootstrap `launch.sh` `lines 107-145`).
+    - Implement robust `cleanup()` function and `trap` (CTF `run.sh` `lines 71-99`, `line 118`). Separate `cleanup.sh` (Bootstrap) is also an option.
+    - Use explicit `build` then `up` steps (Bootstrap `launch.sh` `lines 148-149`).
+    - Implement application-level status checks (e.g., waiting for status files) for better startup coordination (Bootstrap `launch.sh` `lines 152-177`).
+    - Provide clear user feedback on progress and next steps (Bootstrap `launch.sh` `lines 179-195`).
 - Write `examples/kafka-throughput-demo/README.md` detailing setup, prerequisites, and how to run the demo.
 - Add `examples/kafka-throughput-demo/STRUCTURE.md` documenting the demo's layout.
 - Update root `README.md` and `STRUCTURE.md` to reference the new example.
