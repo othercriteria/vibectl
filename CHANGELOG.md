@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Planned: New Kafka throughput demo for demonstrating vibectl's ability to tune Kafka performance under synthetic load (WIP)
+
 ## [0.5.2] - 2025-04-26
 
 ### Changed
