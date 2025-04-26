@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-04-26
+
 ### Changed
 - Refactored output processing and truncation logic for better modularity and testability (`output_processor.py`, `truncation_logic.py`).
 - Implemented budget-aware YAML truncation, distributing character limits across top-level sections.
