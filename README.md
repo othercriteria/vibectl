@@ -447,7 +447,7 @@ for details.
 - **Kubernetes CTF Sandbox**: Challenge-based learning environment for vibectl autonomy. See `examples/k8s-sandbox/ctf/README.md`.
 - **Chaos Monkey**: Red/blue team competitive scenario for resilience testing. See `examples/k8s-sandbox/chaos-monkey/README.md`.
 - **Bootstrap Demo**: Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis. See `examples/k8s-sandbox/bootstrap/README.md`.
-- **Kafka Throughput Demo**: Demonstrates vibectl tuning Kafka performance under synthetic load within a K3d environment. See `examples/kafka-throughput-demo/README.md`.
+- **Kafka Throughput Demo**: Demonstrates vibectl tuning Kafka performance under synthetic load within a K3d environment. See `examples/k8s-sandbox/kafka-throughput/README.md`.
 
 ## Development Workflow
 
