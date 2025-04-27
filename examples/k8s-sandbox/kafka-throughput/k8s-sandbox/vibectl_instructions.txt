@@ -1,0 +1,19 @@
+Goal: Maximize Kafka producer throughput while minimizing consumer P99 latency.
+
+You are operating within a resource-constrained Kubernetes sandbox (k3d).
+The container hosting Kubernetes and Kafka is limited to approximately ${K8S_SANDBOX_CPU_LIMIT:-4.0} CPUs and ${K8S_SANDBOX_MEM_LIMIT:-4G} Memory.
+The Kafka cluster runs as a StatefulSet named 'kafka-controller' in the 'kafka' namespace.
+You can tune the following Kafka parameters by patching the StatefulSet's environment variables:
+- KAFKA_HEAP_OPTS (e.g., -Xms<size>m -Xmx<size>m)
+- KAFKA_NUM_NETWORK_THREADS (integer)
+- KAFKA_NUM_IO_THREADS (integer)
+
+Monitor the P99 latency by reading the 'p99_latency_ms' key from the 'kafka-latency-metrics' ConfigMap in the 'kafka' namespace. Use:
+`kubectl get configmap kafka-latency-metrics -n kafka -o jsonpath='{.data.p99_latency_ms}'`
+
+Use 'kubectl patch statefulset kafka-controller -n kafka --type=strategic -p ...' to apply tuning changes.
+Ensure changes respect the resource limits of the sandbox.
+Start with the initial low settings and iteratively improve them.
+The Kafka broker service inside Kubernetes is kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9092.
+The external Kafka endpoint (via port-forward) is localhost:9092 from this container's perspective.
+Focus on tuning the env vars mentioned above.

@@ -2,13 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
-RUN pip install --no-cache-dir kafka-python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the producer script into the container
-COPY producer.py /app/
-# Copy the healthcheck script
-COPY healthcheck.py /app/
+COPY producer.py .
 
-# Set the command to run the producer script by default
+# Add healthcheck script
+COPY healthcheck.py .
+
 CMD ["python", "./producer.py"]

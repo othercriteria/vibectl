@@ -2,13 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
-RUN pip install --no-cache-dir kafka-python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the consumer script into the container
-COPY consumer.py /app/
-# Copy the healthcheck script
-COPY healthcheck.py /app/
+COPY consumer.py .
 
-# Set the command to run the consumer script by default
+# Add healthcheck script
+COPY healthcheck.py .
+
 CMD ["python", "./consumer.py"]

@@ -190,34 +190,27 @@ elapsed_wait=0
 # Wait for the status file to appear
 while ! [ -f "${status_file_path}" ]; do
     if [ $elapsed_wait -ge $max_wait_seconds ]; then
+        echo "" # Newline after dots
         echo "❌ Error: Timed out waiting for Kafka readiness signal (${status_file_path}) after ${max_wait_seconds}s."
         echo "   Check the logs of the 'k8s-sandbox' container:"
         ${COMPOSE_CMD} -f compose.yml logs k8s-sandbox
         # Cleanup will run automatically via trap EXIT
         exit 1
     fi
-    if [ $((elapsed_wait % 30)) -eq 0 ]; then # Print message every 30 seconds
-        echo "   Still waiting for Kafka readiness (${elapsed_wait}s / ${max_wait_seconds}s)..."
-        # Add extra debug info:
-        echo "   Checking for file: ${status_file_path}"
-        if [ -d "${STATUS_DIR}" ]; then
-           echo "   Status directory (${STATUS_DIR}) exists. Contents:"
-           ls -la "${STATUS_DIR}" || echo "   (Could not list status directory)"
-        else
-           echo "   Status directory (${STATUS_DIR}) does NOT exist."
-        fi
-    fi
+    # Print a dot every interval to show progress
+    echo -n "."
     sleep $wait_interval
     elapsed_wait=$((elapsed_wait + wait_interval))
 done
 
+echo "" # Newline after the dots
 echo "✅ Kafka cluster reported as ready via ${status_file_path}."
 
 # --- Post-Startup Information ---
 echo
 echo "🎉 Kafka Throughput Demo is running!"
 echo "   - Kafka Broker (via k8s-sandbox port-forward): localhost:9092"
-echo "   - Producer, Consumer, Overseer, and Vibectl Agent are running in containers."
+echo "   - Producer, Consumer, Kafka-Demo-UI, and Vibectl Agent are running in containers."
 echo "   - Shared status volume mounted at './status-volume/'"
 echo
 echo "ℹ️ Monitoring:"

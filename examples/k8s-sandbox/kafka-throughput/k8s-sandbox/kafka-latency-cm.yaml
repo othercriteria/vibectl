@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-latency-metrics
+  namespace: kafka # Ensure this is created in the correct namespace
+data:
+  p99_latency_ms: "N/A" # Initial value

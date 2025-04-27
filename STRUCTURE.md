@@ -50,7 +50,7 @@ This document provides an overview of the project's structure and organization.
   - `ctf/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/ctf/STRUCTURE.md](examples/k8s-sandbox/ctf/STRUCTURE.md) for details.
   - `chaos-monkey/` - Red team vs. blue team competitive scenario with vibectl agents. See [examples/k8s-sandbox/chaos-monkey/STRUCTURE.md](examples/k8s-sandbox/chaos-monkey/STRUCTURE.md) for details.
   - `bootstrap/` - Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis. See [examples/k8s-sandbox/bootstrap/STRUCTURE.md](examples/k8s-sandbox/bootstrap/STRUCTURE.md) for details.
-  - `kafka-throughput/` - Demonstrates vibectl tuning Kafka performance under synthetic load. See [examples/k8s-sandbox/kafka-throughput/STRUCTURE.md](examples/k8s-sandbox/kafka-throughput/STRUCTURE.md) for details.
+  - `kafka-throughput/` - Demonstrates `vibectl` autonomously tuning Kafka broker performance (heap, threads) in a K3d cluster based on producer/consumer latency metrics. See [examples/k8s-sandbox/kafka-throughput/STRUCTURE.md](examples/k8s-sandbox/kafka-throughput/STRUCTURE.md) for details.
 
 ### Type Information (`typings/`)
 - Custom type definitions and type stubs

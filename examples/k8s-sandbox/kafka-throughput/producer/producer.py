@@ -17,8 +17,8 @@ KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "throughput-topic")
 MESSAGE_RATE_PER_SECOND = int(os.environ.get("MESSAGE_RATE_PER_SECOND", "10"))
 MESSAGE_SIZE_BYTES = int(os.environ.get("MESSAGE_SIZE_BYTES", "1024"))
 PRODUCER_CLIENT_ID = os.environ.get("PRODUCER_CLIENT_ID", "kafka-throughput-producer")
-MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "5"))
-INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "5"))
+MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "30"))
+INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "10"))
 
 
 def create_message(sequence_number: int, size_bytes: int) -> bytes:
@@ -57,7 +57,7 @@ def main() -> None:
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BROKER,
                 client_id=PRODUCER_CLIENT_ID,
-                acks="1",  # Acknowledge after leader write
+                acks=1,  # Acknowledge after leader write (Changed to integer)
                 retries=3,  # Internal retries within kafka-python
             )
             logging.info("KafkaProducer initialized successfully.")

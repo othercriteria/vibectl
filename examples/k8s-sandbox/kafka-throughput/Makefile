@@ -19,7 +19,7 @@ $(shell chmod +x $(RUN_SH) > /dev/null 2>&1)
 # Ignore stderr to suppress unset variable warnings during parsing
 # SERVICES := $(shell $(COMPOSE_CMD) config --services 2>/dev/null)
 # Hardcode services to avoid potential side effects of `config` command
-SERVICES := k8s-sandbox producer consumer overseer
+SERVICES := k8s-sandbox producer consumer kafka-demo-ui
 
 # Default target: Show help
 .PHONY: help

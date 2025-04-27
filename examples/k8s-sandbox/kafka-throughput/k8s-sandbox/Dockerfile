@@ -50,24 +50,26 @@ RUN useradd -ms /bin/bash sandbox \
 RUN mkdir -p /home/sandbox/{.config,vibectl-src,.kube,kafka} \
     && chown -R sandbox:sandbox /home/sandbox
 
-# Set up virtual environment as the sandbox user
-USER sandbox
-WORKDIR /home/sandbox
-RUN python3 -m venv .venv
-ENV PATH="/home/sandbox/.venv/bin:${PATH}"
-RUN pip install --no-cache-dir pip setuptools wheel --upgrade
-# Install vibectl dependencies - assuming installed from source mount later
-# RUN pip install --no-cache-dir click pyyaml requests kubernetes
+# Copy various config and script files (as root)
+COPY kafka-kraft.yaml /home/sandbox/kafka/
+COPY vibectl_instructions.txt /home/sandbox/
+COPY latency-reporter.py /home/sandbox/
+COPY kafka-latency-cm.yaml /home/sandbox/
+COPY latency-reporter-rbac.yaml /home/sandbox/
+COPY entrypoint.sh /usr/local/bin/
 
-# Copy Kafka manifest and entrypoint script (late to avoid cache busting)
-USER root
-COPY kafka-kraft.yaml /home/sandbox/kafka/kafka-kraft.yaml
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# Make scripts executable and set permissions (as root)
 RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && chmod +x /home/sandbox/latency-reporter.py \
+    # Chown only the files/dirs copied into the sandbox user's home
     && chown sandbox:sandbox /home/sandbox/kafka/kafka-kraft.yaml \
-    && chown root:root /usr/local/bin/entrypoint.sh
+    && chown sandbox:sandbox /home/sandbox/vibectl_instructions.txt \
+    && chown sandbox:sandbox /home/sandbox/latency-reporter.py \
+    && chown sandbox:sandbox /home/sandbox/kafka-latency-cm.yaml \
+    && chown sandbox:sandbox /home/sandbox/latency-reporter-rbac.yaml
+    # We already chown -R /home/sandbox earlier, so no need to re-chown the whole dir
 
-# Create a Docker socket test script (from Bootstrap demo)
+# Create a Docker socket test script (as root)
 RUN echo '#!/bin/bash\n\
 echo "Testing Docker socket connection..."\n\
 if ! docker ps > /dev/null 2>&1; then\n\
@@ -78,9 +80,18 @@ echo "Docker socket connection successful."\n\
 exec "$@"' > /usr/local/bin/docker-test.sh && \
     chmod +x /usr/local/bin/docker-test.sh
 
-# Set working directory and user for entrypoint
+# Now switch to the sandbox user
 USER sandbox
 WORKDIR /home/sandbox
 
-# Use the docker test script as the entrypoint wrapper
+# Set up venv and install packages as sandbox user
+RUN python3 -m venv .venv
+ENV PATH="/home/sandbox/.venv/bin:${PATH}"
+RUN pip install --no-cache-dir pip setuptools wheel --upgrade
+RUN pip install --no-cache-dir \
+    kubernetes \
+    llm \
+    llm-anthropic # Add required llm plugins
+
+# Entrypoint runs as sandbox user
 ENTRYPOINT ["/usr/local/bin/docker-test.sh", "/usr/local/bin/entrypoint.sh"]

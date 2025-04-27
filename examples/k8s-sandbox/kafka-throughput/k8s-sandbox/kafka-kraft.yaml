@@ -21,7 +21,9 @@ data:
 
     # Listeners
     listeners=PLAINTEXT://:9092,CONTROLLER://:9093
-    advertised.listeners=PLAINTEXT://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9092
+    # Using IP address instead of hostname for more reliable connectivity
+    # This will be replaced dynamically by the entrypoint script
+    advertised.listeners=PLAINTEXT://${KAFKA_ADVERTISED_HOST}:9092
     inter.broker.listener.name=PLAINTEXT
 
     # Listener Security Protocol Map
@@ -37,6 +39,9 @@ data:
     offsets.topic.replication.factor=1
     transaction.state.log.replication.factor=1
     transaction.state.log.min.isr=1
+
+    # Added for reliability
+    auto.create.topics.enable=true
 
 ---
 
@@ -130,8 +135,6 @@ spec:
             value: "0@kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9093"
           - name: KAFKA_LISTENERS
             value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-          - name: KAFKA_ADVERTISED_LISTENERS
-            value: "PLAINTEXT://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9092"
           - name: KAFKA_INTER_BROKER_LISTENER_NAME
             value: "PLAINTEXT"
           - name: KAFKA_CONTROLLER_LISTENER_NAMES
@@ -170,12 +173,13 @@ spec:
         readinessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 15
+          initialDelaySeconds: 90
           periodSeconds: 10
+          failureThreshold: 6
         livenessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 20
       volumes:
       - name: kafka-config

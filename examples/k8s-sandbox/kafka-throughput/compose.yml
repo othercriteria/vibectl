@@ -24,13 +24,17 @@ services:
       - K3D_CLUSTER_NAME=kafka-demo-cluster
       # Explicitly pass the generated Kafka Cluster ID
       - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
+      # Add variable for dynamic IP-based listener configuration
+      - KAFKA_ADVERTISED_HOST=172.20.0.2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - status-volume:/tmp/status:rw
       # Mount source code for vibectl development/installation if needed
       - ../../..:/home/sandbox/vibectl-src:ro
     networks:
-      - kafka-demo-network
+      kafka-demo-network:
+        aliases:
+          - k8s-sandbox
     # Healthcheck: Wait for k3d cluster + Kafka to be ready (implement in entrypoint.sh)
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/status/kafka_ready || exit 1"]
@@ -49,16 +53,21 @@ services:
         condition: service_healthy
         restart: true
     environment:
-      - KAFKA_BROKERS=kafka-k8s-sandbox:9092 # Target exposed port on sandbox
+      # Use KAFKA_BROKER to match producer.py and point to the sandbox container
+      - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Potentially report status here
       # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh
     networks:
-      - kafka-demo-network
-    # Healthcheck: Check connectivity to Kafka
+      kafka-demo-network:
+        aliases:
+          - kafka-producer
+    # Improved healthcheck
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
-      interval: 15s # Check less frequently than sandbox
+      interval: 15s
       timeout: 10s
+      retries: 10
+      start_period: 120s
 
   consumer:
     container_name: kafka-consumer
@@ -69,28 +78,30 @@ services:
       k8s-sandbox:
         condition: service_healthy
         restart: true
-      producer: # Ensure producer starts first (optional, but might be cleaner)
-        condition: service_healthy # Placeholder, define real check
-        restart: true
     environment:
-      - KAFKA_BROKERS=kafka-k8s-sandbox:9092 # Target exposed port on sandbox
+      # Use KAFKA_BROKER to match consumer.py and point to the sandbox container
+      - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Write latency metrics here
       # Add config: TOPICS, SHARED_SECRET etc. via run.sh
     volumes:
       # Mount status volume to write latency metrics
       - status-volume:/tmp/status:rw
     networks:
-      - kafka-demo-network
-    # Healthcheck: Check connectivity to Kafka
+      kafka-demo-network:
+        aliases:
+          - kafka-consumer
+    # Improved healthcheck
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 15s
       timeout: 10s
+      retries: 10
+      start_period: 120s
 
-  overseer:
-    container_name: kafka-overseer
+  kafka-demo-ui: # Renamed from overseer
+    container_name: kafka-demo-ui # Renamed from kafka-overseer
     build:
-      context: ./overseer
+      context: ./kafka-demo-ui # Renamed from ./overseer
       dockerfile: Dockerfile
     depends_on:
       k8s-sandbox: # Needed to potentially inject commands/read vibectl status?
@@ -112,16 +123,20 @@ services:
       # - /var/run/docker.sock:/var/run/docker.sock:rw
     networks:
       - kafka-demo-network
-    # Healthcheck: Check if overseer process/server is running
+    # Healthcheck: Check if kafka_demo_ui process/server is running
     healthcheck:
-      # Check if the overseer.py script is running
-      test: ["CMD-SHELL", "pgrep -f 'python ./overseer.py' || exit 1"]
+      # Check if the kafka_demo_ui.py script is running
+      test: ["CMD-SHELL", "pgrep -f 'python ./kafka_demo_ui.py' || exit 1"] # Renamed script
       interval: 15s
       timeout: 5s
 
 networks:
   kafka-demo-network:
     driver: bridge
+    # Add DNS configuration for better hostname resolution
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.enable_icc: "true"
 
 volumes:
   status-volume: # Named volume for shared status/metrics
