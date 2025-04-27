@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2025-04-27
+
 ### Added
 - Added initial Kafka throughput optimization demo (`examples/k8s-sandbox/kafka-throughput/`) featuring:
   - K3d Kubernetes cluster running a single-node KRaft Kafka instance.
@@ -18,11 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated root `STRUCTURE.md` to include Kafka demo.
-- Refactored `kafka-demo-ui` to use `apscheduler` for background data fetching and `Flask-SocketIO` for pushing updates, replacing the previous polling mechanism.
-
-### Fixed
-- Resolved Kubernetes client configuration issues in `kafka-demo-ui` by providing the K3d kubeconfig via a shared volume instead of relying on host mounts.
-- Fixed Kafka connection errors for the producer/consumer by configuring the broker's `advertised.listeners` to use the reachable `k8s-sandbox` hostname within the Docker network.
 
 ## [0.5.2] - 2025-04-26
 
