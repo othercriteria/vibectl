@@ -278,6 +278,7 @@ EOF
     # Now set other vibectl configurations
     vibectl config set kubeconfig ${KUBECONFIG}
     vibectl config set kubectl_command kubectl
+    vibectl config set memory_max_chars 2000
     # Use model provided by environment variable AFTER key is set
     if [ -n "${VIBECTL_MODEL:-}" ]; then
         vibectl config set model "${VIBECTL_MODEL}"

@@ -106,7 +106,8 @@ def calculate_and_report_metrics() -> None:
             latencies = [latency for _, latency in recent_latencies]
             p99_latency = statistics.quantiles(latencies, n=100)[98]  # 99th percentile
             logging.info(
-                f"p99 latency ({len(latencies)} samples in {LATENCY_WINDOW_SECONDS}s): {p99_latency:.2f} ms"
+                f"p99 latency ({len(latencies)} samples in {LATENCY_WINDOW_SECONDS}s): "
+                f"{p99_latency:.2f} ms"
             )
             write_latency_to_file(p99_latency)
         else:
@@ -120,7 +121,8 @@ def calculate_and_report_metrics() -> None:
         # --- Consumption Rate Calculation ---
         consumption_rate = message_count_since_last_report / time_since_last_report
         logging.info(
-            f"Consumption rate ({message_count_since_last_report} msgs in {time_since_last_report:.2f}s): {consumption_rate:.2f} msg/s"
+            f"Consumption rate ({message_count_since_last_report} msgs in "
+            f"{time_since_last_report:.2f}s): {consumption_rate:.2f} msg/s"
         )
         write_consumer_stats(consumption_rate)
 

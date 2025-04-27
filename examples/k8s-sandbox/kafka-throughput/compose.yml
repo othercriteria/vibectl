@@ -58,7 +58,8 @@ services:
       # Use KAFKA_BROKER to match producer.py and point to the sandbox container
       - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Potentially report status here
-      # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh
+      # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh -> Make MSG_RATE configurable here
+      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-50}
     volumes:
       # Mount status volume to write producer stats
       - status-volume:/tmp/status:rw

@@ -4,7 +4,7 @@
 # Fail fast on any error
 set -euo pipefail
 
-echo "🔧 Starting Kafka Throughput Demo Setup..."
+echo "🚀 Starting Kafka Throughput Demo Setup..."
 
 # --- Configuration ---
 # TODO: Add argument parsing for specific demo parameters if needed later.

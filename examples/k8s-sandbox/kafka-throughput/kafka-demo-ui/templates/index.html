@@ -55,8 +55,8 @@
                 <span id="producer-health">N/A</span>
             </div>
              <div class="status-item">
-                <strong>Producer File:</strong>
-                <span id="producer-file-status">N/A</span>
+                <strong>Producer Stats File Status:</strong>
+                <span id="producer-stats-file-status">N/A</span>
             </div>
             <!-- Row 5: Consumer Health -->
             <div class="status-item">
@@ -64,8 +64,8 @@
                 <span id="consumer-health">N/A</span>
             </div>
             <div class="status-item">
-                <strong>Consumer File:</strong>
-                <span id="consumer-file-status">N/A</span>
+                <strong>Consumer Stats File Status:</strong>
+                <span id="consumer-stats-file-status">N/A</span>
             </div>
              <!-- Row 6: Cluster Status & Last Updated -->
              <div class="status-item">
@@ -116,8 +116,8 @@
             document.getElementById('kafka-health').textContent = data.kafka_health || 'N/A';
             document.getElementById('producer-health').textContent = data.producer_health || 'N/A';
             document.getElementById('consumer-health').textContent = data.consumer_health || 'N/A';
-            document.getElementById('producer-file-status').textContent = data.producer_file_status || 'N/A';
-            document.getElementById('consumer-file-status').textContent = data.consumer_file_status || 'N/A';
+            document.getElementById('producer-stats-file-status').textContent = data.producer_stats_file_status || 'N/A';
+            document.getElementById('consumer-stats-file-status').textContent = data.consumer_stats_file_status || 'N/A';
             document.getElementById('cluster-status').textContent = data.cluster_status || 'N/A';
             document.getElementById('vibectl-logs').textContent = data.vibectl_logs || 'N/A';
             document.getElementById('last-updated').textContent = new Date(data.last_updated * 1000).toLocaleTimeString() || 'N/A';

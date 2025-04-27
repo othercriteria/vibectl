@@ -11,15 +11,23 @@ logging.basicConfig(
 
 # Configuration
 STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
-LATENCY_FILE_PATH = os.path.join(STATUS_DIR, os.environ.get("LATENCY_FILE_NAME", "latency.txt"))
-PRODUCER_STATS_FILE_PATH = os.path.join(STATUS_DIR, os.environ.get("PRODUCER_STATS_FILE_NAME", "producer_stats.txt"))
-TARGET_LATENCY_MS = os.environ.get("TARGET_LATENCY_MS", "10.0") # Get target latency from env
+LATENCY_FILE_PATH = os.path.join(
+    STATUS_DIR, os.environ.get("LATENCY_FILE_NAME", "latency.txt")
+)
+PRODUCER_STATS_FILE_PATH = os.path.join(
+    STATUS_DIR, os.environ.get("PRODUCER_STATS_FILE_NAME", "producer_stats.txt")
+)
+TARGET_LATENCY_MS = os.environ.get(
+    "TARGET_LATENCY_MS", "10.0"
+)  # Get target latency from env
 CONFIGMAP_NAME = os.environ.get("CONFIGMAP_NAME", "kafka-latency-metrics")
 CONFIGMAP_NAMESPACE = os.environ.get("CONFIGMAP_NAMESPACE", "kafka")
 # Define keys for ConfigMap
 LATENCY_CM_KEY = os.environ.get("LATENCY_CM_KEY", "p99_latency_ms")
 TARGET_LATENCY_CM_KEY = os.environ.get("TARGET_LATENCY_CM_KEY", "target_latency_ms")
-PRODUCER_TARGET_RATE_CM_KEY = os.environ.get("PRODUCER_TARGET_RATE_CM_KEY", "producer_target_rate")
+PRODUCER_TARGET_RATE_CM_KEY = os.environ.get(
+    "PRODUCER_TARGET_RATE_CM_KEY", "producer_target_rate"
+)
 CHECK_INTERVAL_S = int(os.environ.get("CHECK_INTERVAL_S", "5"))
 KUBECTL_CMD = os.environ.get("KUBECTL_CMD", "kubectl")  # Allow overriding kubectl path
 
@@ -32,7 +40,9 @@ def update_configmap_with_kubectl(data_to_update: dict) -> None:
 
     # Check if data has actually changed
     if data_to_update == last_known_data:
-        logging.debug("Metrics unchanged (%s). Skipping ConfigMap update.", data_to_update)
+        logging.debug(
+            "Metrics unchanged (%s). Skipping ConfigMap update.", data_to_update
+        )
         return
 
     logging.info(
@@ -63,7 +73,7 @@ def update_configmap_with_kubectl(data_to_update: dict) -> None:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logging.info("kubectl patch successful: %s", result.stdout.strip())
-        last_known_data = data_to_update.copy() # Store the updated data
+        last_known_data = data_to_update.copy()  # Store the updated data
     except subprocess.CalledProcessError as e:
         logging.error(
             "kubectl patch failed (Exit code: %d): %s", e.returncode, e.stderr.strip()
@@ -74,6 +84,7 @@ def update_configmap_with_kubectl(data_to_update: dict) -> None:
         )
     except Exception as e:
         logging.error("An unexpected error occurred running kubectl: %s", e)
+
 
 def parse_producer_stats(file_path: str) -> str:
     """Reads producer stats file and extracts target rate."""
@@ -126,14 +137,16 @@ def read_latency(file_path: str) -> str:
         latency = "Read Error"
     return latency
 
+
 def main() -> None:
     logging.info("--- Metrics Reporter (via kubectl) --- ")
     logging.info(f"Monitoring Latency File: {LATENCY_FILE_PATH}")
     logging.info(f"Monitoring Producer Stats File: {PRODUCER_STATS_FILE_PATH}")
+    logging.info(f"Updating ConfigMap: {CONFIGMAP_NAMESPACE}/{CONFIGMAP_NAME}")
     logging.info(
-        f"Updating ConfigMap: {CONFIGMAP_NAMESPACE}/{CONFIGMAP_NAME}"
+        f"  Keys: {LATENCY_CM_KEY}, {TARGET_LATENCY_CM_KEY}, "
+        f"{PRODUCER_TARGET_RATE_CM_KEY}"
     )
-    logging.info(f"  Keys: {LATENCY_CM_KEY}, {TARGET_LATENCY_CM_KEY}, {PRODUCER_TARGET_RATE_CM_KEY}")
     logging.info(f"Target Latency: {TARGET_LATENCY_MS} ms")
     logging.info(f"Check interval: {CHECK_INTERVAL_S}s")
     logging.info(f"Using kubectl command: {KUBECTL_CMD}")
@@ -142,13 +155,15 @@ def main() -> None:
         try:
             # Read current metrics
             current_p99_latency = read_latency(LATENCY_FILE_PATH)
-            current_producer_target_rate = parse_producer_stats(PRODUCER_STATS_FILE_PATH)
+            current_producer_target_rate = parse_producer_stats(
+                PRODUCER_STATS_FILE_PATH
+            )
 
             # Prepare data payload for ConfigMap
             data_payload = {
                 LATENCY_CM_KEY: current_p99_latency,
-                TARGET_LATENCY_CM_KEY: TARGET_LATENCY_MS, # Use value from env
-                PRODUCER_TARGET_RATE_CM_KEY: current_producer_target_rate
+                TARGET_LATENCY_CM_KEY: TARGET_LATENCY_MS,  # Use value from env
+                PRODUCER_TARGET_RATE_CM_KEY: current_producer_target_rate,
             }
 
             # Update ConfigMap if data changed

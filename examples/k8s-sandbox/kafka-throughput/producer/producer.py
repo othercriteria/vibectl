@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 import time
 
 from kafka import KafkaProducer
@@ -87,38 +88,47 @@ def adjust_message_rate(
     increase_factor: float,
 ) -> int:
     """Adjusts the message rate based on latency."""
-    if latency_ms is not None and latency_ms < latency_threshold:
-        if current_rate < max_rate:
-            calculated_new_rate = current_rate * increase_factor
-            new_rate = min(int(calculated_new_rate), max_rate)
-            if new_rate > current_rate:
-                logging.info(
-                    f"Low latency ({latency_ms:.2f}ms < {latency_threshold}ms). "
-                    f"Increasing target rate by factor {increase_factor}: {current_rate} -> {new_rate}/s"
-                )
-                return new_rate
-            else:
-                logging.info(
-                    f"Latency low ({latency_ms:.2f}ms), but already at/near max rate ({current_rate}/s). Holding."
-                )
-                return current_rate  # Return current rate if no change
-        else:
-            logging.info(
-                f"Latency low ({latency_ms:.2f}ms), but already at max rate ({current_rate}/s). Holding."
-            )
-            return current_rate  # Return current rate if at max
-    elif latency_ms is not None:
-        logging.info(
-            f"Latency ({latency_ms:.2f}ms) >= threshold ({latency_threshold}ms). Holding target rate at {current_rate}/s."
-        )
-        # Optional: Add logic here to decrease rate if latency is high
-    else:
+    # Early return if no latency data
+    if latency_ms is None:
         logging.info(
             f"Could not read latency. Holding target rate at {current_rate}/s."
         )
+        return current_rate
 
-    # Return the current rate if no adjustment was made
-    return current_rate
+    # Early return if latency is too high
+    if latency_ms >= latency_threshold:
+        logging.info(
+            f"Latency ({latency_ms:.2f}ms) >= threshold ({latency_threshold}ms). "
+            f"Holding target rate at {current_rate}/s."
+        )
+        return current_rate
+
+    # Early return if already at max rate
+    if current_rate >= max_rate:
+        logging.info(
+            f"Latency low ({latency_ms:.2f}ms), but already at max rate "
+            f"({current_rate}/s). Holding."
+        )
+        return current_rate
+
+    # Calculate new rate
+    calculated_new_rate = current_rate * increase_factor
+    new_rate = min(int(calculated_new_rate), max_rate)
+
+    # Return new rate if increased, otherwise current rate
+    if new_rate > current_rate:
+        logging.info(
+            f"Low latency ({latency_ms:.2f}ms < {latency_threshold}ms). "
+            f"Increasing target rate by factor {increase_factor}: "
+            f"{current_rate} -> {new_rate}/s"
+        )
+        return new_rate
+    else:
+        logging.info(
+            f"Latency low ({latency_ms:.2f}ms), but already at/near max rate "
+            f"({current_rate}/s). Holding."
+        )
+        return current_rate  # Return current rate if no change
 
 
 def main() -> None:
@@ -133,7 +143,8 @@ def main() -> None:
     logging.info(f"Message Size: {MESSAGE_SIZE_BYTES} bytes")
     logging.info(f"Client ID: {PRODUCER_CLIENT_ID}")
     logging.info(
-        f"Adaptive Load: Checking every {ADAPTIVE_CHECK_INTERVAL_S}s, Threshold <{LOW_LATENCY_THRESHOLD_MS}ms, Increase Factor x{RATE_INCREASE_FACTOR}"
+        f"Adaptive Load: Check={ADAPTIVE_CHECK_INTERVAL_S}s, "
+        f"Threshold=<{LOW_LATENCY_THRESHOLD_MS}ms, Factor=x{RATE_INCREASE_FACTOR}"
     )
 
     producer = None
@@ -219,9 +230,27 @@ def main() -> None:
             # --- Message Sending --- (Uses current_message_rate)
             if messages_sent_this_second < current_message_rate:
                 message_bytes = create_message(sequence_number, MESSAGE_SIZE_BYTES)
+
+                # Generate partition key based on leading digit of a log-normally
+                # distributed variable. This provides a distribution closer to
+                # Benford's Law.
+                lognorm_value = random.lognormvariate(
+                    5, 3
+                )  # mu=5, sigma=3 as suggested
+                # Convert to integer (at least 1) to get the leading digit
+                random_int = max(1, int(lognorm_value))
+                leading_digit_str = str(random_int)[0]
+                partition_key_bytes = leading_digit_str.encode("utf-8")
+
                 try:
-                    producer.send(KAFKA_TOPIC, value=message_bytes)
-                    logging.debug(f"Sent message {sequence_number}")
+                    # Send message with the calculated partition key
+                    producer.send(
+                        KAFKA_TOPIC, value=message_bytes, key=partition_key_bytes
+                    )
+                    logging.debug(
+                        f"Sent msg {sequence_number} key='{leading_digit_str}' "
+                        f"(from {lognorm_value:.2f})"
+                    )
                     sequence_number += 1
                     messages_sent_this_second += 1
                 except KafkaTimeoutError:

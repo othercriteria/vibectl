@@ -96,11 +96,7 @@ def initialize_k8s_client() -> bool:
             k8s_client_apps_v1 = client.AppsV1Api()  # Initialize AppsV1Api
             return True
         except config.ConfigException as ce:
-            # Handle specific case where file exists but is invalid/empty
             logger.exception(f"Error loading kubeconfig from {kubeconfig_path}: {ce}")
-        except FileNotFoundError:
-            # TODO: remove? Case is handled by the os.path.exists check above...
-            logger.error(f"Shared kubeconfig {kubeconfig_path} not found.")
         except Exception as e:
             logger.error(
                 f"Unexpected error loading kubeconfig from {kubeconfig_path}: {e}"
@@ -380,10 +376,10 @@ def update_status_data() -> None:
         latency = latency_raw  # Use the error status directly
 
     # Process producer stats
-    producer_file_status = check_file_freshness(
+    producer_stats_file_status = check_file_freshness(
         PRODUCER_STATS_FILE, STALENESS_THRESHOLD_S
     )
-    if producer_file_status == "Healthy":  # Only parse if file is fresh
+    if producer_stats_file_status == "Healthy":  # Only parse if file is fresh
         if producer_stats_raw and producer_stats_raw not in [
             "N/A",
             "Error",
@@ -436,15 +432,15 @@ def update_status_data() -> None:
             producer_actual_rate = "No Data"
             producer_size = "No Data"
     else:  # File is "Not Found", "Stale", or "Error Checking"
-        producer_target_rate = producer_file_status
-        producer_actual_rate = producer_file_status
-        producer_size = producer_file_status
+        producer_target_rate = producer_stats_file_status
+        producer_actual_rate = producer_stats_file_status
+        producer_size = producer_stats_file_status
 
     # Process consumer stats
-    consumer_file_status = check_file_freshness(
+    consumer_stats_file_status = check_file_freshness(
         CONSUMER_STATS_FILE, STALENESS_THRESHOLD_S
     )
-    if consumer_file_status == "Healthy":  # Only parse if file is fresh
+    if consumer_stats_file_status == "Healthy":  # Only parse if file is fresh
         if consumer_stats_raw and consumer_stats_raw not in [
             "N/A",
             "Error",
@@ -479,7 +475,7 @@ def update_status_data() -> None:
         else:  # Includes "N/A" or unexpected content
             consumer_rate = "No Data"
     else:  # File is "Not Found", "Stale", or "Error Checking"
-        consumer_rate = consumer_file_status
+        consumer_rate = consumer_stats_file_status
 
     # Get health status based on Docker container status
     producer_container_health = get_container_health("kafka-producer")
@@ -498,8 +494,8 @@ def update_status_data() -> None:
         "kafka_health": kafka_health,
         "producer_health": producer_container_health,
         "consumer_health": consumer_container_health,
-        "producer_file_status": producer_file_status,  # Keep file status separate
-        "consumer_file_status": consumer_file_status,  # Keep file status separate
+        "producer_stats_file_status": producer_stats_file_status,
+        "consumer_stats_file_status": consumer_stats_file_status,
         "cluster_status": cluster_status,
         "vibectl_logs": vibectl_logs,
         "last_updated": time.time(),

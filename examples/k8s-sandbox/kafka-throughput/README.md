@@ -1,6 +1,6 @@
 # Kafka Throughput Optimization Demo
 
-**Status: Work In Progress**
+**Status: Operational**
 
 This demo showcases using `vibectl` to automatically optimize a Kafka cluster for a specific goal: maximizing producer throughput while minimizing consumer latency.
 
@@ -14,9 +14,9 @@ The demo environment consists of:
 4.  **Producer**: A Python application sending messages to Kafka at a configurable rate and size. It adaptively increases its target rate when consumer latency is low.
 5.  **Consumer**: A Python application consuming messages, calculating end-to-end p99 latency and its own consumption rate, and writing these metrics to shared files.
 6.  **Kafka Demo UI**: A Flask/SocketIO web application that displays key metrics (latency, producer rates, consumer rate), container health status, status file freshness, and the latest `vibectl` agent logs.
-7.  **Shared Volume (`status-volume`)**: A host bind mount directory (`./status-volume/`) shared into containers for metrics and log files.
+7.  **Shared Volume (`status-volume`)**: A Docker named volume (using tmpfs) shared into relevant containers at `/tmp/status` for metrics and log files.
 
-`vibectl` monitors the consumer latency and attempts to achieve its goal (maximize producer throughput, minimize consumer latency) by modifying Kafka broker configurations (via `kubectl patch`).
+`vibectl`, running in the `k8s-sandbox`, monitors metrics from the `kafka-latency-metrics` ConfigMap (which is updated by other components) and attempts to achieve its goal by modifying Kafka broker configurations (via `kubectl patch`), guided by its instructions.
 
 ## Prerequisites
 
@@ -41,13 +41,14 @@ The demo environment consists of:
     ```bash
     make up
     ```
-    -   This command uses the `Makefile` to build the necessary Docker images (if not already built) and start all services in detached mode.
-    -   It handles prerequisite checks implicitly through the Docker build process and `run.sh` helper logic.
-    -   It will prompt for your Anthropic API key if `VIBECTL_ANTHROPIC_API_KEY` is not set in your environment (handled by `run.sh` internally).
+    -   This command uses the `Makefile` to execute `./run.sh`.
+    -   `run.sh` prepares environment variables (prompting for API key if needed), builds Docker images (if not already built), and starts all services using `docker compose up --build`.
+    -   The services will run in the **foreground**. Press `Ctrl+C` in the terminal where you ran `make up` to stop them.
 
-4.  **Wait for Kafka:**
-    -   The `make up` command implicitly waits for the `k8s-sandbox` healthcheck to pass, which depends on the `kafka_ready` status file.
-    -   You can monitor the startup progress using `make logs` or `make logs-k8s-sandbox`.
+4.  **Wait for Startup:**
+    -   The script will show logs as services start.
+    -   Wait for the `k8s-sandbox`, `producer`, and `consumer` healthchecks to pass and for the UI to become accessible.
+    -   You can monitor the startup progress in the foreground logs or use `make logs` / `make ps` in another terminal.
 
 ## Makefile Targets
 
@@ -68,7 +69,7 @@ A `Makefile` is provided for convenience:
 -   **Web UI**: Access the live dashboard by navigating to `http://localhost:8081` in your browser.
 -   **Container Logs**: View the logs using make:
     ```bash
-    # Follow logs for all services
+    # Follow logs for all services (if not running in foreground)
     make logs
 
     # Follow logs for a specific service
@@ -77,31 +78,30 @@ A `Makefile` is provided for convenience:
     make logs-consumer
     make logs-kafka-demo-ui
     ```
--   **Vibectl Agent Logs**: You can see these directly in the Web UI or via:
+-   **Vibectl Agent Logs**: You can see these directly in the Web UI or via container logs:
     ```bash
-    tail -f ./status-volume/vibectl_agent.log
-    # Or via container logs
-    make logs-k8s-sandbox | grep 'vibectl auto'
+    # Follow k8s-sandbox logs where vibectl runs
+    make logs-k8s-sandbox
+    # Or grep specifically for vibectl output
+    docker compose -f examples/k8s-sandbox/kafka-throughput/compose.yml logs k8s-sandbox | grep 'vibectl auto'
     ```
--   **Status Files**: Check the raw status files reported by the components:
+-   **Status Files (for debugging)**: Check the raw status files inside a running container (e.g., the UI container):
     ```bash
-    # Watch latency
-    watch cat ./status-volume/latency.txt
-    # Watch producer stats (target/actual rate, size)
-    watch cat ./status-volume/producer_stats.txt
-    # Watch consumer stats (rate)
-    watch cat ./status-volume/consumer_stats.txt
+    # Shell into the UI container
+    make shell-kafka-demo-ui
+    # Then view files inside the container
+    ls -l /tmp/status/
+    cat /tmp/status/producer_stats.txt
+    cat /tmp/status/consumer_stats.txt
+    tail /tmp/status/vibectl_agent.log
+    exit
     ```
 
 ## Stopping the Demo
 
--   Run the following command:
+-   If running in the foreground (via `make up`), press `Ctrl+C` in the terminal.
+-   Run `make down` afterwards to ensure containers and the network are removed:
     ```bash
     make down
     ```
--   This will stop and remove containers, networks, and the shared volume.
-
-## Current Status & Next Steps
-
--   **Implemented**: Core components, orchestration (`run.sh`/`Makefile`/`compose.yml`), K8s/Kafka/Agent setup, producer (adaptive rate), consumer (latency/rate reporting), Web UI (metrics, health, logs), various fixes (volume mounts, readiness signals, producer status).
--   **Next Steps**: Observe the full demo run, refine `vibectl` instructions if needed, finalize demo-specific documentation.
+-   This will stop and remove containers, networks, and the named volume `status-volume`.
