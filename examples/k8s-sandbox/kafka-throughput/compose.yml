@@ -103,32 +103,27 @@ services:
     build:
       context: ./kafka-demo-ui # Renamed from ./overseer
       dockerfile: Dockerfile
-    depends_on:
-      k8s-sandbox: # Needed to potentially inject commands/read vibectl status?
-        condition: service_healthy
-        restart: true
-      producer:
-        condition: service_healthy # Placeholder, define real check
-        restart: true
-      consumer:
-        condition: service_healthy # Placeholder, define real check
-        restart: true
+    ports:
+      - "8081:8081" # Map host port 8081 to container port 8081
     environment:
-      - STATUS_DIR=/tmp/status # Read latency from here, write commands?
+      - STATUS_DIR=/tmp/status # Read latency & producer stats from here
+      - KUBECONFIG=/root/.kube/config # Point K8s client to mounted kubeconfig
       # Add config: TARGET_LATENCY, RATE_ADJUST_STEP etc. via run.sh
     volumes:
-      # Mount status volume to read latency and potentially control producer/vibectl
+      # Mount status volume to read latency and producer stats
       - status-volume:/tmp/status:rw
-      # Mount docker socket if needed to interact with other containers directly
-      # - /var/run/docker.sock:/var/run/docker.sock:rw
     networks:
-      - kafka-demo-network
-    # Healthcheck: Check if kafka_demo_ui process/server is running
+      kafka-demo-network:
+        aliases:
+          - kafka-demo-ui
+    # Healthcheck: Check if Flask app is responding
     healthcheck:
-      # Check if the kafka_demo_ui.py script is running
-      test: ["CMD-SHELL", "pgrep -f 'python ./kafka_demo_ui.py' || exit 1"] # Renamed script
+      # Check if the Flask app is serving HTTP requests
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
       interval: 15s
       timeout: 5s
+      retries: 5
+      start_period: 30s # Allow time for Flask app to start
 
 networks:
   kafka-demo-network:

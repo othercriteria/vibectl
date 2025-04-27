@@ -220,9 +220,7 @@ echo "   - Check latency file: cat ./status-volume/latency.txt"
 echo
 echo "🛑 To stop the demo and clean up resources, press Ctrl+C."
 
-# Keep the script running until interrupted, so the trap can clean up.
-# Alternatively, if running everything detached, we could exit here.
-# Let's keep it running to show logs and allow Ctrl+C cleanup.
-echo "(Press Ctrl+C to stop and clean up)"
+# Comment out the final sleep and message as compose up will block
+# echo "(Press Ctrl+C to stop and clean up)"
 # Wait indefinitely
-sleep infinity
+# sleep infinity

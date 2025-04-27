@@ -113,12 +113,11 @@ function deploy_kafka() {
 
     # Get container IP for the advertised listener
     # If KAFKA_ADVERTISED_HOST is not set in environment, get it from container IP
-    if [ -z "${KAFKA_ADVERTISED_HOST:-}" ]; then
-        export KAFKA_ADVERTISED_HOST=$(hostname -i | awk '{print $1}')
-        echo "Using container IP ${KAFKA_ADVERTISED_HOST} for Kafka advertised listener"
-    else
-        echo "Using environment-provided ${KAFKA_ADVERTISED_HOST} for Kafka advertised listener"
-    fi
+    # Force advertised listener to be the k8s-sandbox hostname, which is reachable
+    # on the docker network by the producer/consumer containers.
+    # The internal listener within k8s/kafka will still work.
+    export KAFKA_ADVERTISED_HOST="k8s-sandbox"
+    echo "Setting KAFKA_ADVERTISED_HOST to 'k8s-sandbox' for external reachability."
 
     # Replace the advertised.listeners placeholder in the manifest
     TMP_MANIFEST="/tmp/kafka-kraft.yaml"
@@ -303,6 +302,28 @@ EOF
     echo "✅ vibectl configured."
 }
 
+function deploy_latency_reporter() {
+    echo "🔧 Deploying latency reporter components..."
+    # Apply ConfigMap first
+    if ! kubectl apply -f /home/sandbox/kafka-latency-cm.yaml; then
+        echo "❌ Error: Failed to apply latency ConfigMap manifest." >&2
+        # Attempt to get logs or describe if it exists
+        kubectl get configmap kafka-latency-metrics -n kafka -o yaml || true
+        exit 1
+    fi
+    echo "✅ Latency ConfigMap applied."
+
+    # Start the python reporter script in the background
+    echo "🔧 Starting latency reporter script in background..."
+    # Ensure STATUS_DIR is set for the script environment if needed
+    # Make sure KUBECTL_CMD points to the right kubectl if not default
+    export STATUS_DIR KUBECTL_CMD="kubectl" CONFIGMAP_NAME CONFIGMAP_NAMESPACE CONFIGMAP_KEY CHECK_INTERVAL_S
+    nohup python /home/sandbox/latency-reporter.py > /tmp/latency-reporter.log 2>&1 &
+    REPORTER_PID=$!
+    echo "✅ Latency reporter started in background (PID: $REPORTER_PID). Log: /tmp/latency-reporter.log"
+    # Optional: Add trap to kill reporter PID on exit?
+}
+
 function run_vibectl_loop() {
     echo "🔄 Starting vibectl monitoring loop..."
     # No longer need to clear memory here, setup handles initial instructions
@@ -349,28 +370,6 @@ function run_vibectl_loop() {
     done
 }
 
-function deploy_latency_reporter() {
-    echo "🔧 Deploying latency reporter components..."
-    # Apply ConfigMap first
-    if ! kubectl apply -f /home/sandbox/kafka-latency-cm.yaml; then
-        echo "❌ Error: Failed to apply latency ConfigMap manifest." >&2
-        # Attempt to get logs or describe if it exists
-        kubectl get configmap kafka-latency-metrics -n kafka -o yaml || true
-        exit 1
-    fi
-    echo "✅ Latency ConfigMap applied."
-
-    # Start the python reporter script in the background
-    echo "🔧 Starting latency reporter script in background..."
-    # Ensure STATUS_DIR is set for the script environment if needed
-    # Make sure KUBECTL_CMD points to the right kubectl if not default
-    export STATUS_DIR KUBECTL_CMD="kubectl" CONFIGMAP_NAME CONFIGMAP_NAMESPACE CONFIGMAP_KEY CHECK_INTERVAL_S
-    nohup python /home/sandbox/latency-reporter.py > /tmp/latency-reporter.log 2>&1 &
-    REPORTER_PID=$!
-    echo "✅ Latency reporter started in background (PID: $REPORTER_PID). Log: /tmp/latency-reporter.log"
-    # Optional: Add trap to kill reporter PID on exit?
-}
-
 # --- Main Execution ---
 
 if [ -f "$PHASE1_COMPLETE" ]; then
@@ -382,6 +381,19 @@ else
     setup_k3d_cluster
     patch_kubeconfig
     wait_for_k8s_ready
+
+    # Copy the patched kubeconfig to the shared status volume for other services
+    echo "📋 Copying patched kubeconfig to ${STATUS_DIR}/k3d_kubeconfig for other services..."
+    if [ -f "${KUBECONFIG}" ]; then
+        cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
+        chmod 644 "${STATUS_DIR}/k3d_kubeconfig" # Ensure it's readable
+        echo "✅ Kubeconfig copied."
+    else
+        echo "❌ Error: Patched kubeconfig ${KUBECONFIG} not found after setup." >&2
+        # Decide if this is fatal or just a warning
+        # exit 1 # Uncomment if this should be fatal
+    fi
+
     deploy_kafka
     wait_for_kafka_ready
     setup_kafka_port_forward

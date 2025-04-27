@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Kafka Throughput Demo Status</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f8f9fa; }
+        .container { max-width: 800px; margin: auto; background-color: #ffffff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #343a40; }
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; margin-top: 1.5em; }
+        .status-item { background-color: #e9ecef; padding: 1em; border-radius: 4px; }
+        .status-item strong { display: block; margin-bottom: 0.5em; color: #495057; }
+        pre { background-color: #343a40; color: #f8f9fa; padding: 1em; border-radius: 4px; overflow-x: auto; }
+        #loading { text-align: center; padding: 1em; color: #6c757d; }
+    </style>
+    <!-- Include SocketIO Client Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Kafka Throughput Demo Status</h1>
+        <div id="loading">Loading status...</div>
+        <div id="status-content" class="status-grid" style="display: none;">
+            <div class="status-item">
+                <strong>Consumer P99 Latency:</strong>
+                <span id="latency">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Producer Rate (msg/s):</strong>
+                <span id="producer-rate">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Producer Msg Size (bytes):</strong>
+                <span id="producer-size">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Kafka Health:</strong>
+                <span id="kafka-health">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Cluster Status:</strong>
+                <span id="cluster-status">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Producer Health:</strong>
+                <span id="producer-health">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Consumer Health:</strong>
+                <span id="consumer-health">N/A</span>
+            </div>
+        </div>
+        <div class="status-item" style="grid-column: 1 / -1;">
+             <strong>Vibectl Agent Logs (Last 20 lines):</strong>
+             <pre id="vibectl-logs">N/A</pre>
+        </div>
+    </div>
+
+    <script>
+        // Connect to SocketIO server
+        const socket = io(); // Defaults to connecting to the host that serves the page
+
+        socket.on('connect', () => {
+            console.log('Connected to SocketIO server.');
+            document.getElementById('loading').textContent = 'Connected. Waiting for status...';
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from SocketIO server.');
+            document.getElementById('loading').textContent = 'Disconnected. Trying to reconnect...';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('status-content').style.display = 'none';
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('Connection Error:', error);
+            document.getElementById('loading').textContent = 'Connection Error. Please check server.';
+        });
+
+        // Listen for status updates from the server
+        socket.on('status_update', (data) => {
+            console.log('Received status update:', data);
+            document.getElementById('latency').textContent = data.latency || 'N/A';
+            document.getElementById('producer-rate').textContent = data.producer_rate || 'N/A';
+            document.getElementById('producer-size').textContent = data.producer_size || 'N/A';
+            document.getElementById('kafka-health').textContent = data.kafka_health || 'N/A';
+            document.getElementById('cluster-status').textContent = data.cluster_status || 'N/A';
+            document.getElementById('producer-health').textContent = data.producer_health || 'N/A';
+            document.getElementById('consumer-health').textContent = data.consumer_health || 'N/A';
+            // Update vibectl logs if included in the data
+            document.getElementById('vibectl-logs').textContent = data.vibectl_logs || 'N/A';
+
+            // Hide loading message and show status grid
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('status-content').style.display = 'grid';
+        });
+
+        // No need for polling anymore
+        // function updateStatus() { ... }
+        // setInterval(updateStatus, 5000);
+    </script>
+</body>
+</html>

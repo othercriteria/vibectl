@@ -14,9 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A `vibectl` agent configured with the goal to maximize throughput and minimize latency by tuning Kafka broker environment variables (`KAFKA_HEAP_OPTS`, `KAFKA_NUM_NETWORK_THREADS`, `KAFKA_NUM_IO_THREADS`).
   - Resource limits on the sandbox container and de-optimized Kafka defaults to create a clear optimization scenario.
   - Makefile for easy management (`make up`, `make down`, `make logs`, etc.).
+- Added basic Flask web UI (`kafka-demo-ui`) to the Kafka throughput demo, displaying key metrics (latency, producer stats, component health) using SocketIO for real-time updates.
 
 ### Changed
 - Updated root `STRUCTURE.md` to include Kafka demo.
+- Refactored `kafka-demo-ui` to use `apscheduler` for background data fetching and `Flask-SocketIO` for pushing updates, replacing the previous polling mechanism.
+
+### Fixed
+- Resolved Kubernetes client configuration issues in `kafka-demo-ui` by providing the K3d kubeconfig via a shared volume instead of relying on host mounts.
+- Fixed Kafka connection errors for the producer/consumer by configuring the broker's `advertised.listeners` to use the reachable `k8s-sandbox` hostname within the Docker network.
 
 ## [0.5.2] - 2025-04-26
 

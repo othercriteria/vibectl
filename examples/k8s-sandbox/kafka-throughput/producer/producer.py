@@ -19,6 +19,8 @@ MESSAGE_SIZE_BYTES = int(os.environ.get("MESSAGE_SIZE_BYTES", "1024"))
 PRODUCER_CLIENT_ID = os.environ.get("PRODUCER_CLIENT_ID", "kafka-throughput-producer")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "30"))
 INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "10"))
+STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
+PRODUCER_STATS_FILE = os.path.join(STATUS_DIR, "producer_stats.txt")
 
 
 def create_message(sequence_number: int, size_bytes: int) -> bytes:
@@ -40,6 +42,17 @@ def create_message(sequence_number: int, size_bytes: int) -> bytes:
     # Final encoding
     message_str = json.dumps(payload, separators=(",", ":"))
     return message_str.encode("utf-8")
+
+
+def write_producer_stats(rate: int, size: int) -> None:
+    """Writes producer stats to a file."""
+    stats_str = f"rate={rate}, size={size}"
+    try:
+        os.makedirs(STATUS_DIR, exist_ok=True)
+        with open(PRODUCER_STATS_FILE, "w") as f:
+            f.write(stats_str)
+    except Exception as e:
+        logging.error(f"Error writing producer stats to {PRODUCER_STATS_FILE}: {e}")
 
 
 def main() -> None:
@@ -88,15 +101,25 @@ def main() -> None:
     sequence_number = 0
     messages_sent_this_second = 0
     start_time_current_second = time.time()
+    last_reported_rate = 0
 
     try:
         while True:
-            # Rate limiting
+            # Rate limiting & Stats Reporting
             now = time.time()
-            if now - start_time_current_second >= 1.0:
+            elapsed_in_second = now - start_time_current_second
+
+            if elapsed_in_second >= 1.0:
+                # Report stats for the completed second
+                current_rate = messages_sent_this_second
+                if current_rate != last_reported_rate:
+                    write_producer_stats(rate=current_rate, size=MESSAGE_SIZE_BYTES)
+                    last_reported_rate = current_rate
+
                 # Reset counter and timer for the new second
                 messages_sent_this_second = 0
-                start_time_current_second = now
+                start_time_current_second = now  # Reset timer precisely
+                elapsed_in_second = 0  # Reset elapsed time for the new second
 
             if messages_sent_this_second < MESSAGE_RATE_PER_SECOND:
                 message_bytes = create_message(sequence_number, MESSAGE_SIZE_BYTES)
@@ -145,6 +168,8 @@ def main() -> None:
             logging.info("Closing Kafka producer...")
             producer.close()
             logging.info("Producer closed.")
+            # Write final zero rate on clean exit
+            write_producer_stats(rate=0, size=MESSAGE_SIZE_BYTES)
 
 
 if __name__ == "__main__":
