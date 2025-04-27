@@ -3,11 +3,17 @@ import os
 import time
 from typing import Any  # Import Any
 
+import docker
+import urllib3  # Import urllib3
 from apscheduler.schedulers.background import BackgroundScheduler
+from docker.errors import APIError, NotFound
 from flask import Flask, Response, jsonify, render_template, request  # Import request
 from flask_socketio import SocketIO, emit
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
+
+# Disable insecure request warnings for K8s client
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 # Secret key is needed for Flask sessions potentially used by SocketIO
@@ -30,6 +36,9 @@ VIBECTL_LOG_FILE = os.path.join(
 NAMESPACE = "default"  # Assuming default namespace for now
 CHECK_INTERVAL_S = 5  # Interval for scheduler checks
 
+# Define staleness threshold (e.g., 3 times the check interval)
+STALENESS_THRESHOLD_S = CHECK_INTERVAL_S * 3
+
 # --- Global State ---
 # Store the latest fetched data here
 latest_data = {
@@ -47,6 +56,9 @@ latest_data = {
 # --- Kubernetes Client Setup ---
 k8s_client_v1: client.CoreV1Api | None = None
 k8s_client_apps_v1: client.AppsV1Api | None = None  # Add AppsV1Api client
+
+# --- Docker Client Setup ---
+docker_client: docker.DockerClient | None = None
 
 
 def initialize_k8s_client() -> bool:
@@ -92,10 +104,77 @@ def initialize_k8s_client() -> bool:
     return False
 
 
-# Try initial client setup
+def initialize_docker_client() -> bool:
+    """Initializes the Docker client."""
+    global docker_client
+    if docker_client:
+        return True
+    try:
+        # Assumes docker socket is mounted at /var/run/docker.sock
+        docker_client = docker.from_env()
+        # Test connection
+        docker_client.ping()
+        logger.info("Docker client initialized successfully.")
+        return True
+    except APIError as e:
+        logger.error(f"Error connecting to Docker API: {e}. Socket mounted/accessible?")
+    except Exception as e:
+        logger.error(f"Unexpected error initializing Docker client: {e}")
+    docker_client = None
+    return False
+
+
+# Try initial clients setup
 initialize_k8s_client()
+initialize_docker_client()
 
 # --- Data Fetching Functions ---
+
+
+def get_container_health(container_name: str) -> str:
+    """Gets the health status of a Docker container by name."""
+    if not docker_client:
+        if not initialize_docker_client():
+            return "Docker Client Error"
+        if not docker_client:  # Still None after re-init attempt
+            return "Docker Client Unavailable"
+
+    try:
+        container = docker_client.containers.get(container_name)
+        status = container.status
+        # Simplified check using a mapping
+        status_map = {
+            "running": "Running",
+            "restarting": "Restarting",
+            "paused": "Paused",
+        }
+        return status_map.get(status, f"Exited ({status})")
+
+    except NotFound:
+        logger.warning(f"Container '{container_name}' not found.")
+        return "Not Found"
+    except APIError as e:
+        logger.error(f"Docker API error getting container {container_name}: {e}")
+        return "API Error"
+    except Exception as e:
+        logger.error(f"Unexpected error getting container {container_name}: {e}")
+        return "Error"
+
+
+def check_file_freshness(file_path: str, max_age_seconds: float) -> str:
+    """Checks if a file exists and was modified recently."""
+    if not os.path.exists(file_path):
+        return "Not Found"
+    try:
+        mtime = os.path.getmtime(file_path)
+        age = time.time() - mtime
+        if age > max_age_seconds:
+            return f"Stale (Updated {age:.0f}s ago)"
+        else:
+            return "Healthy"
+    except Exception as e:
+        logger.error(f"Error checking freshness of {file_path}: {e}")
+        return "Error Checking"
 
 
 def read_file_content(file_path: str) -> str:
@@ -247,29 +326,46 @@ def update_status_data() -> None:
 
     latency = read_file_content(LATENCY_FILE)
     producer_stats_raw = read_file_content(PRODUCER_STATS_FILE)
-    # vibectl_logs = read_file_content(VIBECTL_LOG_FILE)
+    vibectl_logs = read_file_content(VIBECTL_LOG_FILE)
 
     # Parse producer stats
     producer_rate = "N/A"
     producer_size = "N/A"
-    if producer_stats_raw not in ["N/A", "Error"]:
+    if producer_stats_raw not in ["N/A", "Error", "Not Found"]:
         try:
-            stats = dict(item.split("=") for item in producer_stats_raw.split(", "))
-            producer_rate = stats.get("rate", "N/A")
-            producer_size = stats.get("size", "N/A")
+            # Handle potential empty file case
+            if producer_stats_raw:
+                stats = dict(item.split("=") for item in producer_stats_raw.split(", "))
+                producer_rate = stats.get("rate", "N/A")
+                producer_size = stats.get("size", "N/A")
+            else:
+                logger.warning(f"Producer stats file {PRODUCER_STATS_FILE} is empty.")
+                producer_rate = "Empty File"
+                producer_size = "Empty File"
+        except ValueError as ve:
+            logger.error(
+                f"Error parsing producer stats '{producer_stats_raw}': "
+                f"Invalid format - {ve}"
+            )
+            producer_rate = "Format Error"
+            producer_size = "Format Error"
         except Exception as e:
             logger.error(f"Error parsing producer stats '{producer_stats_raw}': {e}")
             producer_rate = "Parse Error"
             producer_size = "Parse Error"
 
-    # Get status from Kubernetes (use actual selectors)
-    # Determine actual label selectors by inspecting the deployments/statefulsets
-    # For now, using placeholder selectors
+    # Get health status based on file freshness (rename fields)
+    producer_file_status = check_file_freshness(
+        PRODUCER_STATS_FILE, STALENESS_THRESHOLD_S
+    )
+    consumer_file_status = check_file_freshness(LATENCY_FILE, STALENESS_THRESHOLD_S)
+
+    # Get health status based on Docker container status
+    producer_container_health = get_container_health("kafka-producer")
+    consumer_container_health = get_container_health("kafka-consumer")
+
+    # Get status from Kubernetes
     kafka_health = get_statefulset_status(name="kafka-controller", namespace="kafka")
-    # TODO: Implement health check for producer container (e.g., using Docker API)
-    producer_health = "N/A - TODO"
-    # TODO: Implement health check for consumer container (e.g., using Docker API)
-    consumer_health = "N/A - TODO"
     cluster_status = get_cluster_status()
 
     new_data = {
@@ -277,14 +373,15 @@ def update_status_data() -> None:
         "producer_rate": producer_rate,
         "producer_size": producer_size,
         "kafka_health": kafka_health,
-        "producer_health": producer_health,
-        "consumer_health": consumer_health,
+        "producer_health": producer_container_health,
+        "consumer_health": consumer_container_health,
+        "producer_file_status": producer_file_status,
+        "consumer_file_status": consumer_file_status,
         "cluster_status": cluster_status,
-        # 'vibectl_logs': vibectl_logs,
+        "vibectl_logs": vibectl_logs,
         "last_updated": time.time(),
     }
 
-    # TODO: Only emit if data has changed significantly (optional, reduces noise)
     latest_data = new_data
     socketio.emit("status_update", latest_data)
     logger.info(f"Status update emitted. Fetch took {time.time() - start_time:.2f}s")

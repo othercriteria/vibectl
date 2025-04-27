@@ -22,37 +22,55 @@
         <h1>Kafka Throughput Demo Status</h1>
         <div id="loading">Loading status...</div>
         <div id="status-content" class="status-grid" style="display: none;">
+            <!-- Row 1 -->
             <div class="status-item">
                 <strong>Consumer P99 Latency:</strong>
                 <span id="latency">N/A</span>
             </div>
             <div class="status-item">
-                <strong>Producer Rate (msg/s):</strong>
-                <span id="producer-rate">N/A</span>
-            </div>
-            <div class="status-item">
-                <strong>Producer Msg Size (bytes):</strong>
-                <span id="producer-size">N/A</span>
-            </div>
-            <div class="status-item">
                 <strong>Kafka Health:</strong>
                 <span id="kafka-health">N/A</span>
             </div>
+            <!-- Row 2 -->
             <div class="status-item">
+                <strong>Producer Rate (msg/s):</strong>
+                <span id="producer-rate">N/A</span>
+            </div>
+             <div class="status-item">
+                <strong>Producer Msg Size (bytes):</strong>
+                <span id="producer-size">N/A</span>
+            </div>
+            <!-- Row 3: Producer Health -->
+            <div class="status-item">
+                <strong>Producer Container:</strong>
+                <span id="producer-health">N/A</span>
+            </div>
+             <div class="status-item">
+                <strong>Producer File:</strong>
+                <span id="producer-file-status">N/A</span>
+            </div>
+            <!-- Row 4: Consumer Health -->
+            <div class="status-item">
+                <strong>Consumer Container:</strong>
+                <span id="consumer-health">N/A</span>
+            </div>
+            <div class="status-item">
+                <strong>Consumer File:</strong>
+                <span id="consumer-file-status">N/A</span>
+            </div>
+             <!-- Row 5: Cluster Status & Last Updated -->
+             <div class="status-item">
                 <strong>Cluster Status:</strong>
                 <span id="cluster-status">N/A</span>
             </div>
             <div class="status-item">
-                <strong>Producer Health:</strong>
-                <span id="producer-health">N/A</span>
-            </div>
-            <div class="status-item">
-                <strong>Consumer Health:</strong>
-                <span id="consumer-health">N/A</span>
+                <strong>Last Updated:</strong>
+                <span id="last-updated">N/A</span>
             </div>
         </div>
-        <div class="status-item" style="grid-column: 1 / -1;">
-             <strong>Vibectl Agent Logs (Last 20 lines):</strong>
+        <!-- Log Display Area (Outside Grid) -->
+        <div class="log-container" style="margin-top: 1.5em;">
+             <h2>Vibectl Agent Logs (Last 50 lines)</h2>
              <pre id="vibectl-logs">N/A</pre>
         </div>
     </div>
@@ -79,17 +97,19 @@
         });
 
         // Listen for status updates from the server
-        socket.on('status_update', (data) => {
+        socket.on('status_update', function(data) {
             console.log('Received status update:', data);
             document.getElementById('latency').textContent = data.latency || 'N/A';
             document.getElementById('producer-rate').textContent = data.producer_rate || 'N/A';
             document.getElementById('producer-size').textContent = data.producer_size || 'N/A';
             document.getElementById('kafka-health').textContent = data.kafka_health || 'N/A';
-            document.getElementById('cluster-status').textContent = data.cluster_status || 'N/A';
             document.getElementById('producer-health').textContent = data.producer_health || 'N/A';
             document.getElementById('consumer-health').textContent = data.consumer_health || 'N/A';
-            // Update vibectl logs if included in the data
+            document.getElementById('producer-file-status').textContent = data.producer_file_status || 'N/A';
+            document.getElementById('consumer-file-status').textContent = data.consumer_file_status || 'N/A';
+            document.getElementById('cluster-status').textContent = data.cluster_status || 'N/A';
             document.getElementById('vibectl-logs').textContent = data.vibectl_logs || 'N/A';
+            document.getElementById('last-updated').textContent = new Date(data.last_updated * 1000).toLocaleTimeString() || 'N/A';
 
             // Hide loading message and show status grid
             document.getElementById('loading').style.display = 'none';

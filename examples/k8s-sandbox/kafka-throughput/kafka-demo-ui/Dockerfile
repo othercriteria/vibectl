@@ -6,10 +6,23 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install docker library along with other requirements
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    pip install --no-cache-dir -r requirements.txt docker && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Add non-root user and group for security
+ARG DOCKER_GID=999 # Default GID
+RUN groupadd -g ${DOCKER_GID} docker-host-group || echo "Group ${DOCKER_GID} may already exist" && \
+    groupadd -r ui-group && \
+    useradd -r -g ui-group -G docker-host-group ui-user
 
 # Copy application code
-COPY . .
+COPY --chown=ui-user:ui-group . .
+
+# Switch to non-root user
+USER ui-user
 
 # Expose port
 EXPOSE 8081

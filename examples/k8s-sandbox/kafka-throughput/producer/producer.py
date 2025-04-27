@@ -98,10 +98,13 @@ def main() -> None:
         logging.error("Failed to initialize Kafka producer after multiple retries.")
         exit(1)
 
+    # Write initial status file
+    logging.info("Writing initial producer stats...")
+    write_producer_stats(rate=0, size=MESSAGE_SIZE_BYTES)
+
     sequence_number = 0
     messages_sent_this_second = 0
     start_time_current_second = time.time()
-    last_reported_rate = 0
 
     try:
         while True:
@@ -112,9 +115,8 @@ def main() -> None:
             if elapsed_in_second >= 1.0:
                 # Report stats for the completed second
                 current_rate = messages_sent_this_second
-                if current_rate != last_reported_rate:
-                    write_producer_stats(rate=current_rate, size=MESSAGE_SIZE_BYTES)
-                    last_reported_rate = current_rate
+                # Always write stats every second to update mtime
+                write_producer_stats(rate=current_rate, size=MESSAGE_SIZE_BYTES)
 
                 # Reset counter and timer for the new second
                 messages_sent_this_second = 0
@@ -124,15 +126,9 @@ def main() -> None:
             if messages_sent_this_second < MESSAGE_RATE_PER_SECOND:
                 message_bytes = create_message(sequence_number, MESSAGE_SIZE_BYTES)
                 try:
-                    # future = producer.send(KAFKA_TOPIC, value=message_bytes)
                     producer.send(KAFKA_TOPIC, value=message_bytes)
-                    # Optional: Block until message is sent or timeout
-                    # record_metadata = future.get(timeout=10)
-                    # logging.debug(
-                    #    f"Sent message {sequence_number} to topic "
-                    #    f"{record_metadata.topic} partition "
-                    #    f"{record_metadata.partition} offset {record_metadata.offset}"
-                    # )
+                    # Add debug logging for successful send
+                    logging.debug(f"Sent message {sequence_number}")
                     sequence_number += 1
                     messages_sent_this_second += 1
                 except KafkaTimeoutError:

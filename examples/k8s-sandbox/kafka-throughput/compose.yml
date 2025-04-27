@@ -103,15 +103,23 @@ services:
     build:
       context: ./kafka-demo-ui # Renamed from ./overseer
       dockerfile: Dockerfile
+      # Add DOCKER_GID build arg here IF the Dockerfile uses it to add user to group
+      args:
+        DOCKER_GID: ${DOCKER_GID:-999}
     ports:
       - "8081:8081" # Map host port 8081 to container port 8081
     environment:
       - STATUS_DIR=/tmp/status # Read latency & producer stats from here
       - KUBECONFIG=/root/.kube/config # Point K8s client to mounted kubeconfig
+      # Add DOCKER_GID so the running process can potentially access the socket
+      # if the user is added to this group inside the container.
+      - DOCKER_GID=${DOCKER_GID:-999}
       # Add config: TARGET_LATENCY, RATE_ADJUST_STEP etc. via run.sh
     volumes:
       # Mount status volume to read latency and producer stats
       - status-volume:/tmp/status:rw
+      # Mount Docker socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only is safer
     networks:
       kafka-demo-network:
         aliases:
