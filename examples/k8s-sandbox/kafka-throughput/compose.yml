@@ -1,0 +1,156 @@
+services:
+  k8s-sandbox:
+    container_name: kafka-k8s-sandbox
+    deploy: # Add resource limits
+      resources:
+        limits:
+          cpus: "${K8S_SANDBOX_CPU_LIMIT:-4.0}"
+          memory: "${K8S_SANDBOX_MEM_LIMIT:-4G}"
+    build:
+      context: ./k8s-sandbox
+      dockerfile: Dockerfile
+      args:
+        # Pass the host's Docker GID for k3d permissions
+        DOCKER_GID: ${DOCKER_GID:-999}
+    privileged: true # Needed for running k3d
+    environment:
+      # API keys (Add VIBECTL_ANTHROPIC_API_KEY handling in run.sh)
+      - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY} # Legacy fallback
+      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
+      - STATUS_DIR=/tmp/status
+      # K3d Cluster Name
+      - K3D_CLUSTER_NAME=kafka-demo-cluster
+      # Explicitly pass the generated Kafka Cluster ID
+      - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
+      # Add variable for dynamic IP-based listener configuration
+      - KAFKA_ADVERTISED_HOST=172.20.0.2
+      # Add target latency for the reporter script
+      - TARGET_LATENCY_MS=10.0 # Value from producer.py
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - status-volume:/tmp/status:rw
+      # Mount source code for vibectl development/installation if needed
+      - ../../..:/home/sandbox/vibectl-src:ro
+    networks:
+      kafka-demo-network:
+        aliases:
+          - k8s-sandbox
+    # Healthcheck: Wait for k3d cluster + Kafka to be ready (implement in entrypoint.sh)
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/status/kafka_ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30 # Wait up to 5 minutes
+      start_period: 60s # Allow time for initial setup
+
+  producer:
+    container_name: kafka-producer
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+        restart: true
+    environment:
+      # Use KAFKA_BROKER to match producer.py and point to the sandbox container
+      - KAFKA_BROKER=k8s-sandbox:9092
+      - STATUS_DIR=/tmp/status # Potentially report status here
+      # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh -> Make MSG_RATE configurable here
+      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-50}
+    volumes:
+      # Mount status volume to write producer stats
+      - status-volume:/tmp/status:rw
+    networks:
+      kafka-demo-network:
+        aliases:
+          - kafka-producer
+    # Improved healthcheck
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  consumer:
+    container_name: kafka-consumer
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    depends_on:
+      k8s-sandbox:
+        condition: service_healthy
+        restart: true
+    environment:
+      # Use KAFKA_BROKER to match consumer.py and point to the sandbox container
+      - KAFKA_BROKER=k8s-sandbox:9092
+      - STATUS_DIR=/tmp/status # Write latency metrics here
+      # Add config: TOPICS, SHARED_SECRET etc. via run.sh
+    volumes:
+      # Mount status volume to write latency metrics
+      - status-volume:/tmp/status:rw
+    networks:
+      kafka-demo-network:
+        aliases:
+          - kafka-consumer
+    # Improved healthcheck
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  kafka-demo-ui: # Renamed from overseer
+    container_name: kafka-demo-ui # Renamed from kafka-overseer
+    build:
+      context: ./kafka-demo-ui # Renamed from ./overseer
+      dockerfile: Dockerfile
+      # Add DOCKER_GID build arg here IF the Dockerfile uses it to add user to group
+      args:
+        DOCKER_GID: ${DOCKER_GID:-999}
+    ports:
+      - "8081:8081" # Map host port 8081 to container port 8081
+    environment:
+      - STATUS_DIR=/tmp/status # Read latency & producer stats from here
+      - KUBECONFIG=/root/.kube/config # Point K8s client to mounted kubeconfig
+      # Add DOCKER_GID so the running process can potentially access the socket
+      # if the user is added to this group inside the container.
+      - DOCKER_GID=${DOCKER_GID:-999}
+      # Add config: TARGET_LATENCY, RATE_ADJUST_STEP etc. via run.sh
+    volumes:
+      # Mount status volume to read latency and producer stats
+      - status-volume:/tmp/status:rw
+      # Mount Docker socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only is safer
+    networks:
+      kafka-demo-network:
+        aliases:
+          - kafka-demo-ui
+    # Healthcheck: Check if Flask app is responding
+    healthcheck:
+      # Check if the Flask app is serving HTTP requests
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # Allow time for Flask app to start
+
+networks:
+  kafka-demo-network:
+    driver: bridge
+    # Add DNS configuration for better hostname resolution
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.enable_icc: "true"
+
+volumes:
+  status-volume: # Named volume for shared status/metrics
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=10m,mode=1777" # Small tmpfs, world-writable

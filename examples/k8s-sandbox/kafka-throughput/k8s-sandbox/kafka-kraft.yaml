@@ -1,0 +1,218 @@
+# Basic Single-Node Kafka KRaft Configuration
+# Note: This is a minimal setup for demonstration purposes.
+# It uses emptyDir for storage (ephemeral) and lacks robust security/configuration.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-controller-config
+  namespace: kafka # Assuming namespace 'kafka' is created by entrypoint.sh
+  labels:
+    app: kafka
+data:
+  kraft-server.properties: |
+    # Single node runs as both broker and controller
+    process.roles=broker,controller
+    node.id=0
+
+    # KRaft controllers
+    controller.quorum.voters=0@kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9093
+    controller.listener.names=CONTROLLER
+
+    # Listeners (Internal on 9091, External on 9092)
+    listeners=INTERNAL://:9091,EXTERNAL://:9092,CONTROLLER://:9093
+    # Advertise internal listener with internal K8s service name
+    # Advertise external listener with placeholder replaced by entrypoint.sh (k8s-sandbox)
+    advertised.listeners=INTERNAL://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092
+    inter.broker.listener.name=INTERNAL
+
+    # Listener Security Protocol Map (Updated for INTERNAL/EXTERNAL)
+    listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+    # Storage
+    log.dirs=/var/lib/kafka/data
+
+    # Basic settings (adjust as needed)
+    num.partitions=10
+    default.replication.factor=1
+    min.insync.replicas=1
+    offsets.topic.replication.factor=1
+    transaction.state.log.replication.factor=1
+    transaction.state.log.min.isr=1
+
+    # Added for reliability
+    auto.create.topics.enable=true
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless # Headless service for StatefulSet pod discovery
+  namespace: kafka
+  labels:
+    app: kafka
+spec:
+  clusterIP: None # Headless
+  ports:
+  - name: plaintext # Keep old name for compatibility? Or rename to external?
+    port: 9092
+    protocol: TCP
+    targetPort: 9092
+  - name: internal # Add internal port
+    port: 9091
+    protocol: TCP
+    targetPort: 9091
+  - name: controller
+    port: 9093
+    protocol: TCP
+    targetPort: 9093
+  selector:
+    app: kafka
+    role: controller
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-service # Service for external access (via port-forward)
+  namespace: kafka
+  labels:
+    app: kafka
+spec:
+  type: ClusterIP # Keep as ClusterIP, expose via port-forward
+  ports:
+  - name: plaintext # External
+    port: 9092
+    protocol: TCP
+    targetPort: 9092
+  selector:
+    app: kafka
+    role: controller
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka-controller
+  namespace: kafka
+  labels:
+    app: kafka
+    role: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+      role: controller
+  serviceName: kafka-headless
+  template:
+    metadata:
+      labels:
+        app: kafka
+        role: controller
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: kafka
+        image: apache/kafka:3.7.0 # Use an official Kafka image
+        ports:
+        - containerPort: 9092
+          name: plaintext # External
+        - containerPort: 9091
+          name: internal # Internal
+        - containerPort: 9093
+          name: controller
+        env:
+          # Generate Kafka Cluster ID
+          - name: KAFKA_CLUSTER_ID
+            valueFrom:
+              configMapKeyRef:
+                name: kafka-cluster-id-config
+                key: clusterId
+          # Point to the configuration file
+          - name: KAFKA_BROKER_ID
+            value: "0" # Set statically for single node
+          - name: KAFKA_PROCESS_ROLES
+            value: "broker,controller"
+          - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+            value: "0@kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9093"
+          # Updated KAFKA_LISTENERS env var
+          - name: KAFKA_LISTENERS
+            value: "INTERNAL://:9091,EXTERNAL://:9092,CONTROLLER://:9093"
+          # Added KAFKA_ADVERTISED_LISTENERS env var
+          - name: KAFKA_ADVERTISED_LISTENERS
+            value: "INTERNAL://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092"
+          # Updated KAFKA_INTER_BROKER_LISTENER_NAME env var
+          - name: KAFKA_INTER_BROKER_LISTENER_NAME
+            value: "INTERNAL"
+          - name: KAFKA_CONTROLLER_LISTENER_NAMES
+            value: "CONTROLLER"
+          # Updated KAFKA_LISTENER_SECURITY_PROTOCOL_MAP env var
+          - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+            value: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+          - name: KAFKA_LOG_DIRS
+            value: "/var/lib/kafka/data"
+          # JVM Heap settings (Reverted to 512m)
+          - name: KAFKA_HEAP_OPTS
+            value: "-Xms512m -Xmx512m"
+          # Network and I/O threads (Intentionally low initial settings)
+          - name: KAFKA_NUM_NETWORK_THREADS
+            value: "1" # Default is 3
+          - name: KAFKA_NUM_IO_THREADS
+            value: "2" # Default is 8
+        # Command to format storage and start Kafka
+        # Note: Bitnami images might have different entrypoints/config methods
+        command:
+          - "/bin/bash"
+          - "-c"
+          - |
+            echo "Starting Kafka KRaft node 0..."
+            # Format storage directory if it does not exist
+            if [ ! -f /var/lib/kafka/data/meta.properties ]; then
+              echo "Formatting storage directory /var/lib/kafka/data for cluster $KAFKA_CLUSTER_ID..."
+              /opt/kafka/bin/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /etc/kafka/kraft/server.properties
+            fi
+            echo "Launching Kafka..."
+            exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/kraft/server.properties
+        volumeMounts:
+        - name: kafka-config
+          mountPath: /etc/kafka/kraft
+        - name: kafka-data
+          mountPath: /var/lib/kafka/data
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 150
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          tcpSocket:
+            port: 9091
+          initialDelaySeconds: 180
+          periodSeconds: 20
+      volumes:
+      - name: kafka-config
+        configMap:
+          name: kafka-controller-config
+          items:
+          - key: kraft-server.properties
+            path: server.properties
+      - name: kafka-data # Using emptyDir for ephemeral storage in demo
+        emptyDir: {}
+
+---
+# Need a way to generate and store the cluster ID reliably.
+# A simple ConfigMap created once can do this.
+# The entrypoint script should check and create this if it doesn't exist.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-cluster-id-config
+  namespace: kafka
+data:
+  # Generate this value once, e.g., using: kafka-storage.sh random-uuid
+  # The entrypoint script will need to handle creation if missing.
+  clusterId: "PLACEHOLDER_CLUSTER_ID"

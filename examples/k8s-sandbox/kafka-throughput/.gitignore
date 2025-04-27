@@ -1,0 +1,5 @@
+# Generated environment file
+.env.generated
+
+# Status volume directory (mounted as tmpfs)
+status-volume/

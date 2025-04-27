@@ -447,7 +447,21 @@ for details.
 - **Kubernetes CTF Sandbox**: Challenge-based learning environment for vibectl autonomy. See `examples/k8s-sandbox/ctf/README.md`.
 - **Chaos Monkey**: Red/blue team competitive scenario for resilience testing. See `examples/k8s-sandbox/chaos-monkey/README.md`.
 - **Bootstrap Demo**: Self-contained k3d (K3s in Docker) + Ollama environment, with vibectl configured to use the local LLM and automated demonstration of Kubernetes analysis. See `examples/k8s-sandbox/bootstrap/README.md`.
+- **Kafka Throughput Demo**: Demonstrates vibectl tuning Kafka performance under synthetic load within a K3d environment. Includes adaptive producer load, consumer rate monitoring, and a web UI displaying key metrics, health status, and vibectl agent logs. See `examples/k8s-sandbox/kafka-throughput/README.md`.
 
 ## Development Workflow
 
 - Use Git worktrees for all feature development. See `.cursor/rules/feature-worktrees.mdc` for the required workflow.
+
+## Demos
+
+This repository includes several demonstration environments in the `examples/` directory:
+
+- **Bootstrap Demo (`examples/k8s-sandbox/bootstrap/`)**: Sets up a local K3d cluster with Ollama, demonstrating `vibectl` with local LLMs for cluster analysis.
+- **CTF Demo (`examples/k8s-sandbox/ctf/`)**: A Capture The Flag style scenario where `vibectl` autonomously navigates and interacts within a Kubernetes sandbox.
+- **Chaos Monkey Demo (`examples/k8s-sandbox/chaos-monkey/`)**: Features two `vibectl` agents (Red vs. Blue) competing in a Kubernetes environment, showcasing autonomous attack and defense strategies.
+- **Kafka Throughput Demo (`examples/k8s-sandbox/kafka-throughput/`)**: Demonstrates `vibectl` autonomously tuning Kafka broker performance (heap, threads) based on real-time latency metrics from producer/consumer applications running within a K3d cluster.
+
+Each demo has its own `README.md` and `STRUCTURE.md` with specific setup and usage instructions.
+
+See [Development Workflow](STRUCTURE.md#development-workflow) in the `STRUCTURE.md` file for details on setting up a development environment, using Git worktrees, running tests, and contributing.

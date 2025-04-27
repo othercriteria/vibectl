@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: latency-reporter-sa
+  namespace: kafka
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: latency-reporter-role
+  namespace: kafka
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["kafka-latency-metrics"] # Only allow access to this specific CM
+  verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: latency-reporter-binding
+  namespace: kafka
+subjects:
+- kind: ServiceAccount
+  name: latency-reporter-sa
+  namespace: kafka
+roleRef:
+  kind: Role
+  name: latency-reporter-role
+  apiGroup: rbac.authorization.k8s.io
