@@ -14,13 +14,21 @@ logging.basicConfig(
 # Configuration from environment variables
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:9092")
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "throughput-topic")
-MESSAGE_RATE_PER_SECOND = int(os.environ.get("MESSAGE_RATE_PER_SECOND", "10"))
+# Store initial rate, allow it to be modified
+INITIAL_MESSAGE_RATE = int(os.environ.get("MESSAGE_RATE_PER_SECOND", "10"))
 MESSAGE_SIZE_BYTES = int(os.environ.get("MESSAGE_SIZE_BYTES", "1024"))
 PRODUCER_CLIENT_ID = os.environ.get("PRODUCER_CLIENT_ID", "kafka-throughput-producer")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "30"))
 INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "10"))
 STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
 PRODUCER_STATS_FILE = os.path.join(STATUS_DIR, "producer_stats.txt")
+LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")  # Need latency file path
+
+# Adaptive Load Parameters
+ADAPTIVE_CHECK_INTERVAL_S = int(os.environ.get("ADAPTIVE_CHECK_INTERVAL_S", "30"))
+LOW_LATENCY_THRESHOLD_MS = float(os.environ.get("LOW_LATENCY_THRESHOLD_MS", "10.0"))
+MAX_MESSAGE_RATE = int(os.environ.get("MAX_MESSAGE_RATE", "10000"))
+RATE_INCREASE_FACTOR = float(os.environ.get("RATE_INCREASE_FACTOR", "1.20"))
 
 
 def create_message(sequence_number: int, size_bytes: int) -> bytes:
@@ -44,9 +52,10 @@ def create_message(sequence_number: int, size_bytes: int) -> bytes:
     return message_str.encode("utf-8")
 
 
-def write_producer_stats(rate: int, size: int) -> None:
-    """Writes producer stats to a file."""
-    stats_str = f"rate={rate}, size={size}"
+def write_producer_stats(target_rate: int, actual_rate: int, size: int) -> None:
+    """Writes producer stats (target rate and actual achieved rate) to a file."""
+    # Report both the target rate and the actual achieved rate
+    stats_str = f"target_rate={target_rate}, actual_rate={actual_rate}, size={size}"
     try:
         os.makedirs(STATUS_DIR, exist_ok=True)
         with open(PRODUCER_STATS_FILE, "w") as f:
@@ -55,13 +64,77 @@ def write_producer_stats(rate: int, size: int) -> None:
         logging.error(f"Error writing producer stats to {PRODUCER_STATS_FILE}: {e}")
 
 
+def read_latency() -> float | None:
+    """Reads the latency value from the shared file."""
+    try:
+        if os.path.exists(LATENCY_FILE):
+            with open(LATENCY_FILE) as f:
+                content = f.read().strip()
+                if content:
+                    return float(content)
+    except ValueError:
+        logging.warning(f"Could not parse float from latency file: {LATENCY_FILE}")
+    except Exception as e:
+        logging.error(f"Error reading latency file {LATENCY_FILE}: {e}")
+    return None
+
+
+def adjust_message_rate(
+    current_rate: int,
+    latency_ms: float | None,
+    latency_threshold: float,
+    max_rate: int,
+    increase_factor: float,
+) -> int:
+    """Adjusts the message rate based on latency."""
+    if latency_ms is not None and latency_ms < latency_threshold:
+        if current_rate < max_rate:
+            calculated_new_rate = current_rate * increase_factor
+            new_rate = min(int(calculated_new_rate), max_rate)
+            if new_rate > current_rate:
+                logging.info(
+                    f"Low latency ({latency_ms:.2f}ms < {latency_threshold}ms). "
+                    f"Increasing target rate by factor {increase_factor}: {current_rate} -> {new_rate}/s"
+                )
+                return new_rate
+            else:
+                logging.info(
+                    f"Latency low ({latency_ms:.2f}ms), but already at/near max rate ({current_rate}/s). Holding."
+                )
+                return current_rate  # Return current rate if no change
+        else:
+            logging.info(
+                f"Latency low ({latency_ms:.2f}ms), but already at max rate ({current_rate}/s). Holding."
+            )
+            return current_rate  # Return current rate if at max
+    elif latency_ms is not None:
+        logging.info(
+            f"Latency ({latency_ms:.2f}ms) >= threshold ({latency_threshold}ms). Holding target rate at {current_rate}/s."
+        )
+        # Optional: Add logic here to decrease rate if latency is high
+    else:
+        logging.info(
+            f"Could not read latency. Holding target rate at {current_rate}/s."
+        )
+
+    # Return the current rate if no adjustment was made
+    return current_rate
+
+
 def main() -> None:
     logging.info("--- Kafka Throughput Demo Producer --- ")
     logging.info(f"Target Kafka Broker: {KAFKA_BROKER}")
     logging.info(f"Target Kafka Topic: {KAFKA_TOPIC}")
-    logging.info(f"Message Rate: {MESSAGE_RATE_PER_SECOND}/s")
+    # Use mutable variable for rate
+    current_message_rate = INITIAL_MESSAGE_RATE
+    logging.info(
+        f"Initial Message Rate: {current_message_rate}/s (Max: {MAX_MESSAGE_RATE}/s)"
+    )
     logging.info(f"Message Size: {MESSAGE_SIZE_BYTES} bytes")
     logging.info(f"Client ID: {PRODUCER_CLIENT_ID}")
+    logging.info(
+        f"Adaptive Load: Checking every {ADAPTIVE_CHECK_INTERVAL_S}s, Threshold <{LOW_LATENCY_THRESHOLD_MS}ms, Increase Factor x{RATE_INCREASE_FACTOR}"
+    )
 
     producer = None
     retries = 0
@@ -98,36 +171,56 @@ def main() -> None:
         logging.error("Failed to initialize Kafka producer after multiple retries.")
         exit(1)
 
-    # Write initial status file
+    # Write initial status file (report target rate)
     logging.info("Writing initial producer stats...")
-    write_producer_stats(rate=0, size=MESSAGE_SIZE_BYTES)
+    write_producer_stats(
+        target_rate=current_message_rate, actual_rate=0, size=MESSAGE_SIZE_BYTES
+    )
 
     sequence_number = 0
     messages_sent_this_second = 0
     start_time_current_second = time.time()
+    last_adaptive_check_time = time.time()
 
     try:
         while True:
-            # Rate limiting & Stats Reporting
             now = time.time()
+
+            # --- Adaptive Load Adjustment --- Check periodically
+            if now - last_adaptive_check_time >= ADAPTIVE_CHECK_INTERVAL_S:
+                last_adaptive_check_time = now
+                latency_ms = read_latency()
+                current_message_rate = adjust_message_rate(
+                    current_rate=current_message_rate,
+                    latency_ms=latency_ms,
+                    latency_threshold=LOW_LATENCY_THRESHOLD_MS,
+                    max_rate=MAX_MESSAGE_RATE,
+                    increase_factor=RATE_INCREASE_FACTOR,
+                )
+
+            # --- Rate limiting & Stats Reporting --- (Per second)
             elapsed_in_second = now - start_time_current_second
 
             if elapsed_in_second >= 1.0:
                 # Report stats for the completed second
-                current_rate = messages_sent_this_second
-                # Always write stats every second to update mtime
-                write_producer_stats(rate=current_rate, size=MESSAGE_SIZE_BYTES)
+                actual_rate_this_second = messages_sent_this_second
+                # Report current target rate and actual achieved rate
+                write_producer_stats(
+                    target_rate=current_message_rate,
+                    actual_rate=actual_rate_this_second,
+                    size=MESSAGE_SIZE_BYTES,
+                )
 
                 # Reset counter and timer for the new second
                 messages_sent_this_second = 0
                 start_time_current_second = now  # Reset timer precisely
                 elapsed_in_second = 0  # Reset elapsed time for the new second
 
-            if messages_sent_this_second < MESSAGE_RATE_PER_SECOND:
+            # --- Message Sending --- (Uses current_message_rate)
+            if messages_sent_this_second < current_message_rate:
                 message_bytes = create_message(sequence_number, MESSAGE_SIZE_BYTES)
                 try:
                     producer.send(KAFKA_TOPIC, value=message_bytes)
-                    # Add debug logging for successful send
                     logging.debug(f"Sent message {sequence_number}")
                     sequence_number += 1
                     messages_sent_this_second += 1
@@ -140,17 +233,15 @@ def main() -> None:
                     # Consider a delay or break here depending on the error
                     time.sleep(1)  # Simple delay
 
-            # Calculate sleep time to maintain rate accurately
-            # Avoid busy-waiting if rate is low
-            if messages_sent_this_second >= MESSAGE_RATE_PER_SECOND:
+            # --- Sleep Logic --- (Calculated based on current_message_rate)
+            if messages_sent_this_second >= current_message_rate:
                 time_to_next_second = start_time_current_second + 1.0 - time.time()
                 if time_to_next_second > 0:
                     time.sleep(time_to_next_second)
             else:
-                # If we haven't hit the rate limit, sleep minimally or based on
-                # target interval
-                target_interval = 1.0 / MESSAGE_RATE_PER_SECOND
-                # Small sleep to prevent tight loop
+                target_interval = (
+                    1.0 / current_message_rate if current_message_rate > 0 else 1.0
+                )
                 time.sleep(max(0, target_interval / 10))
 
     except KeyboardInterrupt:
@@ -164,8 +255,10 @@ def main() -> None:
             logging.info("Closing Kafka producer...")
             producer.close()
             logging.info("Producer closed.")
-            # Write final zero rate on clean exit
-            write_producer_stats(rate=0, size=MESSAGE_SIZE_BYTES)
+            # Write final stats on clean exit
+            write_producer_stats(
+                target_rate=current_message_rate, actual_rate=0, size=MESSAGE_SIZE_BYTES
+            )
 
 
 if __name__ == "__main__":

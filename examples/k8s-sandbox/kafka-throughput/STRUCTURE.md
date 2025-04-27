@@ -31,14 +31,20 @@ examples/k8s-sandbox/kafka-throughput/
 │   └── healthcheck.py      # Simple healthcheck script for the producer.
 ├── consumer/               # Contains files for the Kafka consumer service.
 │   ├── Dockerfile          # Builds the consumer container image.
-│   ├── consumer.py         # Python script to consume messages, calculate P99 latency, and update the ConfigMap.
+│   ├── consumer.py         # Python script to consume messages, calculate P99 latency, report consumption rate.
 │   └── healthcheck.py      # Simple healthcheck script for the consumer.
-├── kafka-demo-ui/          # Renamed from overseer - Contains files for the simple monitoring/UI service.
+├── kafka-demo-ui/          # Contains files for the web monitoring UI service.
 │   ├── Dockerfile          # Builds the kafka-demo-ui container image.
-│   └── kafka_demo_ui.py    # Renamed from overseer.py - Python script (currently logs latency, intended for UI).
-└── status-volume/          # (Created at runtime via Docker tmpfs volume) Shared volume for status files.
+│   ├── app.py              # Flask/SocketIO application serving the UI.
+│   ├── requirements.txt    # Python dependencies for the UI app.
+│   └── templates/
+│       └── index.html      # HTML template for the UI.
+└── status-volume/          # (Created by run.sh, bind-mounted to host) Shared directory for status files.
     ├── kafka_ready         # (Created by k8s-sandbox) Signals Kafka broker is ready for clients.
-    ├── latency.txt         # (Created by latency-reporter.py) Contains latest consumer P99 latency (ms).
+    ├── latency.txt         # (Created by consumer.py) Contains latest consumer P99 latency (ms).
+    ├── producer_stats.txt  # (Created by producer.py) Contains target/actual rate and msg size.
+    ├── consumer_stats.txt  # (Created by consumer.py) Contains actual consumption rate.
+    ├── vibectl_agent.log   # (Created by k8s-sandbox) Log output from `vibectl auto`.
     └── kafka_cluster_id.txt # (Created by run.sh) Stores the generated Kafka cluster ID.
 ```
 
@@ -49,7 +55,7 @@ examples/k8s-sandbox/kafka-throughput/
 - **`k8s-sandbox/`**: Manages the Kubernetes environment, Kafka deployment, and runs the `vibectl` agent.
   - **`entrypoint.sh`**: Orchestrates K3d setup, Kafka deployment via `kafka-kraft.yaml`, port-forwarding, `vibectl` installation/configuration (including LLM plugins and API key setup), deploys the latency reporter, and runs the main loop reading `latency.txt` and executing `vibectl auto`.
   - **`latency-reporter.py`**: Runs inside the `k8s-sandbox` container, periodically reads the P99 latency from the `kafka-latency-metrics` ConfigMap (updated by the consumer) and writes it to `/tmp/status/latency.txt` for the main `vibectl` loop to read.
-- **`producer/`**: Runs `producer.py` to generate configurable load for the Kafka cluster.
-- **`consumer/`**: Runs `consumer.py` to read messages, calculate P99 latency, and update the `kafka-latency-metrics` ConfigMap in the Kubernetes cluster.
-- **`kafka-demo-ui/`**: Runs `kafka_demo_ui.py` to monitor latency (future: provide a simple web UI).
-- **`status-volume/`**: A Docker tmpfs volume mounted to `/tmp/status` in relevant containers for simple file-based communication (Kafka readiness signal, latest processed latency).
+- **`producer/`**: Runs `producer.py` to generate configurable and adaptive load for the Kafka cluster, reporting its target/actual rate and message size to `producer_stats.txt`.
+- **`consumer/`**: Runs `consumer.py` to read messages, calculate P99 latency, calculate consumption rate, and write metrics to `latency.txt` and `consumer_stats.txt`.
+- **`kafka-demo-ui/`**: Runs a Flask/SocketIO web application (`app.py`) that monitors the status files and Docker container health, providing a simple web UI (`templates/index.html`) to display metrics and logs.
+- **`status-volume/`**: A host directory (`./status-volume/`) bind-mounted into relevant containers at `/tmp/status` for sharing metrics and logs via simple files.

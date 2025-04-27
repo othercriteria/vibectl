@@ -317,20 +317,19 @@ function deploy_latency_reporter() {
     echo "🔧 Starting latency reporter script in background..."
     # Ensure STATUS_DIR is set for the script environment if needed
     # Make sure KUBECTL_CMD points to the right kubectl if not default
-    export STATUS_DIR KUBECTL_CMD="kubectl" CONFIGMAP_NAME CONFIGMAP_NAMESPACE CONFIGMAP_KEY CHECK_INTERVAL_S
+    # Export TARGET_LATENCY_MS for the reporter
+    export STATUS_DIR KUBECTL_CMD="kubectl" CONFIGMAP_NAME CONFIGMAP_NAMESPACE CONFIGMAP_KEY CHECK_INTERVAL_S TARGET_LATENCY_MS
     nohup python /home/sandbox/latency-reporter.py > /tmp/latency-reporter.log 2>&1 &
     REPORTER_PID=$!
-    echo "✅ Latency reporter started in background (PID: $REPORTER_PID). Log: /tmp/latency-reporter.log"
+    echo "✅ Metrics reporter started in background (PID: $REPORTER_PID). Log: /tmp/latency-reporter.log"
     # Optional: Add trap to kill reporter PID on exit?
 }
 
 function run_vibectl_loop() {
     echo "🔄 Starting vibectl monitoring loop..."
-    # No longer need to clear memory here, setup handles initial instructions
-    # vibectl memory clear
-    # vibectl memory set "Initial state: KRaft Kafka cluster running in k3d..."
+    # Define log file path
+    LOG_FILE="${STATUS_DIR}/vibectl_agent.log"
 
-    LAST_LATENCY=""
     while true; do
         # Check for shutdown signal
         if [ -f "${SHUTDOWN_FILE}" ]; then
@@ -338,35 +337,21 @@ function run_vibectl_loop() {
             break
         fi
 
-        CURRENT_LATENCY=""
-        if [ -f "${LATENCY_FILE}" ]; then
-            CURRENT_LATENCY=$(cat "${LATENCY_FILE}")
-            echo "[Loop] Found latency file: ${CURRENT_LATENCY}"
+        echo "[Loop] Running vibectl auto (output to ${LOG_FILE})..." # Log before running
+        # Run vibectl auto without limits or explicit memory updates.
+        # Rely on vibectl's internal logic and instructions to handle metrics.
+        if ! vibectl auto >> "${LOG_FILE}" 2>&1; then
+            echo "⚠️ Warning: vibectl auto command failed. Check ${LOG_FILE}. Continuing loop." >&2
+            # Also log the failure message to the file itself
+            echo "[Loop] ⚠️ vibectl auto command failed." >> "${LOG_FILE}" 2>&1
         else
-            echo "[Loop] Latency file not found (${LATENCY_FILE}). Waiting..."
+            # Optional: Add a success log message if needed
+            echo "[Loop] vibectl auto completed successfully." >> "${LOG_FILE}" 2>&1
         fi
 
-        # Only run vibectl if latency file exists and has changed since last check
-        if [ -n "${CURRENT_LATENCY}" ] && [ "${CURRENT_LATENCY}" != "${LAST_LATENCY}" ]; then
-            echo "[Loop] Latency updated. Updating memory and running vibectl auto..."
-            # Update memory with the latest latency
-            if ! vibectl memory update "Latest observed consumer latency: ${CURRENT_LATENCY}"; then
-                echo "⚠️ Warning: Failed to update vibectl memory." >&2
-            fi
-
-            # Run vibectl auto with a limit
-            if ! vibectl auto --limit 5; then
-                echo "⚠️ Warning: vibectl auto command failed. Continuing loop." >&2
-                # Consider adding error details to memory?
-                # vibectl memory update "Vibectl auto failed. Last error: ..."
-            fi
-
-            LAST_LATENCY="${CURRENT_LATENCY}"
-        else
-             echo "[Loop] No new latency info. Sleeping..."
-        fi
-
-        sleep 15 # Check every 15 seconds
+        # Sleep for a longer interval as vibectl auto now runs potentially longer tasks
+        echo "[Loop] Sleeping for 60 seconds..."
+        sleep 60
     done
 }
 

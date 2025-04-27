@@ -21,6 +21,8 @@ CONSUMER_GROUP_ID = os.environ.get(
 )
 CONSUMER_CLIENT_ID = os.environ.get("CONSUMER_CLIENT_ID", "kafka-throughput-consumer")
 LATENCY_OUTPUT_FILE = os.environ.get("LATENCY_OUTPUT_FILE", "/tmp/status/latency.txt")
+STATUS_DIR = os.path.dirname(LATENCY_OUTPUT_FILE)  # Infer status dir
+CONSUMER_STATS_FILE = os.path.join(STATUS_DIR, "consumer_stats.txt")  # New stats file
 LATENCY_WINDOW_SECONDS = int(
     os.environ.get("LATENCY_WINDOW_SECONDS", "10")
 )  # Calculate p99 over this window
@@ -34,6 +36,7 @@ INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "5"))
 # Stores tuples of (timestamp, latency_ms)
 recent_latencies: deque[tuple[float, float]] = deque()
 last_report_time = time.time()
+message_count_since_last_report = 0  # Counter for consumption rate
 
 
 def calculate_latency(message_value: bytes) -> float | None:
@@ -74,9 +77,20 @@ def write_latency_to_file(latency_ms: float) -> None:
         logging.error(f"Failed to write latency to {LATENCY_OUTPUT_FILE}: {e}")
 
 
-def calculate_and_report_percentile() -> None:
-    """Calculates the p99 latency from the deque and writes it to the file."""
-    global last_report_time
+def write_consumer_stats(rate: float) -> None:
+    """Writes consumer stats (consumption rate) to a file."""
+    stats_str = f"rate={rate:.2f}"
+    try:
+        # Directory should exist from write_latency_to_file
+        with open(CONSUMER_STATS_FILE, "w") as f:
+            f.write(stats_str)
+    except Exception as e:
+        logging.error(f"Error writing consumer stats to {CONSUMER_STATS_FILE}: {e}")
+
+
+def calculate_and_report_metrics() -> None:
+    """Calculates p99 latency and consumption rate, writes them to files."""
+    global last_report_time, message_count_since_last_report  # Need to modify counter
     now = time.time()
 
     # Remove latencies older than the window
@@ -84,14 +98,15 @@ def calculate_and_report_percentile() -> None:
     while recent_latencies and recent_latencies[0][0] < cutoff_time:
         recent_latencies.popleft()
 
-    # Calculate p99 if enough data points exist and it's time to report
-    if now - last_report_time >= REPORTING_INTERVAL_SECONDS:
+    # Calculate metrics if enough time has passed since last report
+    time_since_last_report = now - last_report_time
+    if time_since_last_report >= REPORTING_INTERVAL_SECONDS:
+        # --- Latency Calculation ---
         if len(recent_latencies) > 10:  # Require a minimum number of samples
             latencies = [latency for _, latency in recent_latencies]
             p99_latency = statistics.quantiles(latencies, n=100)[98]  # 99th percentile
             logging.info(
-                f"Current p99 latency ({len(latencies)} samples in "
-                f"{LATENCY_WINDOW_SECONDS}s window): {p99_latency:.2f} ms"
+                f"p99 latency ({len(latencies)} samples in {LATENCY_WINDOW_SECONDS}s): {p99_latency:.2f} ms"
             )
             write_latency_to_file(p99_latency)
         else:
@@ -101,7 +116,17 @@ def calculate_and_report_percentile() -> None:
             )
             # Optionally write a placeholder or NaN
             # write_latency_to_file(float('nan'))
+
+        # --- Consumption Rate Calculation ---
+        consumption_rate = message_count_since_last_report / time_since_last_report
+        logging.info(
+            f"Consumption rate ({message_count_since_last_report} msgs in {time_since_last_report:.2f}s): {consumption_rate:.2f} msg/s"
+        )
+        write_consumer_stats(consumption_rate)
+
+        # --- Reset for next interval ---
         last_report_time = now
+        message_count_since_last_report = 0  # Reset counter
 
 
 def main() -> None:
@@ -111,6 +136,7 @@ def main() -> None:
     logging.info(f"Consumer Group ID: {CONSUMER_GROUP_ID}")
     logging.info(f"Client ID: {CONSUMER_CLIENT_ID}")
     logging.info(f"Latency Output File: {LATENCY_OUTPUT_FILE}")
+    logging.info(f"Consumer Stats Output File: {CONSUMER_STATS_FILE}")
     logging.info(
         f"Latency Window: {LATENCY_WINDOW_SECONDS}s, "
         f"Reporting Interval: {REPORTING_INTERVAL_SECONDS}s"
@@ -158,6 +184,9 @@ def main() -> None:
 
     try:
         for message in consumer:
+            global message_count_since_last_report  # Need to modify counter
+            message_count_since_last_report += 1  # Increment counter
+
             # logging.debug(
             #    f"Received message: {message.topic}:{message.partition}:"
             #    f"{message.offset}: key={message.key} value={message.value[:50]}..."
@@ -167,8 +196,8 @@ def main() -> None:
                 now = time.time()
                 recent_latencies.append((now, latency))
 
-            # Periodically calculate and report percentile
-            calculate_and_report_percentile()
+            # Periodically calculate and report metrics
+            calculate_and_report_metrics()  # Use renamed function
 
     except KeyboardInterrupt:
         logging.info("Consumer interrupted. Shutting down...")
@@ -180,8 +209,8 @@ def main() -> None:
             consumer.close()
             logging.info("Consumer closed.")
         # Final report before exiting
-        calculate_and_report_percentile()
-        logging.info("Final latency report written.")
+        calculate_and_report_metrics()  # Use renamed function
+        logging.info("Final metrics report written.")
 
 
 if __name__ == "__main__":

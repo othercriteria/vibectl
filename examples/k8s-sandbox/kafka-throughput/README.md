@@ -11,11 +11,12 @@ The demo environment consists of:
 1.  **k8s-sandbox**: A container running K3d to create a lightweight Kubernetes cluster.
 2.  **Kafka**: A single-node KRaft Kafka cluster deployed within K3d using basic Kubernetes manifests.
 3.  **vibectl**: An agent running within the `k8s-sandbox` container, configured to interact with the Kafka cluster.
-4.  **Producer**: A Python application sending messages to Kafka at a configurable rate and size.
-5.  **Consumer**: (WIP) A Python application consuming messages, calculating end-to-end latency, and writing it to a shared file.
-6.  **Overseer**: (WIP) A potential monitoring or control component.
+4.  **Producer**: A Python application sending messages to Kafka at a configurable rate and size. It adaptively increases its target rate when consumer latency is low.
+5.  **Consumer**: A Python application consuming messages, calculating end-to-end p99 latency and its own consumption rate, and writing these metrics to shared files.
+6.  **Kafka Demo UI**: A Flask/SocketIO web application that displays key metrics (latency, producer rates, consumer rate), container health status, status file freshness, and the latest `vibectl` agent logs.
+7.  **Shared Volume (`status-volume`)**: A host bind mount directory (`./status-volume/`) shared into containers for metrics and log files.
 
-`vibectl` monitors the consumer latency (read from `/tmp/status/latency.txt` inside the `k8s-sandbox`) and attempts to achieve its goal by modifying Kafka broker configurations (via `kubectl patch` or similar mechanisms).
+`vibectl` monitors the consumer latency and attempts to achieve its goal (maximize producer throughput, minimize consumer latency) by modifying Kafka broker configurations (via `kubectl patch`).
 
 ## Prerequisites
 
@@ -64,6 +65,7 @@ A `Makefile` is provided for convenience:
 
 ## Monitoring the Demo
 
+-   **Web UI**: Access the live dashboard by navigating to `http://localhost:8081` in your browser.
 -   **Container Logs**: View the logs using make:
     ```bash
     # Follow logs for all services
@@ -73,18 +75,22 @@ A `Makefile` is provided for convenience:
     make logs-k8s-sandbox
     make logs-producer
     make logs-consumer
+    make logs-kafka-demo-ui
     ```
--   **Vibectl Actions**: Look for logs from the `vibectl auto` command within the `k8s-sandbox` logs:
+-   **Vibectl Agent Logs**: You can see these directly in the Web UI or via:
     ```bash
+    tail -f ./status-volume/vibectl_agent.log
+    # Or via container logs
     make logs-k8s-sandbox | grep 'vibectl auto'
-    # Or follow live:
-    make logs-k8s-sandbox | grep --line-buffered 'vibectl auto'
     ```
--   **Latency File**: Check the latency reported by the consumer:
+-   **Status Files**: Check the raw status files reported by the components:
     ```bash
-    make check-latency
-    # Or watch the file directly:
+    # Watch latency
     watch cat ./status-volume/latency.txt
+    # Watch producer stats (target/actual rate, size)
+    watch cat ./status-volume/producer_stats.txt
+    # Watch consumer stats (rate)
+    watch cat ./status-volume/consumer_stats.txt
     ```
 
 ## Stopping the Demo
@@ -97,5 +103,5 @@ A `Makefile` is provided for convenience:
 
 ## Current Status & Next Steps
 
--   **Implemented**: `run.sh` orchestration (used by Makefile), `Makefile` for common tasks, `k8s-sandbox` setup (K3d, Kafka deployment, `vibectl` agent loop with goal/constraints), `producer` application, `consumer` application (reporting p99 latency), basic `overseer`, healthchecks, initial documentation, de-optimized Kafka defaults, resource limits in `compose.yml`, `vibectl setup` in entrypoint.
--   **TODO**: Thorough testing and debugging, refine documentation, add more sophisticated overseer logic (optional).
+-   **Implemented**: Core components, orchestration (`run.sh`/`Makefile`/`compose.yml`), K8s/Kafka/Agent setup, producer (adaptive rate), consumer (latency/rate reporting), Web UI (metrics, health, logs), various fixes (volume mounts, readiness signals, producer status).
+-   **Next Steps**: Observe the full demo run, refine `vibectl` instructions if needed, finalize demo-specific documentation.

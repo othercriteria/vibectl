@@ -26,6 +26,8 @@ services:
       - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
       # Add variable for dynamic IP-based listener configuration
       - KAFKA_ADVERTISED_HOST=172.20.0.2
+      # Add target latency for the reporter script
+      - TARGET_LATENCY_MS=10.0 # Value from producer.py
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - status-volume:/tmp/status:rw
@@ -57,6 +59,9 @@ services:
       - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Potentially report status here
       # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh
+    volumes:
+      # Mount status volume to write producer stats
+      - status-volume:/tmp/status:rw
     networks:
       kafka-demo-network:
         aliases:
