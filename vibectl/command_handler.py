@@ -8,7 +8,6 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import subprocess
 from collections.abc import Callable
 
 import click
@@ -19,7 +18,12 @@ from .config import (
     DEFAULT_CONFIG,
     Config,
 )
-from .k8s_utils import create_kubectl_error, run_kubectl
+from .k8s_utils import (
+    create_kubectl_error,
+    run_kubectl,
+    run_kubectl_with_complex_args,
+    run_kubectl_with_yaml,
+)
 from .live_display import (
     _execute_port_forward_with_live_display,
     _execute_wait_with_live_display,
@@ -708,7 +712,7 @@ def _process_and_execute_kubectl_command(
             logger.debug("Executing command with YAML content")
             # Use a consistent logging format
             logger.info(f"Executing kubectl command: {args} (yaml: True)")
-            result = _execute_yaml_command(args, yaml_content)
+            result = _execute_command(args, yaml_content)
         else:
             logger.debug("Executing standard command")
             logger.info(f"Executing kubectl command: {args} (yaml: False)")
@@ -960,20 +964,6 @@ def _parse_command_args(cmd_args: str) -> list[str]:
     return args
 
 
-def _filter_kubeconfig_flags(args: list[str]) -> list[str]:
-    """Filter out kubeconfig flags from the command arguments.
-
-    This is a stub function left for backward compatibility.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        The same list of arguments unchanged
-    """
-    return args
-
-
 def _create_display_command(args: list[str], yaml_content: str | None) -> str:
     """Create a display-friendly command string.
 
@@ -1040,7 +1030,7 @@ def _needs_confirmation(command: str, semiauto: bool) -> bool:
 
 
 def _execute_command(args: list[str], yaml_content: str | None) -> Result:
-    """Execute the kubectl command with the given arguments.
+    """Execute the kubectl command by dispatching to the appropriate utility function.
 
     Args:
         args: List of command arguments
@@ -1051,7 +1041,8 @@ def _execute_command(args: list[str], yaml_content: str | None) -> Result:
     """
     try:
         if yaml_content:
-            return _execute_yaml_command(args, yaml_content)
+            # Dispatch to the YAML handling function in k8s_utils
+            return run_kubectl_with_yaml(args, yaml_content)
         else:
             # Check if any arguments contain spaces or special characters
             has_complex_args = any(
@@ -1059,177 +1050,19 @@ def _execute_command(args: list[str], yaml_content: str | None) -> Result:
             )
 
             if has_complex_args:
-                # Use direct subprocess execution with preserved argument structure
-                return _execute_command_with_complex_args(args)
+                # Dispatch to the complex args handling function in k8s_utils
+                return run_kubectl_with_complex_args(args)
             else:
-                # Regular command without complex arguments
-                # Ensure we directly call run_kubectl - this is important for tests
+                # Regular command without complex arguments, use standard run_kubectl
                 return run_kubectl(args, capture=True)
     except Exception as e:
-        logger.error("Error executing command: %s", e, exc_info=True)
+        logger.error("Error dispatching command execution: %s", e, exc_info=True)
+        # Use create_kubectl_error for consistency if possible, otherwise generic Error
         return create_kubectl_error(f"Error executing command: {e}", exception=e)
-
-
-def _execute_command_with_complex_args(args: list[str]) -> Result:
-    """Execute a kubectl command with complex arguments that need special handling.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        Result with Success containing command output or Error with error information
-    """
-
-    try:
-        # Build the full command to preserve argument structure
-        cmd = ["kubectl"]
-
-        # Add each argument, preserving structure that might have
-        # spaces or special chars
-        for arg in args:
-            cmd.append(arg)
-
-        # Run the command, preserving the argument structure
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return Success(data=result.stdout)
-    except subprocess.CalledProcessError as e:
-        if e.stderr:
-            console_manager.print_error(e.stderr)
-            # Use create_kubectl_error to properly set halt_auto_loop
-            return create_kubectl_error(f"Command failed: {e.stderr}", exception=e)
-        # Use create_kubectl_error for exit code errors too
-        return create_kubectl_error(
-            f"Command failed with exit code {e.returncode}", exception=e
-        )
-    except Exception as e:
-        logger.error("Error executing command with complex args: %s", e, exc_info=True)
-        return Error(error=f"Error executing command: {e}", exception=e)
-
-
-def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
-    """Execute a kubectl command with YAML content.
-
-    Args:
-        args: List of command arguments
-        yaml_content: YAML content to use
-
-    Returns:
-        Result with Success containing command output or Error with error information
-    """
-    import re
-    import tempfile
-    from subprocess import TimeoutExpired
-
-    try:
-        # Fix multi-document YAML formatting issues
-        # Ensure document separators are at the beginning of lines with no indentation
-        # This addresses "mapping values are not allowed in this context" errors
-        yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
-
-        # Ensure each document starts with --- including the first
-        # one if it doesn't already
-        if not yaml_content.lstrip().startswith("---"):
-            yaml_content = "---\n" + yaml_content
-
-        # Check if this is a stdin pipe command (kubectl ... -f -)
-        is_stdin_command = False
-        for i, arg in enumerate(args):
-            if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
-                is_stdin_command = True
-                break
-
-        if is_stdin_command:
-            # For commands like kubectl create -f -, use Popen with stdin
-            cmd = ["kubectl", *args]
-
-            # Use bytes mode for Popen to avoid encoding issues
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,  # Use bytes mode
-            )
-
-            # Encode the YAML content to bytes
-            yaml_bytes = yaml_content.encode("utf-8")
-            try:
-                stdout_bytes, stderr_bytes = process.communicate(
-                    input=yaml_bytes, timeout=30
-                )  # Add 30-second timeout
-            except TimeoutExpired:
-                # Try to terminate the process if it's still running
-                process.kill()
-                # Attempt to collect any output that might be available
-                stdout_bytes, stderr_bytes = process.communicate()
-                # Return an error with a clear message
-                return Error(
-                    error="Command timed out after 30 seconds",
-                    exception=Exception("Subprocess timeout"),
-                )
-
-            # Decode the output back to strings
-            stdout = stdout_bytes.decode("utf-8")
-            stderr = stderr_bytes.decode("utf-8")
-
-            if process.returncode != 0:
-                error_msg = (
-                    stderr or f"Command failed with exit code {process.returncode}"
-                )
-                return create_kubectl_error(error_msg)
-
-            return Success(data=stdout)
-        else:
-            # For the command, use a temporary file
-            temp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".yaml", delete=False
-                ) as temp:
-                    temp.write(yaml_content)
-                    temp_path = temp.name
-
-                # For create commands that might be using --from-literal
-                # or similar flags
-                # just pass the arguments as is and add the -f flag
-                cmd = ["kubectl", *args]
-
-                # Only add -f if we have YAML content and it's not already in the args
-                if yaml_content and not any(
-                    arg == "-f" or arg.startswith("-f=") for arg in args
-                ):
-                    cmd.extend(["-f", temp_path])
-
-                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-                if proc.returncode != 0:
-                    error_msg = (
-                        proc.stderr
-                        or f"Command failed with exit code {proc.returncode}"
-                    )
-                    return create_kubectl_error(error_msg)
-
-                return Success(data=proc.stdout)
-            finally:
-                # Clean up the temporary file
-                if temp_path:
-                    import os
-
-                    try:
-                        os.unlink(temp_path)
-                    except Exception as cleanup_error:
-                        logger.warning(
-                            f"Failed to clean up temporary file: {cleanup_error}"
-                        )
-    except Exception as e:
-        logger.error("Error executing YAML command: %s", e, exc_info=True)
-        return Error(error=f"Error executing YAML command: {e}", exception=e)
 
 
 def configure_output_flags(
     show_raw_output: bool | None = None,
-    yaml: bool | None = None,
-    json: bool | None = None,
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,

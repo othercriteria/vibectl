@@ -9,7 +9,8 @@ This document provides an overview of the project's structure and organization.
 - `prompt.py` - Prompt templates and LLM interaction logic
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns
+- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils`
+- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
@@ -124,10 +125,13 @@ This document provides an overview of the project's structure and organization.
 ### Common Command Patterns
 1. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
-   - Execute kubectl commands safely
+   - Dispatches kubectl execution to `k8s_utils.py`
    - Process command output for user feedback
    - Port-forwarding functionality
    - Memory integration
+2. `k8s_utils.py` - Core Kubernetes utilities
+   - Executes kubectl commands safely (standard, complex args, YAML input)
+   - Handles errors specific to kubectl
 
 ### Memory System
 1. `memory.py` - Core memory management with functions for:

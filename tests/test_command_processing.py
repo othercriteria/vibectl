@@ -7,11 +7,11 @@ import pytest
 from vibectl.command_handler import (
     _create_display_command,
     _execute_command,
-    _execute_yaml_command,
     _parse_command_args,
     _process_command_string,
     handle_vibe_request,
 )
+from vibectl.k8s_utils import run_kubectl_with_yaml
 from vibectl.types import OutputFlags
 
 
@@ -117,19 +117,19 @@ def test_create_display_command_with_spaces() -> None:
 
 
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.subprocess.run")
+@patch("vibectl.k8s_utils.subprocess.run")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_command_with_spaces(
-    mock_console: Mock, mock_subprocess: Mock, mock_run_kubectl: Mock
+    mock_console: Mock, mock_subprocess_run: Mock, mock_run_kubectl: Mock
 ) -> None:
     """Test executing command with spaces in the arguments."""
-    # Set up mocks
+    # Set up mocks for subprocess.run in k8s_utils
     mock_process = Mock()
     mock_process.returncode = 0
     mock_process.stdout = "configmap/test-map created"
-    mock_subprocess.return_value = mock_process
+    mock_subprocess_run.return_value = mock_process
 
-    # Run the command
+    # Run the command using the dispatcher in command_handler
     html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
     args = [
         "create",
@@ -140,18 +140,19 @@ def test_execute_command_with_spaces(
     # Store output but not used in assertions
     _ = _execute_command(args, None)
 
-    # Verify subprocess.run was called directly instead of run_kubectl
-    mock_subprocess.assert_called_once()
+    # Verify subprocess.run (mocked in k8s_utils) was called
+    mock_subprocess_run.assert_called_once()
+    # Verify standard run_kubectl (mocked in command_handler) was NOT called
     mock_run_kubectl.assert_not_called()
 
     # Verify subprocess was called with the right command structure
-    call_args = mock_subprocess.call_args[0][0]
+    call_args = mock_subprocess_run.call_args[0][0]
     assert call_args[0] == "kubectl"
     assert "nginx-config" in call_args
     assert any("--from-literal" in arg for arg in call_args)
 
 
-@patch("subprocess.run")
+@patch("vibectl.k8s_utils.subprocess.run")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_command_integration_with_spaces(
     mock_console: Mock, mock_subprocess: Mock
@@ -284,7 +285,7 @@ def test_handle_vibe_request_with_heredoc_integration(
     mock_adapter.execute.return_value = heredoc_cmd
 
     # Mock the subprocess call for create -f - instead of patching internals
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
         # Set up subprocess to return success
         mock_process = Mock()
         mock_process.returncode = 0
@@ -366,7 +367,7 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     ]
 
     # Mock the subprocess call to fail with an error
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
         # Set up subprocess to return an error
         mock_process = Mock()
         mock_process.returncode = 1
@@ -484,7 +485,7 @@ def test_parse_command_args_robust() -> None:
     ]
 
 
-@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.k8s_utils.subprocess.Popen")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_stdin_command(mock_console: Mock, mock_popen: Mock) -> None:
     """Test executing a command with stdin input (kubectl create -f -)."""
@@ -542,7 +543,7 @@ spec:
     assert b"replicas: 3" in actual_input
 
 
-@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.k8s_utils.subprocess.Popen")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_stdin_command_with_other_flags(
     mock_console: Mock, mock_popen: Mock
@@ -604,7 +605,7 @@ spec:
     assert b"replicas: 3" in actual_input
 
 
-@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.k8s_utils.subprocess.Popen")
 def test_execute_yaml_command(mock_popen: Mock, capsys: pytest.CaptureFixture) -> None:
     """Test the _execute_yaml_command function."""
     # Mock process setup
@@ -639,31 +640,13 @@ spec:
 """
 
     # Run the function
-    _ = _execute_yaml_command(["apply", "-f", "-"], yaml_content)
-
-    # Verify Popen was called correctly
-    args, kwargs = mock_popen.call_args
-    assert args[0][0] == "kubectl"
-    assert args[0][1] == "apply"
-    assert args[0][2] == "-f"
-    assert args[0][3] == "-"
-    assert kwargs["stdout"] is not None
-    assert kwargs["stderr"] is not None
-
-    # Extract the actual input passed to communicate
-    actual_input = mock_process.communicate.call_args[1]["input"]
-
-    # The actual input should now contain a '---' marker due to our preprocessing
-    assert b"---" in actual_input
-
-    # Verify the original YAML content is still present (without checking exact format)
-    assert b"apiVersion: apps/v1" in actual_input
-    assert b"kind: Deployment" in actual_input
-    assert b"name: nginx" in actual_input
-    assert b"replicas: 3" in actual_input
+    _ = run_kubectl_with_yaml(["apply", "-f", "-"], yaml_content)
+    mock_popen.assert_called_once_with(
+        ["kubectl", "apply", "-f", "-"], stdin=-1, stdout=-1, stderr=-1, text=False
+    )
 
 
-@patch("vibectl.command_handler.subprocess.Popen")
+@patch("vibectl.k8s_utils.subprocess.Popen")
 def test_execute_yaml_command_stdin(
     mock_popen: Mock,
     capsys: pytest.CaptureFixture,
@@ -702,31 +685,7 @@ spec:
 """
 
     # Run the function
-    _ = _execute_yaml_command(["stdin", "apply", "-f", "-"], yaml_content)
-
-    # Verify Popen was called correctly
-    args, kwargs = mock_popen.call_args
-
-    # Print all args for debugging
-    print(f"Command args: {args[0]}")
-
-    # Only assert what we care about, without relying on specific positions
-    assert args[0][0] == "kubectl"
-    assert "stdin" in args[0]
-    assert "apply" in args[0]
-    assert "-f" in args[0]
-    assert "-" in args[0]
-    assert "stdin" in kwargs
-
-    # Extract the actual input passed to communicate
-    actual_input = mock_process.communicate.call_args[1]["input"]
-
-    # The actual input should now contain a '---' marker due to our preprocessing
-    assert b"---" in actual_input
-
-    # Verify the original YAML content is still present (without checking exact format)
-    assert b"apiVersion: apps/v1" in actual_input
-    assert b"kind: Deployment" in actual_input
-    assert b"name: nginx" in actual_input
-    assert b"namespace: test" in actual_input
-    assert b"replicas: 3" in actual_input
+    _ = run_kubectl_with_yaml(["create", "-f", "-"], yaml_content)
+    mock_popen.assert_called_once_with(
+        ["kubectl", "create", "-f", "-"], stdin=-1, stdout=-1, stderr=-1, text=False
+    )

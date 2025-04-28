@@ -12,13 +12,12 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import (
-    _execute_command_with_complex_args,
-    _execute_yaml_command,
     _parse_command_args,
     _process_command_string,
     handle_command_output,
     handle_vibe_request,
 )
+from vibectl.k8s_utils import run_kubectl_with_complex_args, run_kubectl_with_yaml
 from vibectl.prompt import PLAN_VIBE_PROMPT
 from vibectl.types import Error, OutputFlags, Success, Truncation
 
@@ -101,7 +100,7 @@ def test_parse_command_args_special_characters() -> None:
 def test_execute_command_with_complex_args_edge_cases() -> None:
     """Test executing commands with complex edge cases."""
     with (
-        patch("vibectl.command_handler.subprocess.run") as mock_run,
+        patch("vibectl.k8s_utils.subprocess.run") as mock_run,
         patch("vibectl.command_handler.console_manager"),
     ):
         # Test with empty args list
@@ -110,15 +109,14 @@ def test_execute_command_with_complex_args_edge_cases() -> None:
         mock_process.returncode = 0
         mock_run.return_value = mock_process
 
-        result = _execute_command_with_complex_args([])
+        # Use the function from k8s_utils
+        result = run_kubectl_with_complex_args([])
         assert isinstance(result, Success)
         assert result.data == ""
 
         # Test with quoted command arguments
         mock_process.stdout = "test output"
-        result = _execute_command_with_complex_args(
-            ["get", "pods", "--label='app=nginx'"]
-        )
+        result = run_kubectl_with_complex_args(["get", "pods", "--label='app=nginx'"])
         assert mock_run.called
         cmd_args = mock_run.call_args[0][0]
         assert "--label='app=nginx'" in cmd_args
@@ -498,7 +496,7 @@ metadata:
         patch("vibectl.command_handler.click.confirm", return_value=True),
         patch("vibectl.command_handler.handle_command_output"),
         patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
-        patch("vibectl.command_handler.subprocess.Popen") as mock_popen,
+        patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen,
     ):
         # Configure the mock subprocess
         mock_process = MagicMock()
@@ -581,10 +579,8 @@ def test_execute_yaml_command_timeout_handling() -> None:
     This tests the code path added to handle subprocess.TimeoutExpired exceptions
     gracefully with a proper error message.
     """
-    from vibectl.command_handler import _execute_yaml_command
-
     # Mock subprocess.Popen to simulate a TimeoutExpired exception
-    with patch("vibectl.command_handler.subprocess.Popen") as mock_popen:
+    with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
         # Create a mock process that raises TimeoutExpired when communicate is called
         mock_process = MagicMock()
         mock_process.communicate.side_effect = TimeoutExpired(
@@ -594,8 +590,8 @@ def test_execute_yaml_command_timeout_handling() -> None:
         # Set up mock to return a process object that will raise an exception
         mock_popen.return_value = mock_process
 
-        # Call _execute_yaml_command with stdin pipe command
-        result = _execute_yaml_command(
+        # Call run_kubectl_with_yaml with stdin pipe command
+        result = run_kubectl_with_yaml(
             ["create", "-f", "-"], "---\napiVersion: v1\nkind: Pod"
         )
 
@@ -617,7 +613,7 @@ def test_execute_yaml_command_sets_timeout() -> None:
     """
 
     # Mock subprocess.Popen
-    with patch("vibectl.command_handler.subprocess.Popen") as mock_popen:
+    with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
         # Create a mock process
         mock_process = MagicMock()
         mock_process.returncode = 0
@@ -626,8 +622,8 @@ def test_execute_yaml_command_sets_timeout() -> None:
         # Set up mock to return our process
         mock_popen.return_value = mock_process
 
-        # Call _execute_yaml_command with stdin pipe command
-        _execute_yaml_command(["create", "-f", "-"], "---\napiVersion: v1\nkind: Pod")
+        # Call run_kubectl_with_yaml with stdin pipe command
+        run_kubectl_with_yaml(["create", "-f", "-"], "---\napiVersion: v1\nkind: Pod")
 
         # Verify the timeout parameter was passed to communicate
         mock_process.communicate.assert_called_once()
