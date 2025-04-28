@@ -76,7 +76,10 @@ def test_handle_command_output_updates_memory(
 
     # Verify memory was updated with correct parameters
     mock_memory_update.assert_called_once_with(
-        "get pods", "test output", "Test response", "test-model"
+        command="get pods",
+        command_output="test output",
+        vibe_output="Test response",
+        model_name="test-model",
     )
 
 
@@ -85,7 +88,7 @@ def test_handle_command_output_does_not_update_memory_without_command(
     mock_memory_update: Mock,
     mock_process_auto: Mock,
 ) -> None:
-    """Test that memory is not updated when no command is provided."""
+    """Test that memory is updated with 'Unknown' command when no command provided."""
     # Configure output flags
     output_flags = OutputFlags(
         show_raw=True,
@@ -100,14 +103,24 @@ def test_handle_command_output_does_not_update_memory_without_command(
         mock_process_auto.return_value = Truncation(
             original="test output", truncated="processed test output"
         )
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=lambda: "Test prompt {output}",
-        )
+        # Mock the summary call directly to avoid LLM interaction
+        with patch(
+            "vibectl.command_handler._get_llm_summary", return_value="Test response"
+        ):
+            handle_command_output(
+                output="test output",
+                output_flags=output_flags,
+                summary_prompt_func=lambda: "Test prompt {output}",
+                # command is omitted here
+            )
 
-    # Verify memory was not updated
-    mock_memory_update.assert_not_called()
+    # Verify memory WAS updated with 'Unknown' command
+    mock_memory_update.assert_called_once_with(
+        command="Unknown",
+        command_output="test output",
+        vibe_output="Test response",
+        model_name="test-model",
+    )
 
 
 def test_handle_command_output_updates_memory_with_error_output(
@@ -141,10 +154,10 @@ def test_handle_command_output_updates_memory_with_error_output(
 
     # Verify memory was updated with error output
     mock_memory_update.assert_called_once_with(
-        "get pods",
-        "Error: Command failed with exit code 1",
-        "Test response",
-        "test-model",
+        command="get pods",
+        command_output="Error: Command failed with exit code 1",
+        vibe_output="Test response",
+        model_name="test-model",
     )
 
 
@@ -186,13 +199,8 @@ def test_handle_command_output_updates_memory_with_overloaded_error(
     assert isinstance(result, Error)
     assert "overloaded_error" in result.error
 
-    # Memory should still be updated with the overloaded error as the vibe_output
-    # The vibe_output comes AFTER the LLM call, which returned the error
-    mock_memory_update.assert_called_once_with(
-        "get pods", "test output", overloaded_error, "test-model"
-    )
-    # Note: Error is now returned to caller instead of being raised,
-    # but memory update should still happen BEFORE the function returns the Error
+    # Memory should NOT be updated when the vibe summary itself is an error string
+    mock_memory_update.assert_not_called()
 
 
 def test_handle_vibe_request_updates_memory_on_error(

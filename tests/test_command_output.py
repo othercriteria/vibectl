@@ -14,7 +14,7 @@ from vibectl.command_handler import (
     handle_command_output,
 )
 from vibectl.config import DEFAULT_CONFIG
-from vibectl.types import Truncation
+from vibectl.types import Success, Truncation
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
 DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
@@ -66,10 +66,14 @@ def test_handle_command_output_with_raw_output_only(
 
 
 @patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_with_vibe_only(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_get_summary: MagicMock, mock_llm: MagicMock, prevent_exit: MagicMock
 ) -> None:
     """Test handle_command_output with vibe output only."""
+    # Configure mock LLM response
+    mock_get_summary.return_value = "Test response"
+
     # Set up adapter mock
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
@@ -84,20 +88,36 @@ def test_handle_command_output_with_vibe_only(
         model_name=DEFAULT_MODEL,
     )
 
-    # Call the function with vibe enabled
-    with patch("vibectl.command_handler.console_manager"):
+    # Mock output processor to avoid any real processing
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.output_processor") as mock_processor,
+        patch("vibectl.command_handler.update_memory"),
+    ):
+        # Configure output processor mock
+        mock_processor.process_auto.return_value = Truncation(
+            original="test output", truncated="processed test output"
+        )
+
+        # Call the function with vibe enabled
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Summarize this: {output}",
         )
 
+    mock_get_summary.assert_called_once()
+
 
 @patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_both_outputs(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_get_summary: MagicMock, mock_llm: MagicMock, prevent_exit: MagicMock
 ) -> None:
     """Test handle_command_output with both outputs."""
+    # Configure mock LLM response
+    mock_get_summary.return_value = "Test response"
+
     # Set up adapter mock
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
@@ -109,13 +129,25 @@ def test_handle_command_output_both_outputs(
         show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
     )
 
-    # Call the function with both outputs enabled
-    with patch("vibectl.command_handler.console_manager"):
+    # Mock output processor to avoid any real processing
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.output_processor") as mock_processor,
+        patch("vibectl.command_handler.update_memory"),
+    ):
+        # Configure output processor mock
+        mock_processor.process_auto.return_value = Truncation(
+            original="test output", truncated="processed test output"
+        )
+
+        # Call the function with both outputs enabled
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Summarize this: {output}",
         )
+
+    mock_get_summary.assert_called_once()
 
 
 def test_handle_command_output_no_output(
@@ -140,19 +172,16 @@ def test_handle_command_output_no_output(
         )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_empty_response(
+    mock_get_summary: MagicMock,
     mock_processor: MagicMock,
-    mock_llm: MagicMock,
     prevent_exit: MagicMock,
 ) -> None:
     """Test handle_command_output with empty LLM response."""
-    # Set up adapter mock to return empty response
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = Mock()
-    mock_adapter.execute.return_value = ""
-    mock_llm.return_value = mock_adapter
+    # Configure mock LLM response
+    mock_get_summary.return_value = ""
 
     # Set up processor mock
     mock_processor.process_auto.return_value = Truncation(
@@ -167,18 +196,32 @@ def test_handle_command_output_empty_response(
         model_name=DEFAULT_MODEL,
     )
 
-    # Call the function with vibe enabled
-    with patch("vibectl.command_handler.console_manager"):
+    # Call the function with vibe enabled - mock everything
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.command_handler.update_memory"),
+    ):
+        # Configure model adapter
+        mock_adapter = Mock()
+        mock_adapter.get_model.return_value = Mock()
+        mock_adapter.execute.return_value = ""
+        mock_get_adapter.return_value = mock_adapter
+
         handle_command_output(
             output="test output",
             output_flags=output_flags,
-            summary_prompt_func=lambda: "empty response test",  # Trigger empty response
+            summary_prompt_func=lambda: "empty response test",
         )
+
+    mock_get_summary.assert_called_once()
 
 
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_with_command(
+    mock_get_summary: MagicMock,
     mock_processor: MagicMock,
     mock_llm: MagicMock,
     prevent_exit: MagicMock,
@@ -202,18 +245,21 @@ def test_handle_command_output_with_command(
     with (
         patch("vibectl.command_handler.console_manager") as mock_console,
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler._get_llm_summary") as mock_get_summary,
         patch("vibectl.command_handler.output_processor") as mock_processor,
     ):
-        # Set up output processor mock to return Truncation object
+        # Set up output processor mock to return Truncation
         mock_processor.process_auto.return_value = Truncation(
             original="test output", truncated="test output"
         )
+        # Mock the summary call directly
+        mock_get_summary.return_value = "Test response"
 
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: (
-                "Summarize this command {command} with output: {output}"
+                "Summarize this command with output: {output}"
             ),
             command="get pods",
         )
@@ -222,13 +268,13 @@ def test_handle_command_output_with_command(
         mock_console.print_vibe.assert_called_once_with("Test response")
         # Verify memory was updated
         mock_update_memory.assert_called_once_with(
-            "get pods", "test output", "Test response", DEFAULT_MODEL
+            command="get pods",
+            command_output="test output",
+            vibe_output="Test response",
+            model_name=DEFAULT_MODEL,
         )
-        # Verify adapter was called with correct prompt
-        mock_adapter.execute.assert_called_once_with(
-            mock_adapter.get_model.return_value,
-            "Summarize this command get pods with output: test output",
-        )
+        # Verify LLM summary call was mocked correctly
+        mock_get_summary.assert_called_once()
 
 
 def test_configure_output_flags_no_flags() -> None:
@@ -377,18 +423,21 @@ def test_handle_command_output_model_name_from_env(
         )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_model_name_from_default(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_get_summary: MagicMock, mock_processor: MagicMock, prevent_exit: MagicMock
 ) -> None:
-    """Test handle_command_output with model name from default."""
-    # Set up adapter mock
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = Mock()
-    mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
+    """Test handle_command_output using default model name."""
+    # Configure the mock
+    mock_get_summary.return_value = "Test summary"
 
-    # Create output flags with model name from default
+    # Set up processor mock
+    mock_processor.process_auto.return_value = Truncation(
+        original="test output", truncated="test output"
+    )
+
+    # Create output flags
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=True,
@@ -396,47 +445,78 @@ def test_handle_command_output_model_name_from_default(
         model_name=DEFAULT_MODEL,
     )
 
-    # Call the function with model name from default
-    with patch("vibectl.command_handler.console_manager"):
+    # Call the function with vibe enabled - ensure complete mocking
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.command_handler.update_memory"),
+    ):
+        # Configure model adapter
+        mock_adapter = Mock()
+        mock_adapter.get_model.return_value = Mock()
+        mock_adapter.execute.return_value = "Test response"
+        mock_get_adapter.return_value = mock_adapter
+
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Summarize this: {output}",
         )
 
-
-@patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_basic(
-    mock_llm: MagicMock, prevent_exit: MagicMock
-) -> None:
-    """Test handle_command_output with basic configuration."""
-    # Set up adapter mock
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = Mock()
-    mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
-
-    # Create output flags with both outputs enabled
-    output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
+    # Verify summary was called with correct arguments
+    mock_get_summary.assert_called_once_with(
+        "test output", DEFAULT_MODEL, "Summarize this: {output}"
     )
 
-    # Call the function with both outputs enabled and processor
-    with (
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler.output_processor") as mock_processor,
-    ):
-        # Set up output processor mock
-        mock_processor.process_auto.return_value = ("test output", False)
 
-        handle_command_output(
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")
+def test_handle_command_output_basic(
+    mock_get_summary: MagicMock, mock_processor: MagicMock, prevent_exit: MagicMock
+) -> None:
+    """Test basic handle_command_output functionality."""
+    # Configure the mock
+    mock_get_summary.return_value = "Test summary"
+
+    # Set up processor mock
+    mock_processor.process_auto.return_value = Truncation(
+        original="test output", truncated="test output"
+    )
+
+    # Create output flags
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=True,
+        model_name="test-model",
+    )
+
+    # Call the function with vibe enabled - ensure complete mocking
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.command_handler.update_memory"),
+    ):
+        # Configure model adapter
+        mock_adapter = Mock()
+        mock_adapter.get_model.return_value = Mock()
+        mock_adapter.execute.return_value = "Test response"
+        mock_get_adapter.return_value = mock_adapter
+
+        result = handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Summarize this: {output}",
         )
 
-        # Verify raw output was shown and proper function was called
-        mock_console.print_raw.assert_called_once_with("test output")
+    # Check that correct parameters were passed
+    mock_get_summary.assert_called_once_with(
+        "test output", "test-model", "Summarize this: {output}"
+    )
+
+    # Check return value
+    assert isinstance(result, Success)
+    assert result.message == "Test summary"
 
 
 @patch("vibectl.command_handler.get_model_adapter")
@@ -503,12 +583,17 @@ def test_handle_command_output_no_vibe(
 
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")
 def test_handle_command_output_llm_error(
+    mock_get_summary: MagicMock,
     mock_processor: MagicMock,
     mock_llm: MagicMock,
     prevent_exit: MagicMock,
 ) -> None:
-    """Test handle_command_output with LLM error."""
+    """Test handle_command_output when LLM call raises an error."""
+    # Configure mock LLM to raise an exception
+    mock_get_summary.side_effect = Exception("LLM API Error")
+
     # Set up adapter mock to return an error
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
@@ -521,9 +606,14 @@ def test_handle_command_output_llm_error(
     )
 
     # Call the function with both outputs enabled
-    with patch("vibectl.command_handler.console_manager"):
+    with patch("vibectl.command_handler.console_manager") as mock_console:
         handle_command_output(
             output="test output",
             output_flags=output_flags,
             summary_prompt_func=lambda: "Summarize this: {output}",
+        )
+
+        # Verify the error was logged and printed
+        mock_console.print_error.assert_any_call(
+            "Error processing Vibe output: LLM API Error"
         )

@@ -77,6 +77,7 @@ def run_port_forward_command(
                     resource=resource,
                     args=args,
                     output_flags=output_flags,
+                    summary_prompt_func=port_forward_prompt,
                 )
             except Exception as e:
                 logger.error(

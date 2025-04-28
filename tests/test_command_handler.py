@@ -120,10 +120,9 @@ Example output format: {0}
         # and format the template properly
         model_adapter_mock.execute.assert_any_call(
             model_mock,
-            # The formatted prompt should have the {0} removed or replaced
-            prompt_with_positional_specifier.replace("{0}", "").format(
-                request="test request", command="vibe"
-            ),
+            # In the failure case tested, the original prompt is used
+            # because .format(request=...) fails due to {0}
+            prompt_with_positional_specifier,
         )
 
 

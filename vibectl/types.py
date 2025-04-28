@@ -5,7 +5,7 @@ Contains common type definitions used across the application.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -125,3 +125,12 @@ Output = Truncation | InvalidOutput
 YamlSections = dict[str, str]
 
 # --- Kubectl Command Types ---
+
+
+@runtime_checkable
+class StatsProtocol(Protocol):
+    """Protocol for tracking connection statistics."""
+
+    bytes_sent: int
+    bytes_received: int
+    last_activity: float

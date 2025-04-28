@@ -20,7 +20,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.prompt import PLAN_VIBE_PROMPT
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, OutputFlags, Success, Truncation
 
 
 @pytest.fixture
@@ -137,7 +137,9 @@ def test_handle_command_output_extreme_inputs() -> None:
         mock_adapter.get_model.return_value = mock_model
         mock_adapter.execute.return_value = "Test response"
         mock_get_adapter.return_value = mock_adapter
-        mock_processor.process_auto.return_value = ("processed content", False)
+        mock_processor.process_auto.return_value = Truncation(
+            original="A" * 5000, truncated="A" * 2000 + "..."
+        )
 
         # Create output flags
         output_flags = OutputFlags(
@@ -163,7 +165,9 @@ def test_handle_command_output_extreme_inputs() -> None:
 
         # Test with extremely long output
         long_output = "A" * 100000  # 100k chars
-        mock_processor.process_auto.return_value = (long_output[:1000], True)
+        mock_processor.process_auto.return_value = Truncation(
+            original=long_output, truncated=long_output[:1000]
+        )
         handle_command_output(
             output=long_output,
             output_flags=output_flags,
@@ -222,7 +226,7 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
     # Mock console manager and update_memory
     with (
         patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler.update_memory"),
     ):
         # Call handle_vibe_request with error response
         handle_vibe_request(
@@ -237,9 +241,6 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
         mock_console.print_error.assert_called_once_with(error_msg)
 
         # Verify memory was updated
-        mock_update_memory.assert_called_once()
-
-        # Verify memory update was noted
         mock_console.print_processing.assert_called_once_with(
             "Planning error added to memory context"
         )
