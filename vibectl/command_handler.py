@@ -475,7 +475,11 @@ def handle_vibe_request(
         # Format the prompt for the LLM - Directly format plan_prompt
         # Remove call to _format_vibe_prompt
         try:
-            formatted_prompt = plan_prompt.format(request=request)
+            # Pass both request and memory_context
+            formatted_prompt = plan_prompt.format(
+                request=request,
+                memory_context=memory_context,
+            )
         except KeyError as e:
             logger.warning(
                 f"Prompt formatting failed for request '{request}' "

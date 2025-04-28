@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Correct prompt formatting in `semiauto` mode to properly include memory context, preventing incorrect LLM requests.
+- Resolved `AttributeError` related to asyncio patching in tests.
+- Corrected assertions for error string handling in `command_handler` memory tests.
+- Fixed `IndexError` and lint warnings in `port-forward` keyboard interrupt tests.
+- Added missing `summary_prompt_func` arguments to internal subcommand calls.
+
+### Changed
+- Simplified `port-forward` handler tests for improved stability and clarity.
+
 ## [0.5.3] - 2025-04-27
 
 ### Added

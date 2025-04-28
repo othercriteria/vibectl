@@ -291,3 +291,103 @@ def test_handle_vibe_request_updates_memory_on_error(
 
     # Verify handle_command_output was not called in either error scenario
     mock_handle_output.assert_not_called()
+
+
+# Mock logger to prevent actual logging during tests
+@pytest.fixture(autouse=True)
+def mock_logger() -> Generator[MagicMock, None, None]:
+    with patch("vibectl.command_handler.logger") as mock_log:
+        yield mock_log
+
+
+# Mock console manager
+@pytest.fixture(autouse=True)
+def mock_console_manager() -> Generator[MagicMock, None, None]:
+    with patch("vibectl.command_handler.console_manager") as mock_console:
+        yield mock_console
+
+
+# Mock model adapter and related functions
+@pytest.fixture
+def mock_model_adapter() -> Generator[MagicMock, None, None]:
+    with patch("vibectl.command_handler.get_model_adapter") as mock_get:
+        mock_adapter = MagicMock()
+        mock_model = MagicMock()
+        mock_adapter.get_model.return_value = mock_model
+        mock_adapter.execute.return_value = "get pods -n test"  # Default success
+        mock_get.return_value = mock_adapter
+        yield mock_adapter
+
+
+# Mock memory functions
+@pytest.fixture
+def mock_memory_functions() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
+    with (
+        patch("vibectl.command_handler.update_memory") as mock_update,
+        patch("vibectl.memory.get_memory") as mock_get,
+        patch("vibectl.memory.set_memory") as mock_set,
+        patch("vibectl.memory.is_memory_enabled") as mock_enabled,
+    ):
+        # Assume memory is enabled by default for these tests
+        mock_enabled.return_value = True
+        mock_get.return_value = "Existing memory context."  # Default memory
+        yield mock_update, mock_get, mock_set, mock_enabled
+
+
+# Dummy summary prompt function
+def dummy_summary_prompt() -> str:
+    return "Summarize: {output}"
+
+
+# Test data
+DEFAULT_OUTPUT_FLAGS = OutputFlags(
+    show_raw=False,
+    show_vibe=True,
+    warn_no_output=False,
+    model_name="test-model",
+    show_kubectl=False,
+)
+
+
+def test_handle_vibe_request_includes_memory_context(
+    mock_model_adapter: MagicMock,
+    mock_memory_functions: tuple,
+    mock_logger: MagicMock,
+) -> None:
+    """Verify that memory_context is correctly formatted into the plan_prompt."""
+    mock_update, mock_get, mock_set, mock_enabled = mock_memory_functions
+
+    # Define a prompt template that requires both request and memory_context
+    test_plan_prompt = """
+    Plan
+    Memory: '{memory_context}'
+    Request: '{request}'
+    """
+    test_request = "get the pods"
+    test_memory_context = "We are in the 'sandbox' namespace."
+    expected_formatted_prompt = test_plan_prompt.format(
+        memory_context=test_memory_context, request=test_request
+    )
+
+    # Mock the model execution result
+    mock_model_adapter.execute.return_value = "get pods -n sandbox"
+
+    # Call the function under test
+    handle_vibe_request(
+        request=test_request,
+        command="vibe",
+        plan_prompt=test_plan_prompt,
+        summary_prompt_func=dummy_summary_prompt,
+        output_flags=DEFAULT_OUTPUT_FLAGS,
+        memory_context=test_memory_context,  # Pass the memory context
+        semiauto=True,  # Simulate semiauto where this prompt format is used
+    )
+
+    # Assert that the model adapter was called with the correctly formatted prompt
+    mock_model_adapter.execute.assert_called_once_with(
+        mock_model_adapter.get_model.return_value,  # The mocked model object
+        expected_formatted_prompt,
+    )
+
+    # Assert that the formatting warning was NOT logged
+    mock_logger.warning.assert_not_called()
