@@ -6,6 +6,7 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 """
 
 import datetime
+from typing import Optional, Type, List, Tuple
 
 from .config import Config
 
@@ -43,6 +44,8 @@ def get_command_directives() -> str:
     Returns:
         str: Formatted directives for command planning
     """
+    # Note: This is kept for prompts not yet using schema, but will be
+    # overridden by schema instructions when schema is provided.
     return """Important:
 - Return ONLY the list of arguments, one per line
 - Do not include 'kubectl' or '{command}' in the output
@@ -57,6 +60,7 @@ def create_planning_prompt(
     description: str,
     examples: list[tuple[str, str]],
     flags: str = "-n, --selector, etc.",
+    schema_definition: Optional[str] = None,
 ) -> str:
     """Create a standard planning prompt for kubectl commands.
 
@@ -65,14 +69,52 @@ def create_planning_prompt(
         description: Description of what the prompt is for
         examples: List of input/output example tuples
         flags: Common flags for this command
+        schema_definition: Optional JSON schema definition string.
+                           If provided, the prompt will request structured JSON output.
 
     Returns:
         str: Formatted planning prompt template
     """
-    directives = get_command_directives().format(command=command, flags=flags)
     formatted_examples = format_examples(examples)
 
-    return f"""Given this natural language request for {description},
+    if schema_definition:
+        # Schema-based prompt
+        prompt_header = f"""Given this natural language request for {description}, \
+determine the appropriate kubectl {command} command and respond with a JSON object \
+matching the provided schema.
+
+Your response MUST be a valid JSON object conforming to this schema:
+```json
+{schema_definition}
+```
+
+- Populate the 'commands' field with the list of arguments *following* 'kubectl {command}'. \
+For example, if the full command is 'kubectl get pods -n my-ns', the 'commands' \
+list should be ["pods", "-n", "my-ns"].
+- The first element in the 'commands' list for '{command}' should typically be the resource type (e.g., 'pods', 'deployments', 'services').
+- Do NOT include 'kubectl' or '{command}' itself in the list of arguments.
+- Use the 'explanation' field for any clarifications or notes.
+- If the request is invalid or impossible, set action_type to ERROR and provide \
+a reason in the 'error' field.
+- If the request requires waiting, set action_type to WAIT and specify \
+'wait_duration_seconds'.
+- If you only need to provide feedback without a command, set action_type \
+to FEEDBACK and use 'explanation'.
+
+Examples (request -> expected JSON 'commands' field content for 'kubectl {command}'):
+- Request: "show me pods in kube-system" -> Commands: ["pods", "-n", "kube-system"]
+- Request: "get pods with app=nginx label" -> Commands: ["pods", "--selector=app=nginx"]
+- Request: "show me all pods in every namespace" -> Commands: ["pods", "--all-namespaces"]
+
+Here's the request:
+
+"""
+        # Append the placeholder
+        prompt = prompt_header + "__REQUEST_PLACEHOLDER__"
+    else:
+        # Original non-schema prompt - Use a placeholder here too for consistency
+        directives = get_command_directives().format(command=command, flags=flags)
+        prompt = f"""Given this natural language request for {description}, \
 determine the appropriate kubectl {command} command arguments.
 
 {directives}
@@ -81,7 +123,9 @@ determine the appropriate kubectl {command} command arguments.
 
 Here's the request:
 
-{{request}}"""
+__REQUEST_PLACEHOLDER__"""
+
+    return prompt
 
 
 def create_summary_prompt(
@@ -174,14 +218,19 @@ with matched closing tags:
 
 
 # Template for planning kubectl get commands
+from .schema import LLMCommandResponse
+# Generate schema only once
+_GET_SCHEMA_JSON = LLMCommandResponse.schema_json(indent=2)
+
 PLAN_GET_PROMPT = create_planning_prompt(
     command="get",
     description="Kubernetes resources",
-    examples=[
-        ("show me pods in kube-system", "pods\n-n\nkube-system"),
-        ("get pods with app=nginx label", "pods\n--selector=app=nginx"),
-        ("show me all pods in every namespace", "pods\n--all-namespaces"),
+    examples=[ # Examples are now embedded directly in the prompt logic
+        ("show me pods in kube-system", 'pods\n-n\nkube-system'),
+        ("get pods with app=nginx label", 'pods\n--selector=app=nginx'),
+        ("show me all pods in every namespace", 'pods\n--all-namespaces'),
     ],
+    schema_definition=_GET_SCHEMA_JSON
 )
 
 
@@ -402,7 +451,7 @@ spec:
 
 Here's the request:
 
-{request}"""
+__REQUEST_PLACEHOLDER__"""
 
 
 # Template for planning kubectl version commands
@@ -529,9 +578,7 @@ def events_prompt() -> str:
             "[italic]happened 3 times[/italic]",
         ],
     )
-    # Note: keep the pragma comment for test coverage
-    formatted = prompt_template.format(output="{output}")
-    return formatted + "  # pragma: no cover - tested in other prompt functions"
+    return prompt_template.format(output="{output}")
 
 
 # Template for planning kubectl delete commands

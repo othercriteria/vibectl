@@ -14,12 +14,13 @@ This document provides an overview of the project's structure and organization.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
-- `utils.py` - Utility functions and helpers
-- `__init__.py` - Package initialization and version information
-- `types.py` - Custom type definitions
-- `logutil.py` - Logging setup and configuration
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
+- `schema.py` - Pydantic models for structured LLM output schemas
+- `types.py` - Custom type definitions
+- `utils.py` - Utility functions and helpers
+- `__init__.py` - Package initialization and version information
+- `logutil.py` - Logging setup and configuration
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation

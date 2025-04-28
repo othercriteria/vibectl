@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
+- (WIP) Initial implementation of JSON schema support for LLM command planning.
+  - Defined `ActionType` enum and `LLMCommandResponse` Pydantic model.
+  - Updated model adapter and `get vibe` command planning prompt to use schema.
+  - Implemented basic JSON parsing, validation, and action dispatch in handler.
+  - Fixed issues with prompt formatting, enum comparison, and command execution.
 - Correct prompt formatting in `semiauto` mode to properly include memory context, preventing incorrect LLM requests.
 - Resolved `AttributeError` related to asyncio patching in tests.
 - Corrected assertions for error string handling in `command_handler` memory tests.

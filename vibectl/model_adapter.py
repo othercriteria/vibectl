@@ -9,7 +9,7 @@ from the details of model interaction.
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable, Optional, Dict
 
 import llm
 
@@ -49,12 +49,13 @@ class ModelAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute(self, model: Any, prompt_text: str) -> str:
+    def execute(self, model: Any, prompt_text: str, schema: Optional[Dict] = None) -> str:
         """Execute a prompt on the model and get a response.
 
         Args:
             model: The model instance to execute the prompt on
             prompt_text: The prompt text to execute
+            schema: Optional dictionary representing the JSON schema for the response.
 
         Returns:
             str: The response text
@@ -238,12 +239,13 @@ class LLMModelAdapter(ModelAdapter):
                 )
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
-    def execute(self, model: Any, prompt_text: str) -> str:
+    def execute(self, model: Any, prompt_text: str, schema: Optional[Dict] = None) -> str:
         """Execute a prompt on the model and get a response.
 
         Args:
             model: The model instance to execute the prompt on
             prompt_text: The prompt text to execute
+            schema: Optional dictionary representing the JSON schema for the response.
 
         Returns:
             str: The response text
@@ -253,13 +255,28 @@ class LLMModelAdapter(ModelAdapter):
         """
         # Get model name from the model object if available
         model_name = getattr(model, "name", "unknown")
-        logger.debug("Executing prompt on model '%s': %r", model_name, prompt_text)
+        logger.debug(
+            "Executing prompt on model '%s' (schema provided: %s): %r",
+            model_name,
+            bool(schema),
+            prompt_text,
+        )
 
         # Use context manager for environment variable handling
         with ModelEnvironment(model_name, self.config):
             try:
-                response = model.prompt(prompt_text)
-                logger.debug("Model '%s' prompt executed successfully", model_name)
+                if schema:
+                    # Pass schema directly to the underlying llm call
+                    response = model.prompt(prompt_text, schema=schema)
+                    logger.debug(
+                        "Model '%s' prompt executed successfully with schema", model_name
+                    )
+                else:
+                    response = model.prompt(prompt_text)
+                    logger.debug(
+                        "Model '%s' prompt executed successfully without schema", model_name
+                    )
+
                 if hasattr(response, "text"):
                     return cast("ModelResponse", response).text()
                 return str(response)
@@ -272,6 +289,17 @@ class LLMModelAdapter(ModelAdapter):
                     raise ValueError(
                         f"Token limit exceeded: {e}. Try shortening your prompt."
                     ) from e
+                # Check if error might be related to schema validation/parsing by the model
+                if "schema" in str(e).lower() or "json" in str(e).lower():
+                    logger.error(
+                        "Error during model execution, possibly schema-related '%s': %s",
+                        model_name,
+                        e,
+                        exc_info=logger.isEnabledFor(10),
+                    )
+                    # Return the raw error string for downstream parsing attempt/error handling
+                    # This might happen if the model fails to adhere to the schema
+                    return str(e)
                 # Generic error for all other issues
                 logger.error(
                     "Error executing prompt on model '%s': %s",

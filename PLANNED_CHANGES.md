@@ -1,18 +1,69 @@
-# Planned Changes
+# Planned Changes - JSON Schema for LLM Command Generation
 
-- Define JSON schema for command-generation LLM output:
-  - `commands`: List[str] (kubectl commands to execute)
-  - `explanation`: Optional[str] (Textual feedback from LLM)
-  - `error`: Optional[str] (Error message, mutually exclusive with commands)
-  - `action_type`: Enum["COMMAND", "ERROR", "WAIT", "FEEDBACK"] (Type of response)
-  - `wait_duration_seconds`: Optional[int] (Wait time for WAIT action)
-- Update LLM prompts in `prompt.py` to request JSON output conforming to the schema.
-- Integrate schema usage with `llm` calls in `model_adapter.py` or `command_handler.py` using `--schema`.
-- Implement JSON response parsing and handling logic in `command_handler.py` based on `action_type`.
-- Add schema validation for received JSON responses.
-- Implement fallback mechanism (request JSON in prompt, validate after) for models without native schema support. Add TODO for controlled generation.
-- Add tests covering:
-  - Schema definition validation
-  - Prompt generation with schema requests
-  - Response handling for different action types
-  - Fallback mechanism behavior
+**Goal:** Improve reliability and structure of LLM responses for command planning by using JSON schemas.
+
+**Status:** MVP Implemented for `vibectl get vibe` command.
+
+**Completed Items:**
+
+- ✅ **Define JSON schema:**
+  - Created `vibectl/types.py` with `ActionType` enum (`COMMAND`, `ERROR`, `WAIT`, `FEEDBACK`).
+  - Created `vibectl/schema.py` with `LLMCommandResponse` Pydantic model including fields:
+    - `action_type: ActionType`
+    - `commands: Optional[List[str]]`
+    - `explanation: Optional[str]`
+    - `error: Optional[str]`
+    - `wait_duration_seconds: Optional[int]`
+  - Added Pydantic validators to ensure field presence based on `action_type`.
+- ✅ **Update `get` command planning prompt:**
+  - Modified `create_planning_prompt` in `vibectl/prompt.py` to accept a schema definition.
+  - Updated the prompt structure to request JSON output matching the schema.
+  - Updated `PLAN_GET_PROMPT` to utilize the schema.
+  - **Fix:** Resolved prompt formatting issues caused by `{}` in the schema string by using a unique placeholder (`__REQUEST_PLACEHOLDER__`) and `.replace()` instead of `.format()`.
+  - **Refinement:** Clarified instructions for the `commands` field to explicitly state it should contain arguments *following* `kubectl get`.
+- ✅ **Integrate schema usage with LLM calls:**
+  - Updated `ModelAdapter.execute` and `LLMModelAdapter.execute` in `vibectl/model_adapter.py` to accept an optional `schema: dict` argument.
+  - Modified `LLMModelAdapter` to pass the schema to the underlying `llm.prompt()` call if provided.
+- ✅ **Implement JSON response parsing and handling:**
+  - Modified `handle_vibe_request` in `vibectl/command_handler.py` to:
+    - Generate the JSON schema dict from the Pydantic model.
+    - Call `model_adapter.execute` with the schema.
+    - Parse the response string using `LLMCommandResponse.parse_raw()`.
+    - Handle `JSONDecodeError` and Pydantic `ValidationError`.
+    - Dispatch logic based on `response.action_type`.
+  - **Fix:** Added explicit string-to-enum conversion for `action_type` after parsing to handle cases where Pydantic returned a string instead of an enum member.
+  - **Fix:** Ensured the original command verb (e.g., `get`) is passed down through `_process_and_execute_kubectl_command` and `_execute_command` and prepended before calling `run_kubectl*`.
+- ✅ **Add basic schema validation:**
+  - Pydantic model handles basic validation during parsing.
+  - Added checks for required fields based on `action_type` within the handler.
+
+**Decisions & Compromises:**
+
+- **MVP First:** Focused implementation on `vibectl get vibe` command planning (`PLAN_GET_PROMPT`) to prove the concept.
+- **Happy Path Focus:** Primarily tested and addressed issues related to successful schema generation and parsing, assuming the model supports and follows the schema instruction.
+- **Schema Tooling:** Leveraged the `llm` library's built-in support for schema arguments with compatible models (like Claude 3.7 Sonnet).
+- **Command Joining:** Currently joining the `commands: List[str]` with spaces (`" ".join(response.commands)`) in `handle_vibe_request`. This works for simple `get` args but might need refinement for commands requiring more complex argument handling (e.g., quoted strings, heredocs handled via YAML). This is acceptable technical debt for the MVP.
+
+**Deferred Items / Technical Debt:**
+
+- **Fallback Mechanism:** Did not implement fallback for models that don't support native schema prompting. Currently assumes the model works or fails during the `model_adapter.execute` call.
+- **Complex Argument Handling:** As noted above, the space-joining of `commands` might be insufficient for all command types.
+
+**Next Steps:**
+
+- **Testing:**
+  - Add comprehensive unit/integration tests for `vibectl/schema.py`.
+  - Add tests for `handle_vibe_request` covering:
+    - Successful parsing and validation for all `ActionType` branches.
+    - Handling of `JSONDecodeError` and `ValidationError`.
+    - Correct dispatching and argument joining for `COMMAND`.
+    - Correct error handling for `ERROR`.
+    - Correct behavior for `WAIT` and `FEEDBACK`.
+    - Mocking `model_adapter.execute` to return various valid/invalid JSON strings.
+- **Refinement:**
+  - Test `get vibe` with more complex requests to ensure prompt instructions and `commands` list joining are robust.
+  - Monitor LLM adherence to the schema and adjust prompts if needed.
+- **Expansion:**
+  - Apply the schema pattern to other command planning prompts (e.g., `PLAN_VIBE_PROMPT`, `PLAN_DESCRIBE_PROMPT`, etc.).
+  - Re-evaluate and potentially refactor the `commands` list handling if needed for other command types.
+- **Fallback Implementation (Post-MVP):** Design and implement the fallback mechanism for models lacking direct schema support.

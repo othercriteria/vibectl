@@ -6,6 +6,7 @@ Contains common type definitions used across the application.
 
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+from enum import Enum
 
 
 @dataclass
@@ -134,3 +135,11 @@ class StatsProtocol(Protocol):
     bytes_sent: int
     bytes_received: int
     last_activity: float
+
+
+# For LLM command generation schema
+class ActionType(Enum):
+    COMMAND = "COMMAND"
+    ERROR = "ERROR"
+    WAIT = "WAIT"
+    FEEDBACK = "FEEDBACK"
