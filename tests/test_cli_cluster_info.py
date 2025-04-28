@@ -9,21 +9,16 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 
-# The mock_configure_output_flags fixture is now provided by conftest.py
 
-
-@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
 @patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_basic(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test basic cluster-info command functionality."""
     # Setup
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.return_value = (
         "Kubernetes control plane is running at https://example:6443"
     )
@@ -37,18 +32,15 @@ def test_cluster_info_basic(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
 @patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_with_args(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test cluster-info command with additional arguments."""
     # Setup
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.return_value = "Detailed cluster info"
 
     # Execute
@@ -94,18 +86,15 @@ def test_cluster_info_with_flags(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
 @patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_no_output(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test cluster-info command when kubectl returns no output."""
     # Setup
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.return_value = ""
 
     # Execute
@@ -146,18 +135,15 @@ def test_cluster_info_vibe_no_request(
     assert "Missing request after 'vibe'" in result.output
 
 
-@patch("vibectl.subcommands.cluster_info_cmd.configure_output_flags")
 @patch("vibectl.subcommands.cluster_info_cmd.run_kubectl")
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 def test_cluster_info_error_handling(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test error handling in cluster-info command."""
     # Setup
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.side_effect = Exception("Test error")
 
     # Execute

@@ -51,14 +51,12 @@ def test_scale_vibe_no_request() -> None:
 
 def test_scale_no_subcommand(cli_runner: CliRunner) -> None:
     """Test that an error is displayed when no subcommand is provided for scale."""
-    with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(scale, [])
+    result = cli_runner.invoke(scale, [])
 
-        # For the scale command, it uses Click's default behavior of showing help text
-        # with exit code 2 when no required arguments are provided
-        assert result.exit_code == 2
-        # Click's default behavior doesn't call console_manager
-        mock_console.print_error.assert_not_called()
+    # For the scale command, it uses Click's default behavior of showing help text
+    # with exit code 2 when no required arguments are provided
+    assert result.exit_code == 2
+    # Click's default behavior doesn't call console_manager
 
 
 def test_scale_deployment_success(cli_runner: CliRunner) -> None:
@@ -68,17 +66,15 @@ def test_scale_deployment_success(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.scale_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
     ):
         # Configure mocks
         mock_run_kubectl.return_value = "deployment.apps/nginx scaled"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
-        _ = cli_runner.invoke(scale, ["deployment", "nginx", "--replicas=5"])
+        result = cli_runner.invoke(scale, ["deployment", "nginx", "--replicas=5"])
 
         # Verify the kubectl command was correct
+        assert result.exit_code == 0
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment", "nginx", "--replicas=5"], capture=True
         )
@@ -92,17 +88,18 @@ def test_scale_integration_flow(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.scale_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
     ):
         # Configure mocks
         mock_run_kubectl.return_value = "deployment.apps/nginx scaled"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command through the CLI
-        _ = cli_runner.invoke(cli, ["scale", "deployment", "nginx", "--replicas=5"])
+        result = cli_runner.invoke(
+            cli,
+            ["scale", "deployment", "nginx", "--replicas=5"],
+        )
 
         # Verify the kubectl command was correct
+        assert result.exit_code == 0
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment", "nginx", "--replicas=5"], capture=True
         )
@@ -116,18 +113,15 @@ def test_scale_normal_execution(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.scale_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx scaled"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
-        _ = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
+        result = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
+        # Verify the functions were called correctly
+        assert result.exit_code == 0
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment/nginx", "--replicas=3"], capture=True
         )
@@ -141,18 +135,15 @@ def test_scale_no_output(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.scale_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
         mock_run_kubectl.return_value = ""
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute
-        _ = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
+        result = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
+        # Verify the functions were called correctly
+        assert result.exit_code == 0
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment/nginx", "--replicas=3"], capture=True
         )
@@ -164,18 +155,17 @@ def test_scale_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in scale command."""
     with (
         patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
+        patch("sys.exit") as mock_exit,  # Keep sys.exit mock for error path
     ):
         # Setup an exception
         mock_run_kubectl.side_effect = Exception("Test error")
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute
         result = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
 
-        # Assert error output or exit code
-        assert result.exit_code == 0
+        # Assert error handling
+        assert result.exit_code == 0  # CliRunner catches SystemExit and makes it 0
+        mock_exit.assert_called_once_with(1)  # Verify sys.exit(1) was called
         assert "Test error" in result.output
 
 
@@ -186,19 +176,17 @@ def test_scale_with_kubectl_flags(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.scale_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.scale_cmd.configure_output_flags") as mock_configure,
-        patch("sys.exit"),  # Prevent test from exiting
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx scaled"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command with namespace and other flags
-        _ = cli_runner.invoke(
+        result = cli_runner.invoke(
             scale, ["deployment/nginx", "--replicas=3", "-n", "default", "--record"]
         )
 
         # Verify kubectl received all arguments
+        assert result.exit_code == 0
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment/nginx", "--replicas=3", "-n", "default", "--record"],
             capture=True,

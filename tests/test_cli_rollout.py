@@ -55,13 +55,9 @@ def test_rollout_status(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment/nginx successfully rolled out"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
         _ = cli_runner.invoke(status, ["deployment/nginx"])
@@ -83,14 +79,10 @@ def test_rollout_history(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         revision_output = "REVISION  CHANGE-CAUSE\n1         <none>\n2         <none>"
         mock_run_kubectl.return_value = revision_output
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
         _ = cli_runner.invoke(history, ["deployment/nginx"])
@@ -112,14 +104,10 @@ def test_rollout_undo_with_confirmation(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
         patch("click.confirm") as mock_confirm,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "rollback to revision 2 deployment/nginx"
-        mock_configure.return_value = (False, True, False, "test-model")
         mock_confirm.return_value = True
 
         # Execute the command
@@ -143,14 +131,10 @@ def test_rollout_undo_with_yes_flag(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
         patch("click.confirm") as mock_confirm,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "rollback to revision 2 deployment/nginx"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command with --yes flag
         _ = cli_runner.invoke(undo, ["deployment/nginx", "--to-revision=2", "--yes"])
@@ -171,14 +155,10 @@ def test_rollout_undo_cancelled(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
         patch("click.confirm") as mock_confirm,
         patch("vibectl.subcommands.rollout_cmd.console_manager") as mock_console,
     ):
         # Setup return values
-        mock_configure.return_value = (False, True, False, "test-model")
         mock_confirm.return_value = False
 
         # Execute the command
@@ -199,13 +179,9 @@ def test_rollout_restart(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx restarted"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
         _ = cli_runner.invoke(restart, ["deployment/nginx"])
@@ -227,13 +203,9 @@ def test_rollout_pause(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx paused"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
         _ = cli_runner.invoke(pause, ["deployment/nginx"])
@@ -255,13 +227,9 @@ def test_rollout_resume(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx resumed"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute the command
         _ = cli_runner.invoke(resume, ["deployment/nginx"])
@@ -283,13 +251,9 @@ def test_rollout_no_output(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = ""
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute
         _ = cli_runner.invoke(status, ["deployment/nginx"])
@@ -307,14 +271,9 @@ def test_rollout_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in rollout command."""
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup an exception
         mock_run_kubectl.side_effect = Exception("Test error")
-        mock_configure.return_value = (False, True, False, "test-model")
-
         # Execute
         result = cli_runner.invoke(status, ["deployment/nginx"])
 
@@ -335,13 +294,9 @@ def test_rollout_with_args(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure,
     ):
         # Setup return values
         mock_run_kubectl.return_value = "deployment.apps/nginx history"
-        mock_configure.return_value = (False, True, False, "test-model")
 
         # Execute with namespace argument
         _ = cli_runner.invoke(history, ["deployment", "nginx", "-n", "default"])
@@ -360,9 +315,6 @@ def test_rollout_integration_flow(cli_runner: CliRunner) -> None:
         patch("vibectl.command_handler.handle_vibe_request"),
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
-            "vibectl.subcommands.rollout_cmd.configure_output_flags"
-        ) as mock_configure_output_flags,
-        patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_command_output,
         patch(
@@ -372,7 +324,6 @@ def test_rollout_integration_flow(cli_runner: CliRunner) -> None:
     ):
         # Setup mocks for a successful rollout status
         mock_run_kubectl.return_value = "deployment/nginx successfully rolled out"
-        mock_configure_output_flags.return_value = (False, True, False, "test-model")
 
         # Execute rollout with subcommand status
         cli_runner.invoke(cli, ["rollout", "status", "deployment/nginx"])
