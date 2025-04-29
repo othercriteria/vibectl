@@ -426,15 +426,19 @@ spec:
 
     # Mock the subprocess call to fail with an error
     with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
-        # Set up subprocess to return an error
+        # Set up subprocess mock to return an error and support context manager
         mock_process = Mock()
         mock_process.returncode = 1
         error_msg = (
             "Error: unable to parse YAML: mapping values are "
             "not allowed in this context"
         )
+        # Simulate stderr output
         mock_process.communicate.return_value = (b"", error_msg.encode())
-        mock_popen.return_value = mock_process
+
+        # Make the mock support the context manager protocol
+        mock_popen.return_value.__enter__.return_value = mock_process
+        mock_popen.return_value.__exit__.return_value = None
 
         # Create output flags
         output_flags = OutputFlags(

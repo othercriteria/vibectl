@@ -8,6 +8,7 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
+import json
 import time
 from collections.abc import Callable
 from json import JSONDecodeError
@@ -39,8 +40,8 @@ from .prompt import (
     memory_fuzzy_update_prompt,
     recovery_prompt,
 )
-from .schema import LLMCommandResponse
-from .types import ActionType, Error, OutputFlags, Result, Success
+from .schema import LLMCommandResponse, ActionType
+from .types import Error, OutputFlags, Result, Success
 from .utils import console_manager
 
 logger = _logger
@@ -247,54 +248,94 @@ def handle_command_output(
     """
     _check_output_visibility(output_flags)
 
-    if isinstance(output, Error):
-        # If input is an Error, display it and return
-        console_manager.print_error(output.error)
-        return output
+    original_error_object: Error | None = None
+    output_str: str | None = None
 
-    # Extract string output from Success object if needed
-    output_str = output.data if isinstance(output, Success) else output
+    if isinstance(output, Error):
+        original_error_object = output
+        console_manager.print_error(original_error_object.error)
+        # Even if it's an error, we might get recovery suggestions if show_vibe is true
+        # Extract the error string for potential Vibe processing
+        output_str = original_error_object.error
+    elif isinstance(output, Success):
+        output_str = output.data
+    else: # Plain string input
+        output_str = output
 
     _display_kubectl_command(output_flags, command)
-    # Ensure output_str is not None before displaying
+
+    # Display raw output (if available and requested)
+    # For errors, display the error string itself if raw is requested.
     if output_str is not None:
         _display_raw_output(output_flags, output_str)
 
-    # Determine if Vibe processing is needed
+    # Determine if Vibe processing (summary or recovery) is needed
     if output_flags.show_vibe:
-        summary_prompt_str = summary_prompt_func()
-
-        # Pass the formatted string to _process_vibe_output
-        # Ensure output_str is not None before processing
         if output_str is not None:
             try:
-                vibe_result = _process_vibe_output(
-                    output_str,
-                    output_flags,
-                    summary_prompt_str=summary_prompt_str,  # Pass formatted string
-                    command=command,
-                )
-                # Directly return the result from vibe processing
-                return vibe_result
+                # If we started with an error, generate a recovery prompt
+                if original_error_object:
+                    prompt_str = recovery_prompt(
+                        command=command or "Unknown Command",
+                        error=output_str # Use the error message as input
+                    )
+                    logger.info(f"Generated recovery prompt: {prompt_str}")
+                    vibe_output = _get_llm_summary(
+                        output_str, # Pass error string as context
+                        output_flags.model_name,
+                        prompt_str,
+                    )
+                    logger.info(f"LLM recovery suggestion: {vibe_output}")
+                    console_manager.print_vibe(vibe_output)
+                    # Update the original error object with the suggestion
+                    original_error_object.recovery_suggestions = vibe_output
+                    # Update memory with error and recovery suggestion
+                    update_memory(
+                        command=command or "Unknown",
+                        command_output=original_error_object.error,
+                        vibe_output=vibe_output,
+                        model_name=output_flags.model_name,
+                    )
+                    return original_error_object # Return the modified error
+                else:
+                    # If we started with success, generate a summary prompt
+                    summary_prompt_str = summary_prompt_func()
+                    vibe_result = _process_vibe_output(
+                        output_str, # Use success output string
+                        output_flags,
+                        summary_prompt_str=summary_prompt_str,
+                        command=command,
+                    )
+                    return vibe_result
+
             except Exception as e:
                 logger.error(f"Error during Vibe processing: {e}", exc_info=True)
                 console_manager.print_error(f"Error processing Vibe output: {e}")
-                # Return an Error object after handling the exception
                 error_str = str(e)
-                if is_api_error(error_str):
-                    return create_api_error(error_str, exception=e)
+                final_error = create_api_error(error_str, exception=e) if is_api_error(error_str) else Error(error=error_str, exception=e)
+                # If we started with an error, merge the vibe processing error
+                if original_error_object:
+                    original_error_object.error += f"\nAdditionally, failed to get recovery suggestions: {final_error.error}"
+                    original_error_object.recovery_suggestions = f"Error getting suggestions: {final_error.error}"
+                    return original_error_object
                 else:
-                    return Error(error=error_str, exception=e)
+                    return final_error
         else:
-            # Handle case where output_str is None but Vibe was requested
-            logger.warning("Cannot process Vibe output because input output was None.")
-            return Error(
-                error="Input command output was None, cannot generate Vibe summary."
-            )
+            # Handle case where output was None but Vibe was requested
+            logger.warning("Cannot process Vibe output because input was None.")
+            # If we started with an Error object that had no .error string, return that
+            if original_error_object:
+                original_error_object.error = original_error_object.error or "Input error was None"
+                original_error_object.recovery_suggestions = "Could not process None error for suggestions."
+                return original_error_object
+            else:
+                return Error(error="Input command output was None, cannot generate Vibe summary.")
 
-    else:
-        # If only raw output is requested, return it as Success
-        # Ensure output_str is not None before returning
+    else: # No Vibe processing requested
+        # If we started with an error, return it directly
+        if original_error_object:
+            return original_error_object
+        # Otherwise, return Success with the output string
         return Success(message=output_str if output_str is not None else "")
 
 
@@ -454,212 +495,91 @@ def handle_vibe_request(
     memory_context: str = "",  # Add parameter for memory context
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> Result:
-    """Handle a request to execute a kubectl command based on a natural language query.
+    """Handle a request that requires LLM interaction for command planning.
 
     Args:
-        request: Natural language request from the user
-        command: Command type (get, describe, etc.)
-        plan_prompt: LLM prompt template for planning the kubectl command
-        summary_prompt_func: Function that returns the LLM prompt for summarizing
-        output_flags: Output configuration flags
-        yes: Whether to bypass confirmation prompts
-        semiauto: Whether this is operating in semiauto mode
-        live_display: Whether to use live display for commands like port-forward
-        memory_context: Memory context to include in the prompt (for vibe mode)
-        autonomous_mode: Whether this is operating in autonomous mode
+        request: The user's natural language request.
+        command: The base kubectl command (e.g., 'get', 'describe').
+        plan_prompt: The prompt template used for planning the command.
+        summary_prompt_func: Function to generate the summary prompt.
+        output_flags: Flags controlling output format and verbosity.
+        yes: Bypass confirmation prompts.
+        semiauto: Enable semi-autonomous mode (confirm once).
+        live_display: Show live output for background tasks.
+        memory_context: Context from fuzzy memory.
+        autonomous_mode: Enable fully autonomous mode (no confirmations).
 
     Returns:
-        Result with Success or Error information
+        Result object with the outcome of the operation.
     """
+    model_name = output_flags.model_name
+    model_adapter = get_model_adapter()
+    # Get the model instance
+    model = model_adapter.get_model(model_name)
+
+    # Generate the schema dict for the LLM response
+    # This schema dict is passed to the execute method
+    schema = LLMCommandResponse.model_json_schema()
+
+    console_manager.print_processing(f"Consulting {model_name} for a plan...")
+
+    # including any necessary schema instructions if the caller used create_planning_prompt
+    logger.debug(f"Using planning prompt template:\n{plan_prompt}")
+
+    # Replace placeholders in the prompt template
+    final_plan_prompt = plan_prompt.replace("__MEMORY_CONTEXT_PLACEHOLDER__", memory_context or "")
+    final_plan_prompt = final_plan_prompt.replace("__REQUEST_PLACEHOLDER__", request or "")
+    logger.debug(f"Final planning prompt:\n{final_plan_prompt}")
+
     try:
-        logger.info(
-            f"Planning kubectl command for request: '{request}' (command: {command})"
+        # Execute the prompt with the model adapter, passing the schema dict
+        # Pass model instance as first argument
+        llm_response = model_adapter.execute(
+            model,
+            final_plan_prompt, # Pass the interpolated prompt string
+            schema=schema,  # Pass the schema dict here
         )
-        model_adapter = get_model_adapter()
-        model = model_adapter.get_model(output_flags.model_name)
+        logger.info(f"Raw LLM response:\n{llm_response}") # Log raw response
 
-        # Prepare prompt for LLM (using safe replacement)
-        formatted_prompt = plan_prompt.replace("__REQUEST_PLACEHOLDER__", request)
+        # === STEP 2: PARSE AND VALIDATE JSON RESPONSE ===
+        # If the response is empty or whitespace, return an error
+        if not llm_response or llm_response.strip() == "":
+            logger.error("LLM returned an empty response.")
+            return Error("LLM returned an empty response.")
 
-        # ---- Get and Validate LLM Response ----
         try:
-            json_schema_dict = LLMCommandResponse.model_json_schema()
-            llm_output_string = model_adapter.execute(
-                model, formatted_prompt, schema=json_schema_dict
-            )
-
-            # Ensure llm_output_string is a string before performing string operations
-            if not isinstance(llm_output_string, str):
-                logger.error("LLM adapter returned non-string type: %s", type(llm_output_string))
-                # Handle this unexpected case, maybe return an Error
-                # For now, let validation handle it, but log clearly.
-                # If it's an Error object from a mock, it will fail validation shortly.
-                pass # Or perhaps return Error(...) here?
-
-            # Check for obviously invalid/failed JSON responses before full parsing
-            if not llm_output_string or (
-                isinstance(llm_output_string, str) and # Check type again for safety
-                ("schema" in llm_output_string.lower() or "json" in llm_output_string.lower())
-                and "error" in llm_output_string.lower()
-            ):
-                logger.error(
-                    "LLM failed to return valid JSON matching the schema. Output: %s",
-                    llm_output_string,
-                )
-                console_manager.print_error(
-                    "The AI failed to generate a valid structured response."
-                )
-                return Error(
-                    error="LLM did not return valid JSON according to schema",
-                    recovery_suggestions=llm_output_string,
-                )
-
-            response = LLMCommandResponse.model_validate_json(llm_output_string)
+            # Use model_validate_json for Pydantic V2
+            response = LLMCommandResponse.model_validate_json(llm_response)
             logger.debug(f"Parsed LLM response object: {response}")
+            # Explicitly convert string to ActionType enum after validation
             validated_action_type = ActionType(response.action_type)
             logger.info(f"Validated ActionType: {validated_action_type}")
 
-        except JSONDecodeError as json_e:
-            logger.error("Failed to decode LLM JSON response: %s", json_e, exc_info=True)
-            logger.error(f"Invalid JSON string: {llm_output_string}")
-            return Error(
-                error=f"Failed to parse AI response (Invalid JSON): {json_e}",
-                exception=json_e,
-            )
-        except ValidationError as validation_e:
-            logger.error(
-                "LLM JSON response failed validation: %s", validation_e, exc_info=True
-            )
-            logger.error(f"Raw JSON string: {llm_output_string}")
-            # Provide more detail from the validation error
-            error_details = []
-            for err in validation_e.errors():
-                field = err['loc'][-1] if err['loc'] else "<unknown field>"
-                error_details.append(f"{field}: {err['msg']}")
-            error_details_str = "; ".join(error_details)
-            return Error(
-                error=f"AI response failed validation: {error_details_str}",
-                exception=validation_e,
-            )
-        except Exception as e:
-            # Catch other unexpected errors during planning/parsing
-            logger.error(
-                "Unexpected error during LLM schema execution: %s", e, exc_info=True
-            )
-            return Error(
-                error=f"Unexpected error processing LLM response: {e}", exception=e
-            )
+            if isinstance(response.action_type, str):
+                response.action_type = ActionType(response.action_type)
 
-        # Display explanation if provided
-        if response.explanation:
-            console_manager.print_note(f"AI Explanation: {response.explanation}")
+        except (JSONDecodeError, ValidationError) as e:
+            # This is where the AttributeError likely occurs
+            error_msg = f"Failed to parse or validate LLM response: {e}"
+            # Use \\n for newline in f-string, not \\\\n
+            logger.error(f"{error_msg}\\nLLM Output:\\n{llm_response}")
+            # Replace the call to the non-existent function _handle_planning_error
+            # with direct error handling. We treat parsing/validation errors as API errors
+            # so they don't halt autonomous loops unnecessarily.
+            # Use normal quotes for string literals, not escaped quotes
+            update_memory("system", f"Planning Error: {error_msg}", memory_context)
+            return create_api_error(error_msg, e)
 
-        # ---- Action Dispatch ----
+        except ValueError as e:
+            # Catch ValueErrors specifically (e.g., from unknown model name)
+            error_msg = f"Error during LLM request execution: {e}"
+            logger.error(f"{error_msg}", exc_info=True) # Log with traceback
+            # Treat as an API error to avoid halting loops
+            update_memory("system", f"LLM Execution Error: {error_msg}", memory_context)
+            return create_api_error(error_msg, e)
+
+        # === STEP 3: Implement ActionType Dispatch (ERROR, WAIT, FEEDBACK) ===
         match validated_action_type:
-            case ActionType.COMMAND:
-                if not response.commands:
-                    logger.error("ActionType is COMMAND but no commands provided.")
-                    return Error(
-                        error="Internal error: LLM returned COMMAND action without commands."
-                    )
-
-                # Directly use validated components from JSON response
-                planned_args = response.commands
-                logger.info(
-                    f"LLM planned command: {command} {' '.join(planned_args)}"
-                )
-
-                # -- Confirmation --
-                confirmation_needed = _needs_confirmation(command, semiauto)
-                if confirmation_needed and not yes:
-                    # Reconstruct display command - use the original command verb
-                    display_cmd_str = _create_display_command([command] + planned_args)
-                    confirm_result = _handle_command_confirmation(
-                        display_cmd=display_cmd_str,
-                        cmd_for_display=display_cmd_str, # Pass same for now
-                        semiauto=semiauto,
-                        model_name=output_flags.model_name
-                    )
-                    if isinstance(confirm_result, Error):
-                        return confirm_result # User cancelled or fuzzy match failed
-
-                # -- Display Command (if requested) --
-                if output_flags.show_kubectl:
-                    # Construct the full command string for display
-                    full_cmd_display_list = [command] + planned_args
-                    # Use _create_display_command for proper quoting if needed
-                    cmd_display_str = _create_display_command(full_cmd_display_list)
-                    console_manager.print_processing(f"Running: kubectl {cmd_display_str}")
-
-                # -- Execution --
-                try:
-                    # Extract potential YAML content from the response safely
-                    yaml_content_from_response = getattr(response, 'yaml_content', None)
-                    if yaml_content_from_response:
-                        logger.debug("YAML content found in LLM response.")
-
-                    # _execute_command handles parsing args and potential YAML internally
-                    execution_result = _execute_command(
-                        command,
-                        planned_args,
-                        yaml_content_from_response # Pass YAML content here
-                    )
-                except Exception as exec_e:
-                    logger.error("Error executing planned command: %s", exec_e, exc_info=True)
-                    execution_result = Error(f"Error executing command: {exec_e}", exception=exec_e)
-
-                # -- Handle Execution Result (Success or Error) --
-                if isinstance(execution_result, Success):
-                    # Process and display output, update memory
-                    processed_result = handle_command_output(
-                        execution_result, # Pass the Success object
-                        output_flags,
-                        summary_prompt_func,
-                        command=command, # Pass original command verb
-                    )
-                    return processed_result
-                else: # Is Error
-                    # Ensure execution_result is an Error object before proceeding
-                    if not isinstance(execution_result, Error):
-                        logger.warning(
-                            "Execution result was not an Error object (%s), wrapping it.",
-                            type(execution_result).__name__
-                        )
-                        # Convert unexpected result (likely a string) into an Error
-                        execution_result = Error(error=str(execution_result))
-
-                    # Query for recovery suggestions for execution errors
-                    logger.info("Command execution failed, getting recovery suggestions")
-                    try:
-                        # Use the originally intended command for context
-                        full_command_str = f"{command} {' '.join(planned_args)}"
-                        recovery_prompt_text = recovery_prompt(
-                            command=full_command_str, error=execution_result.error
-                        )
-                        recovery_suggestions = model_adapter.execute(
-                            model, recovery_prompt_text
-                        )
-                        if recovery_suggestions:
-                            console_manager.print_processing("Recovery suggestions:")
-                            console_manager.print_note(recovery_suggestions)
-                            # Store suggestions in the returned Error object
-                            execution_result.recovery_suggestions = recovery_suggestions
-                            # Update memory with error and recovery suggestions
-                            update_memory(
-                                command=full_command_str,
-                                command_output=execution_result.error,
-                                vibe_output=f"Recovery suggestions: {recovery_suggestions}",
-                                model_name=output_flags.model_name,
-                            )
-                            logger.info("Recovery suggestions added to memory context")
-                    except Exception as recovery_err:
-                        # Ensure we log the actual error from getting suggestions
-                        logger.error(f"Error getting recovery suggestions: {recovery_err}", exc_info=True)
-                        # Optionally add this secondary error to the console output?
-                        console_manager.print_error(f"Additionally, failed to get recovery suggestions: {recovery_err}")
-                    # Return the original Error object (possibly with suggestions added)
-                    return execution_result
-
             case ActionType.ERROR:
                 if not response.error:
                     logger.error("ActionType is ERROR but no error message provided.")
@@ -669,6 +589,9 @@ def handle_vibe_request(
                 # Handle planning errors (updates memory)
                 error_message = response.error
                 logger.info(f"LLM returned planning error: {error_message}")
+                # Display explanation first if provided
+                if response.explanation:
+                    console_manager.print_note(f"AI Explanation: {response.explanation}")
                 try:
                     update_memory(
                         command=command,
@@ -676,7 +599,7 @@ def handle_vibe_request(
                         vibe_output=f"Failed to plan command for request: {request}. Error: {error_message}",
                         model_name=output_flags.model_name,
                     )
-                    console_manager.print_processing("Planning error added to memory context")
+                    logger.info("Planning error added to memory context")
                 except Exception as mem_e:
                     logger.error("Failed to update memory after planning error: %s", mem_e)
                 console_manager.print_error(f"LLM Planning Error: {error_message}")
@@ -693,6 +616,9 @@ def handle_vibe_request(
                     )
                 duration = response.wait_duration_seconds
                 logger.info(f"LLM requested WAIT for {duration} seconds.")
+                # Display explanation first if provided
+                if response.explanation:
+                    console_manager.print_note(f"AI Explanation: {response.explanation}")
                 console_manager.print_processing(
                     f"Waiting for {duration} seconds as requested by AI..."
                 )
@@ -701,16 +627,124 @@ def handle_vibe_request(
 
             case ActionType.FEEDBACK:
                 logger.info("LLM provided FEEDBACK without command.")
-                # Explanation was already printed if available
+                # Display explanation first if provided
+                if response.explanation:
+                    console_manager.print_note(f"AI Explanation: {response.explanation}")
+                else:
+                    # If no explanation, provide a default message
+                    console_manager.print_note("Received feedback from AI.")
                 return Success(message="Received feedback from AI.")
 
+            case ActionType.COMMAND:
+                # === STEP 4: Implement COMMAND branch logic ===
+                if not response.commands:
+                    logger.error(
+                        "ActionType is COMMAND but 'commands' list is missing or empty."
+                    )
+                    return Error(
+                        error="Internal error: LLM returned COMMAND action without arguments."
+                    )
+
+                # Extract the kubectl verb and arguments from the LLM response
+                kubectl_verb = response.commands[0]
+                kubectl_args = response.commands[1:]
+
+                # Construct the string representation of the planned command for logging
+                planned_cmd_str = ' '.join(response.commands)
+                logger.info(
+                    f"LLM planned command arguments: \'{planned_cmd_str}\' for original verb: {command}"  # Log original verb for context
+                )
+
+                # Display explanation if provided
+                if response.explanation:
+                    console_manager.print_note(f"AI Explanation: {response.explanation}")
+
+                # Create the display command string using the extracted verb and args
+                # Need to parse resource/args correctly for live display handlers
+                resource_name_or_type = kubectl_args[0] if kubectl_args else "" # Basic extraction
+                remaining_args = tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
+
+                # Rebuild the command for display purposes including the correct verb
+                # Pass the extracted arguments (kubectl_args) to the display helper
+                cmd_for_display = _create_display_command(kubectl_args)
+                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}"
+
+                # <<< ADDED: Print the command before execution if show_kubectl is True >>>
+                if output_flags.show_kubectl:
+                    console_manager.print_processing(f"Running: {display_cmd}")
+                # Note: YAML content is not handled in this MVP schema version
+
+                # Handle command confirmation using the extracted verb
+                confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
+                should_confirm = confirmation_needed and not (yes or autonomous_mode)
+
+                if should_confirm:
+                    confirmation_result = _handle_command_confirmation(
+                        display_cmd,
+                        cmd_for_display, # Pass args part for display context
+                        semiauto, # Pass semiauto flag directly
+                        model_name
+                    )
+                    if confirmation_result is not None:
+                        # Check if it's a Success indicating exit, otherwise return the Result
+                        if isinstance(confirmation_result, Success) and not confirmation_result.continue_execution:
+                            logger.info("Exiting due to user choice in confirmation.")
+                            # Ensure we return something indicating non-continuation if needed upstream
+                            return confirmation_result # Propagate the Success(continue=False)
+                        elif isinstance(confirmation_result, Error):
+                             return confirmation_result # Propagate Error
+                        # If it's just Success(message=...), it means cancelled, return it
+                        elif isinstance(confirmation_result, Success):
+                             return confirmation_result
+
+                # <<< ADDED: Dispatch to live display handlers for wait/port-forward >>>
+                if live_display: # Check if live display is generally enabled
+                    if kubectl_verb == "wait":
+                        logger.info(f"Dispatching 'wait' command to live display handler.")
+                        return handle_wait_with_live_display(
+                            resource=resource_name_or_type, # First arg is usually resource type/name
+                            args=remaining_args,            # Rest are args/conditions
+                            output_flags=output_flags,
+                            summary_prompt_func=summary_prompt_func,
+                        )
+                    elif kubectl_verb == "port-forward":
+                        logger.info(f"Dispatching 'port-forward' command to live display handler.")
+                        return handle_port_forward_with_live_display(
+                            resource=resource_name_or_type, # First arg is usually resource type/name
+                            args=remaining_args,            # Rest are args/port mappings
+                            output_flags=output_flags,
+                            summary_prompt_func=summary_prompt_func,
+                        )
+                # <<< END ADDED SECTION >>>
+
+                # Execute the command using the original verb and the LLM-provided args
+                # If not wait/port-forward or live_display is False, use standard execution
+                logger.info(f"Dispatching '{kubectl_verb}' command to standard execution handler.")
+                result = _execute_command(kubectl_verb, kubectl_args, None)
+
+                # Handle output display based on flags, passing the original verb
+                return handle_command_output(
+                    result,
+                    output_flags,
+                    summary_prompt_func,
+                    command=kubectl_verb, # Pass the correct kubectl verb
+                )
+
             case _:
+                # Handle unknown action types
                 logger.error(f"Internal error: Unknown ActionType: {validated_action_type}")
-                return Error(error=f"Internal error: Unknown ActionType: {validated_action_type}")
+                return Error(error=f"Internal error: Unknown ActionType received from LLM: {validated_action_type}")
 
     except Exception as e:
-        logger.error(f"Error in vibe request processing: {e}", exc_info=True)
-        return Error(error=f"Error processing vibe request: {e}", exception=e)
+        # Catch potential errors during LLM interaction OR parsing/validation OR dispatch
+        logger.error(f"Error during LLM interaction: {e}", exc_info=True)
+        error_str = str(e)
+        if is_api_error(error_str):
+            console_manager.print_error(f"API Error: {error_str}")
+            return create_api_error(error_str, exception=e)
+        else:
+            console_manager.print_error(f"Error executing vibe request: {error_str}")
+            return Error(error=error_str, exception=e)
 
 
 def _handle_command_confirmation(

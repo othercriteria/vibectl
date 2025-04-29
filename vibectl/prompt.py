@@ -108,11 +108,13 @@ Examples (request -> expected JSON 'commands' field content for 'kubectl {comman
 
 Here's the request:
 
+Memory: "__MEMORY_CONTEXT_PLACEHOLDER__"
+Request: "__REQUEST_PLACEHOLDER__"
 """
-        # Append the placeholder
-        prompt = prompt_header + "__REQUEST_PLACEHOLDER__"
+        # Append the placeholders for memory and request
+        prompt = prompt_header + "\nMemory: \"__MEMORY_CONTEXT_PLACEHOLDER__\"\nRequest: \"__REQUEST_PLACEHOLDER__\""
     else:
-        # Original non-schema prompt - Use a placeholder here too for consistency
+        # Original non-schema prompt - Use placeholders here too for consistency
         directives = get_command_directives().format(command=command, flags=flags)
         prompt = f"""Given this natural language request for {description}, \
 determine the appropriate kubectl {command} command arguments.
@@ -121,9 +123,11 @@ determine the appropriate kubectl {command} command arguments.
 
 {formatted_examples}
 
-Here's the request:
+Here\'s the request:
 
-__REQUEST_PLACEHOLDER__"""
+Memory: "__MEMORY_CONTEXT_PLACEHOLDER__"
+Request: "__REQUEST_PLACEHOLDER__"
+"""
 
     return prompt
 
@@ -1095,8 +1099,8 @@ EOF
 Recall the syntax requirements above and follow them strictly in responding to
 the user's goal:
 
-Memory: "{memory_context}"
-Request: "{request}"
+Memory: "__MEMORY_CONTEXT_PLACEHOLDER__"
+Request: "__REQUEST_PLACEHOLDER__"
 Output:
 """
 
