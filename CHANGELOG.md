@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- (WIP) Initial implementation of JSON schema support for LLM command planning.
-  - Defined `ActionType` enum and `LLMCommandResponse` Pydantic model.
-  - Updated model adapter and `get vibe` command planning prompt to use schema.
-  - Implemented basic JSON parsing, validation, and action dispatch in handler.
-  - Fixed issues with prompt formatting, enum comparison, and command execution.
+- Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
+- Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
+- Update `ModelAdapter` to support passing JSON schemas to compatible LLM models.
+- Update `handle_vibe_request` to generate schema, parse JSON response, and dispatch based on `action_type`.
+- Add basic schema validation via Pydantic model and handler checks.
 - Correct prompt formatting in `semiauto` mode to properly include memory context, preventing incorrect LLM requests.
 - Resolved `AttributeError` related to asyncio patching in tests.
 - Corrected assertions for error string handling in `command_handler` memory tests.
@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Simplified `port-forward` handler tests for improved stability and clarity.
+
+### Fixed
+- Resolve prompt formatting issues when embedding JSON schema definition.
+- Ensure correct command verb is used when executing LLM-planned commands.
+- Correct `update_memory` calls within `handle_vibe_request` for errors and autonomous mode.
+- Handle potential JSON parsing (`JSONDecodeError`) and validation (`ValidationError`) errors from LLM responses.
+- Fix various test failures related to schema integration, error handling, and mock interactions.
+- Correct type hints and resolve linter errors in related modules and tests.
+- Refactor command confirmation logic for clarity.
 
 ## [0.5.3] - 2025-04-27
 

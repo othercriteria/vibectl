@@ -6,6 +6,7 @@ This module tests how memory functions handle API keys when interacting with mod
 import os
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -69,7 +70,9 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             mock_model = Mock()
             return mock_model
 
-        def execute(self, model: Mock, prompt_text: str) -> str:
+        def execute(
+            self, model: Mock, prompt_text: str, schema: dict[Any, Any] | None = None
+        ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -141,7 +144,9 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             mock_model = Mock()
             return mock_model
 
-        def execute(self, model: Mock, prompt_text: str) -> str:
+        def execute(
+            self, model: Mock, prompt_text: str, schema: dict[Any, Any] | None = None
+        ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")

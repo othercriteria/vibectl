@@ -312,8 +312,6 @@ def test_vibe_non_delete_commands_skip_confirmation(
         "commands": ["pods"],  # Args only
         "explanation": "Getting pods.",
     }
-    # Summary response (only needed if handle_command_output is not mocked/side_effected)
-    # summary_response = {...}
 
     # <<< FIX: Set return_value on the mocked adapter instance returned by the patch >>>
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)

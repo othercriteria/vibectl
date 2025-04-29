@@ -259,7 +259,7 @@ def test_handle_vibe_request_llm_returns_error(
         assert call_kwargs.get("command_output") == error_msg
         assert (
             call_kwargs.get("vibe_output")
-            == f"LLM Planning Error: {error_msg} - For request: {test_request}"
+            == f"LLM Planning Error: {test_request} -> {error_msg}"
         )
         assert call_kwargs.get("model_name") == "test-model"
 

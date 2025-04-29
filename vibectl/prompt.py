@@ -54,7 +54,8 @@ def create_planning_prompt(
     Args:
         command: The kubectl command (get, describe, etc.)
         description: Description of what the prompt is for
-        examples: List of tuples where each tuple contains (input_text, expected_commands_list)
+        examples: List of tuples where each tuple contains (input_text,
+                  expected_commands_list)
         flags: Common flags for this command (used for context in examples)
         schema_definition: JSON schema definition string.
                            Must be provided for structured JSON output.
@@ -63,13 +64,15 @@ def create_planning_prompt(
         str: Formatted planning prompt template
     """
     if not schema_definition:
-        raise ValueError("schema_definition must be provided for create_planning_prompt")
+        raise ValueError(
+            "schema_definition must be provided for create_planning_prompt"
+        )
 
     # Schema-based prompt (only branch now)
     # Simplify instructions slightly, relying more on schema structure
-    prompt_header = f"""Given this natural language request for {description}, \
-determine the appropriate kubectl {command} command arguments and respond with a JSON object \
-matching the provided schema.
+    prompt_header = f"""Given this natural language request for {description},
+determine the appropriate kubectl {command} command arguments and respond
+with a JSON object matching the provided schema.
 
 Your response MUST be a valid JSON object conforming to this schema:
 ```json
@@ -78,19 +81,26 @@ Your response MUST be a valid JSON object conforming to this schema:
 
 Key fields:
 - `action_type`: Specify the intended action (COMMAND, ERROR, WAIT, FEEDBACK).
-- `commands`: List of string arguments *following* `kubectl {command}`. Required for COMMAND action.
-  Example: for `kubectl get pods -n x`, commands = ["pods", "-n", "x"]
+- `commands`: List of string arguments *following* `kubectl {command}`.
+  * Required for COMMAND action.
+  * Example: for `kubectl get pods -n x`, `commands` = ["pods", "-n", "x"]
 - `explanation`: Optional clarification or notes.
 - `error`: Required if action_type is ERROR.
 - `wait_duration_seconds`: Required if action_type is WAIT.
 
 Examples (request -> expected JSON 'commands' field content for 'kubectl {command}'):
-""" + "\n".join([f"- Request: \"{req}\" -> Commands: {cmd}" for req, cmd in examples])
+"""
+    # Add examples formatted correctly
+    formatted_examples = "\n".join(
+        [f'- Request: "{req}" -> Commands: {cmd}' for req, cmd in examples]
+    )
 
     # Append the placeholders for memory and request
     prompt = (
         prompt_header
-        + '\n\nHere\'s the request:\n\nMemory: "__MEMORY_CONTEXT_PLACEHOLDER__"\nRequest: "__REQUEST_PLACEHOLDER__"'
+        + formatted_examples  # Add formatted examples here
+        + '\n\nHere\'s the request:\n\nMemory: "__MEMORY_CONTEXT_PLACEHOLDER__"'
+        + '\nRequest: "__REQUEST_PLACEHOLDER__"'
     )
 
     return prompt
@@ -194,7 +204,7 @@ PLAN_GET_PROMPT = create_planning_prompt(
         ("get pods with app=nginx label", ["pods", "--selector=app=nginx"]),
         ("show me all pods in every namespace", ["pods", "--all-namespaces"]),
     ],
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -278,9 +288,12 @@ PLAN_DESCRIBE_PROMPT = create_planning_prompt(
             "describe the deployment in kube-system namespace",
             ["deployments", "-n", "kube-system"],
         ),
-        ("show me details of all pods with app=nginx", ["pods", "--selector=app=nginx"]),
+        (
+            "show me details of all pods with app=nginx",
+            ["pods", "--selector=app=nginx"],
+        ),
     ],
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 # Template for planning kubectl logs commands
@@ -295,7 +308,7 @@ PLAN_LOGS_PROMPT = create_planning_prompt(
             ["--selector=app=nginx", "--tail=100"],
         ),
     ],
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 # Template for planning kubectl create commands
@@ -430,7 +443,7 @@ PLAN_VERSION_PROMPT = create_planning_prompt(
         ("show version in yaml", ["--output=yaml"]),
     ],
     flags="--output, --short, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 # Template for planning kubectl cluster-info commands
@@ -443,7 +456,7 @@ PLAN_CLUSTER_INFO_PROMPT = create_planning_prompt(
         ("show detailed cluster info", ["dump"]),
     ],
     flags="--context, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 # Template for planning kubectl events commands
@@ -459,7 +472,7 @@ PLAN_EVENTS_PROMPT = create_planning_prompt(
         ("show all events in all namespaces", ["--all-namespaces"]),
     ],
     flags="-n, --field-selector, --sort-by, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -556,11 +569,14 @@ PLAN_DELETE_PROMPT = create_planning_prompt(
     description="Kubernetes resources",
     examples=[
         ("delete the nginx pod", ["pod", "nginx"]),
-        ("remove deployment in kube-system namespace", ["deployment", "-n", "kube-system"]),
+        (
+            "remove deployment in kube-system namespace",
+            ["deployment", "-n", "kube-system"],
+        ),
         ("delete all pods with app=nginx", ["pods", "--selector=app=nginx"]),
     ],
     flags="-n, --grace-period, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -596,7 +612,7 @@ PLAN_SCALE_PROMPT = create_planning_prompt(
         ("scale down the api deployment", ["deployment/api", "--replicas=1"]),
     ],
     flags="--replicas, -n, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -640,7 +656,7 @@ PLAN_WAIT_PROMPT = create_planning_prompt(
         ),
     ],
     flags="--for, --timeout, -n, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -698,7 +714,7 @@ PLAN_ROLLOUT_PROMPT = create_planning_prompt(
         ("show history of statefulset/redis", ["history", "statefulset/redis"]),
     ],
     flags="-n, --revision, etc.",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 
@@ -1140,7 +1156,7 @@ PLAN_PORT_FORWARD_PROMPT = create_planning_prompt(
         ),
     ],
     flags="--namespace, --address, --pod-running-timeout",
-    schema_definition=_SCHEMA_DEFINITION_JSON
+    schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 

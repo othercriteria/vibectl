@@ -320,15 +320,25 @@ def handle_command_output(
                     if is_api_error(error_str)
                     else Error(error=error_str, exception=e)
                 )
-                # If we started with an error, merge the vibe processing error
+                # If we started with an error, create a new Error combining both
                 if original_error_object:
-                    original_error_object.error += f"\nAdditionally, failed to get recovery suggestions: {final_error.error}"
-                    original_error_object.recovery_suggestions = (
-                        f"Error getting suggestions: {final_error.error}"
+                    # Construct a new, more informative error message
+                    combined_error_msg = (
+                        f"Original Error: {original_error_object.error}\n"
+                        f"Recovery Failure: Failed to get recovery suggestions: "
+                        f"{final_error.error}"
                     )
-                    return original_error_object
-                else:
-                    return final_error
+                    # Return a new Error object instead of mutating the original
+                    exc = original_error_object.exception or final_error.exception
+                    return Error(
+                        error=combined_error_msg,
+                        # Indicate recovery failed, maybe keep original exception?
+                        exception=exc,
+                    )
+
+                # If we didn't start with an error, just return the final error
+                # from the recovery process
+                return final_error
         else:
             # Handle case where output was None but Vibe was requested
             logger.warning("Cannot process Vibe output because input was None.")
@@ -609,7 +619,7 @@ def handle_vibe_request(
                 vibe_output=(
                     f"System Error: Failed to parse LLM response: "
                     f"{truncated_llm_response}..."
-                ), # Use truncated response
+                ),  # Use truncated response
                 model_name=output_flags.model_name,
             )
             return create_api_error(error_msg, e)
@@ -646,7 +656,7 @@ def handle_vibe_request(
                     update_memory(
                         command=command,
                         command_output=error_message,  # Store raw error from LLM
-                        vibe_output=f"LLM Planning Error: {error_message} - For request: {request}",  # Clarify error type here
+                        vibe_output=f"LLM Planning Error: {request} -> {error_message}",
                         model_name=output_flags.model_name,
                     )
                     logger.info("Planning error added to memory context")
@@ -770,65 +780,72 @@ def handle_vibe_request(
                 confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
                 should_confirm = confirmation_needed and not (yes or autonomous_mode)
                 logger.debug(
-                    f"Confirmation check: verb='{kubectl_verb}', needed={confirmation_needed}, should_confirm={should_confirm}, yes={yes}, auto={autonomous_mode}"
-                )  # DEBUG
+                    f"Confirmation check: verb='{kubectl_verb}', "
+                    f"needed={confirmation_needed}, should_confirm={should_confirm}, "
+                    f"yes={yes}, auto={autonomous_mode}"
+                )
 
                 if should_confirm:
-                    logger.debug("Calling _handle_command_confirmation")  # DEBUG
+                    logger.debug("Calling _handle_command_confirmation")
                     confirmation_result = _handle_command_confirmation(
                         display_cmd,
                         cmd_for_display,  # Pass args part for display context
                         semiauto,  # Pass semiauto flag directly
                         model_name,
                     )
+                    # confirmation_result is None if user chose to *proceed*
                     if confirmation_result is not None:
-                        # Check if it's a Success indicating exit, otherwise return the Result
+                        # Log specifically if the user chose to exit the loop
                         if (
                             isinstance(confirmation_result, Success)
                             and not confirmation_result.continue_execution
                         ):
                             logger.info("Exiting due to user choice in confirmation.")
-                            # Ensure we return something indicating non-continuation if needed upstream
-                            return confirmation_result  # Propagate the Success(continue=False)
-                        elif isinstance(confirmation_result, Error):
-                            return confirmation_result  # Propagate Error
-                        # If it's just Success(message=...), it means cancelled, return it
-                        elif isinstance(confirmation_result, Success):
-                            return confirmation_result
+
+                        # In all cases where confirmation_result is not None
+                        # (Error, Exit Success, Cancel Success), we stop processing
+                        # the current command and return the result.
+                        return confirmation_result
+
+                    # If confirmation_result IS None, proceed to command execution...
+                    logger.debug("Proceeding with command execution after confirmation")
+
+                    # Display explanation if provided and user proceeded
+                    if response.explanation:
+                        console_manager.print_note(
+                            f"AI Explanation: {response.explanation}"
+                        )
 
                 if live_display:  # Check if live display is generally enabled
                     if kubectl_verb == "wait":
                         logger.info(
-                            "Dispatching 'wait' command to live display handler."
+                            "'wait' command dispatched to live display handler."
                         )
                         return handle_wait_with_live_display(
-                            resource=resource_name_or_type,  # First arg is usually resource type/name
+                            resource=resource_name_or_type,
                             args=remaining_args,  # Rest are args/conditions
                             output_flags=output_flags,
                             summary_prompt_func=summary_prompt_func,
                         )
                     elif kubectl_verb == "port-forward":
                         logger.info(
-                            "Dispatching 'port-forward' command to live display handler."
+                            "'port-forward' command dispatched to live display handler."
                         )
                         return handle_port_forward_with_live_display(
-                            resource=resource_name_or_type,  # First arg is usually resource type/name
+                            resource=resource_name_or_type,
                             args=remaining_args,  # Rest are args/port mappings
                             output_flags=output_flags,
                             summary_prompt_func=summary_prompt_func,
                         )
 
                 # Execute the command using the original verb and the LLM-provided args
-                logger.info(
-                    f"Dispatching '{kubectl_verb}' command to standard handler."
-                )
+                logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
                 result = _execute_command(kubectl_verb, kubectl_args, None)
 
-                # === ADDED: Update memory after autonomous execution ===
                 if autonomous_mode:
-                    # DEBUG: Check type and data of result object
                     print(
-                        f"DEBUG: result type={type(result)}, result.data='{getattr(result, 'data', None)}'"
+                        f"DEBUG: result type={type(result)}, "
+                        f"result.data='{getattr(result, 'data', None)}'"
                     )
                     # Correctly extract error or data for command_output_str
                     if isinstance(result, Success):
@@ -844,12 +861,11 @@ def handle_vibe_request(
 
                     vibe_output_str = (
                         response.explanation
-                        or f"Executed autonomously: kubectl {kubectl_verb} {' '.join(kubectl_args)}"
+                        or f"Executed autonomously: kubectl {kubectl_verb} "
+                        f"{cmd_for_display}"
                     )
 
                     try:
-                        # DEBUG: Print the value just before calling update_memory
-                        # print(f"DEBUG: Calling update_memory with command_output='{command_output_str}'") # Remove previous debug
                         update_memory(
                             command=f"kubectl {kubectl_verb} {' '.join(kubectl_args)}",
                             command_output=command_output_str,
@@ -863,18 +879,6 @@ def handle_vibe_request(
                         logger.error(
                             f"Failed to update memory after autonomous command: {mem_e}"
                         )
-                # === END ADDED SECTION ===
-
-                # Update memory - ensure strings are passed
-                # Correctly extract error or data for command_output_str
-                # if isinstance(result, Success):
-                #     command_output_str = str(result.data) if result.data is not None else ""
-                # elif isinstance(result, Error):
-                #     command_output_str = str(result.error) if result.error is not None else ""
-                # else:
-                #     command_output_str = ""
-
-                # vibe_output_str = response.explanation or "Executed autonomously."
 
                 try:
                     # Handle output display based on flags, passing the original verb
@@ -892,16 +896,16 @@ def handle_vibe_request(
                     )
 
             case _:
-                # Handle unknown action types
                 logger.error(
                     f"Internal error: Unknown ActionType: {validated_action_type}"
                 )
                 return Error(
-                    error=f"Internal error: Unknown ActionType received from LLM: {validated_action_type}"
+                    error=f"Internal error: Unknown ActionType received from "
+                    f"LLM: {validated_action_type}"
                 )
 
     except Exception as e:
-        # Catch potential errors during LLM interaction OR parsing/validation OR dispatch
+        # Catch errors during LLM interaction OR parsing/validation OR dispatch
         logger.error(f"Error during LLM interaction: {e}", exc_info=True)
         error_str = str(e)
         if is_api_error(error_str):

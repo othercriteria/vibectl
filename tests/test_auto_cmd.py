@@ -778,9 +778,9 @@ def test_auto_command_with_natural_language_in_command(
 
     # Verify that the error's halt_auto_loop flag is False
     assert last_error[0] is not None, "The error was not captured properly"
-    assert last_error[0].halt_auto_loop is False, (
-        "Error should have halt_auto_loop=False"
-    )
+    assert (
+        last_error[0].halt_auto_loop is False
+    ), "Error should have halt_auto_loop=False"
 
     # Verify the logger was called with the non-halting message
     logger_called_with_non_halting_message = False
@@ -790,9 +790,9 @@ def test_auto_command_with_natural_language_in_command(
             logger_called_with_non_halting_message = True
             break
 
-    assert logger_called_with_non_halting_message, (
-        "Logger should have been called with non-halting message"
-    )
+    assert (
+        logger_called_with_non_halting_message
+    ), "Logger should have been called with non-halting message"
 
     # Verify the error was handled as recoverable
     # The message "Continuing to next step..." should have been printed
@@ -803,9 +803,9 @@ def test_auto_command_with_natural_language_in_command(
             continuation_message_printed = True
             break
 
-    assert continuation_message_printed, (
-        "The 'Continuing to next step...' message should have been printed"
-    )
+    assert (
+        continuation_message_printed
+    ), "The 'Continuing to next step...' message should have been printed"
 
     # Check that the error was logged
     error_printed = False

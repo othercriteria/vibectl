@@ -1,6 +1,7 @@
 """Tests for model adapter."""
 
 import os
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -228,7 +229,9 @@ def test_model_adapter_abc_methods() -> None:
         def get_model(self, model_name: str) -> str:
             raise NotImplementedError()
 
-        def execute(self, model: object, prompt_text: str) -> str:
+        def execute(
+            self, model: object, prompt_text: str, schema: dict[Any, Any] | None = None
+        ) -> str:
             raise NotImplementedError()
 
         def validate_model_key(self, model_name: str) -> str | None:

@@ -215,7 +215,7 @@ def test_create_planning_prompt_structure_and_content() -> None:
         command=command,
         description=description,
         examples=examples,
-        schema_definition=_TEST_SCHEMA_JSON
+        schema_definition=_TEST_SCHEMA_JSON,
     )
 
     # Basic checks
@@ -225,15 +225,15 @@ def test_create_planning_prompt_structure_and_content() -> None:
     # Verify inclusion of dynamic parts
     assert f"kubectl {command} command arguments" in prompt
     assert description in prompt
-    assert _TEST_SCHEMA_JSON in prompt # Check schema is included
+    assert _TEST_SCHEMA_JSON in prompt  # Check schema is included
 
     # Verify placeholders
     assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
     assert "__REQUEST_PLACEHOLDER__" in prompt
 
     # Verify example formatting
-    assert '- Request: "request 1" -> Commands: [\'arg1\', \'val1\']' in prompt
-    assert '- Request: "request 2" -> Commands: [\'arg2\', \'--flag\']' in prompt
+    assert "- Request: \"request 1\" -> Commands: ['arg1', 'val1']" in prompt
+    assert "- Request: \"request 2\" -> Commands: ['arg2', '--flag']" in prompt
 
     # Verify key instructions related to schema fields are present
     assert "`action_type`" in prompt
@@ -242,6 +242,7 @@ def test_create_planning_prompt_structure_and_content() -> None:
     assert "`error`: Required if action_type is ERROR" in prompt
     assert "`wait_duration_seconds`: Required if action_type is WAIT" in prompt
 
+
 def test_create_planning_prompt_raises_without_schema() -> None:
     """Verify create_planning_prompt raises ValueError if schema is missing."""
     with pytest.raises(ValueError, match="schema_definition must be provided"):
@@ -249,8 +250,9 @@ def test_create_planning_prompt_raises_without_schema() -> None:
             command="test",
             description="test",
             examples=[],
-            schema_definition=None # Explicitly pass None
+            schema_definition=None,  # Explicitly pass None
         )
+
 
 @pytest.mark.parametrize(
     "plan_prompt_constant",
@@ -266,7 +268,7 @@ def test_create_planning_prompt_raises_without_schema() -> None:
         PLAN_WAIT_PROMPT,
         PLAN_ROLLOUT_PROMPT,
         PLAN_PORT_FORWARD_PROMPT,
-    ]
+    ],
 )
 def test_plan_prompt_constants_are_generated(plan_prompt_constant: str) -> None:
     """Verify that the PLAN_*_PROMPT constants are non-empty strings."""
@@ -275,11 +277,13 @@ def test_plan_prompt_constants_are_generated(plan_prompt_constant: str) -> None:
     # Optionally add a very basic check common to all create_planning_prompt outputs
     assert "JSON object matching the provided schema" in plan_prompt_constant
 
+
 def test_plan_create_prompt_structure() -> None:
-     """Basic structural check for the unique PLAN_CREATE_PROMPT."""
-     assert isinstance(PLAN_CREATE_PROMPT, str)
-     assert "__REQUEST_PLACEHOLDER__" in PLAN_CREATE_PROMPT
-     assert "YAML manifest" in PLAN_CREATE_PROMPT # Check for create-specific content
+    """Basic structural check for the unique PLAN_CREATE_PROMPT."""
+    assert isinstance(PLAN_CREATE_PROMPT, str)
+    assert "__REQUEST_PLACEHOLDER__" in PLAN_CREATE_PROMPT
+    assert "YAML manifest" in PLAN_CREATE_PROMPT  # Check for create-specific content
+
 
 def test_memory_update_prompt() -> None:
     """Test memory update prompt with config-provided max chars limit."""

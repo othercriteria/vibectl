@@ -433,8 +433,6 @@ def test_handle_vibe_request_command_error(
     # Assertions (outside inner 'with' block, but _execute_cmd is from outer block)
     mock_execute_cmd.assert_called_once_with("get", ["nonexistent-resource"], None)
 
-    # We need to check the call to the *actual* update_memory, not the mock of handle_command_output
-    # Use the mock_memory fixture provided to the test
     # Assert the mock patched in the 'with' block was called
     mock_update_memory_ch.assert_called_once()
     # Check arguments passed using kwargs
@@ -600,7 +598,7 @@ def test_handle_vibe_request_yaml_response(
         ) as mock_handle_output:
             handle_vibe_request(
                 request="apply this config",
-                command="apply",  # <<< Pass the planned verb
+                command="apply",
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
                 output_flags=mock_output_flags_for_vibe_request,
@@ -609,13 +607,14 @@ def test_handle_vibe_request_yaml_response(
 
             # Verify confirmation was prompted
             mock_prompt.assert_called_once()
-            # Verify _execute_command was called with correct verb/args, None for yaml_content
+            # Verify _execute_command was called with correct verb/args, None
+            # for yaml_content
             mock_execute_cmd.assert_called_once_with("apply", ["-f", "-"], None)
 
             # Verify handle_command_output was called
             mock_handle_output.assert_called_once()
             _, ho_call_kwargs = mock_handle_output.call_args
-            assert ho_call_kwargs.get("command") == "apply"  # <<< Updated verb
+            assert ho_call_kwargs.get("command") == "apply"
 
 
 def test_handle_vibe_request_create_pods_yaml(
@@ -767,14 +766,16 @@ def test_show_kubectl_flag_controls_command_display(
                     for call in mock_console_manager.print_processing.call_args_list
                 )
                 assert found_call, (
-                    f"{expected_display_command!r} not found in calls: {mock_console_manager.print_processing.call_args_list}"
+                    f"{expected_display_command!r} not found in calls: "
+                    f"{mock_console_manager.print_processing.call_args_list}"
                 )
             else:
                 # Verify print_processing was NOT called with the command display string
                 for call in mock_console_manager.print_processing.call_args_list:
                     if call.args:
                         assert not call.args[0].startswith("Running: kubectl"), (
-                            f"Expected no kubectl command print, but found: {call.args[0]}"
+                            f"Expected no kubectl command print, but "
+                            f"found: {call.args[0]}"
                         )
 
             # 2. Verify _execute_command was called with the LLM-planned command

@@ -175,9 +175,9 @@ def test_file_descriptor_leak_prevention() -> None:
 
     # Verify no file descriptor leaks (allow small fluctuations due to Python internals)
     # The difference should be minimal - typically 0 or very small
-    assert end_fds - start_fds < 5, (
-        f"Possible file descriptor leak: {end_fds - start_fds} new fds"
-    )
+    assert (
+        end_fds - start_fds < 5
+    ), f"Possible file descriptor leak: {end_fds - start_fds} new fds"
 
 
 def count_open_fds() -> int:

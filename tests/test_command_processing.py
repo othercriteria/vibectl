@@ -438,7 +438,8 @@ def test_handle_vibe_request_with_heredoc_error_integration(
         # Configure _execute_command to return the simulated error
         mock_execute_cmd.return_value = simulated_error_result
 
-        # Configure the mock handle_command_output to return the error object with suggestions added
+        # Configure the mock handle_command_output to return the error object
+        # with suggestions added
         # (This simulates what the real function *should* do in this scenario)
         modified_error = Error(
             error=simulated_error_result.error,
@@ -471,16 +472,20 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     assert call_kwargs.get("command") == "apply"  # Check command kwarg
 
     # 3. Verify the model adapter was called only ONCE (for planning)
-    #    Because we mocked handle_command_output, the recovery call within it is bypassed.
+    #    Because we mocked handle_command_output, the recovery call within
+    #    it is bypassed.
     assert mock_adapter.execute.call_count == 1
 
-    # 4. Verify memory update did NOT happen directly here (would happen inside handle_command_output)
+    # 4. Verify memory update did NOT happen directly here (would happen
+    # inside handle_command_output)
     mock_update_memory.assert_not_called()
 
-    # 5. Verify recovery_prompt was NOT called directly here (would happen inside handle_command_output)
+    # 5. Verify recovery_prompt was NOT called directly here (would happen
+    # inside handle_command_output)
     mock_recovery_prompt.assert_not_called()
 
-    # 6. Verify console output did NOT happen directly here (would happen inside handle_command_output)
+    # 6. Verify console output did NOT happen directly here (would happen
+    # inside handle_command_output)
     mock_console.print_vibe.assert_not_called()
 
     # 7. Verify the final result is the one returned by our mock handle_command_output

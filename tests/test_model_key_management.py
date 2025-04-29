@@ -77,9 +77,9 @@ class TestModelKeyConfig:
             config._config["model_keys"] = {}
             config._config["model_key_files"] = {}
             key = config.get_model_key("openai")
-            assert key == "test-openai-key-legacy", (
-                f"Expected 'test-openai-key-legacy', got '{key}'"
-            )
+            assert (
+                key == "test-openai-key-legacy"
+            ), f"Expected 'test-openai-key-legacy', got '{key}'"
 
     def test_precedence_order(self) -> None:
         """Test precedence order of key sources."""
@@ -218,9 +218,9 @@ class TestModelAdapterWithKeys:
                 model = adapter.get_model("gpt-4")
 
                 # Verify API key not leaked into environment after call
-                assert "OPENAI_API_KEY" not in os.environ, (
-                    f"Environment contains: {list(os.environ.keys())}"
-                )
+                assert (
+                    "OPENAI_API_KEY" not in os.environ
+                ), f"Environment contains: {list(os.environ.keys())}"
 
                 # Verify model was returned
                 assert model is mock_model
