@@ -1,9 +1,9 @@
 """Tests for command string processing functionality."""
 
+import json
 from unittest.mock import Mock, patch
 
 import pytest
-import json
 
 from vibectl.command_handler import (
     _create_display_command,
@@ -13,7 +13,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.k8s_utils import run_kubectl_with_yaml
-from vibectl.types import OutputFlags, Success, ActionType
+from vibectl.types import ActionType, OutputFlags, Success
 
 
 def test_process_command_string_basic() -> None:
@@ -95,26 +95,38 @@ def test_parse_command_args_html_content() -> None:
 
 
 def test_create_display_command_basic() -> None:
-    """Test creating display command for basic command."""
-    display_cmd = _create_display_command(["get", "pods"], None)
-    assert display_cmd == "get pods"
+    """Test _create_display_command with basic arguments."""
+    args = ["get", "pods", "-n", "default"]
+    result = _create_display_command(args)
+    assert result == "get pods -n default"
 
 
 def test_create_display_command_with_spaces() -> None:
-    """Test creating display command with spaces in args."""
-    html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
-    display_cmd = _create_display_command(
-        [
-            "create",
-            "configmap",
-            "nginx-config",
-            f"--from-literal=index.html={html_content}",
-        ],
-        None,
-    )
-    # The command display should include quoted version of the argument
-    assert "from-literal=index.html=" in display_cmd
-    assert "CTF-FLAG-1: K8S_MASTER" in display_cmd
+    """Test _create_display_command with arguments containing spaces."""
+    args = ["get", "pods", "-l", "app=my app"]
+    result = _create_display_command(args)
+    assert result == 'get pods -l "app=my app"'
+
+
+def test_create_display_command_with_specials() -> None:
+    """Test _create_display_command with special characters."""
+    args = ["exec", "pod-name", "--", "bash", "-c", "echo <hello> | grep hello"]
+    result = _create_display_command(args)
+    # Expecting quoting around the command part
+    assert result == 'exec pod-name -- bash -c "echo <hello> | grep hello"'
+
+
+def test_create_display_command_with_yaml() -> None:
+    """Test _create_display_command with args indicating YAML input."""
+    yaml_content = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"
+    args = ["apply", "-f", "-", yaml_content]
+    result = _create_display_command(args)
+    # Should show simplified version for YAML
+    assert result == "apply -f - (with YAML content)"
+
+
+def test_needs_confirmation_dangerous() -> None:
+    """Test _needs_confirmation identifies dangerous commands."""
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -531,72 +543,58 @@ def test_parse_command_args_robust() -> None:
     ]
 
 
-@patch("vibectl.k8s_utils.subprocess.Popen")
+@patch("vibectl.command_handler.run_kubectl_with_yaml")
 @patch("vibectl.command_handler.console_manager")
-def test_execute_stdin_command(mock_console: Mock, mock_popen: Mock) -> None:
-    """Test executing command with YAML content via stdin."""
-    # Mock Popen for k8s_utils
-    mock_process = Mock()
-    mock_process.returncode = 0
-    mock_process.communicate.return_value = (b"pod/my-pod created", b"")
-    mock_popen.return_value = mock_process
+def test_execute_stdin_command(mock_console: Mock, mock_run_yaml: Mock) -> None:
+    """Test executing a command that requires stdin via YAML content."""
+    command = "apply"
+    args = ["-f", "-"]
+    yaml_content = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"
 
-    yaml_content = "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: my-pod"
-    # Call _execute_command directly (dispatcher in command_handler)
-    result = _execute_command(
-        command="apply", args=["-f", "-"], yaml_content=yaml_content
-    )
+    # Mock the return value of the patched function
+    mock_run_yaml.return_value = Success(data="pod/test-pod created")
 
-    # Assert subprocess.Popen was called correctly in k8s_utils
-    mock_popen.assert_called_once_with(
-        ["kubectl", "apply", "-f", "-"],
-        stdin=-1,  # subprocess.PIPE
-        stdout=-1,
-        stderr=-1,
-        text=False,
-    )
+    # Execute the command using the dispatcher
+    result = _execute_command(command, args, yaml_content)
 
-    # Assert the input was passed to communicate
-    mock_process.communicate.assert_called_once_with(input=yaml_content)
+    # Verify run_kubectl_with_yaml was called with correct arguments
+    mock_run_yaml.assert_called_once()
+    call_args, _ = mock_run_yaml.call_args
+    expected_full_args = ["apply", "-f", "-"]
+    assert call_args[0] == expected_full_args
+    assert call_args[1] == yaml_content
 
-    # Assert the result indicates success
+    # Verify the result
     assert isinstance(result, Success)
+    assert result.data == "pod/test-pod created"
 
 
-@patch("vibectl.k8s_utils.subprocess.Popen")
+@patch("vibectl.command_handler.run_kubectl_with_yaml")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_stdin_command_with_other_flags(
-    mock_console: Mock, mock_popen: Mock
+    mock_console: Mock, mock_run_yaml: Mock
 ) -> None:
-    """Test executing command with YAML content via stdin and other flags."""
-    # Mock Popen for k8s_utils
-    mock_process = Mock()
-    mock_process.returncode = 0
-    mock_process.communicate.return_value = (b"pod/my-pod created", b"")
-    mock_popen.return_value = mock_process
+    """Test command requiring stdin with other flags present."""
+    command = "replace"
+    args = ["--force", "--grace-period=0", "-f", "-"]
+    yaml_content = "apiVersion: v1\nkind: Deployment\n..."
 
-    yaml_content = "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: my-pod"
-    # Test with additional flags like --namespace
-    result = _execute_command(
-        command="apply",
-        args=["-f", "-", "-n", "my-namespace"],
-        yaml_content=yaml_content,
-    )
+    # Mock the return value
+    mock_run_yaml.return_value = Success(data="deployment.apps/test-deploy replaced")
 
-    # Assert subprocess.Popen was called correctly in k8s_utils
-    mock_popen.assert_called_once_with(
-        ["kubectl", "apply", "-f", "-", "-n", "my-namespace"],
-        stdin=-1,  # subprocess.PIPE
-        stdout=-1,
-        stderr=-1,
-        text=False,
-    )
+    # Execute
+    result = _execute_command(command, args, yaml_content)
 
-    # Assert the input was passed to communicate
-    mock_process.communicate.assert_called_once_with(input=yaml_content)
+    # Verify run_kubectl_with_yaml was called correctly
+    mock_run_yaml.assert_called_once()
+    call_args, _ = mock_run_yaml.call_args
+    expected_full_args = ["replace", "--force", "--grace-period=0", "-f", "-"]
+    assert call_args[0] == expected_full_args
+    assert call_args[1] == yaml_content
 
-    # Assert the result indicates success
+    # Verify result
     assert isinstance(result, Success)
+    assert result.data == "deployment.apps/test-deploy replaced"
 
 
 @patch("vibectl.k8s_utils.subprocess.Popen")

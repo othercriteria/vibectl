@@ -183,12 +183,12 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
                 stdout_bytes, stderr_bytes = process.communicate(
                     input=yaml_bytes, timeout=30
                 )
-            except TimeoutExpired:
+            except TimeoutExpired as e:  # Capture the original exception
                 process.kill()
                 stdout_bytes, stderr_bytes = process.communicate()
                 return Error(
                     error="Command timed out after 30 seconds",
-                    exception=Exception("Subprocess timeout"),
+                    exception=e,  # Pass the original TimeoutExpired exception
                 )
 
             stdout = stdout_bytes.decode("utf-8").strip()

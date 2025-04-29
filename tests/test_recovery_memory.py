@@ -10,15 +10,15 @@ The tests verify:
 3. That this correctly happens when used in auto mode
 """
 
+import json
 from collections.abc import Generator
 from unittest.mock import Mock, patch
-import json
 
 import pytest
 
 from vibectl.command_handler import handle_vibe_request
 from vibectl.model_adapter import LLMModelAdapter
-from vibectl.types import Error, Success, ActionType
+from vibectl.types import ActionType, Error, Success
 
 
 @pytest.fixture
@@ -40,12 +40,12 @@ def clean_memory() -> Generator[None, None, None]:
 
 @patch.object(LLMModelAdapter, "get_model")
 @patch.object(LLMModelAdapter, "execute")
-@patch("vibectl.command_handler._process_and_execute_kubectl_command")
+@patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.update_memory")
 def test_recovery_suggestions_not_in_memory(
     mock_update_memory: Mock,
     mock_execute: Mock,
-    mock_llm_execute: Mock,
+    mock_execute_command: Mock,
     mock_get_model: Mock,
 ) -> None:
     """Test that recovery suggestions should be added to memory."""
@@ -58,11 +58,7 @@ def test_recovery_suggestions_not_in_memory(
         "commands": ["pods"],
         "explanation": "Get pods",
     }
-    mock_llm_execute.side_effect = [
-        json.dumps(expected_plan),
-        "Error occurred: Pod not found",  # Recovery suggestions
-    ]
-    mock_execute.return_value = Error(error="Pod not found", exception=None)
+    mock_execute_command.return_value = Error(error="Pod not found", exception=None)
 
     # Execute command
     output_flags = Mock(
@@ -87,12 +83,12 @@ def test_recovery_suggestions_not_in_memory(
 
 @patch.object(LLMModelAdapter, "get_model")
 @patch.object(LLMModelAdapter, "execute")
-@patch("vibectl.command_handler._process_and_execute_kubectl_command")
+@patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.update_memory")
 def test_recovery_suggestions_should_update_memory(
     mock_update_memory: Mock,
     mock_execute: Mock,
-    mock_llm_execute: Mock,
+    mock_execute_command: Mock,
     mock_get_model: Mock,
 ) -> None:
     """Test that memory should be updated with recovery suggestions."""
@@ -105,11 +101,7 @@ def test_recovery_suggestions_should_update_memory(
         "commands": ["pods"],
         "explanation": "Get pods",
     }
-    mock_llm_execute.side_effect = [
-        json.dumps(expected_plan),
-        "Error occurred: Pod not found",  # Recovery suggestions
-    ]
-    mock_execute.return_value = Error(error="Pod not found", exception=None)
+    mock_execute_command.return_value = Error(error="Pod not found", exception=None)
 
     # Execute command
     output_flags = Mock(
@@ -146,12 +138,12 @@ def test_recovery_suggestions_should_update_memory(
 
 @patch.object(LLMModelAdapter, "get_model")
 @patch.object(LLMModelAdapter, "execute")
-@patch("vibectl.command_handler._process_and_execute_kubectl_command")
+@patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.update_memory")
 def test_recovery_suggestions_in_auto_mode(
     mock_update_memory: Mock,
     mock_execute: Mock,
-    mock_llm_execute: Mock,
+    mock_execute_command: Mock,
     mock_get_model: Mock,
 ) -> None:
     """Test recovery suggestions in auto mode should update memory."""
@@ -164,7 +156,7 @@ def test_recovery_suggestions_in_auto_mode(
         "commands": ["pods"],
         "explanation": "Get pods",
     }
-    mock_llm_execute.side_effect = [
+    mock_execute_command.side_effect = [
         json.dumps(expected_plan),  # First command planning
         "Error occurred: Pod not found",  # Recovery suggestions
         "get pods --namespace default",  # Second command planning (remains string)

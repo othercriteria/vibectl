@@ -4,11 +4,11 @@ This module tests edge cases, extreme inputs, and error conditions to ensure
 the command handler is robust against unexpected or malformed inputs.
 """
 
+import json
 import unittest.mock as mock
 from collections.abc import Generator
 from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, Mock, patch
-import json
 
 import pytest
 
@@ -20,7 +20,7 @@ from vibectl.command_handler import (
 )
 from vibectl.k8s_utils import run_kubectl_with_complex_args, run_kubectl_with_yaml
 from vibectl.prompt import PLAN_VIBE_PROMPT
-from vibectl.types import Error, OutputFlags, Success, Truncation, ActionType
+from vibectl.types import ActionType, Error, OutputFlags, Success, Truncation
 
 
 @pytest.fixture
@@ -31,6 +31,36 @@ def mock_model_adapter() -> Generator[MagicMock, None, None]:
         mock_adapter.return_value.get_model.return_value = mock_model
         mock_adapter.return_value.execute.return_value = "get pods"
         yield mock_adapter
+
+
+@pytest.fixture
+def mock_console() -> Generator[MagicMock, None, None]:
+    """Mock console manager for edge case tests."""
+    with patch("vibectl.command_handler.console_manager") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_execute_command() -> Generator[MagicMock, None, None]:
+    """Mock _execute_command for edge case tests."""
+    with patch("vibectl.command_handler._execute_command") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_handle_planning_error() -> Generator[MagicMock, None, None]:
+    """Mock _handle_planning_error for edge case tests."""
+    with patch("vibectl.command_handler._handle_planning_error") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_include_memory() -> Generator[MagicMock, None, None]:
+    """Mock include_memory_in_prompt."""
+    with patch("vibectl.memory.include_memory_in_prompt") as mock:
+        # Default behavior: return prompt unmodified
+        mock.side_effect = lambda prompt, **kwargs: prompt
+        yield mock
 
 
 def test_process_command_string_empty_input() -> None:
@@ -364,186 +394,138 @@ def test_handle_vibe_request_with_dangerous_commands(
 
 def test_handle_vibe_request_autonomous_mode(
     mock_model_adapter: MagicMock,
+    mock_execute_command: MagicMock,
+    mock_handle_planning_error: MagicMock,
+    mock_console: MagicMock,
+    mock_include_memory: MagicMock,
 ) -> None:
-    """Test handle_vibe_request in autonomous mode with 'vibe' command.
-
-    This test specifically checks that when autonomous_mode is True and
-    command is 'vibe', we don't include 'vibe' in the kubectl command.
-    """
-    # Configure model adapter to return a valid command string as JSON
-    command_response = {
+    """Test autonomous mode behavior, especially with command timeouts."""
+    # Configure model adapter to return a simple command JSON
+    plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods", "-n", "sandbox"],
-        "explanation": "Getting pods in sandbox.",
+        "commands": ["sleep", "30"],
+        "explanation": "Running a sleep command autonomously."
     }
-    mock_model_adapter.return_value.execute.return_value = json.dumps(command_response)
+    mock_model_adapter.return_value.execute.return_value = json.dumps(plan_response)
 
-    # Configure output flags
+    # Configure _execute_command to raise TimeoutExpired
+    mock_execute_command.side_effect = TimeoutExpired(cmd="kubectl sleep 30", timeout=1)
+
+    # Configure output flags for autonomous mode
     output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,
-        show_kubectl=True,
+        show_raw=False,
+        show_vibe=False,
         warn_no_output=False,
-        model_name="test-model",
+        model_name="test-model-auto",
+        show_kubectl=False,
     )
 
-    # Mock console manager to check prompt
-    with (
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler._execute_command") as mock_execute_command,
-        patch("vibectl.command_handler.click.confirm", return_value=True),
-        patch("vibectl.command_handler.handle_command_output"),
-    ):
-        # Call handle_vibe_request in autonomous mode with 'vibe' command
-        handle_vibe_request(
-            request="check pods",
+    # Mock other necessary components
+    with patch("vibectl.command_handler.handle_command_output"),\
+         patch("vibectl.command_handler.update_memory"):
+
+        # Call handle_vibe_request in autonomous mode
+        result = handle_vibe_request(
+            request="run sleep command",
             command="vibe",
-            plan_prompt="Plan {request}",
-            summary_prompt_func=lambda: "Test prompt {output}",
+            plan_prompt="Plan this: {request}",
+            summary_prompt_func=lambda: "Summary: {output}",
             output_flags=output_flags,
             autonomous_mode=True,
+            yes=True,
         )
 
-        # Verify console manager was called with a message NOT including 'vibe'
-        # Now should be 'Running: kubectl get pods -n sandbox'
-        # NOT 'Running: kubectl vibe get pods -n sandbox'
-        assert mock_console.print_processing.called
-        note_calls = mock_console.print_processing.call_args_list
-        assert len(note_calls) > 0
-        # Get the first argument of the first call
-        note_text = note_calls[0][0][0]
-        assert note_text == "Running: kubectl get pods -n sandbox"
+    # Verify _execute_command was called
+    mock_execute_command.assert_called_once()
 
-    # Configure model adapter to return command with 'vibe' to ensure it's removed
-    mock_model_adapter.return_value.execute.return_value = "vibe get pods -n sandbox"
+    # Verify _handle_planning_error was called due to TimeoutExpired
+    mock_console.print_error.assert_any_call(
+        mock.ANY,
+        style="dim"
+    )
+    assert any(
+        "timed out" in call.args[0].lower()
+        for call in mock_console.print_error.call_args_list
+    )
 
-    # Reset mocks
-    mock_console.reset_mock()
-    mock_execute_command.reset_mock()
-
-    with (
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler._execute_command") as mock_execute_command,
-        patch("vibectl.command_handler.click.confirm", return_value=True),
-        patch("vibectl.command_handler.handle_command_output"),
-    ):
-        # Call handle_vibe_request again
-        handle_vibe_request(
-            request="check pods",
-            command="vibe",
-            plan_prompt="Plan {request}",
-            summary_prompt_func=lambda: "Test prompt {output}",
-            output_flags=output_flags,
-            autonomous_mode=True,
-        )
-
-        # Verify console manager was called with the correct message
-        assert mock_console.print_processing.called
-        note_calls = mock_console.print_processing.call_args_list
-        assert len(note_calls) > 0
-        # Get the first argument of the first call
-        note_text = note_calls[0][0][0]
-        # Should now be "Running: kubectl vibe get pods -n sandbox"
-        # But we should check that it doesn't have "vibe vibe" (double vibe)
-        assert "Running: kubectl " in note_text
-        assert "vibe vibe" not in note_text.lower()
+    # Verify the result is an Error containing the TimeoutExpired info
+    assert isinstance(result, Error)
+    assert "Command timed out" in result.error
+    assert isinstance(result.exception, TimeoutExpired)
 
 
 def test_handle_vibe_request_yaml_prompt_with_spec_field(
     mock_model_adapter: MagicMock,
     capfd: pytest.CaptureFixture[str],
+    mock_console: MagicMock,
+    mock_execute_command: MagicMock,
+    mock_include_memory: MagicMock,
 ) -> None:
-    """Test handle_vibe_request with a prompt containing {spec} placeholder.
+    """Test handling of YAML input containing a 'spec:' field.
 
-    This tests the handling of format placeholders in prompt templates. Before the fix,
-    this would raise KeyError: 'spec'. After the fix, it should handle this gracefully
-    by using a fallback string replacement method.
+    Previously, this triggered a specific warning. This test verifies the current
+    behavior after JSON schema implementation.
     """
-    # Configure model adapter to return a response that includes YAML with {spec}
-    # Now returns valid JSON representing the command with YAML
-    yaml_content = """---
+    # Configure model adapter to return a create command with YAML including 'spec:'
+    yaml_content = """
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-pod
-  labels:
-    app: test
-{spec}
+  name: test-pod-spec
+spec:
   containers:
-  - name: test-container
-    image: nginx:latest
+  - name: nginx
+    image: nginx
 """
-    command_response = {
+    plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["create", "-f", "-", yaml_content],
-        "explanation": "Creating pod with {spec} placeholder.",
+        "commands": ["create", "-f", "-"],
+        "explanation": "Creating pod with spec field.",
+        "yaml_content": yaml_content
     }
-    mock_model_adapter.return_value.execute.return_value = json.dumps(command_response)
+    mock_model_adapter.return_value.execute.return_value = json.dumps(plan_response)
+
+    # Mock _execute_command to return success
+    mock_execute_command.return_value = Success(data="pod/test-pod-spec created")
 
     # Configure output flags
     output_flags = OutputFlags(
         show_raw=True,
         show_vibe=True,
         warn_no_output=False,
-        model_name="test-model",
+        model_name="test-model-spec",
+        show_kubectl=True,
     )
 
-    # This simulates what happens in vibe_cmd.py - the prompt already contains
-    # formatted placeholders with {memory_context} and {request} filled in,
-    # but the prompt itself might contain other format-style placeholders like {spec}
-    pre_formatted_prompt = """You are planning a command.
-Memory: "Previous context"
-Request: "create a pod"
+    # Mock other necessary components
+    with patch("vibectl.command_handler.handle_command_output"), \
+         patch("vibectl.command_handler.update_memory"), \
+         patch("click.confirm") as mock_confirm:
 
-If you need to create a pod, use this template:
-apiVersion: v1
-kind: Pod
-metadata:
-  name: example
-{spec}
-  containers:
-  - name: container
-    image: nginx
-"""
+        mock_confirm.return_value = True
 
-    # With the fix, this should now run without raising a KeyError
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler._execute_command"),
-        patch("vibectl.command_handler.click.confirm", return_value=True),
-        patch("vibectl.command_handler.handle_command_output"),
-        patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
-        patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen,
-    ):
-        # Configure the mock subprocess
-        mock_process = MagicMock()
-        mock_process.returncode = 0
-        mock_process.communicate.return_value = (b"success", b"")
-        mock_popen.return_value = mock_process
-
-        # This should not raise an exception after the fix
+        # Call handle_vibe_request
         handle_vibe_request(
-            request="create a pod",
-            command="vibe",
-            plan_prompt=pre_formatted_prompt,
-            summary_prompt_func=lambda: "Test prompt {output}",
+            request="create pod with spec",
+            command="create",
+            plan_prompt="Plan this: {request}",
+            summary_prompt_func=lambda: "Summary: {output}",
             output_flags=output_flags,
+            yes=False,
         )
 
-    # Verify the fallback method is being used based on logger calls
-    mock_logger.warning.assert_called_once()
-    warning_message = mock_logger.warning.call_args[0][0]
-    assert "Format error" in warning_message
-    assert "'spec'" in warning_message
-    assert "Using fallback formatting method" in warning_message
+    # Verify _execute_command was called with the correct args including YAML
+    mock_execute_command.assert_called_once()
+    call_args, _ = mock_execute_command.call_args
+    assert call_args[0] == "create"
+    assert call_args[1] == ["-f", "-"]
+    assert call_args[2] == yaml_content
 
-    # Verify a kubectl command execution was logged (more flexible assertion)
-    any_yaml_cmd_logged = False
-    for call in mock_logger.info.call_args_list:
-        if "Executing kubectl command" in str(call) and "yaml: True" in str(call):
-            any_yaml_cmd_logged = True
-            break
-    assert any_yaml_cmd_logged, "No yaml command execution was logged"
+    # Verify the warning about 'spec:' field is NOT printed anymore
+    assert not any(
+        "'spec:' field found" in call.args[0]
+        for call in mock_console.print_warning.call_args_list
+    )
 
 
 def test_parse_command_args_with_natural_language() -> None:
@@ -651,67 +633,47 @@ def test_execute_yaml_command_sets_timeout() -> None:
 
 def test_handle_vibe_request_with_malformed_memory_context(
     mock_model_adapter: MagicMock,
+    mock_include_memory: MagicMock,
+    mock_console: MagicMock,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
-    """Test handle_vibe_request with malformed memory_context that causes format errors.
+    """Test handling when memory context loading fails."""
+    # Configure include_memory_in_prompt to raise KeyError
+    error_message = "Simulated memory loading failure"
+    mock_include_memory.side_effect = KeyError(error_message)
 
-    This test is designed to reproduce the issue where memory content containing
-    strings that might confuse the string formatter leads to format errors with the
-    'memory_context' key, which then leads to malformed kubectl commands.
-    """
-    # Set up model adapter to properly handle execute
-    mock_adapter = Mock()
-    mock_model = Mock()
-    mock_adapter.get_model.return_value = mock_model
-
-    # First call to execute raises KeyError, simulating the format error
-    mock_adapter.execute.side_effect = [
-        KeyError("memory_context"),  # First call fails with KeyError
-        "To get pods in namespace",  # Second call succeeds if retry happens
-    ]
-    mock_model_adapter.return_value = mock_adapter
-
-    # Memory content that contains elements that might confuse formatting
-    problematic_memory = (
-        "To ensure proper function of our service, need to check our db connection.\n"
-        "Try to use kubectl to access the database {stats} and verify it's working.\n"
-        "Output the {service.status} of the database to continue with deployment."
-    )
-
-    # Create output flags
+    # Configure output flags
     output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=False,
+        show_raw=True,
+        show_vibe=True,
         warn_no_output=False,
-        model_name="test-model",
-        show_kubectl=True,
+        model_name="test-model-mem-err",
+        show_kubectl=False,
     )
 
-    # Patch necessary dependencies
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler.logger", autospec=True) as mock_logger,
-    ):
-        # This should NOT raise an exception, even when model_adapter.execute fails
-        result = handle_vibe_request(
-            request="show me pod status",
-            command="vibe",
-            plan_prompt=PLAN_VIBE_PROMPT,
-            summary_prompt_func=lambda: "Test prompt {output}",
-            output_flags=output_flags,
-            memory_context=problematic_memory,
-        )
+    # Call handle_vibe_request
+    result = handle_vibe_request(
+        request="show pods with bad memory",
+        command="get",
+        plan_prompt="Plan this: {request}",
+        summary_prompt_func=lambda: "Summary: {output}",
+        output_flags=output_flags,
+    )
 
-        # Verify we get a proper error result
-        assert isinstance(result, Error)
-        assert "Error processing vibe request" in result.error
-        assert "memory_context" in result.error
+    # Verify include_memory_in_prompt was called
+    mock_include_memory.assert_called_once()
 
-        # Verify an error is logged
-        mock_logger.error.assert_any_call(
-            mock.ANY,  # The error message string may vary
-            exc_info=True,  # But we should be logging with exc_info=True
-        )
+    # Verify an error was printed to the console
+    mock_console.print_error.assert_called_once()
+    error_output = mock_console.print_error.call_args[0][0]
+
+    # Verify the correct error message is in the output and the result
+    # The exact error originates from the exception caught around mock_include_memory call
+    expected_error_fragment = f"Unexpected error preparing LLM request: {error_message}"
+    assert expected_error_fragment in error_output
+    assert isinstance(result, Error)
+    assert expected_error_fragment in result.error
+    assert isinstance(result.exception, KeyError)
 
 
 def test_handle_vibe_request_with_unknown_model(

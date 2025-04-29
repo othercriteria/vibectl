@@ -291,17 +291,6 @@ class LLMModelAdapter(ModelAdapter):
                     raise ValueError(
                         f"Token limit exceeded: {e}. Try shortening your prompt."
                     ) from e
-                # Check if error might be related to schema validation/parsing by the model
-                if "schema" in str(e).lower() or "json" in str(e).lower():
-                    logger.error(
-                        "Error during model execution, possibly schema-related '%s': %s",
-                        model_name,
-                        e,
-                        exc_info=logger.isEnabledFor(10),
-                    )
-                    # Return the raw error string for downstream parsing attempt/error handling
-                    # This might happen if the model fails to adhere to the schema
-                    return str(e)
                 # Generic error for all other issues
                 logger.error(
                     "Error executing prompt on model '%s': %s",
