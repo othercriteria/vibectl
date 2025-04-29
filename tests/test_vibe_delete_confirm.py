@@ -148,14 +148,13 @@ def test_vibe_delete_with_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test deletion command requires confirmation which is given."""
+    # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["delete", "pod", "my-pod"],
+        "commands": ["pod", "my-pod"], # Args only
         "explanation": "Deleting pod my-pod as requested.",
     }
-    mock_llm.return_value.execute.side_effect = [
-        json.dumps(plan_response),
-    ]
+    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
 
     # Patch _execute_command and click.prompt directly
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd, \
@@ -166,7 +165,7 @@ def test_vibe_delete_with_confirmation(
 
         handle_vibe_request(
             request="delete my pod",
-            command="vibe",
+            command="delete",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=lambda: "Summary prompt: {output}",
             output_flags=standard_output_flags,
@@ -200,9 +199,10 @@ def test_vibe_delete_with_confirmation_cancelled(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test deletion command with confirmation that gets cancelled."""
+    # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["delete", "pod", "nginx"],
+        "commands": ["pod", "nginx"], # Args only
         "explanation": "Deleting pod nginx as requested.",
     }
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)
@@ -216,7 +216,7 @@ def test_vibe_delete_with_confirmation_cancelled(
 
         result = handle_vibe_request(
             request="delete nginx pod",
-            command="vibe",
+            command="delete",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=lambda: "Summary prompt: {output}",
             output_flags=standard_output_flags,
@@ -254,21 +254,22 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test that the --yes flag bypasses the delete confirmation."""
+    # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["delete", "configmap", "my-cm"],
-        "explanation": "Deleting configmap.",
+        "commands": ["pod", "my-pod"], # Args only
+        "explanation": "Deleting pod my-pod as requested.",
     }
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)
     mock_llm.return_value.execute.side_effect = None
 
     # Patch _execute_command
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
-        mock_execute_cmd.return_value = Success(data="configmap 'my-cm' deleted")
+        mock_execute_cmd.return_value = Success(data="pod 'my-pod' deleted")
 
         handle_vibe_request(
-            request="delete my configmap",
-            command="vibe",
+            request="delete my pod",
+            command="delete",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=lambda: "Summary prompt: {output}",
             output_flags=standard_output_flags,
@@ -279,7 +280,7 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
     mock_prompt.assert_not_called()
 
     # Verify _execute_command was called correctly
-    mock_execute_cmd.assert_called_once_with("delete", ["configmap", "my-cm"], None)
+    mock_execute_cmd.assert_called_once_with("delete", ["pod", "my-pod"], None)
 
     # Verify memory was updated
     mock_update_memory, _ = mock_memory
@@ -302,9 +303,10 @@ def test_vibe_non_delete_commands_skip_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test that non-delete commands skip the confirmation prompt."""
+    # Mock LLM response for a safe command (get) (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods"],
+        "commands": ["pods"], # Args only
         "explanation": "Getting pods.",
     }
     # Summary response (only needed if handle_command_output is not mocked/side_effected)
@@ -322,7 +324,7 @@ def test_vibe_non_delete_commands_skip_confirmation(
         # Call function with a non-delete command and yes=False
         handle_vibe_request(
             request="show pods",
-            command="vibe",
+            command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=lambda: "Summary prompt: {output}",
             output_flags=standard_output_flags,

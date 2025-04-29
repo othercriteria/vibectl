@@ -7,41 +7,39 @@ prefixes like 'kubectl' or 'vibe'.
 
 import json
 from collections.abc import Generator
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
 from vibectl.command_handler import (
     OutputFlags,
-    _process_command_string,
     handle_vibe_request,
 )
-from vibectl.types import ActionType, OutputFlags, Success
+from vibectl.types import ActionType, Success
 
 
 @pytest.fixture
-def mock_model_adapter() -> Generator[Mock, None, None]:
+def mock_model_adapter() -> Generator[MagicMock, None, None]:
     """Mock the model adapter to return predictable responses."""
-    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter:
-        mock_model = Mock()
-        mock_adapter.return_value.get_model.return_value = mock_model
-        # Clean response without prefixes
-        mock_adapter.return_value.execute.return_value = "pod/nginx 8080:80"
-        yield mock_adapter
-
-
-@pytest.fixture
-def mock_handle_port_forward() -> Generator[Mock, None, None]:
-    """Mock handle_port_forward_with_live_display function."""
-    with patch("vibectl.command_handler.handle_port_forward_with_live_display") as mock:
-        yield mock
+    with patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter:
+        mock_adapter_instance = MagicMock()
+        mock_model_instance = Mock()
+        mock_adapter_instance.get_model.return_value = mock_model_instance
+        # Default JSON response can be set here or overridden in tests
+        mock_adapter_instance.execute.return_value = json.dumps({
+            "action_type": ActionType.COMMAND.value,
+            "commands": ["default-arg"],
+            "explanation": "Default explanation."
+        })
+        mock_get_adapter.return_value = mock_adapter_instance
+        yield mock_adapter_instance
 
 
 @pytest.fixture
 def mock_run_kubectl() -> Generator[Mock, None, None]:
-    """Mock run_kubectl function."""
+    """Mock run_kubectl function (still potentially used by _execute_command)."""
     with patch("vibectl.command_handler.run_kubectl") as mock:
-        mock.return_value = "Forwarding from 127.0.0.1:8080 -> 80"
+        mock.return_value = Success(data="Forwarding from 127.0.0.1:8080 -> 80")
         yield mock
 
 
@@ -49,6 +47,9 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
 def mock_handle_output() -> Generator[Mock, None, None]:
     """Mock handle_command_output function."""
     with patch("vibectl.command_handler.handle_command_output") as mock:
+        # Add a default return value to prevent the real function from running
+        # and potentially calling the LLM for summarization.
+        mock.return_value = Success(message="Mocked handle_command_output result")
         yield mock
 
 
@@ -59,111 +60,85 @@ def mock_console() -> Generator[Mock, None, None]:
         yield mock
 
 
-def test_process_command_string_handles_clean_commands() -> None:
-    """Test that _process_command_string processes clean commands without prefixes."""
-    # Clean command without prefixes
-    cmd_args, yaml_content = _process_command_string("pod/nginx 8080:80")
-    assert cmd_args == "pod/nginx 8080:80"
-    assert yaml_content is None
-
-    # Command with additional flags
-    cmd_args, yaml_content = _process_command_string(
-        "pod/nginx 8080:80 --namespace default"
-    )
-    assert cmd_args == "pod/nginx 8080:80 --namespace default"
-    assert yaml_content is None
-
-
-def test_handle_vibe_request_with_clean_command(
-    mock_model_adapter: Mock,
-    mock_handle_port_forward: Mock,
+def test_handle_vibe_request_port_forward_clean(
+    mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
     mock_console: Mock,
 ) -> None:
-    """Test handle_vibe_request with a clean port-forward command."""
-    # Configure model adapter to return a clean command as JSON
+    """Test handle_vibe_request with a clean port-forward JSON command."""
+    # Configure model adapter
+    expected_verb = "port-forward"
+    expected_args = ["pod/nginx", "8080:80"]
     expected_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod/nginx", "8080:80"],
+        "commands": expected_args,
         "explanation": "Port forwarding nginx.",
     }
-    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter.execute.return_value = json.dumps(expected_response)
 
-    with patch(
-        "vibectl.command_handler._process_command_string"
-    ) as mock_process_command, patch(
-        "vibectl.command_handler._parse_command_args"
-    ) as mock_parse_args, patch(
-        "vibectl.command_handler._execute_command"
-    ) as mock_execute_command:
-
-        mock_process_command.return_value = ("pod/nginx 8080:80", None)
-        mock_parse_args.return_value = ["port-forward", "pod/nginx", "8080:80"]
+    # Patch _execute_command which should be called by handle_vibe_request
+    with patch("vibectl.command_handler._execute_command") as mock_execute_command:
         mock_execute_command.return_value = Success(data="Forwarding...Output")
 
         # Create output flags
-        output_flags = OutputFlags(
-            show_raw=True,
-            show_vibe=True,
-            warn_no_output=False,
-            model_name="test-model",
-        )
+        # Patch handle_port_forward to ensure it's NOT called when live_display=False
+        with patch("vibectl.command_handler.handle_port_forward_with_live_display") as mock_live_handler:
+            mock_live_handler.side_effect = AssertionError("Live handler called unexpectedly!")
 
-        handle_vibe_request(
-            request="port forward the nginx pod",
-            command="port-forward",
-            plan_prompt="Plan how to {command} {request}",
-            summary_prompt_func=lambda: "Summarize {output}",
-            output_flags=output_flags,
-            live_display=True,
-        )
+            # Call handle_vibe_request
+            handle_vibe_request(
+                request="port forward the nginx pod",
+                command="port-forward",
+                plan_prompt="Plan how to {command} {request}",
+                summary_prompt_func=lambda: "Summarize {output}",
+                output_flags=OutputFlags(
+                    show_raw=True,
+                    show_vibe=True,
+                    warn_no_output=False,
+                    model_name="test-model",
+                    show_kubectl=True,
+                ),
+                live_display=False, # Explicitly disable live display for this test
+            )
 
-    mock_execute_command.assert_called_once()
+    # Assert _execute_command was called with the verb and args from JSON
+    mock_execute_command.assert_called_once_with(expected_verb, expected_args, None)
+
+    # Assert handle_command_output was called with the result of _execute_command
+    mock_handle_output.assert_called_once()
+    call_args, call_kwargs = mock_handle_output.call_args
+    # Verify the input to the mock, not the output (which is now mocked)
+    assert isinstance(call_args[0], Success) # Check it received a Success object
+    assert call_args[0].data == "Forwarding...Output" # Check the data passed to it
+    assert call_kwargs.get("command") == expected_verb
 
 
-def test_handle_vibe_request_with_namespace_flag(
-    mock_model_adapter: Mock,
-    mock_handle_port_forward: Mock,
+def test_handle_vibe_request_port_forward_with_flags(
+    mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
     mock_console: Mock,
 ) -> None:
-    """Test that handle_vibe_request works with commands containing flags."""
+    """Test handle_vibe_request with port-forward JSON containing flags."""
     # Configure model adapter to return a command with flags as JSON
+    expected_verb = "port-forward"
+    expected_args = ["pod/nginx", "8080:80", "--namespace", "default"]
     expected_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod/nginx", "8080:80", "--namespace", "default"],
+        "commands": expected_args,
         "explanation": "Port forwarding nginx in default namespace.",
     }
-    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter.execute.return_value = json.dumps(expected_response)
 
-    # Configure _process_command_string to return a clean command
-    with patch(
-        "vibectl.command_handler._process_command_string"
-    ) as mock_process_command:
-        mock_process_command.return_value = (
-            "pod/nginx 8080:80 --namespace default",
-            None,
-        )
+    # Patch _execute_command
+    with patch("vibectl.command_handler._execute_command") as mock_execute_command:
+        mock_execute_command.return_value = Success(data="Forwarding...Output with Flags")
 
-        # Configure _parse_command_args to return expected args
-        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
-            mock_parse_args.return_value = [
-                "port-forward",
-                "pod/nginx",
-                "8080:80",
-                "--namespace",
-                "default",
-            ]
-
-            # Create output flags
-            output_flags = OutputFlags(
-                show_raw=True,
-                show_vibe=True,
-                warn_no_output=False,
-                model_name="test-model",
-            )
+        # Create output flags
+        # Patch handle_port_forward to ensure it's NOT called when live_display=False
+        with patch("vibectl.command_handler.handle_port_forward_with_live_display") as mock_live_handler:
+            mock_live_handler.side_effect = AssertionError("Live handler called unexpectedly!")
 
             # Call handle_vibe_request
             handle_vibe_request(
@@ -174,60 +149,54 @@ def test_handle_vibe_request_with_namespace_flag(
                 command="port-forward",
                 plan_prompt="Plan how to {command} {request}",
                 summary_prompt_func=lambda: "Test prompt {output}",
-                output_flags=output_flags,
+                output_flags=OutputFlags(
+                    show_raw=True,
+                    show_vibe=True,
+                    warn_no_output=False,
+                    model_name="test-model",
+                    show_kubectl=True,
+                ),
                 autonomous_mode=False,
+                live_display=False, # Explicitly disable live display for this test
             )
 
-            # Verify handle_port_forward_with_live_display was called correctly
-            mock_handle_port_forward.assert_called_once()
+        # Verify _execute_command was called correctly
+        mock_execute_command.assert_called_once_with(expected_verb, expected_args, None)
+
+        # Verify handle_command_output was called correctly
+        mock_handle_output.assert_called_once()
+        call_args, call_kwargs = mock_handle_output.call_args
+        # Verify the input to the mock
+        assert isinstance(call_args[0], Success)
+        assert call_args[0].data == "Forwarding...Output with Flags"
+        assert call_kwargs.get("command") == expected_verb
 
 
-def test_handle_vibe_request_with_multiple_port_mappings(
-    mock_model_adapter: Mock,
-    mock_handle_port_forward: Mock,
+def test_handle_vibe_request_port_forward_multiple_ports(
+    mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
     mock_console: Mock,
 ) -> None:
-    """Test that handle_vibe_request works with multiple port mappings."""
+    """Test handle_vibe_request with port-forward JSON containing multiple ports."""
     # Configure model adapter to return a command with multiple port mappings as JSON
+    expected_verb = "port-forward"
+    expected_args = ["pod/nginx", "8080:80", "9090:9000"]
     expected_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod/nginx", "8080:80", "9090:9000"],
+        "commands": expected_args,
         "explanation": "Port forwarding nginx with multiple ports.",
     }
-    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter.execute.return_value = json.dumps(expected_response)
 
-    # Configure _process_command_string to return a clean command
-    with patch(
-        "vibectl.command_handler._process_command_string"
-    ) as mock_process_command, patch(
-        "vibectl.memory.get_model_adapter"
-    ) as mock_memory_get_adapter:
-        # Configure the mock adapter and its get_model method
-        mock_adapter_instance = Mock()
-        mock_model_instance = Mock()
-        mock_adapter_instance.get_model.return_value = mock_model_instance
-        mock_memory_get_adapter.return_value = mock_adapter_instance
+    # Patch _execute_command
+    with patch("vibectl.command_handler._execute_command") as mock_execute_command:
+        mock_execute_command.return_value = Success(data="Forwarding...Multiple Ports")
 
-        mock_process_command.return_value = ("pod/nginx 8080:80 9090:9000", None)
-
-        # Configure _parse_command_args to return expected args
-        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
-            mock_parse_args.return_value = [
-                "port-forward",
-                "pod/nginx",
-                "8080:80",
-                "9090:9000",
-            ]
-
-            # Create output flags
-            output_flags = OutputFlags(
-                show_raw=True,
-                show_vibe=True,
-                warn_no_output=False,
-                model_name="test-model",
-            )
+        # Create output flags
+        # Patch handle_port_forward to ensure it's NOT called when live_display=False
+        with patch("vibectl.command_handler.handle_port_forward_with_live_display") as mock_live_handler:
+            mock_live_handler.side_effect = AssertionError("Live handler called unexpectedly!")
 
             # Call handle_vibe_request
             handle_vibe_request(
@@ -238,8 +207,23 @@ def test_handle_vibe_request_with_multiple_port_mappings(
                 command="port-forward",
                 plan_prompt="Plan how to {command} {request}",
                 summary_prompt_func=lambda: "Test prompt {output}",
-                output_flags=output_flags,
+                output_flags=OutputFlags(
+                    show_raw=True,
+                    show_vibe=True,
+                    warn_no_output=False,
+                    model_name="test-model",
+                    show_kubectl=True,
+                ),
+                live_display=False, # Explicitly disable live display for this test
             )
 
-            # Verify handle_port_forward_with_live_display was called correctly
-            mock_handle_port_forward.assert_called_once()
+        # Verify _execute_command was called correctly
+        mock_execute_command.assert_called_once_with(expected_verb, expected_args, None)
+
+        # Verify handle_command_output was called correctly
+        mock_handle_output.assert_called_once()
+        call_args, call_kwargs = mock_handle_output.call_args
+        # Verify the input to the mock
+        assert isinstance(call_args[0], Success)
+        assert call_args[0].data == "Forwarding...Multiple Ports"
+        assert call_kwargs.get("command") == expected_verb

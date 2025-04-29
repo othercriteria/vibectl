@@ -132,7 +132,7 @@ def test_recovery_suggestions_not_in_memory(
     mock_update_memory.assert_called_once()
     # Check the details of the memory update call
     _args, kwargs = mock_update_memory.call_args
-    assert kwargs.get("command") == "get" # Should be the executed command
+    assert kwargs.get("command") == "vibe" # Should be the original command passed to handle_vibe_request
     assert "Pod not found" in kwargs.get("command_output", "")
     assert recovery_suggestion_text in kwargs.get("vibe_output", "")
     assert kwargs.get("model_name") == "test-model"

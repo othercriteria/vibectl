@@ -558,7 +558,8 @@ def handle_vibe_request(
             if isinstance(response.action_type, str):
                 response.action_type = ActionType(response.action_type)
 
-        except (JSONDecodeError, ValidationError) as e:
+        except (JSONDecodeError, ValidationError) as e: # Catches parsing/schema errors
+            logger.error(f"Caught inner JSONDecodeError/ValidationError: {type(e).__name__}", exc_info=True)
             # This is where the AttributeError likely occurs
             error_msg = f"Failed to parse or validate LLM response: {e}"
             # Use \\n for newline in f-string, not \\\\n
@@ -570,9 +571,10 @@ def handle_vibe_request(
             update_memory("system", f"Planning Error: {error_msg}", memory_context)
             return create_api_error(error_msg, e)
 
-        except ValueError as e:
+        except ValueError as e: # Catches ActionType conversion errors? Unlikely.
             # Catch ValueErrors specifically (e.g., from unknown model name)
             error_msg = f"Error during LLM request execution: {e}"
+            logger.error(f"Caught inner ValueError: {type(e).__name__}", exc_info=True)
             logger.error(f"{error_msg}", exc_info=True) # Log with traceback
             # Treat as an API error to avoid halting loops
             update_memory("system", f"LLM Execution Error: {error_msg}", memory_context)
@@ -641,40 +643,37 @@ def handle_vibe_request(
                     logger.error(
                         "ActionType is COMMAND but 'commands' list is missing or empty."
                     )
+                    # TODO: Update memory context on validation errors?
                     return Error(
                         error="Internal error: LLM returned COMMAND action without arguments."
                     )
 
-                # Extract the kubectl verb and arguments from the LLM response
-                kubectl_verb = response.commands[0]
-                kubectl_args = response.commands[1:]
+                # The LLM response.commands should ONLY contain arguments, not the verb.
+                # The verb comes from the original 'command' parameter passed to handle_vibe_request.
+                kubectl_verb = command # Use the original command verb
+                kubectl_args = response.commands # Use the list directly as arguments
 
-                # Construct the string representation of the planned command for logging
-                planned_cmd_str = ' '.join(response.commands)
+                # Construct the string representation of the planned command args for logging
+                planned_args_str = ' '.join(kubectl_args)
                 logger.info(
-                    f"LLM planned command arguments: \'{planned_cmd_str}\' for original verb: {command}"  # Log original verb for context
+                    f"LLM planned command arguments: '{planned_args_str}' for original verb: {kubectl_verb}"
                 )
 
                 # Display explanation if provided
                 if response.explanation:
                     console_manager.print_note(f"AI Explanation: {response.explanation}")
 
-                # Create the display command string using the extracted verb and args
-                # Need to parse resource/args correctly for live display handlers
-                resource_name_or_type = kubectl_args[0] if kubectl_args else "" # Basic extraction
-                remaining_args = tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
-
                 # Rebuild the command for display purposes including the correct verb
                 # Pass the extracted arguments (kubectl_args) to the display helper
                 cmd_for_display = _create_display_command(kubectl_args)
-                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}"
+                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}" # Display uses original verb
 
                 # <<< ADDED: Print the command before execution if show_kubectl is True >>>
                 if output_flags.show_kubectl:
                     console_manager.print_processing(f"Running: {display_cmd}")
                 # Note: YAML content is not handled in this MVP schema version
 
-                # Handle command confirmation using the extracted verb
+                # Handle command confirmation using the original verb
                 confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
                 should_confirm = confirmation_needed and not (yes or autonomous_mode)
 
@@ -697,37 +696,38 @@ def handle_vibe_request(
                         elif isinstance(confirmation_result, Success):
                              return confirmation_result
 
-                # <<< ADDED: Dispatch to live display handlers for wait/port-forward >>>
-                if live_display: # Check if live display is generally enabled
-                    if kubectl_verb == "wait":
-                        logger.info(f"Dispatching 'wait' command to live display handler.")
-                        return handle_wait_with_live_display(
-                            resource=resource_name_or_type, # First arg is usually resource type/name
-                            args=remaining_args,            # Rest are args/conditions
-                            output_flags=output_flags,
-                            summary_prompt_func=summary_prompt_func,
-                        )
-                    elif kubectl_verb == "port-forward":
-                        logger.info(f"Dispatching 'port-forward' command to live display handler.")
-                        return handle_port_forward_with_live_display(
-                            resource=resource_name_or_type, # First arg is usually resource type/name
-                            args=remaining_args,            # Rest are args/port mappings
-                            output_flags=output_flags,
-                            summary_prompt_func=summary_prompt_func,
-                        )
+                # <<< Corrected Dispatch Logic: Check live_display *before* verb >>>
+                if live_display and kubectl_verb == "wait": # Combine checks
+                    logger.info(f"Dispatching 'wait' command to live display handler.")
+                    # Pass the full kubectl_args list
+                    return handle_wait_with_live_display(
+                        resource=kubectl_args[0] if kubectl_args else "", # Best guess for resource
+                        args=tuple(kubectl_args[1:]), # Rest are args
+                        output_flags=output_flags,
+                        summary_prompt_func=summary_prompt_func,
+                    )
+                elif live_display and kubectl_verb == "port-forward": # Combine checks
+                    logger.info(f"Dispatching 'port-forward' command to live display handler.")
+                    # Pass the full kubectl_args list
+                    return handle_port_forward_with_live_display(
+                        resource=kubectl_args[0] if kubectl_args else "", # Best guess for resource
+                        args=tuple(kubectl_args[1:]), # Rest are args
+                        output_flags=output_flags,
+                        summary_prompt_func=summary_prompt_func,
+                    )
                 # <<< END ADDED SECTION >>>
 
-                # Execute the command using the original verb and the LLM-provided args
+                # Execute the command using the original verb and the LLM-provided args list
                 # If not wait/port-forward or live_display is False, use standard execution
                 logger.info(f"Dispatching '{kubectl_verb}' command to standard execution handler.")
-                result = _execute_command(kubectl_verb, kubectl_args, None)
+                result = _execute_command(kubectl_verb, kubectl_args, None) # Pass original verb and args list
 
                 # Handle output display based on flags, passing the original verb
                 return handle_command_output(
                     result,
                     output_flags,
                     summary_prompt_func,
-                    command=kubectl_verb, # Pass the correct kubectl verb
+                    command=kubectl_verb, # Pass the original kubectl verb
                 )
 
             case _:

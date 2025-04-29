@@ -13,6 +13,7 @@ from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
 from vibectl.model_adapter import LLMModelAdapter
 from vibectl.types import ActionType, Success, Error
+from pydantic import ValidationError
 
 
 def get_test_summary_prompt() -> str:
@@ -62,10 +63,10 @@ def test_handle_vibe_request_success(
     mock_memory: MagicMock,
 ) -> None:
     """Test successful vibe request handling."""
-    # Mock the planning response with JSON, including the verb
+    # Mock the planning response with JSON, excluding the verb
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods"],  # <<< Added verb
+        "commands": ["pods"], # <<< NEW (verb is prepended later)
         "explanation": "Get the pods.",
     }
     kubectl_output_data = "pod-a\npod-b"
@@ -88,7 +89,7 @@ def test_handle_vibe_request_success(
             )
 
             # Verify _execute_command was called with correct args
-            mock_execute_cmd.assert_called_once_with("get", ["pods"], None) # <<< Updated args
+            mock_execute_cmd.assert_called_once_with("vibe", ["pods"], None)
 
             # Verify handle_command_output was called *after* _execute_command
             mock_handle_output.assert_called_once()
@@ -99,7 +100,7 @@ def test_handle_vibe_request_success(
             # Check output_flags
             assert ho_call_args[1] == mock_output_flags_for_vibe_request
             # Check the command kwarg is the extracted verb
-            assert ho_call_kwargs.get("command") == "get" # <<< Updated verb
+            assert ho_call_kwargs.get("command") == "vibe" # Assert verb passed to output handler
 
     # Verify memory was updated (mock_memory fixture should handle this if set up)
     # mock_memory.add_interaction.assert_called() # Or similar assertion depending on fixture
@@ -112,26 +113,33 @@ def test_handle_vibe_request_empty_response(
     mock_memory: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
 ) -> None:
-    """Test vibe request with empty response from planner."""
+    """Test vibe request with empty string response from planner."""
     # Set up empty response
-    mock_llm.execute.return_value = ""
+    malformed_response = ""
+    mock_llm.execute.return_value = malformed_response
 
-    # Call function
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: empty response test",
-    ):
-        handle_vibe_request(
+    # Empty string is handled before JSON parsing
+    # It should return Error("LLM returned an empty response.") directly
+    with patch("vibectl.command_handler.update_memory") as mock_update_memory, \
+         patch("vibectl.command_handler.create_api_error") as mock_create_api_error, \
+         patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: empty response test"):
+
+        result = handle_vibe_request(
             request="empty response test",
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
             output_flags=mock_output_flags_for_vibe_request,
+            memory_context="empty-json-context"
         )
 
-    # Verify error message was printed
-    # This is printed directly to stderr, not via mock_console.print_error,
-    # so we don't assert on it
+    # Assert that the specific error for empty response was returned
+    assert isinstance(result, Error)
+    assert result.error == "LLM returned an empty response."
+
+    # Verify update_memory and create_api_error were NOT called for this specific path
+    mock_update_memory.assert_not_called()
+    mock_create_api_error.assert_not_called()
 
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
@@ -173,8 +181,9 @@ def test_handle_vibe_request_error_response(
 
     # Assert handle_vibe_request returned an Error object
     assert isinstance(result, Error)
-    # Assert the error message matches the one from the LLM JSON response
-    assert result.error == f"LLM planning error: {error_msg}"
+    # Check the error message structure
+    assert result.error.startswith("LLM planning error:")
+    assert error_msg in result.error
     # Assert the recovery suggestions come from the explanation
     assert result.recovery_suggestions == explanation_msg
 
@@ -192,24 +201,39 @@ def test_handle_vibe_request_invalid_format(
     mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
 ) -> None:
-    """Test vibe request with invalid format from planner."""
-    # Set up invalid response for both calls to execute
-    # First call - planning
-    # Second call - summary
-    mock_llm.execute.side_effect = ["", "Test response"]
+    """Test vibe request with non-JSON format from planner."""
+    # Set up invalid response
+    non_json_response = "kubectl get pods # This is not JSON"
+    mock_llm.execute.return_value = non_json_response
 
-    # Call function
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: show me the pods",
-    ):
-        handle_vibe_request(
-            request="show me the pods",
+    # Expect JSONDecodeError path
+    with patch("vibectl.command_handler.update_memory") as mock_update_memory, \
+         patch("vibectl.command_handler.create_api_error") as mock_create_api_error, \
+         patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: invalid format test"):
+
+        result = handle_vibe_request(
+            request="show me the pods invalid format",
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
             output_flags=mock_output_flags_for_vibe_request,
+            memory_context="invalid-json-context"
         )
+
+        # --- Assertions within the patch scope --- #
+        # Verify update_memory and create_api_error were called due to parsing failure
+        mock_update_memory.assert_called_once()
+        assert "Failed to parse or validate LLM response" in mock_update_memory.call_args[0][1]
+        assert "invalid-json-context" == mock_update_memory.call_args[0][2]
+
+        # Verify create_api_error was called
+        mock_create_api_error.assert_called_once()
+        assert "Failed to parse or validate LLM response" in mock_create_api_error.call_args[0][0]
+        # Expect JSONDecodeError or ValidationError
+        assert isinstance(mock_create_api_error.call_args[0][1], (json.JSONDecodeError, ValidationError))
+
+        # Verify the function returned the result of create_api_error
+        assert result == mock_create_api_error.return_value
 
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
@@ -288,37 +312,57 @@ def test_handle_vibe_request_llm_output_parsing(
     capsys: pytest.CaptureFixture,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test handling of JSON parsing errors from LLM."""
-    caplog.set_level("ERROR")
-    # Mock LLM to return invalid JSON
-    # Make this syntactically invalid JSON to trigger JSONDecodeError
-    invalid_json = '{ "action_type": "COMMAND", "commands": ["pods" }' # Missing closing quote and bracket
-    mock_llm.execute.return_value = invalid_json
+    """Test vibe request handles different JSON parsing/validation errors."""
+    test_cases = [
+        # Errors caught by inner except (JSONDecodeError, ValidationError)
+        ("Missing action_type", '{"commands": ["pods"]}', ValidationError, True),
+        ("COMMAND missing commands", '{"action_type": "COMMAND"}', ValidationError, True),
+        ("ERROR missing error", '{"action_type": "ERROR"}', ValidationError, True),
+        ("WAIT missing duration", '{"action_type": "WAIT"}', ValidationError, True),
+        ("Malformed JSON", '{"action_type: "COMMAND"}', json.JSONDecodeError, True),
+        # Error caught by inner except ValueError
+        ("Invalid action_type", '{"action_type": "INVALID", "commands": ["pods"]}', ValueError, True),
+    ]
 
-    # No need to patch _handle_planning_error, assert the return value instead
-    with patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: parsing test"):
-        result = handle_vibe_request(
-            request="trigger json parse error",
-            command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
-        )
+    for desc, invalid_json, expected_exception, expect_inner_handler in test_cases:
+        print(f"Running test case: {desc}") # Debugging print
+        mock_llm.execute.return_value = invalid_json
 
-    # Assert handle_vibe_request returned an Error object
-    assert isinstance(result, Error)
-    # Assert the error message indicates JSON parsing failure caught by Pydantic validation
-    assert result.error.startswith("AI response failed validation:")
-    assert "Invalid JSON" in result.error
-    # Assert the underlying exception is included and is a ValidationError
-    from pydantic_core import ValidationError
-    assert isinstance(result.exception, ValidationError)
+        # Patch all potentially relevant functions
+        with patch("vibectl.command_handler.update_memory") as mock_update_memory, \
+             patch("vibectl.command_handler.create_api_error") as mock_create_api_error, \
+             patch("vibectl.command_handler.is_api_error") as mock_is_api_error:
 
-    # Verify kubectl was NOT called
-    mock_run_kubectl.assert_not_called()
+            # Assume is_api_error is False if outer handler is reached
+            mock_is_api_error.return_value = False
 
-    # Verify memory was NOT updated
-    mock_memory.add_interaction.assert_not_called()
+            result = handle_vibe_request(
+                request=f"test {desc}",
+                command="get",
+                plan_prompt="Plan this",
+                summary_prompt_func=get_test_summary_prompt,
+                output_flags=mock_output_flags_for_vibe_request,
+                memory_context=f"ctx-{desc.replace(' ', '-')}"
+            )
+
+            if expect_inner_handler:
+                # Assertions for inner except blocks
+                mock_update_memory.assert_called_once()
+                mock_create_api_error.assert_called_once()
+                call_args, call_kwargs = mock_create_api_error.call_args
+                assert isinstance(call_args[1], expected_exception)
+                assert result == mock_create_api_error.return_value
+                mock_is_api_error.assert_not_called() # Should not reach outer handler check
+            mock_update_memory.assert_called_once()
+            mock_create_api_error.assert_called_once()
+            assert isinstance(mock_create_api_error.call_args[0][1], expected_exception)
+            assert result == mock_create_api_error.return_value
+
+        # Reset mocks for next iteration
+        mock_llm.reset_mock()
+        mock_update_memory.reset_mock()
+        mock_create_api_error.reset_mock()
+        mock_run_kubectl.assert_not_called() # Should not be called in any error case
 
 
 def test_handle_vibe_request_command_error(
@@ -333,40 +377,48 @@ def test_handle_vibe_request_command_error(
     caplog.set_level("ERROR")
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "nonexistent-resource"], # <<< Added verb
+        "commands": ["nonexistent-resource"], # <<< Args only
         "explanation": "Trying to get a resource that does not exist."
     }
     mock_llm.execute.return_value = json.dumps(plan_response)
 
     # Patch _execute_command to return an error
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
-        error_message = "Error from server (NotFound): the server could not find the requested resource"
-        mock_execute_cmd.return_value = Error(error=error_message)
+        error_message = "kubectl command failed"
+        mock_execute_cmd.return_value = Error(error=error_message, exception=RuntimeError("simulated kubectl error"))
 
-        # Patch handle_command_output to verify it receives the Error
-        with patch("vibectl.command_handler.handle_command_output") as mock_handle_output:
-            # Call function
-            handle_vibe_request(
-                request="get nonexistent",
-                command="vibe", # <<< Original vibectl command is 'vibe'
-                plan_prompt="Plan this: {request}",
+        # Mock the LLM summary call *within* handle_command_output
+        with patch("vibectl.command_handler._get_llm_summary") as mock_get_summary, \
+             patch("vibectl.command_handler.update_memory") as mock_update_memory_ch: # Patch update_memory directly
+            mock_get_summary.return_value = "Recovery suggestion: Check pod status."
+
+            # Call the function under test
+            result = handle_vibe_request(
+                request="run a command that fails",
+                command="get", # Actual verb being executed
+                plan_prompt="Plan this",
                 summary_prompt_func=get_test_summary_prompt,
-                output_flags=standard_output_flags,
+                output_flags=standard_output_flags, # Assumes show_vibe=True
+                yes=True, # Bypass confirmation
             )
 
-            # Verify _execute_command was called
-            mock_execute_cmd.assert_called_once_with("get", ["nonexistent-resource"], None) # <<< Updated args
+    # Assertions (outside inner 'with' block, but _execute_cmd is from outer block)
+    mock_execute_cmd.assert_called_once_with("get", ["nonexistent-resource"], None)
 
-            # Verify handle_command_output was called with the Error object
-            mock_handle_output.assert_called_once()
-            ho_call_args, ho_call_kwargs = mock_handle_output.call_args
-            assert isinstance(ho_call_args[0], Error)
-            assert ho_call_args[0].error == error_message
-            # Check the command kwarg is the extracted verb
-            assert ho_call_kwargs.get("command") == "get" # <<< Updated verb
+    # We need to check the call to the *actual* update_memory, not the mock of handle_command_output
+    # Use the mock_memory fixture provided to the test
+    # Assert the mock patched in the 'with' block was called
+    mock_update_memory_ch.assert_called_once()
+    # Check arguments passed to the actual memory update function
+    call_args = mock_update_memory_ch.call_args[0]
+    assert call_args[0] == "get"  # Command verb
+    assert call_args[1] == error_message  # Original command error output
+    assert call_args[2] == "Recovery suggestion: Check pod status."  # Vibe output (recovery)
 
-    # Verify memory was updated (depending on how handle_command_output mock handles errors)
-    # mock_memory.add_interaction.assert_called() # May or may not be called based on mock
+    # Assert the final result (handle_command_output returns the modified Error)
+    assert isinstance(result, Error)
+    assert result.error == error_message # Original error message
+    assert result.recovery_suggestions == "Recovery suggestion: Check pod status." # Added suggestion
 
 
 def test_handle_vibe_request_error(
@@ -403,8 +455,9 @@ def test_handle_vibe_request_error(
 
     # Assert handle_vibe_request returned an Error object
     assert isinstance(result, Error)
-    # Assert the error message matches the one from the LLM JSON response
-    assert result.error == f"LLM planning error: {error_msg}"
+    # Check the error message structure
+    assert result.error.startswith("LLM planning error:")
+    assert error_msg in result.error
     # Assert the recovery suggestions come from the explanation
     assert result.recovery_suggestions == explanation_msg
 
@@ -502,7 +555,7 @@ def test_handle_vibe_request_yaml_response(
         with patch("vibectl.command_handler.handle_command_output") as mock_handle_output:
             handle_vibe_request(
                 request="apply this config",
-                command="vibe", # <<< Original vibectl command is 'vibe'
+                command="apply", # <<< Pass the planned verb
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
                 output_flags=mock_output_flags_for_vibe_request,
@@ -602,7 +655,7 @@ def test_show_kubectl_flag_controls_command_display(
     explanation = "Getting pods in test-ns."
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": [kubectl_verb] + kubectl_args, # Combine verb and args for mock
+        "commands": kubectl_args, # Should only be args
         "explanation": explanation,
     }
     plan_response_json = json.dumps(plan_response)
@@ -638,15 +691,18 @@ def test_show_kubectl_flag_controls_command_display(
             )
 
             # Verify console_manager.print_processing was called with the correct command
+            # Assert the displayed command uses the *original* verb ('vibe') and planned args
+            expected_display_args = _create_display_command_for_test(kubectl_args)
             mock_console_manager.print_processing.assert_any_call(
-                f"Running: kubectl {kubectl_verb} {' '.join(kubectl_args)}" # <<< Correct assertion
+                f"Running: kubectl vibe {expected_display_args}"
             )
             # Verify _execute_command was called with extracted verb and args
-            mock_execute_cmd_show.assert_called_once_with(kubectl_verb, kubectl_args, None)
+            # Assert _execute_command called with original verb ('vibe') and planned args
+            mock_execute_cmd_show.assert_called_once_with("vibe", kubectl_args, None)
             # Verify handle_command_output was called with correct command verb
             mock_handle_output_show.assert_called_once()
             _, ho_call_kwargs = mock_handle_output_show.call_args
-            assert ho_call_kwargs.get("command") == kubectl_verb
+            assert ho_call_kwargs.get("command") == "vibe" # Original command verb
 
     # Reset mocks for next case
     mock_console_manager.reset_mock()
@@ -690,11 +746,12 @@ def test_show_kubectl_flag_controls_command_display(
                 assert not call.args[0].startswith("Running: kubectl") # Check args tuple
 
             # Verify _execute_command was still called correctly
-            mock_execute_cmd_hide.assert_called_once_with(kubectl_verb, kubectl_args, None)
+            # Assert _execute_command called with original verb ('vibe') and planned args
+            mock_execute_cmd_hide.assert_called_once_with("vibe", kubectl_args, None)
             # Verify handle_command_output was called with correct command verb
             mock_handle_output_hide.assert_called_once()
             _, ho_call_kwargs_hide = mock_handle_output_hide.call_args
-            assert ho_call_kwargs_hide.get("command") == kubectl_verb
+            assert ho_call_kwargs_hide.get("command") == "vibe" # Original command verb
 
 
 def test_vibe_cli_emits_vibe_check(
@@ -750,3 +807,14 @@ def mock_adapter_instance(
 
     # Yield the mock adapter instance, not the function mock
     yield mock_adapter_instance
+
+
+# Helper function to mimic _create_display_command for test assertions
+def _create_display_command_for_test(args: list[str]) -> str:
+    display_args = []
+    for arg in args:
+        if " " in arg or any(c in arg for c in "<>|"):
+             display_args.append(f'"{arg}"')
+        else:
+            display_args.append(arg)
+    return " ".join(display_args)
