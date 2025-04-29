@@ -228,11 +228,13 @@ def test_handle_vibe_request_updates_memory_on_error(
     """Test handle_vibe_request updates memory when LLM returns ActionType.ERROR."""
     error_msg = "Invalid request parameters."
     explanation = "User asked for something silly."
-    error_response_str = json.dumps({
-        "action_type": ActionType.ERROR.value,
-        "error": error_msg,
-        "explanation": explanation,
-    })
+    error_response_str = json.dumps(
+        {
+            "action_type": ActionType.ERROR.value,
+            "error": error_msg,
+            "explanation": explanation,
+        }
+    )
     mock_get_adapter.return_value.execute.return_value = error_response_str
 
     # Verb is not needed for this specific error path assertion
@@ -249,8 +251,13 @@ def test_handle_vibe_request_updates_memory_on_error(
     request_text = "Do something silly"
 
     # Call handle_vibe_request
-    with patch("vibectl.command_handler.console_manager"), \
-         patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: error test"):
+    with (
+        patch("vibectl.command_handler.console_manager"),
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: error test",
+        ),
+    ):
         result = handle_vibe_request(
             request=request_text,
             command="vibe",
@@ -263,12 +270,9 @@ def test_handle_vibe_request_updates_memory_on_error(
     mock_memory_update.assert_called_once()
     call_kwargs = mock_memory_update.call_args.kwargs
     assert call_kwargs.get("command") == "vibe"
-    assert call_kwargs.get("command_output") == f"Planning error: {error_msg}"
-    vibe_output_expected = (
-        f"Failed to plan command for request: {request_text}. Error: {error_msg}"
-    )
-    assert call_kwargs.get("vibe_output") == vibe_output_expected
-    assert call_kwargs.get("model_name") == output_flags.model_name
+    assert call_kwargs.get("command_output") == error_msg
+    assert call_kwargs.get("vibe_output") == f"LLM Planning Error: {error_msg} - For request: {request_text}"
+    assert call_kwargs.get("model_name") == "test-model"
 
     # Assert the function returned an Error object
     assert isinstance(result, Error)
@@ -285,26 +289,31 @@ def test_handle_vibe_request_error_recovery_flow(
     Recovery suggestions are fetched and displayed.
     """
     # Mock LLM planning response (successful plan, include verb)
-    kubectl_args = ["pods"] # Define args
+    kubectl_args = ["pods"]  # Define args
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": kubectl_args, # <<< Corrected: Args only
+        "commands": kubectl_args,  # <<< Corrected: Args only
         "explanation": "Getting pods as requested",
     }
     # Mock LLM recovery suggestion response
     recovery_suggestion = "Try checking the namespace."
     mock_get_adapter.return_value.execute.side_effect = [
         json.dumps(plan_response),
-        json.dumps({
-            "action_type": ActionType.FEEDBACK.value,
-            "explanation": recovery_suggestion # Simulate feedback as recovery
-        })
+        json.dumps(
+            {
+                "action_type": ActionType.FEEDBACK.value,
+                "explanation": recovery_suggestion,  # Simulate feedback as recovery
+            }
+        ),
     ]
 
     # Create output flags, explicitly enabling show_vibe
     output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=False,
-        model_name="test-model", show_kubectl=True
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_kubectl=True,
     )
 
     # Mock dependencies within handle_vibe_request
@@ -326,13 +335,16 @@ def test_handle_vibe_request_error_recovery_flow(
 
         # Mock handle_command_output to simulate its behavior on error
         # It should receive the Error, generate recovery, and return the Error
-        def handle_output_side_effect(output_res: Error, *args: Any, **kwargs: Any) -> Error:
+        def handle_output_side_effect(
+            output_res: Error, *args: Any, **kwargs: Any
+        ) -> Error:
             """Side effect that preserves memory updates and returns result."""
             # Import necessary modules locally within the side effect function if needed
-            import logging # Added import
-            from vibectl.memory import update_memory # Added import
+            import logging  # Added import
 
-            logger = logging.getLogger("test_side_effect") # Define logger
+            from vibectl.memory import update_memory  # Added import
+
+            logger = logging.getLogger("test_side_effect")  # Define logger
 
             if isinstance(output_res, Error):
                 # Simulate recovery suggestion logic within the mock
@@ -352,14 +364,22 @@ def test_handle_vibe_request_error_recovery_flow(
                     suggestion = recovery_data.get("explanation")
 
                     if suggestion:
-                        mock_console.print_vibe(suggestion) # Use print_vibe with extracted suggestion
+                        mock_console.print_vibe(
+                            suggestion
+                        )  # Use print_vibe with extracted suggestion
                     else:
-                        logger.warning("Recovery suggestion JSON missing 'explanation'.")
-                        mock_console.print_warning("Could not extract recovery suggestion.")
+                        logger.warning(
+                            "Recovery suggestion JSON missing 'explanation'."
+                        )
+                        mock_console.print_warning(
+                            "Could not extract recovery suggestion."
+                        )
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Error parsing recovery suggestion JSON: {e}")
-                    mock_console.print_error("Failed to parse recovery suggestion JSON.")
+                    mock_console.print_error(
+                        "Failed to parse recovery suggestion JSON."
+                    )
                 except Exception as e:
                     logger.error(f"Error parsing recovery suggestion: {e}")
                     mock_console.print_error("Failed to parse recovery suggestion.")
@@ -370,14 +390,22 @@ def test_handle_vibe_request_error_recovery_flow(
                     command_output=output_res.error,
                     vibe_output=suggestion or "No recovery suggestion.",
                     # Provide defaults if output_flags is missing
-                    model_name=kwargs.get("output_flags", OutputFlags(
-                        show_raw=False, show_vibe=False, warn_no_output=False,
-                        model_name="default-model", show_kubectl=False
-                    )).model_name,
+                    model_name=kwargs.get(
+                        "output_flags",
+                        OutputFlags(
+                            show_raw=False,
+                            show_vibe=False,
+                            warn_no_output=False,
+                            model_name="default-model",
+                            show_kubectl=False,
+                        ),
+                    ).model_name,
                 )
 
                 # Return the original Error, potentially enhanced
-                output_res.recovery_suggestions = suggestion # Attach suggestion if found
+                output_res.recovery_suggestions = (
+                    suggestion  # Attach suggestion if found
+                )
             return output_res
 
         mock_handle_output.side_effect = handle_output_side_effect
@@ -385,11 +413,11 @@ def test_handle_vibe_request_error_recovery_flow(
         # Call handle_vibe_request
         result = handle_vibe_request(
             request="get pods causing error",
-            command="vibe", # <<< Corrected command to 'vibe'
+            command="vibe",  # <<< Corrected command to 'vibe'
             plan_prompt="Plan: {request}",
             summary_prompt_func=lambda: "Summary: {output}",
             output_flags=output_flags,
-            live_display=False, # Ensure live display is off for this test
+            live_display=False,  # Ensure live display is off for this test
         )
 
         # Verify _execute_command was called with the correct verb and args
@@ -454,7 +482,9 @@ def test_handle_vibe_request_includes_memory_context(
     # Call the function under test
     # Need to patch _execute_command as the focus is on the planning call
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
-        mock_execute_cmd.return_value = Success(data="done") # Prevent further processing
+        mock_execute_cmd.return_value = Success(
+            data="done"
+        )  # Prevent further processing
 
         handle_vibe_request(
             request=test_request,
@@ -462,7 +492,7 @@ def test_handle_vibe_request_includes_memory_context(
             plan_prompt=test_plan_prompt,
             summary_prompt_func=dummy_summary_prompt,
             output_flags=DEFAULT_OUTPUT_FLAGS,
-            memory_context=test_memory_context, # Pass memory context
+            memory_context=test_memory_context,  # Pass memory context
         )
 
         # Verify that the prompt passed to the model includes the request
@@ -527,5 +557,3 @@ DEFAULT_OUTPUT_FLAGS = OutputFlags(
     model_name="test-model",
     show_kubectl=False,
 )
-
-

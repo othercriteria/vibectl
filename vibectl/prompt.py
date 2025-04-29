@@ -112,7 +112,10 @@ Memory: "__MEMORY_CONTEXT_PLACEHOLDER__"
 Request: "__REQUEST_PLACEHOLDER__"
 """
         # Append the placeholders for memory and request
-        prompt = prompt_header + "\nMemory: \"__MEMORY_CONTEXT_PLACEHOLDER__\"\nRequest: \"__REQUEST_PLACEHOLDER__\""
+        prompt = (
+            prompt_header
+            + '\nMemory: "__MEMORY_CONTEXT_PLACEHOLDER__"\nRequest: "__REQUEST_PLACEHOLDER__"'
+        )
     else:
         # Original non-schema prompt - Use placeholders here too for consistency
         directives = get_command_directives().format(command=command, flags=flags)
@@ -222,7 +225,7 @@ with matched closing tags:
 
 
 # Template for planning kubectl get commands
-from .schema import LLMCommandResponse
+from .schema import LLMCommandResponse  # noqa: E402
 
 # Pre-generate the JSON schema string for the LLMCommandResponse model
 # Use model_json_schema() for Pydantic V2 compatibility

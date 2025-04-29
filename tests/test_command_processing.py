@@ -199,7 +199,7 @@ def test_execute_command_integration_with_spaces(
                 "create",
                 "configmap",
                 "nginx-config",
-                f'--from-literal=index.html="{html}"'
+                f'--from-literal=index.html="{html}"',
             ]
             expected_response_plan = {
                 "action_type": ActionType.COMMAND.value,
@@ -395,14 +395,14 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     # Simulate model response for initial planning (COMMAND action)
     expected_plan = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["-f", "-"], # Args only
+        "commands": ["-f", "-"],  # Args only
         "explanation": "Creating deployment.",
     }
 
     # Set up the model to return the plan first, then recovery suggestions
     mock_adapter.execute.side_effect = [
-        json.dumps(expected_plan),      # First call (planning)
-        "Recovery suggestion for apply error", # Second call (recovery)
+        json.dumps(expected_plan),  # First call (planning)
+        "Recovery suggestion for apply error",  # Second call (recovery)
     ]
 
     # Define the error that _execute_command should return
@@ -412,20 +412,29 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     # Create output flags (ensure show_vibe=True for recovery)
     output_flags = OutputFlags(
         show_raw=True,
-        show_vibe=True, # <<< Important for recovery flow
+        show_vibe=True,  # <<< Important for recovery flow
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
     )
 
     # Patch _execute_command directly and other necessary functions
-    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd, \
-         patch("vibectl.command_handler.update_memory") as mock_update_memory, \
-         patch("vibectl.command_handler.console_manager") as mock_console, \
-         patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: error test"), \
-         patch("vibectl.command_handler.recovery_prompt", return_value="Recovery prompt template") as mock_recovery_prompt, \
-         patch("vibectl.command_handler.handle_command_output") as mock_handle_cmd_output: # <<< Re-patch handle_command_output
-
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler.console_manager") as mock_console,
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: error test",
+        ),
+        patch(
+            "vibectl.command_handler.recovery_prompt",
+            return_value="Recovery prompt template",
+        ) as mock_recovery_prompt,
+        patch(
+            "vibectl.command_handler.handle_command_output"
+        ) as mock_handle_cmd_output,
+    ):  # <<< Re-patch handle_command_output
         # Configure _execute_command to return the simulated error
         mock_execute_cmd.return_value = simulated_error_result
 
@@ -433,14 +442,14 @@ def test_handle_vibe_request_with_heredoc_error_integration(
         # (This simulates what the real function *should* do in this scenario)
         modified_error = Error(
             error=simulated_error_result.error,
-            recovery_suggestions="Recovery suggestion for apply error"
+            recovery_suggestions="Recovery suggestion for apply error",
         )
         mock_handle_cmd_output.return_value = modified_error
 
         # Call handle_vibe_request with yes=True to skip confirmation
         result = handle_vibe_request(
             request="create nginx deployment",
-            command="apply", # Verb matching the desired command
+            command="apply",  # Verb matching the desired command
             plan_prompt="Test prompt",
             summary_prompt_func=lambda: "Test summary",
             output_flags=output_flags,
@@ -455,9 +464,11 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     # 2. Verify handle_command_output was called with the Error from _execute_command
     mock_handle_cmd_output.assert_called_once()
     call_args, call_kwargs = mock_handle_cmd_output.call_args
-    assert call_args[0] is simulated_error_result # Check Error object passed (position 0)
-    assert call_args[1] is output_flags           # Check output_flags passed (position 1)
-    assert call_kwargs.get("command") == "apply"   # Check command kwarg
+    assert (
+        call_args[0] is simulated_error_result
+    )  # Check Error object passed (position 0)
+    assert call_args[1] is output_flags  # Check output_flags passed (position 1)
+    assert call_kwargs.get("command") == "apply"  # Check command kwarg
 
     # 3. Verify the model adapter was called only ONCE (for planning)
     #    Because we mocked handle_command_output, the recovery call within it is bypassed.

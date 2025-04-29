@@ -38,7 +38,7 @@ def create_kubectl_error(
         error_str = error_message.strip()
     else:
         logger.warning(f"Unexpected error message type: {type(error_message)}")
-        error_str = str(error_message) # Attempt to convert to string
+        error_str = str(error_message)  # Attempt to convert to string
 
     # For kubectl server errors (like NotFound, Forbidden, etc.),
     # set halt_auto_loop=False so auto loops can continue

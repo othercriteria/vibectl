@@ -16,9 +16,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from vibectl.command_handler import handle_vibe_request
+from vibectl.command_handler import LLMCommandResponse, handle_vibe_request
 from vibectl.types import ActionType, Error, OutputFlags
-from vibectl.command_handler import LLMCommandResponse
 
 
 @pytest.fixture
@@ -60,7 +59,7 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
         mock_factory.return_value = mock_adapter_instance
         # Add a placeholder for execute, tests will configure it
         mock_adapter_instance.execute = MagicMock()
-        yield mock_adapter_instance # Yield the adapter instance mock
+        yield mock_adapter_instance  # Yield the adapter instance mock
 
 
 @pytest.fixture
@@ -71,7 +70,7 @@ def output_flags() -> OutputFlags:
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_kubectl=True, # Ensure kubectl command is shown if generated
+        show_kubectl=True,  # Ensure kubectl command is shown if generated
     )
 
 
@@ -90,47 +89,57 @@ def test_recovery_suggestions_not_in_memory(
     # Planning step returns JSON via LLMModelAdapter.execute
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods"], # Corrected: Include verb
+        "commands": ["get", "pods"],  # Corrected: Include verb
         "explanation": "Get pods",
     }
     expected_plan_json = json.dumps(plan_response)
     # LLM execute needs to return the plan first, then recovery suggestions
     recovery_suggestion_text = "Error occurred: Pod not found"
     # The second LLM call should return an ERROR action JSON with suggestions
-    recovery_response_json = json.dumps({
-        "action_type": ActionType.ERROR.value,
-        "error": "Failed to get pods", # Optional: Can be more specific
-        "explanation": recovery_suggestion_text # Suggestions go here
-    })
+    recovery_response_json = json.dumps(
+        {
+            "action_type": ActionType.ERROR.value,
+            "error": "Failed to get pods",  # Optional: Can be more specific
+            "explanation": recovery_suggestion_text,  # Suggestions go here
+        }
+    )
 
     mock_adapter_instance.execute.side_effect = [
         expected_plan_json,
-        recovery_response_json # Return the JSON error response
+        recovery_response_json,  # Return the JSON error response
     ]
     # _execute_command (kubectl) fails
     mock_execute.return_value = Error(error="Pod not found", exception=None)
 
     # Mock recovery prompt generation and memory interaction
-    with patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt, \
-         patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory, \
-         patch("vibectl.command_handler.LLMCommandResponse.model_validate_json") as mock_validate_json:
+    with (
+        patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt,
+        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory,
+        patch(
+            "vibectl.command_handler.LLMCommandResponse.model_validate_json"
+        ) as mock_validate_json,
+    ):
         mock_recovery_prompt.return_value = "Recovery prompt content"
-        mock_include_memory.side_effect = lambda p, **k: p # Simple passthrough
+        mock_include_memory.side_effect = lambda p, **k: p  # Simple passthrough
 
         # Configure model_validate_json mock
         # First call (plan_response) should succeed
         # Second call (recovery_response_json) should return the ERROR action
         # This might need adjustment if the flow changes how parsing happens
         mock_validate_json.side_effect = [
-            LLMCommandResponse(**plan_response), # Simulate successful validation of first call
-            LLMCommandResponse(**json.loads(recovery_response_json)) # Simulate successful validation of second call
+            LLMCommandResponse(
+                **plan_response
+            ),  # Simulate successful validation of first call
+            LLMCommandResponse(
+                **json.loads(recovery_response_json)
+            ),  # Simulate successful validation of second call
         ]
 
         # Execute command
         # Let the actual handle_command_output run to test recovery logic
         result = handle_vibe_request(
             request="show the pods",
-            command="vibe", # Corrected: Command verb is 'vibe'
+            command="vibe",  # Corrected: Command verb is 'vibe'
             plan_prompt="plan {request}",
             summary_prompt_func=lambda: "summarize {output}",
             output_flags=output_flags,
@@ -145,7 +154,7 @@ def test_recovery_suggestions_not_in_memory(
     mock_update_memory.assert_called_once()
     # Check the details of the memory update call
     _args, kwargs = mock_update_memory.call_args
-    assert kwargs.get("command") == "get" # Should be the extracted verb 'get'
+    assert kwargs.get("command") == "get"  # Should be the extracted verb 'get'
     assert "Pod not found" in kwargs.get("command_output", "")
     assert kwargs.get("model_name") == "test-model"
 
@@ -154,23 +163,25 @@ def test_recovery_suggestions_not_in_memory(
 @patch("vibectl.command_handler.update_memory")
 def test_recovery_suggestions_should_update_memory(
     mock_update_memory: Mock,
-    mock_execute: Mock,             # Represents _execute_command
-    mock_get_adapter: MagicMock, # Use the fixture for the adapter
+    mock_execute: Mock,  # Represents _execute_command
+    mock_get_adapter: MagicMock,  # Use the fixture for the adapter
 ) -> None:
     """Test that memory should be updated with recovery suggestions."""
     # Setup
     # Planning step returns JSON via LLMModelAdapter.execute
-    expected_plan_json = json.dumps({
-        "action_type": ActionType.COMMAND.value,
-        "commands": ["pods"],
-        "explanation": "Get pods",
-    })
+    expected_plan_json = json.dumps(
+        {
+            "action_type": ActionType.COMMAND.value,
+            "commands": ["pods"],
+            "explanation": "Get pods",
+        }
+    )
     # LLM execute needs to return the plan first, then recovery suggestions
     recovery_suggestion_text = "Oops: Pod not found. Try 'kubectl get pods -A'."
     # Configure the adapter instance's execute method via the fixture
     mock_get_adapter.execute.side_effect = [
         expected_plan_json,
-        recovery_suggestion_text # LLM response for recovery
+        recovery_suggestion_text,  # LLM response for recovery
     ]
     # _execute_command (kubectl) fails
     original_error = Error(error="Pod not found", exception=None)
@@ -179,14 +190,14 @@ def test_recovery_suggestions_should_update_memory(
     # Execute command
     output_flags = Mock(
         model_name="test-model",
-        show_vibe=True, # Ensure vibe path is taken in handle_command_output
+        show_vibe=True,  # Ensure vibe path is taken in handle_command_output
         show_raw=True,
         show_kubectl=True,
     )
     # Let the actual handle_command_output run to test recovery logic
     result = handle_vibe_request(
         request="show the pods",
-        command="vibe", # Command verb
+        command="vibe",  # Command verb
         plan_prompt="plan {request}",
         summary_prompt_func=lambda: "summarize {output}",
         output_flags=output_flags,
@@ -208,8 +219,8 @@ def test_recovery_suggestions_should_update_memory(
 @patch("vibectl.command_handler.update_memory")
 def test_recovery_suggestions_in_auto_mode(
     mock_update_memory: Mock,
-    mock_execute: Mock,             # Represents _execute_command
-    mock_get_adapter: MagicMock, # Use the adapter fixture
+    mock_execute: Mock,  # Represents _execute_command
+    mock_get_adapter: MagicMock,  # Use the adapter fixture
 ) -> None:
     """Test recovery suggestions in auto mode should update memory."""
     # Setup
@@ -217,11 +228,13 @@ def test_recovery_suggestions_in_auto_mode(
     # 1. Initial plan (JSON)
     # 2. Recovery suggestions (string)
     # 3. Second plan (JSON) - if auto mode retries
-    initial_plan_json = json.dumps({
-        "action_type": ActionType.COMMAND.value,
-        "commands": ["pods"],
-        "explanation": "Get pods",
-    })
+    initial_plan_json = json.dumps(
+        {
+            "action_type": ActionType.COMMAND.value,
+            "commands": ["pods"],
+            "explanation": "Get pods",
+        }
+    )
     recovery_suggestion_text = "Error occurred: Pod not found. Trying again with -A."
     # Make the second call return a different command (e.g., fix the namespace)
     # second_plan = { # Remove unused variable
@@ -257,7 +270,7 @@ def test_recovery_suggestions_in_auto_mode(
     )
     result1 = handle_vibe_request(
         request="show the pods",
-        command="vibe", # Command verb
+        command="vibe",  # Command verb
         plan_prompt="plan {request}",
         summary_prompt_func=lambda: "summarize {output}",
         output_flags=output_flags,

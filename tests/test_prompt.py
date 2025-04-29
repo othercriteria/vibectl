@@ -313,9 +313,9 @@ def test_plan_prompts(prompt: str, required_elements: dict) -> None:
     placeholder = required_elements.get("placeholder")
     # Handle the new placeholder used for schema prompts
     if "__REQUEST_PLACEHOLDER__" in prompt:
-        assert (
-            "__REQUEST_PLACEHOLDER__" in prompt
-        ), f"Missing __REQUEST_PLACEHOLDER__ in {prompt[:50]}..."
+        assert "__REQUEST_PLACEHOLDER__" in prompt, (
+            f"Missing __REQUEST_PLACEHOLDER__ in {prompt[:50]}..."
+        )
     elif placeholder:
         assert placeholder in prompt, f"Missing {placeholder} in {prompt[:50]}..."
 

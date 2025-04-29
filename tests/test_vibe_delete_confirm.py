@@ -21,7 +21,7 @@ def mock_llm() -> Generator[MagicMock, None, None]:
         # Configure the model.execute function to return valid JSON by default
         default_response = {
             "action_type": ActionType.FEEDBACK.value,
-            "explanation": "Default test response."
+            "explanation": "Default test response.",
         }
         mock.return_value.execute.return_value = json.dumps(default_response)
         yield mock
@@ -128,6 +128,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
         # Only call update_memory if command is provided and output is Success
         if command and isinstance(output_result, Success) and output_result.data:
             from vibectl.command_handler import update_memory
+
             # Assume vibe output generation happens somewhere and mock it
             mock_vibe_output = f"Vibe summary for {command}"
             update_memory(command, output_result.data, mock_vibe_output)
@@ -151,16 +152,17 @@ def test_vibe_delete_with_confirmation(
     # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod", "my-pod"], # Args only
+        "commands": ["pod", "my-pod"],  # Args only
         "explanation": "Deleting pod my-pod as requested.",
     }
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)
 
     # Patch _execute_command and click.prompt directly
-    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd, \
-         patch("click.prompt") as mock_click_prompt:
-
-        mock_click_prompt.return_value = 'y'
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
+        patch("click.prompt") as mock_click_prompt,
+    ):
+        mock_click_prompt.return_value = "y"
         mock_execute_cmd.return_value = Success(data='pod "my-pod" deleted')
 
         handle_vibe_request(
@@ -202,17 +204,18 @@ def test_vibe_delete_with_confirmation_cancelled(
     # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod", "nginx"], # Args only
+        "commands": ["pod", "nginx"],  # Args only
         "explanation": "Deleting pod nginx as requested.",
     }
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)
     mock_llm.return_value.execute.side_effect = None
 
     # Patch _execute_command (it should NOT be called)
-    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd, \
-         patch("click.prompt") as mock_click_prompt:
-
-        mock_click_prompt.return_value = 'n' # User cancels
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
+        patch("click.prompt") as mock_click_prompt,
+    ):
+        mock_click_prompt.return_value = "n"  # User cancels
 
         result = handle_vibe_request(
             request="delete nginx pod",
@@ -257,7 +260,7 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
     # Mock LLM response for delete command (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pod", "my-pod"], # Args only
+        "commands": ["pod", "my-pod"],  # Args only
         "explanation": "Deleting pod my-pod as requested.",
     }
     mock_llm.return_value.execute.return_value = json.dumps(plan_response)
@@ -306,7 +309,7 @@ def test_vibe_non_delete_commands_skip_confirmation(
     # Mock LLM response for a safe command (get) (args only)
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pods"], # Args only
+        "commands": ["pods"],  # Args only
         "explanation": "Getting pods.",
     }
     # Summary response (only needed if handle_command_output is not mocked/side_effected)

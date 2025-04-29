@@ -5,11 +5,8 @@ the command handler is robust against unexpected or malformed inputs.
 """
 
 import json
-import logging
-import os
-from typing import Any, Callable
 from collections.abc import Generator
-from unittest.mock import ANY, MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -17,15 +14,12 @@ from pydantic import ValidationError
 from vibectl.command_handler import (
     ActionType,
     OutputFlags,
-    _execute_command,
     _parse_command_args,
     handle_command_output,
     handle_vibe_request,
 )
 from vibectl.k8s_utils import run_kubectl_with_complex_args
-from vibectl.types import Error, Success
-from vibectl.schema import LLMCommandResponse
-from vibectl.types import Truncation
+from vibectl.types import Error, Success, Truncation
 
 
 @pytest.fixture
@@ -46,7 +40,7 @@ def mock_get_adapter_patch() -> Generator[MagicMock, None, None]:
         mock_patch.return_value = mock_adapter_instance
 
         # Yield the mock adapter instance for tests to use and configure
-        yield mock_adapter_instance # Yield the instance (Correct)
+        yield mock_adapter_instance  # Yield the instance (Correct)
 
 
 @pytest.fixture
@@ -192,11 +186,14 @@ def test_handle_vibe_request_empty_llm_response(
     )
 
     # Mock the functions called during error handling using parentheses for with statement
-    with patch("vibectl.command_handler.handle_command_output") as mock_handle_output, \
-         patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: empty"), \
-         patch("vibectl.command_handler.update_memory") as mock_update_memory, \
-         patch("vibectl.command_handler.create_api_error") as mock_create_api_error:
-
+    with (
+        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
+        patch(
+            "vibectl.memory.include_memory_in_prompt", return_value="Plan this: empty"
+        ),
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
+    ):
         # Call handle_vibe_request with empty LLM response
         result = handle_vibe_request(
             request="Show me the pods",
@@ -204,7 +201,7 @@ def test_handle_vibe_request_empty_llm_response(
             plan_prompt="Plan how to {command} {request}",
             summary_prompt_func=lambda: "Test prompt {output}",
             output_flags=output_flags,
-            memory_context="test-context"
+            memory_context="test-context",
         )
 
         # Verify update_memory was NOT called because the function returns early
@@ -219,16 +216,18 @@ def test_handle_vibe_request_empty_llm_response(
 
 
 def test_handle_vibe_request_llm_returns_error(
-    mock_get_adapter_patch: MagicMock
+    mock_get_adapter_patch: MagicMock,
 ) -> None:
     """Test handle_vibe_request when LLM returns an error message as JSON."""
     # Configure model adapter to return an error message as valid JSON
     error_msg = "I cannot fulfill this request."
-    error_response_str = json.dumps({
-        "action_type": ActionType.ERROR.value,
-        "error": error_msg,
-        "explanation": "Some explanation why.",
-    })
+    error_response_str = json.dumps(
+        {
+            "action_type": ActionType.ERROR.value,
+            "error": error_msg,
+            "explanation": "Some explanation why.",
+        }
+    )
     mock_get_adapter_patch.execute.return_value = error_response_str
 
     output_flags = OutputFlags(
@@ -236,10 +235,13 @@ def test_handle_vibe_request_llm_returns_error(
     )
 
     # Mock update_memory and create_api_error using parentheses for with statement
-    with patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: error"), \
-         patch("vibectl.command_handler.update_memory") as mock_update_memory, \
-         patch("vibectl.command_handler.console_manager") as mock_console:
-
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt", return_value="Plan this: error"
+        ),
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
+        patch("vibectl.command_handler.console_manager") as mock_console,
+    ):
         test_request = "Do something impossible"
         result = handle_vibe_request(
             request=test_request,
@@ -247,22 +249,21 @@ def test_handle_vibe_request_llm_returns_error(
             plan_prompt="Plan how to {command} {request}",
             summary_prompt_func=lambda: "",
             output_flags=output_flags,
-            memory_context="error-context"
+            memory_context="error-context",
         )
 
         # Verify update_memory was called with the error from the response
         mock_update_memory.assert_called_once()
         call_args, call_kwargs = mock_update_memory.call_args
         assert call_kwargs.get("command") == "vibe"
-        assert call_kwargs.get("command_output") == f"Planning error: {error_msg}"
-        vibe_output_expected = (
-            f"Failed to plan command for request: {test_request}. Error: {error_msg}"
-        )
-        assert call_kwargs.get("vibe_output") == vibe_output_expected
+        assert call_kwargs.get("command_output") == error_msg
+        assert call_kwargs.get("vibe_output") == f"LLM Planning Error: {error_msg} - For request: {test_request}"
         assert call_kwargs.get("model_name") == "test-model"
 
         # Verify console output
-        mock_console.print_note.assert_called_with("AI Explanation: Some explanation why.")
+        mock_console.print_note.assert_called_with(
+            "AI Explanation: Some explanation why."
+        )
         mock_console.print_error.assert_called_with(f"LLM Planning Error: {error_msg}")
 
         # Verify the result is an Error object
@@ -271,16 +272,16 @@ def test_handle_vibe_request_llm_returns_error(
         assert result.recovery_suggestions == "Some explanation why."
 
 
-@patch("vibectl.command_handler.update_memory") # Back to patching command_handler
+@patch("vibectl.command_handler.update_memory")  # Back to patching command_handler
 def test_handle_vibe_request_command_parser_error(
-    mock_update_memory_ch: MagicMock, # Use this mock name again
-    mock_get_adapter_patch: MagicMock, # Reverted argument name
+    mock_update_memory_ch: MagicMock,  # Use this mock name again
+    mock_get_adapter_patch: MagicMock,  # Reverted argument name
     capfd: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture, # Add caplog fixture
+    caplog: pytest.LogCaptureFixture,  # Add caplog fixture
 ) -> None:
     """Test handle_vibe_request handles command parsing errors."""
     # Configure model to return malformed JSON
-    malformed_response = "not {json" # Malformed
+    malformed_response = "not {json"  # Malformed
     mock_get_adapter_patch.execute.return_value = malformed_response
 
     output_flags = OutputFlags(
@@ -289,9 +290,15 @@ def test_handle_vibe_request_command_parser_error(
 
     # Expect the inner `except (JSONDecodeError, ValidationError)` block.
     # Patch create_api_error here using 'with'
-    with patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: malformed"), \
-         patch("vibectl.command_handler.create_api_error", autospec=True) as mock_create_api_error_with:
-
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt",
+            return_value="Plan this: malformed",
+        ),
+        patch(
+            "vibectl.command_handler.create_api_error", autospec=True
+        ) as mock_create_api_error_with,
+    ):
         # Configure create_api_error mock
         mock_error_instance = Error(error="Mocked API error", halt_auto_loop=False)
         mock_create_api_error_with.return_value = mock_error_instance
@@ -302,7 +309,7 @@ def test_handle_vibe_request_command_parser_error(
             plan_prompt="Plan how to {command} {request}",
             summary_prompt_func=lambda: "",
             output_flags=output_flags,
-            memory_context="parser-error-context"
+            memory_context="parser-error-context",
         )
 
         # Verify update_memory WAS called (using the decorator mock)
@@ -311,13 +318,16 @@ def test_handle_vibe_request_command_parser_error(
         # Verify create_api_error was called (using the context mock)
         mock_create_api_error_with.assert_called_once()
         # Check only exception type and that result matches mock return
-        assert isinstance(mock_create_api_error_with.call_args[0][1], (json.JSONDecodeError, ValidationError))
+        assert isinstance(
+            mock_create_api_error_with.call_args[0][1],
+            json.JSONDecodeError | ValidationError,
+        )
         assert result == mock_create_api_error_with.return_value
 
         # Verify error output was logged (via logger.error)
-        # captured = capfd.readouterr() # Don't check stderr anymore
-        # assert "Failed to parse or validate LLM response:" in captured.err # Check actual error prefix
-        assert "Failed to parse or validate LLM response" in caplog.text # Check log capture
+        assert (
+            "Failed to parse or validate LLM response" in caplog.text
+        )  # Check log capture
         assert "LLM Output:" in caplog.text
         assert malformed_response in caplog.text
 
@@ -335,7 +345,7 @@ def test_handle_vibe_request_autonomous_mode(
     # Configure model adapter
     llm_response_dict = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods"], # Use the correct key and structure
+        "commands": ["get", "pods"],  # Use the correct key and structure
         "explanation": "Fetching pods.",
     }
     mock_get_adapter_patch.execute.return_value = json.dumps(llm_response_dict)
@@ -349,10 +359,13 @@ def test_handle_vibe_request_autonomous_mode(
     mock_execute_command_dec.return_value = Success("Success!")
 
     # Mock update_memory and include_memory_in_prompt using a different approach
-    with patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: auto"), \
-         patch("vibectl.command_handler.update_memory") as mock_update_memory_ctx, \
-         patch("vibectl.memory.get_model_adapter") as mock_get_adapter_memory: # Patch adapter used by update_memory
-
+    with (
+        patch(
+            "vibectl.memory.include_memory_in_prompt", return_value="Plan this: auto"
+        ),
+        patch("vibectl.command_handler.update_memory") as mock_update_memory_ctx,
+        patch("vibectl.memory.get_model_adapter") as mock_get_adapter_memory,
+    ):  # Patch adapter used by update_memory
         # Configure the mock adapter used by memory to prevent get_model failure
         mock_adapter_mem = MagicMock()
         mock_model_mem = Mock()
@@ -372,11 +385,17 @@ def test_handle_vibe_request_autonomous_mode(
 
         # Verify execution flow
         mock_execute_command_dec.assert_called_once_with(
-            "get", ["pods"], None # Match actual call signature: verb, args, yaml
+            "get",
+            ["pods"],
+            None,  # Match actual call signature: verb, args, yaml
         )
         # Explicitly check the mock's return value
-        actual_mock_return = mock_execute_command_dec.return_value # Check the configured return value
-        print(f"DEBUG: Mock _execute_command configured return: type={type(actual_mock_return)}, data={getattr(actual_mock_return, 'data', None)}")
+        actual_mock_return = (
+            mock_execute_command_dec.return_value
+        )  # Check the configured return value
+        print(
+            f"DEBUG: Mock _execute_command configured return: type={type(actual_mock_return)}, data={getattr(actual_mock_return, 'data', None)}"
+        )
 
         # Verify update_memory was called ONCE after successful execution
         mock_update_memory_ctx.assert_called_once()
@@ -387,15 +406,16 @@ def test_handle_vibe_request_autonomous_mode(
         # Verify handle_command_output was called
         # Check that it was called with a Success object as the first arg
         mock_handle_output_dec.assert_called_once()
-        call_args, call_kwargs = mock_handle_output_dec.call_args
+        call_args, call_kwargs_handle = mock_handle_output_dec.call_args
         assert len(call_args) >= 1 and isinstance(call_args[0], Success)
         # Further check kwargs if needed, e.g., output_flags
-        assert len(call_args) >= 2 and call_args[1] == output_flags # Check 2nd positional arg
-        assert call_kwargs.get("command") == "get" # Check command kwarg
+        assert (
+            len(call_args) >= 2 and call_args[1] == output_flags
+        )  # Check 2nd positional arg
+        assert call_kwargs_handle.get("command") == "get"  # Check command kwarg
 
         # Verify the result returned by handle_vibe_request itself
-        # assert isinstance(result, Success) # REMOVE - result is the mock handle_command_output
-        # assert result.data is None # REMOVE - result is the mock handle_command_output
+        assert result == mock_handle_output_dec.return_value
 
         # Capture and check stdout/stderr
         captured = capfd.readouterr()
@@ -412,16 +432,15 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
     mock_handle_output: MagicMock,
     mock_execute_command: MagicMock,
     mock_get_adapter_patch: MagicMock,
-    mock_console: MagicMock, # Keep this mock
-    mock_memory: MagicMock, # Added fixture
-    capfd: pytest.CaptureFixture[str],
+    mock_console: MagicMock,  # Keep this mock
+    mock_memory: MagicMock,  # Added fixture
 ) -> None:
     """Test handle_vibe_request autonomous mode when commands list is missing."""
     # Configure model response (COMMAND but missing 'commands')
     plan_response = {
         "action_type": ActionType.COMMAND.value,
         # "commands": ["pods"], # Intentionally missing
-        "explanation": "Forgot commands."
+        "explanation": "Forgot commands.",
     }
     mock_get_adapter_patch.execute.return_value = json.dumps(plan_response)
 
@@ -430,11 +449,12 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
     )
 
     # Patch handle_command_output (should not be called)
-    with patch("vibectl.command_handler.handle_command_output") as mock_handle_output, \
-         patch("vibectl.command_handler.create_api_error") as mock_create_api_error, \
-         patch("vibectl.command_handler.is_api_error") as mock_is_api_error:
-
-        mock_is_api_error.return_value = False # Assume not API error
+    with (
+        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
+        patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
+        patch("vibectl.command_handler.is_api_error") as mock_is_api_error,
+    ):
+        mock_is_api_error.return_value = False  # Assume not API error
 
         result = handle_vibe_request(
             request="missing commands test",
@@ -447,9 +467,9 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
 
         # Verify Error was returned directly from the autonomous check
         mock_execute_command.assert_not_called()
-        mock_memory.assert_not_called() # Use mock_memory
+        mock_memory.assert_not_called()  # Use mock_memory
         mock_handle_output.assert_not_called()
-        mock_create_api_error.assert_not_called() # Because is_api_error=False
+        mock_create_api_error.assert_not_called()  # Because is_api_error=False
         mock_console.print_error.assert_called_once()
 
         # Verify a plain Error object was returned from the autonomous mode logic
@@ -459,20 +479,21 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
             "Internal error: LLM returned COMMAND action without arguments."
             in result.error
         )
-        assert result.exception is None # Verify no exception was attached
+        assert result.exception is None  # Verify no exception was attached
 
 
 def test_handle_vibe_request_with_dangerous_commands(
     mock_get_adapter_patch: MagicMock,
 ) -> None:
     """Test handle_vibe_request requires confirmation for dangerous commands."""
+
     # Helper function to run a sub-test for a command string
     def test_command(cmd_str: str, should_need_confirmation: bool) -> None:
         # Configure model response
         plan_response = {
             "action_type": ActionType.COMMAND.value,
-            "commands": [cmd_str], # Pass command as list element
-            "explanation": f"Executing: {cmd_str}"
+            "commands": [cmd_str],  # Pass command as list element
+            "explanation": f"Executing: {cmd_str}",
         }
         mock_get_adapter_patch.execute.return_value = json.dumps(plan_response)
 
@@ -481,11 +502,14 @@ def test_handle_vibe_request_with_dangerous_commands(
         )
 
         # Mock _needs_confirmation and _handle_command_confirmation
-        with patch("vibectl.command_handler._needs_confirmation") as mock_needs, \
-             patch("vibectl.command_handler._handle_command_confirmation") as mock_confirm, \
-             patch("vibectl.command_handler._execute_command") as mock_execute, \
-             patch("vibectl.memory.include_memory_in_prompt"): # Mock memory include
-
+        with (
+            patch("vibectl.command_handler._needs_confirmation") as mock_needs,
+            patch(
+                "vibectl.command_handler._handle_command_confirmation"
+            ) as mock_confirm,
+            patch("vibectl.command_handler._execute_command") as mock_execute,
+            patch("vibectl.memory.include_memory_in_prompt"),
+        ):  # Mock memory include
             mock_needs.return_value = should_need_confirmation
             # Simulate user cancelling if confirmation is asked
             mock_confirm.return_value = Success("Command execution cancelled by user")
@@ -493,11 +517,11 @@ def test_handle_vibe_request_with_dangerous_commands(
 
             result = handle_vibe_request(
                 request=f"Run {cmd_str}",
-                command="vibe", # Assume vibe is the base command
+                command="vibe",  # Assume vibe is the base command
                 plan_prompt="Plan",
                 summary_prompt_func=lambda: "Summary",
                 output_flags=output_flags,
-                yes=False, # Ensure confirmation is potentially triggered
+                yes=False,  # Ensure confirmation is potentially triggered
             )
 
             # Assert _needs_confirmation was called with the original command verb
@@ -517,14 +541,15 @@ def test_handle_vibe_request_with_dangerous_commands(
             mock_needs.reset_mock()
             mock_confirm.reset_mock()
             mock_execute.reset_mock()
-            mock_get_adapter_patch.reset_mock() # Reset the correct mock
+            mock_get_adapter_patch.reset_mock()  # Reset the correct mock
 
     # Test cases
     test_command("get pods", False)  # Safe command
     test_command("delete pod my-pod", True)  # Dangerous command
-    test_command("apply -f config.yaml", True) # Dangerous command
-    test_command("scale deployment/app --replicas=0", True) # Dangerous
-    test_command("logs my-pod", False) # Safe
+    test_command("apply -f config.yaml", True)  # Dangerous command
+    test_command("scale deployment/app --replicas=0", True)  # Dangerous
+    test_command("logs my-pod", False)  # Safe
+
 
 def test_handle_vibe_request_with_unknown_model(
     mock_get_adapter_patch: MagicMock,
@@ -540,10 +565,11 @@ def test_handle_vibe_request_with_unknown_model(
     )
 
     # Mock update_memory and create_api_error
-    with patch("vibectl.command_handler.update_memory") as mock_update_mem, \
-         patch("vibectl.command_handler.create_api_error") as mock_create_api_err, \
-         patch("vibectl.memory.include_memory_in_prompt"): # Mock memory include
-
+    with (
+        patch("vibectl.command_handler.update_memory") as mock_update_mem,
+        patch("vibectl.command_handler.create_api_error") as mock_create_api_err,
+        patch("vibectl.memory.include_memory_in_prompt"),
+    ):  # Mock memory include
         # Configure create_api_error to return a specific Error
         api_error_return = Error(error="API Error: test")
         mock_create_api_err.return_value = api_error_return
@@ -561,14 +587,15 @@ def test_handle_vibe_request_with_unknown_model(
         # Check kwargs
         call_kwargs = mock_update_mem.call_args.kwargs
         assert call_kwargs.get("command") == "system"
-        expected_error_string = f"LLM Execution Error: Failed to get model '{output_flags.model_name}': {unknown_model_error}"
+        expected_error_string = f"Failed to get model '{output_flags.model_name}': {unknown_model_error}"
         assert call_kwargs.get("command_output") == expected_error_string
-        # memory_context is not passed via kwargs here
-
-        # Verify create_api_error was called
-        mock_create_api_err.assert_called_once()
-        assert str(unknown_model_error) in mock_create_api_err.call_args[0][0]
-        assert mock_create_api_err.call_args[0][1] is unknown_model_error
+        assert call_kwargs.get("vibe_output") == f"System Error: Failed to get model '{output_flags.model_name}'."
+        assert call_kwargs.get("model_name") == "bad-model"
+        # Verify create_api_error was called with the raw error and exception
+        mock_create_api_err.assert_called_once_with(
+            expected_error_string,
+            unknown_model_error,
+        )
 
         # Verify the final result is the one returned by create_api_error
         assert result is api_error_return

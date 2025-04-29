@@ -8,8 +8,8 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import time
 import shlex
+import time
 from collections.abc import Callable
 from json import JSONDecodeError
 
@@ -40,7 +40,7 @@ from .prompt import (
     memory_fuzzy_update_prompt,
     recovery_prompt,
 )
-from .schema import LLMCommandResponse, ActionType
+from .schema import ActionType, LLMCommandResponse
 from .types import Error, OutputFlags, Result, Success
 from .utils import console_manager
 
@@ -525,8 +525,8 @@ def handle_vibe_request(
         try:
             update_memory(
                 command="system", # Indicate system context
-                command_output=f"LLM Execution Error: {error_msg}", # Match test expectation
-                vibe_output=f"Configuration error: Could not load model '{model_name}'.",
+                command_output=error_msg, # Store raw error
+                vibe_output=f"System Error: Failed to get model '{model_name}'.", # Clarify error type here
                 model_name=model_name, # Pass the problematic model name
             )
         except Exception as mem_e:
@@ -586,8 +586,8 @@ def handle_vibe_request(
             # Ensure command is set correctly, defaulting to 'system' if original command is unavailable.
             update_memory(
                 command="system", # Always use "system" for parsing/validation errors
-                command_output=f"Planning Error: {error_msg}", # Use the specific error message
-                vibe_output=f"LLM response parsing/validation failed: {llm_response[:100]}...", # Summary
+                command_output=error_msg, # Store raw error
+                vibe_output=f"System Error: Failed to parse LLM response: {llm_response[:100]}...", # Correct vibe output for this context
                 model_name=output_flags.model_name, # Pass model name
             )
             return create_api_error(error_msg, e)
@@ -597,7 +597,7 @@ def handle_vibe_request(
             error_msg = f"Error during LLM request execution: {e}"
             logger.error(f"{error_msg}", exc_info=True) # Log with traceback
             # Treat as an API error to avoid halting loops
-            update_memory("system", f"LLM Execution Error: {error_msg}", memory_context)
+            update_memory("system", error_msg, f"System Error: LLM execution failed - {memory_context}") # Store raw error, clarify type in vibe_output
             return create_api_error(error_msg, e)
 
         # === STEP 3: Implement ActionType Dispatch (ERROR, WAIT, FEEDBACK) ===
@@ -617,8 +617,8 @@ def handle_vibe_request(
                 try:
                     update_memory(
                         command=command,
-                        command_output=f"Planning error: {error_message}",
-                        vibe_output=f"Failed to plan command for request: {request}. Error: {error_message}",
+                        command_output=error_message, # Store raw error from LLM
+                        vibe_output=f"LLM Planning Error: {error_message} - For request: {request}", # Clarify error type here
                         model_name=output_flags.model_name,
                     )
                     logger.info("Planning error added to memory context")
@@ -695,10 +695,6 @@ def handle_vibe_request(
 
                 # --- End Refined Logic --- #
 
-                # Construct the string representation of the planned command for logging
-                # Use the *original* full list from LLM for logging planned command
-                planned_cmd_str = ' '.join(response.commands)
-
                 # Display explanation if provided
                 if response.explanation:
                     console_manager.print_note(f"AI Explanation: {response.explanation}")
@@ -745,7 +741,7 @@ def handle_vibe_request(
                 # <<< ADDED: Dispatch to live display handlers for wait/port-forward >>>
                 if live_display: # Check if live display is generally enabled
                     if kubectl_verb == "wait":
-                        logger.info(f"Dispatching 'wait' command to live display handler.")
+                        logger.info("Dispatching 'wait' command to live display handler.")
                         return handle_wait_with_live_display(
                             resource=resource_name_or_type, # First arg is usually resource type/name
                             args=remaining_args,            # Rest are args/conditions
@@ -753,7 +749,7 @@ def handle_vibe_request(
                             summary_prompt_func=summary_prompt_func,
                         )
                     elif kubectl_verb == "port-forward":
-                        logger.info(f"Dispatching 'port-forward' command to live display handler.")
+                        logger.info("Dispatching 'port-forward' command to live display handler.")
                         return handle_port_forward_with_live_display(
                             resource=resource_name_or_type, # First arg is usually resource type/name
                             args=remaining_args,            # Rest are args/port mappings
