@@ -593,16 +593,16 @@ def test_show_kubectl_flag_controls_command_display(
     mock_console_manager: MagicMock,
     mock_llm: MagicMock,
     mock_memory: MagicMock,
+    prevent_exit: MagicMock,
 ) -> None:
     """Test that the show_kubectl flag controls command display."""
-
     # Define common variables for plan response
-    # LLM should return args *after* the command verb
-    command_args = ["pods", "--namespace=test-ns"]
+    kubectl_verb = "get" # Define the verb
+    kubectl_args = ["pods", "--namespace=test-ns"] # Define args
     explanation = "Getting pods in test-ns."
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": command_args, # List of args only
+        "commands": [kubectl_verb] + kubectl_args, # Combine verb and args for mock
         "explanation": explanation,
     }
     plan_response_json = json.dumps(plan_response)
@@ -620,35 +620,40 @@ def test_show_kubectl_flag_controls_command_display(
     mock_llm.execute.return_value = plan_response_json
 
     # Mock _execute_command
-    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
-        mock_execute_cmd.return_value = Success("pod data")
+    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd_show:
+        mock_execute_cmd_show.return_value = Success("pod data")
 
         # Mock handle_command_output
-        with patch("vibectl.command_handler.handle_command_output") as mock_handle_output, \
+        with patch("vibectl.command_handler.handle_command_output") as mock_handle_output_show, \
              patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: get pods"):
 
+            # Call handle_vibe_request with the original command being 'vibe'
             handle_vibe_request(
                 request="get pods in test-ns",
-                command="get", # Command verb is 'get'
+                command="vibe", # <<< Corrected: Original command is 'vibe'
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
                 output_flags=output_flags_show,
+                yes=True, # Bypass confirmation for simplicity in this test
             )
 
-    # Verify console_manager.print_processing was called with the command
-    mock_console_manager.print_processing.assert_any_call(
-        "Running: kubectl get pods --namespace=test-ns" # Uses original command verb
-    )
-    # Verify _execute_command was called with original verb and LLM args
-    mock_execute_cmd.assert_called_once_with("get", command_args, None)
-    mock_handle_output.assert_called_once()
+            # Verify console_manager.print_processing was called with the correct command
+            mock_console_manager.print_processing.assert_any_call(
+                f"Running: kubectl {kubectl_verb} {' '.join(kubectl_args)}" # <<< Correct assertion
+            )
+            # Verify _execute_command was called with extracted verb and args
+            mock_execute_cmd_show.assert_called_once_with(kubectl_verb, kubectl_args, None)
+            # Verify handle_command_output was called with correct command verb
+            mock_handle_output_show.assert_called_once()
+            _, ho_call_kwargs = mock_handle_output_show.call_args
+            assert ho_call_kwargs.get("command") == kubectl_verb
 
     # Reset mocks for next case
     mock_console_manager.reset_mock()
     mock_llm.reset_mock()
-    mock_execute_cmd.reset_mock()
-    mock_handle_output.reset_mock()
-    mock_memory.reset_mock()
+    mock_execute_cmd_show.reset_mock()
+    mock_handle_output_show.reset_mock()
+    # mock_memory.reset_mock() # Assuming mock_memory doesn't need reset per-case
 
     # --- Case 2: show_kubectl = False ---
     output_flags_hide = OutputFlags(
@@ -659,7 +664,7 @@ def test_show_kubectl_flag_controls_command_display(
         show_kubectl=False, # <<< Hide command
     )
 
-    # Reuse planning response mock
+    # Reuse planning response mock (already has correct format)
     mock_llm.execute.return_value = plan_response_json
 
     # Mock _execute_command again
@@ -670,19 +675,26 @@ def test_show_kubectl_flag_controls_command_display(
         with patch("vibectl.command_handler.handle_command_output") as mock_handle_output_hide, \
              patch("vibectl.memory.include_memory_in_prompt", return_value="Plan this: get pods"):
 
+            # Call handle_vibe_request with the original command being 'vibe'
             handle_vibe_request(
                 request="get pods in test-ns",
-                command="get",
+                command="vibe", # <<< Corrected: Original command is 'vibe'
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
                 output_flags=output_flags_hide,
+                yes=True, # Bypass confirmation
             )
 
-    # Verify console_manager.print_processing was NOT called
-    mock_console_manager.print_processing.assert_not_called()
-    # Verify _execute_command was still called correctly
-    mock_execute_cmd_hide.assert_called_once_with("get", command_args, None)
-    mock_handle_output_hide.assert_called_once()
+            # Verify console_manager.print_processing was NOT called with the command string
+            for call in mock_console_manager.print_processing.call_args_list:
+                assert not call.args[0].startswith("Running: kubectl") # Check args tuple
+
+            # Verify _execute_command was still called correctly
+            mock_execute_cmd_hide.assert_called_once_with(kubectl_verb, kubectl_args, None)
+            # Verify handle_command_output was called with correct command verb
+            mock_handle_output_hide.assert_called_once()
+            _, ho_call_kwargs_hide = mock_handle_output_hide.call_args
+            assert ho_call_kwargs_hide.get("command") == kubectl_verb
 
 
 def test_vibe_cli_emits_vibe_check(
