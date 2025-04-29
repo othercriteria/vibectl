@@ -60,6 +60,8 @@
     - Correct error handling for `ERROR`.
     - Correct behavior for `WAIT` and `FEEDBACK`.
     - Mocking `model_adapter.execute` to return various valid/invalid JSON strings.
+  - **TODO:** Increase test coverage for `vibectl/command_handler.py` towards 100%.
+  - **TODO:** Increase test coverage for `vibectl/memory.py` towards 100%.
 - **Refinement:**
   - Test `get vibe` with more complex requests to ensure prompt instructions and `commands` list joining are robust.
   - Monitor LLM adherence to the schema and adjust prompts if needed.

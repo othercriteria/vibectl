@@ -43,9 +43,7 @@ from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
-from .prompt import (
-    memory_fuzzy_update_prompt,
-)
+from .prompt import memory_fuzzy_update_prompt
 from .types import Error, Result, Success
 from .utils import handle_exception
 

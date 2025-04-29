@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibectl.command_handler import ActionType, OutputFlags, handle_vibe_request
-from vibectl.types import Error, Result, Success  # Import Result
+from vibectl.types import Result, Success  # Import Result
 
 
 @pytest.fixture

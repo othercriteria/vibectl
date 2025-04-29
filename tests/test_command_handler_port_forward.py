@@ -6,16 +6,23 @@ prefixes like 'kubectl' or 'vibe'.
 """
 
 import json
-from collections.abc import Generator
-from unittest.mock import Mock, patch, MagicMock
+from collections.abc import Generator, Callable
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch, AsyncMock
+import subprocess
+import asyncio
 
 import pytest
 
+from vibectl.live_display import _execute_port_forward_with_live_display
 from vibectl.command_handler import (
     OutputFlags,
     handle_vibe_request,
 )
-from vibectl.types import ActionType, Success
+from vibectl.types import ActionType, Success, Error
+
+# Filter the specific UserWarning from rich.live
+pytestmark = pytest.mark.filterwarnings("ignore:install \\\"ipywidgets\\\" for Jupyter support:UserWarning:rich.live")
 
 
 @pytest.fixture
@@ -45,26 +52,73 @@ def mock_run_kubectl() -> Generator[Mock, None, None]:
 
 @pytest.fixture
 def mock_handle_output() -> Generator[Mock, None, None]:
-    """Mock handle_command_output function."""
+    """Mock handle_command_output function (placeholder, might not be needed)."""
+    # This might be removed if tests don't need to mock handle_command_output directly
     with patch("vibectl.command_handler.handle_command_output") as mock:
-        # Add a default return value to prevent the real function from running
-        # and potentially calling the LLM for summarization.
-        mock.return_value = Success(message="Mocked handle_command_output result")
         yield mock
 
 
 @pytest.fixture
-def mock_console() -> Generator[Mock, None, None]:
-    """Mock console_manager to prevent output during tests."""
-    with patch("vibectl.command_handler.console_manager") as mock:
+def mock_console_manager() -> Generator[Mock, None, None]:
+    """Mock console_manager for port forward tests."""
+    with patch("vibectl.live_display.console_manager") as mock:
+        # Configure necessary attributes/methods if needed by the test
+        mock.status = MagicMock()
+        mock.status.return_value.__enter__ = MagicMock()
+        mock.status.return_value.__exit__ = MagicMock()
+        mock.console = MagicMock() # Add console attribute if needed
+        mock.error_console = MagicMock() # Add error_console if needed
         yield mock
+
+
+@pytest.fixture
+def mock_process() -> Generator[MagicMock, None, None]:
+    """Fixture for mocking subprocess.Popen process object."""
+    process_mock = MagicMock(spec=subprocess.Popen)
+    process_mock.poll.return_value = None # Simulate running
+    process_mock.pid = 12345
+    # Configure communicate to return default empty byte strings
+    process_mock.communicate.return_value = (b"", b"")
+    process_mock.returncode = 0
+    # Mock context manager methods
+    process_mock.__enter__.return_value = process_mock
+    process_mock.__exit__.return_value = None
+    yield process_mock
+
+
+@pytest.fixture
+def mock_popen_factory(
+    mock_process: MagicMock,
+) -> Callable[..., MagicMock]:
+    """Factory fixture to create a mock subprocess.Popen."""
+
+    def _factory(**kwargs: Any) -> MagicMock:
+        popen_mock = MagicMock(spec=subprocess.Popen)
+        popen_mock.return_value = mock_process
+        # Update mock_process attributes if provided
+        for key, value in kwargs.items():
+            if hasattr(mock_process, key):
+                setattr(mock_process, key, value)
+            else:
+                # Handle potential nested attributes like returncode
+                parts = key.split(".")
+                obj = mock_process
+                try:
+                    for part in parts[:-1]:
+                        obj = getattr(obj, part)
+                    setattr(obj, parts[-1], value)
+                except AttributeError:
+                    print(f"Warning: Could not set attribute {key} on mock_process")
+        return popen_mock
+
+    return _factory
 
 
 def test_handle_vibe_request_port_forward_clean(
     mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
-    mock_console: Mock,
+    mock_console_manager: Mock,
 ) -> None:
     """Test handle_vibe_request with a clean port-forward JSON command."""
     # Configure model adapter
@@ -118,7 +172,7 @@ def test_handle_vibe_request_port_forward_with_flags(
     mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
-    mock_console: Mock,
+    mock_console_manager: Mock,
 ) -> None:
     """Test handle_vibe_request with port-forward JSON containing flags."""
     # Configure model adapter to return a command with flags as JSON
@@ -176,7 +230,7 @@ def test_handle_vibe_request_port_forward_multiple_ports(
     mock_model_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_handle_output: Mock,
-    mock_console: Mock,
+    mock_console_manager: Mock,
 ) -> None:
     """Test handle_vibe_request with port-forward JSON containing multiple ports."""
     # Configure model adapter to return a command with multiple port mappings as JSON
@@ -227,3 +281,147 @@ def test_handle_vibe_request_port_forward_multiple_ports(
         assert isinstance(call_args[0], Success)
         assert call_args[0].data == "Forwarding...Multiple Ports"
         assert call_kwargs.get("command") == expected_verb
+
+
+@pytest.mark.asyncio
+async def test_execute_port_forward_success(
+    mock_config: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_popen_factory: Callable[..., MagicMock],
+    mock_process: MagicMock, # Get the shared process mock
+) -> None:
+    """Test successful execution of port forward with live display."""
+    # Setup
+    resource = "pod/my-pod"
+    args = ("8080:80",)
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_kubectl=True,
+        warn_no_proxy=False,
+    )
+    port_mapping = "8080:80"
+    local_port = "8080"
+    remote_port = "80"
+    display_text = f"Forwarding {resource} port {remote_port} to {local_port}"
+    summary_prompt_func = lambda: "Summary"
+
+    # Configure the mock process returned by asyncio.create_subprocess_exec
+    mock_process.returncode = 0
+    # Mock stdout/stderr streams
+    mock_process.stdout = AsyncMock()
+    # Simulate the "Forwarding from..." line then EOF
+    mock_process.stdout.readline = AsyncMock(side_effect=[b"Forwarding from 127.0.0.1:8080 -> 80\\n", b""])
+    mock_process.stderr = AsyncMock()
+    mock_process.stderr.read = AsyncMock(return_value=b"")
+    # Mock the wait method to return immediately
+    mock_process.wait = AsyncMock(return_value=0)
+    # Mock terminate if needed
+    mock_process.terminate = Mock()
+
+
+    # Patch asyncio.create_subprocess_exec to return our configured mock_process
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_create_subprocess, \
+         patch("vibectl.live_display.time.sleep"), \
+         patch("vibectl.live_display.TcpProxy") as mock_tcp_proxy, \
+         patch("vibectl.live_display.update_memory") as mock_update_memory, \
+         patch("vibectl.live_display.get_model_adapter") as mock_get_adapter_live: # Mock adapter in live_display
+
+        # Execute (Call the real function again)
+        result = _execute_port_forward_with_live_display(
+            resource=resource,
+            args=args,
+            output_flags=output_flags,
+            port_mapping=port_mapping,
+            local_port=local_port,
+            remote_port=remote_port,
+            display_text=display_text,
+            summary_prompt_func=summary_prompt_func,
+        )
+
+        # Assertions
+        mock_create_subprocess.assert_called_once()
+        # Check the command passed to create_subprocess_exec
+        expected_cmd = [
+            "kubectl", "port-forward", resource, *args # Add other expected args like --address if needed
+        ]
+        # Note: create_subprocess_exec takes command parts as *args, not a list
+        call_args = mock_create_subprocess.call_args.args
+        assert call_args[:len(expected_cmd)] == tuple(expected_cmd)
+
+        # Assert the function returns a Success object
+        assert isinstance(result, Success)
+        # Optionally check parts of the success message if needed
+        # assert "completed successfully" in result.message
+
+
+def test_execute_port_forward_kubectl_error(
+    mock_config: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_popen_factory: Callable[..., MagicMock],
+    mock_process: MagicMock,
+) -> None:
+    """Test handling of kubectl errors during port forward startup."""
+    # Setup
+    resource = "pod/my-pod-does-not-exist"
+    args = ("8080:80",)
+    output_flags = OutputFlags(
+        show_raw=False, show_vibe=True, warn_no_output=False,
+        model_name="test-model", show_kubectl=True, warn_no_proxy=False
+    )
+    port_mapping = "8080:80"
+    local_port = "8080"
+    remote_port = "80"
+    display_text = f"Forwarding {resource} port {remote_port} to {local_port}"
+    summary_prompt_func = lambda: "Summary"
+
+    # Configure the mock process for kubectl error
+    kubectl_error_message = b"error: pod not found"
+    mock_process.returncode = 1 # Simulate process ended with error
+    # Mock stdout/stderr streams
+    mock_process.stdout = AsyncMock()
+    mock_process.stdout.readline = AsyncMock(return_value=b"") # No stdout expected on error start
+    mock_process.stderr = AsyncMock()
+    mock_process.stderr.read = AsyncMock(return_value=kubectl_error_message) # Return error message
+    # Mock the wait method to return immediately
+    mock_process.wait = AsyncMock(return_value=1) # Return non-zero code
+    # Mock terminate if needed
+    mock_process.terminate = Mock()
+
+
+    # Patch asyncio.create_subprocess_exec to return our configured mock_process
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_create_subprocess, \
+         patch("vibectl.live_display.time.sleep"), \
+         patch("vibectl.live_display.TcpProxy") as mock_tcp_proxy, \
+         patch("vibectl.live_display.update_memory") as mock_update_memory, \
+         patch("vibectl.live_display.get_model_adapter") as mock_get_adapter_live: # Mock adapter in live_display
+
+        # Execute (call real function)
+        result = _execute_port_forward_with_live_display(
+            resource=resource,
+            args=args,
+            output_flags=output_flags,
+            port_mapping=port_mapping,
+            local_port=local_port,
+            remote_port=remote_port,
+            display_text=display_text,
+            summary_prompt_func=summary_prompt_func,
+        )
+
+        # Assertions
+        mock_create_subprocess.assert_called_once()
+        # Check the command passed to create_subprocess_exec
+        expected_cmd = [
+            "kubectl", "port-forward", resource, *args # Add other expected args if needed
+        ]
+        call_args = mock_create_subprocess.call_args.args
+        assert call_args[:len(expected_cmd)] == tuple(expected_cmd)
+
+        # Check that error was printed to console
+        mock_console_manager.print_error.assert_any_call(
+            f"Port-forward error: {kubectl_error_message.decode()}"
+        )
+        assert isinstance(result, Error)
+        assert kubectl_error_message.decode() in result.error

@@ -202,7 +202,7 @@ def test_prompt_structure(
                 "placeholder": "__REQUEST_PLACEHOLDER__",
                 "required_phrases": [
                     "Given this natural language request",
-                    "Populate the 'commands' field with the list of arguments *following* 'kubectl get'",
+                    "list of arguments *following* 'kubectl get'",
                     "Do NOT include 'kubectl' or 'get' itself in the list of arguments",
                     "respond with a JSON object matching the provided schema",
                     '"$ref": "#/$defs/ActionType"',

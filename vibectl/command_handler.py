@@ -8,8 +8,8 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import json
 import time
+import shlex
 from collections.abc import Callable
 from json import JSONDecodeError
 
@@ -515,7 +515,24 @@ def handle_vibe_request(
     model_name = output_flags.model_name
     model_adapter = get_model_adapter()
     # Get the model instance
-    model = model_adapter.get_model(model_name)
+    try:
+        model = model_adapter.get_model(model_name)
+    except ValueError as e:
+        # Handle error if the model name is invalid or model cannot be loaded
+        error_msg = f"Failed to get model '{model_name}': {e}"
+        logger.error(error_msg, exc_info=True)
+        # Update memory to reflect the failure
+        try:
+            update_memory(
+                command="system", # Indicate system context
+                command_output=f"LLM Execution Error: {error_msg}", # Match test expectation
+                vibe_output=f"Configuration error: Could not load model '{model_name}'.",
+                model_name=model_name, # Pass the problematic model name
+            )
+        except Exception as mem_e:
+            logger.error(f"Failed to update memory after get_model error: {mem_e}")
+        # Return an API error (as it's often config-related)
+        return create_api_error(error_msg, e)
 
     # Generate the schema dict for the LLM response
     # This schema dict is passed to the execute method
@@ -558,8 +575,7 @@ def handle_vibe_request(
             if isinstance(response.action_type, str):
                 response.action_type = ActionType(response.action_type)
 
-        except (JSONDecodeError, ValidationError) as e: # Catches parsing/schema errors
-            logger.error(f"Caught inner JSONDecodeError/ValidationError: {type(e).__name__}", exc_info=True)
+        except (JSONDecodeError, ValidationError) as e:
             # This is where the AttributeError likely occurs
             error_msg = f"Failed to parse or validate LLM response: {e}"
             # Use \\n for newline in f-string, not \\\\n
@@ -567,14 +583,18 @@ def handle_vibe_request(
             # Replace the call to the non-existent function _handle_planning_error
             # with direct error handling. We treat parsing/validation errors as API errors
             # so they don't halt autonomous loops unnecessarily.
-            # Use normal quotes for string literals, not escaped quotes
-            update_memory("system", f"Planning Error: {error_msg}", memory_context)
+            # Ensure command is set correctly, defaulting to 'system' if original command is unavailable.
+            update_memory(
+                command="system", # Always use "system" for parsing/validation errors
+                command_output=f"Planning Error: {error_msg}", # Use the specific error message
+                vibe_output=f"LLM response parsing/validation failed: {llm_response[:100]}...", # Summary
+                model_name=output_flags.model_name, # Pass model name
+            )
             return create_api_error(error_msg, e)
 
-        except ValueError as e: # Catches ActionType conversion errors? Unlikely.
+        except ValueError as e:
             # Catch ValueErrors specifically (e.g., from unknown model name)
             error_msg = f"Error during LLM request execution: {e}"
-            logger.error(f"Caught inner ValueError: {type(e).__name__}", exc_info=True)
             logger.error(f"{error_msg}", exc_info=True) # Log with traceback
             # Treat as an API error to avoid halting loops
             update_memory("system", f"LLM Execution Error: {error_msg}", memory_context)
@@ -640,44 +660,70 @@ def handle_vibe_request(
             case ActionType.COMMAND:
                 # === STEP 4: Implement COMMAND branch logic ===
                 if not response.commands:
+                    error_msg = "Internal error: LLM returned COMMAND action without arguments."
                     logger.error(
                         "ActionType is COMMAND but 'commands' list is missing or empty."
                     )
-                    # TODO: Update memory context on validation errors?
-                    return Error(
-                        error="Internal error: LLM returned COMMAND action without arguments."
-                    )
+                    console_manager.print_error(error_msg) # Print error before returning
+                    return Error(error=error_msg)
 
-                # The LLM response.commands should ONLY contain arguments, not the verb.
-                # The verb comes from the original 'command' parameter passed to handle_vibe_request.
-                kubectl_verb = command # Use the original command verb
-                kubectl_args = response.commands # Use the list directly as arguments
+                # --- Refined Verb/Argument Extraction Logic --- #
+                known_verbs = { # TODO: Move this to a constant or config
+                    "get", "describe", "logs", "create", "apply", "delete", "scale",
+                    "rollout", "wait", "port-forward", "version", "cluster-info", "events"
+                }
 
-                # Construct the string representation of the planned command args for logging
-                planned_args_str = ' '.join(kubectl_args)
-                logger.info(
-                    f"LLM planned command arguments: '{planned_args_str}' for original verb: {kubectl_verb}"
-                )
+                kubectl_verb = command # Default to original command
+                kubectl_args = response.commands
+
+                if command == "port-forward":
+                    # port-forward always uses the original verb
+                    kubectl_verb = "port-forward"
+                    kubectl_args = response.commands
+                elif response.commands:
+                    potential_verb = response.commands[0]
+                    if potential_verb.startswith("-"):
+                        # First element is a flag, use original verb and all commands as args
+                        kubectl_verb = command
+                        kubectl_args = response.commands
+                    elif potential_verb in known_verbs:
+                        # First element is a known verb, use it and rest as args
+                        kubectl_verb = potential_verb
+                        kubectl_args = response.commands[1:]
+                    # Else (e.g., first element is resource name like 'pod/xyz')
+                    # Keep default: use original command as verb, all commands as args
+
+                # --- End Refined Logic --- #
+
+                # Construct the string representation of the planned command for logging
+                # Use the *original* full list from LLM for logging planned command
+                planned_cmd_str = ' '.join(response.commands)
 
                 # Display explanation if provided
                 if response.explanation:
                     console_manager.print_note(f"AI Explanation: {response.explanation}")
 
+                # Create the display command string using the extracted verb and args
+                # Need to parse resource/args correctly for live display handlers
+                resource_name_or_type = kubectl_args[0] if kubectl_args else "" # Basic extraction
+                remaining_args = tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
+
                 # Rebuild the command for display purposes including the correct verb
                 # Pass the extracted arguments (kubectl_args) to the display helper
                 cmd_for_display = _create_display_command(kubectl_args)
-                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}" # Display uses original verb
+                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}"
 
-                # <<< ADDED: Print the command before execution if show_kubectl is True >>>
                 if output_flags.show_kubectl:
                     console_manager.print_processing(f"Running: {display_cmd}")
                 # Note: YAML content is not handled in this MVP schema version
 
-                # Handle command confirmation using the original verb
+                # Handle command confirmation using the extracted verb
                 confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
                 should_confirm = confirmation_needed and not (yes or autonomous_mode)
+                logger.debug(f"Confirmation check: verb='{kubectl_verb}', needed={confirmation_needed}, should_confirm={should_confirm}, yes={yes}, auto={autonomous_mode}") # DEBUG
 
                 if should_confirm:
+                    logger.debug("Calling _handle_command_confirmation") # DEBUG
                     confirmation_result = _handle_command_confirmation(
                         display_cmd,
                         cmd_for_display, # Pass args part for display context
@@ -696,39 +742,82 @@ def handle_vibe_request(
                         elif isinstance(confirmation_result, Success):
                              return confirmation_result
 
-                # <<< Corrected Dispatch Logic: Check live_display *before* verb >>>
-                if live_display and kubectl_verb == "wait": # Combine checks
-                    logger.info(f"Dispatching 'wait' command to live display handler.")
-                    # Pass the full kubectl_args list
-                    return handle_wait_with_live_display(
-                        resource=kubectl_args[0] if kubectl_args else "", # Best guess for resource
-                        args=tuple(kubectl_args[1:]), # Rest are args
-                        output_flags=output_flags,
-                        summary_prompt_func=summary_prompt_func,
-                    )
-                elif live_display and kubectl_verb == "port-forward": # Combine checks
-                    logger.info(f"Dispatching 'port-forward' command to live display handler.")
-                    # Pass the full kubectl_args list
-                    return handle_port_forward_with_live_display(
-                        resource=kubectl_args[0] if kubectl_args else "", # Best guess for resource
-                        args=tuple(kubectl_args[1:]), # Rest are args
-                        output_flags=output_flags,
-                        summary_prompt_func=summary_prompt_func,
-                    )
+                # <<< ADDED: Dispatch to live display handlers for wait/port-forward >>>
+                if live_display: # Check if live display is generally enabled
+                    if kubectl_verb == "wait":
+                        logger.info(f"Dispatching 'wait' command to live display handler.")
+                        return handle_wait_with_live_display(
+                            resource=resource_name_or_type, # First arg is usually resource type/name
+                            args=remaining_args,            # Rest are args/conditions
+                            output_flags=output_flags,
+                            summary_prompt_func=summary_prompt_func,
+                        )
+                    elif kubectl_verb == "port-forward":
+                        logger.info(f"Dispatching 'port-forward' command to live display handler.")
+                        return handle_port_forward_with_live_display(
+                            resource=resource_name_or_type, # First arg is usually resource type/name
+                            args=remaining_args,            # Rest are args/port mappings
+                            output_flags=output_flags,
+                            summary_prompt_func=summary_prompt_func,
+                        )
                 # <<< END ADDED SECTION >>>
 
-                # Execute the command using the original verb and the LLM-provided args list
+                # Execute the command using the original verb and the LLM-provided args
                 # If not wait/port-forward or live_display is False, use standard execution
                 logger.info(f"Dispatching '{kubectl_verb}' command to standard execution handler.")
-                result = _execute_command(kubectl_verb, kubectl_args, None) # Pass original verb and args list
+                result = _execute_command(kubectl_verb, kubectl_args, None)
 
-                # Handle output display based on flags, passing the original verb
-                return handle_command_output(
-                    result,
-                    output_flags,
-                    summary_prompt_func,
-                    command=kubectl_verb, # Pass the original kubectl verb
-                )
+                # === ADDED: Update memory after autonomous execution ===
+                if autonomous_mode:
+                    # DEBUG: Check type and data of result object
+                    print(f"DEBUG: result type={type(result)}, result.data='{getattr(result, 'data', None)}'")
+                    # Correctly extract error or data for command_output_str
+                    if isinstance(result, Success):
+                        command_output_str = str(result.data) if result.data is not None else ""
+                    elif isinstance(result, Error):
+                        command_output_str = str(result.error) if result.error is not None else ""
+                    else:
+                        command_output_str = "" # Should not happen
+
+                    vibe_output_str = response.explanation or f"Executed autonomously: kubectl {kubectl_verb} {' '.join(kubectl_args)}"
+
+                    try:
+                        # DEBUG: Print the value just before calling update_memory
+                        # print(f"DEBUG: Calling update_memory with command_output='{command_output_str}'") # Remove previous debug
+                        update_memory(
+                            command=f"kubectl {kubectl_verb} {' '.join(kubectl_args)}",
+                            command_output=command_output_str,
+                            vibe_output=vibe_output_str,
+                            model_name=output_flags.model_name,
+                        )
+                        logger.info("Memory updated after autonomous command execution.")
+                    except Exception as mem_e:
+                        logger.error(f"Failed to update memory after autonomous command: {mem_e}")
+                # === END ADDED SECTION ===
+
+                # Update memory - ensure strings are passed
+                # Correctly extract error or data for command_output_str
+                # if isinstance(result, Success):
+                #     command_output_str = str(result.data) if result.data is not None else ""
+                # elif isinstance(result, Error):
+                #     command_output_str = str(result.error) if result.error is not None else ""
+                # else:
+                #     command_output_str = ""
+
+                # vibe_output_str = response.explanation or "Executed autonomously."
+
+                try:
+                    # Handle output display based on flags, passing the original verb
+                    # ALWAYS call handle_command_output, even if result is Error
+                    return handle_command_output(
+                        result,
+                        output_flags,
+                        summary_prompt_func,
+                        command=kubectl_verb, # Pass the correct kubectl verb
+                    )
+                except Exception as e:
+                    logger.error(f"Error handling command output: {e}", exc_info=True)
+                    return Error(error=f"Error handling command output: {e}", exception=e)
 
             case _:
                 # Handle unknown action types
@@ -942,25 +1031,25 @@ def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
 
 
 def _parse_command_args(cmd_args: str) -> list[str]:
-    """Parse command arguments into a list.
-
-    Args:
-        cmd_args: The command arguments string
-
-    Returns:
-        List of command arguments
-    """
-    import shlex
-
-    # Use shlex to properly handle quoted arguments
+    """Parse command arguments using shlex, handling errors."""
     try:
-        # This preserves quotes and handles spaces in arguments properly
-        args = shlex.split(cmd_args)
-    except ValueError:
-        # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
-        args = cmd_args.split()
-
-    return args
+        # Use default shlex splitting (posix=True)
+        parsed_args: list[str] = shlex.split(cmd_args)
+        return parsed_args
+    except ValueError as e:
+        # Handle potential errors during parsing (e.g., unbalanced quotes)
+        logger.error(f"Error parsing command arguments '{cmd_args}': {e}")
+        # Return the original string split by spaces as a fallback
+        # This might not be perfect but provides some basic splitting
+        return cmd_args.split()
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.error(
+            f"Unexpected error parsing command arguments "
+            f"'{cmd_args}': {e}",
+            exc_info=True,
+        )
+        return [] # Return empty list on other errors
 
 
 def _create_display_command(args: list[str]) -> str:
@@ -1053,7 +1142,7 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
     try:
         # Prepend the command verb to the arguments list for execution
         # Ensure command is not empty before prepending
-        full_args = ([command] + args) if command else args
+        full_args = [command, *args] if command else args
 
         if yaml_content:
             # Dispatch to the YAML handling function in k8s_utils

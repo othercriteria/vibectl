@@ -14,31 +14,46 @@ logger = logging.getLogger(__name__)
 
 # Moved from command_handler.py
 def create_kubectl_error(
-    error_message: str, exception: Exception | None = None
+    error_message: str | bytes, exception: Exception | None = None
 ) -> Error:
     """Create an Error object for kubectl failures, marking certain errors as
     non-halting for auto loops.
 
     Args:
-        error_message: The error message
+        error_message: The error message (string or bytes)
         exception: Optional exception that caused the error
 
     Returns:
         Error object with appropriate halt_auto_loop flag set
     """
+    error_str = ""
+    if isinstance(error_message, bytes):
+        try:
+            error_str = error_message.decode("utf-8", errors="replace").strip()
+        except Exception as decode_err:
+            logger.warning(f"Failed to decode error message bytes: {decode_err}")
+            # Fallback to a generic message if decoding fails
+            error_str = "Failed to decode error message from kubectl."
+    elif isinstance(error_message, str):
+        error_str = error_message.strip()
+    else:
+        logger.warning(f"Unexpected error message type: {type(error_message)}")
+        error_str = str(error_message) # Attempt to convert to string
+
     # For kubectl server errors (like NotFound, Forbidden, etc.),
     # set halt_auto_loop=False so auto loops can continue
-    if "Error from server" in error_message:
-        return Error(error=error_message, exception=exception, halt_auto_loop=False)
+    # Use the decoded string for checks
+    if "Error from server" in error_str:
+        return Error(error=error_str, exception=exception, halt_auto_loop=False)
 
     # For unknown command errors (usually from malformed LLM output),
     # set halt_auto_loop=False so the auto loop can continue and the LLM can
     # correct itself
-    if "unknown command" in error_message.lower():
-        return Error(error=error_message, exception=exception, halt_auto_loop=False)
+    if "unknown command" in error_str.lower():
+        return Error(error=error_str, exception=exception, halt_auto_loop=False)
 
     # For other errors, use the default (halt_auto_loop=True)
-    return Error(error=error_message, exception=exception)
+    return Error(error=error_str, exception=exception)
 
 
 def run_kubectl(
