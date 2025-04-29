@@ -18,6 +18,7 @@ Test Policy:
 """
 
 import datetime
+import json
 from collections.abc import Callable
 from unittest.mock import Mock, patch
 
@@ -27,13 +28,18 @@ from vibectl.config import Config
 from vibectl.prompt import (
     PLAN_CLUSTER_INFO_PROMPT,
     PLAN_CREATE_PROMPT,
+    PLAN_DELETE_PROMPT,
     PLAN_DESCRIBE_PROMPT,
     PLAN_EVENTS_PROMPT,
     PLAN_GET_PROMPT,
     PLAN_LOGS_PROMPT,
     PLAN_PORT_FORWARD_PROMPT,
+    PLAN_ROLLOUT_PROMPT,
+    PLAN_SCALE_PROMPT,
     PLAN_VERSION_PROMPT,
+    PLAN_WAIT_PROMPT,
     cluster_info_prompt,
+    create_planning_prompt,
     create_resource_prompt,
     delete_resource_prompt,
     describe_resource_prompt,
@@ -54,6 +60,9 @@ from vibectl.prompt import (
     vibe_autonomous_prompt,
     wait_resource_prompt,
 )
+from vibectl.schema import LLMCommandResponse
+
+_TEST_SCHEMA_JSON = json.dumps(LLMCommandResponse.model_json_schema())
 
 
 def test_refresh_datetime() -> None:
@@ -193,140 +202,84 @@ def test_prompt_structure(
     assert required_placeholder in result  # Required placeholder
 
 
-@pytest.mark.parametrize(
-    "prompt,required_elements",
-    [
-        (
-            PLAN_GET_PROMPT,
-            {
-                "placeholder": "__REQUEST_PLACEHOLDER__",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "list of arguments *following* 'kubectl get'",
-                    "Do NOT include 'kubectl' or 'get' itself in the list of arguments",
-                    "respond with a JSON object matching the provided schema",
-                    '"$ref": "#/$defs/ActionType"',
-                ],
-                "examples": [
-                    'Request: "show me pods in kube-system" -> Commands: ["pods", "-n", "kube-system"]'
-                ],
-            },
-        ),
-        (
-            PLAN_DESCRIBE_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'describe'",
-                ],
-                "examples": [
-                    "tell me about the nginx pod",
-                    "describe the deployment in kube-system namespace",
-                ],
-            },
-        ),
-        (
-            PLAN_LOGS_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'logs'",
-                ],
-                "examples": [
-                    "show me logs from the nginx pod",
-                    "get logs from the api container in my-app pod",
-                ],
-            },
-        ),
-        (
-            PLAN_CREATE_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return the list of arguments",
-                    "Do not include 'kubectl' or 'create'",
-                ],
-                "examples": [
-                    "create an nginx hello world pod",
-                    "create a deployment with 3 nginx replicas in prod namespace",
-                ],
-            },
-        ),
-        (
-            PLAN_CLUSTER_INFO_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'cluster-info'",
-                ],
-                "examples": [
-                    "show cluster info",
-                    "show basic cluster info",
-                ],
-            },
-        ),
-        (
-            PLAN_VERSION_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'version'",
-                ],
-                "examples": [
-                    "show version in json format",
-                    "get client version only",
-                ],
-            },
-        ),
-        (
-            PLAN_EVENTS_PROMPT,
-            {
-                "placeholder": "{request}",
-                "required_phrases": [
-                    "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'get events'",
-                ],
-                "examples": [
-                    "show events in default namespace",
-                    "get events for pod nginx",
-                ],
-            },
-        ),
-    ],
-)
-def test_plan_prompts(prompt: str, required_elements: dict) -> None:
-    """Test structure and content of various planning prompts."""
+def test_create_planning_prompt_structure_and_content() -> None:
+    """Verify the structure and content generated by create_planning_prompt."""
+    command = "test-cmd"
+    description = "testing the command"
+    examples = [
+        ("request 1", ["arg1", "val1"]),
+        ("request 2", ["arg2", "--flag"]),
+    ]
+
+    prompt = create_planning_prompt(
+        command=command,
+        description=description,
+        examples=examples,
+        schema_definition=_TEST_SCHEMA_JSON
+    )
+
+    # Basic checks
     assert isinstance(prompt, str)
     assert len(prompt) > 100
 
-    # Check for required placeholder
-    placeholder = required_elements.get("placeholder")
-    # Handle the new placeholder used for schema prompts
-    if "__REQUEST_PLACEHOLDER__" in prompt:
-        assert "__REQUEST_PLACEHOLDER__" in prompt, (
-            f"Missing __REQUEST_PLACEHOLDER__ in {prompt[:50]}..."
+    # Verify inclusion of dynamic parts
+    assert f"kubectl {command} command arguments" in prompt
+    assert description in prompt
+    assert _TEST_SCHEMA_JSON in prompt # Check schema is included
+
+    # Verify placeholders
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
+    assert "__REQUEST_PLACEHOLDER__" in prompt
+
+    # Verify example formatting
+    assert '- Request: "request 1" -> Commands: [\'arg1\', \'val1\']' in prompt
+    assert '- Request: "request 2" -> Commands: [\'arg2\', \'--flag\']' in prompt
+
+    # Verify key instructions related to schema fields are present
+    assert "`action_type`" in prompt
+    assert "`commands`: List of string arguments" in prompt
+    assert "`explanation`: Optional clarification" in prompt
+    assert "`error`: Required if action_type is ERROR" in prompt
+    assert "`wait_duration_seconds`: Required if action_type is WAIT" in prompt
+
+def test_create_planning_prompt_raises_without_schema() -> None:
+    """Verify create_planning_prompt raises ValueError if schema is missing."""
+    with pytest.raises(ValueError, match="schema_definition must be provided"):
+        create_planning_prompt(
+            command="test",
+            description="test",
+            examples=[],
+            schema_definition=None # Explicitly pass None
         )
-    elif placeholder:
-        assert placeholder in prompt, f"Missing {placeholder} in {prompt[:50]}..."
 
-    # Check for required phrases
-    for phrase in required_elements.get("required_phrases", []):
-        assert phrase in prompt, f"Missing phrase '{phrase}' in {prompt[:50]}..."
+@pytest.mark.parametrize(
+    "plan_prompt_constant",
+    [
+        PLAN_GET_PROMPT,
+        PLAN_DESCRIBE_PROMPT,
+        PLAN_LOGS_PROMPT,
+        PLAN_VERSION_PROMPT,
+        PLAN_CLUSTER_INFO_PROMPT,
+        PLAN_EVENTS_PROMPT,
+        PLAN_DELETE_PROMPT,
+        PLAN_SCALE_PROMPT,
+        PLAN_WAIT_PROMPT,
+        PLAN_ROLLOUT_PROMPT,
+        PLAN_PORT_FORWARD_PROMPT,
+    ]
+)
+def test_plan_prompt_constants_are_generated(plan_prompt_constant: str) -> None:
+    """Verify that the PLAN_*_PROMPT constants are non-empty strings."""
+    assert isinstance(plan_prompt_constant, str)
+    assert len(plan_prompt_constant) > 0
+    # Optionally add a very basic check common to all create_planning_prompt outputs
+    assert "JSON object matching the provided schema" in plan_prompt_constant
 
-    # Check for example presence (basic check)
-    for example in required_elements.get("examples", []):
-        assert example in prompt, f"Missing example '{example}' in {prompt[:50]}..."
-
+def test_plan_create_prompt_structure() -> None:
+     """Basic structural check for the unique PLAN_CREATE_PROMPT."""
+     assert isinstance(PLAN_CREATE_PROMPT, str)
+     assert "__REQUEST_PLACEHOLDER__" in PLAN_CREATE_PROMPT
+     assert "YAML manifest" in PLAN_CREATE_PROMPT # Check for create-specific content
 
 def test_memory_update_prompt() -> None:
     """Test memory update prompt with config-provided max chars limit."""
