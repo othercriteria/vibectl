@@ -7,13 +7,14 @@ position in the final command.
 
 from collections.abc import Generator
 from unittest.mock import MagicMock, Mock, patch
+import json
 
 import pytest
 
 from vibectl.command_handler import (
     handle_vibe_request,
 )
-from vibectl.types import OutputFlags, Success
+from vibectl.types import OutputFlags, Success, ActionType
 
 
 @pytest.fixture
@@ -73,8 +74,13 @@ def test_handle_vibe_request_kubeconfig_handling(
         model_name="claude-3-sonnet",
     )
 
-    # Set up the model to return a command
-    mock_model_adapter.return_value.execute.return_value = "get pods"
+    # Set up the model to return a command as JSON
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods"],
+        "explanation": "Getting pods",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
 
     # Configure _process_command_string to return a clean command
     with patch(
@@ -91,7 +97,7 @@ def test_handle_vibe_request_kubeconfig_handling(
             # call run_kubectl
             with patch(
                 "vibectl.command_handler._execute_command",
-                side_effect=lambda args, yaml_content: mock_run_kubectl(
+                side_effect=lambda command, args, stdin: mock_run_kubectl(
                     args, capture=True
                 )
                 or Success(data="pods data"),

@@ -7,6 +7,7 @@ prefixes like 'kubectl' or 'vibe'.
 
 from collections.abc import Generator
 from unittest.mock import Mock, patch
+import json
 
 import pytest
 
@@ -15,6 +16,7 @@ from vibectl.command_handler import (
     _process_command_string,
     handle_vibe_request,
 )
+from vibectl.types import ActionType
 
 
 @pytest.fixture
@@ -80,8 +82,13 @@ def test_handle_vibe_request_with_clean_command(
     mock_console: Mock,
 ) -> None:
     """Test that handle_vibe_request works with clean commands without prefixes."""
-    # Configure model adapter to return a clean command
-    mock_model_adapter.return_value.execute.return_value = "pod/nginx 8080:80"
+    # Configure model adapter to return a clean command as JSON
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pod/nginx", "8080:80"],
+        "explanation": "Port forwarding nginx.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
 
     # Configure _process_command_string to return a clean command
     with patch(
@@ -123,10 +130,13 @@ def test_handle_vibe_request_with_namespace_flag(
     mock_console: Mock,
 ) -> None:
     """Test that handle_vibe_request works with commands containing flags."""
-    # Configure model adapter to return a command with flags
-    mock_model_adapter.return_value.execute.return_value = (
-        "pod/nginx 8080:80 --namespace default"
-    )
+    # Configure model adapter to return a command with flags as JSON
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pod/nginx", "8080:80", "--namespace", "default"],
+        "explanation": "Port forwarding nginx in default namespace.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
 
     # Configure _process_command_string to return a clean command
     with patch(
@@ -180,8 +190,13 @@ def test_handle_vibe_request_with_multiple_port_mappings(
     mock_console: Mock,
 ) -> None:
     """Test that handle_vibe_request works with multiple port mappings."""
-    # Configure model adapter to return a command with multiple port mappings
-    mock_model_adapter.return_value.execute.return_value = "pod/nginx 8080:80 9090:9000"
+    # Configure model adapter to return a command with multiple port mappings as JSON
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pod/nginx", "8080:80", "9090:9000"],
+        "explanation": "Port forwarding nginx with multiple ports.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
 
     # Configure _process_command_string to return a clean command
     with patch(

@@ -6,7 +6,7 @@ ensuring clear and visually meaningful summaries of Kubernetes resources.
 """
 
 import datetime
-from typing import Optional, Type, List, Tuple
+import json
 
 from .config import Config
 
@@ -60,7 +60,7 @@ def create_planning_prompt(
     description: str,
     examples: list[tuple[str, str]],
     flags: str = "-n, --selector, etc.",
-    schema_definition: Optional[str] = None,
+    schema_definition: str | None = None,
 ) -> str:
     """Create a standard planning prompt for kubectl commands.
 
@@ -219,18 +219,20 @@ with matched closing tags:
 
 # Template for planning kubectl get commands
 from .schema import LLMCommandResponse
-# Generate schema only once
-_GET_SCHEMA_JSON = LLMCommandResponse.schema_json(indent=2)
+
+# Pre-generate the JSON schema string for the LLMCommandResponse model
+# Use model_json_schema() for Pydantic V2 compatibility
+_GET_SCHEMA_JSON = json.dumps(LLMCommandResponse.model_json_schema(), indent=2)
 
 PLAN_GET_PROMPT = create_planning_prompt(
     command="get",
     description="Kubernetes resources",
-    examples=[ # Examples are now embedded directly in the prompt logic
-        ("show me pods in kube-system", 'pods\n-n\nkube-system'),
-        ("get pods with app=nginx label", 'pods\n--selector=app=nginx'),
-        ("show me all pods in every namespace", 'pods\n--all-namespaces'),
+    examples=[  # Examples are now embedded directly in the prompt logic
+        ("show me pods in kube-system", "pods\n-n\nkube-system"),
+        ("get pods with app=nginx label", "pods\n--selector=app=nginx"),
+        ("show me all pods in every namespace", "pods\n--all-namespaces"),
     ],
-    schema_definition=_GET_SCHEMA_JSON
+    schema_definition=_GET_SCHEMA_JSON,
 )
 
 

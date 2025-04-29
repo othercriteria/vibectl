@@ -12,12 +12,13 @@ The tests verify:
 
 from collections.abc import Generator
 from unittest.mock import Mock, patch
+import json
 
 import pytest
 
 from vibectl.command_handler import handle_vibe_request
 from vibectl.model_adapter import LLMModelAdapter
-from vibectl.types import Error, Success
+from vibectl.types import Error, Success, ActionType
 
 
 @pytest.fixture
@@ -51,8 +52,14 @@ def test_recovery_suggestions_not_in_memory(
     # Setup
     mock_model = Mock()
     mock_get_model.return_value = mock_model
+    # Update planning step to return JSON
+    expected_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pods"],
+        "explanation": "Get pods",
+    }
     mock_llm_execute.side_effect = [
-        "get pods",  # Planning phase
+        json.dumps(expected_plan),
         "Error occurred: Pod not found",  # Recovery suggestions
     ]
     mock_execute.return_value = Error(error="Pod not found", exception=None)
@@ -92,8 +99,14 @@ def test_recovery_suggestions_should_update_memory(
     # Setup
     mock_model = Mock()
     mock_get_model.return_value = mock_model
+    # Update planning step to return JSON
+    expected_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pods"],
+        "explanation": "Get pods",
+    }
     mock_llm_execute.side_effect = [
-        "get pods",  # Planning phase
+        json.dumps(expected_plan),
         "Error occurred: Pod not found",  # Recovery suggestions
     ]
     mock_execute.return_value = Error(error="Pod not found", exception=None)
@@ -145,10 +158,16 @@ def test_recovery_suggestions_in_auto_mode(
     # Setup
     mock_model = Mock()
     mock_get_model.return_value = mock_model
+    # Update planning step to return JSON
+    expected_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pods"],
+        "explanation": "Get pods",
+    }
     mock_llm_execute.side_effect = [
-        "get pods",  # First command planning
+        json.dumps(expected_plan),  # First command planning
         "Error occurred: Pod not found",  # Recovery suggestions
-        "get pods --namespace default",  # Second command planning
+        "get pods --namespace default",  # Second command planning (remains string)
     ]
     mock_execute.side_effect = [
         Error(error="Pod not found", exception=None),

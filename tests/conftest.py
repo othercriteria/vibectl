@@ -310,7 +310,11 @@ def mock_llm() -> Generator[MagicMock, None, None]:
         mock_adapter.get_model = Mock(side_effect=get_model)
 
         # Set up the adapter's execute method to handle different test scenarios
-        def adapter_execute(model: Mock, prompt_text: str) -> str:
+        def adapter_execute(model: Mock, prompt_text: str, **kwargs: Any) -> str:
+            """Simulate execution, return text or error, accept extra kwargs."""
+            # Check for forced error attribute on the mock model
+            if isinstance(model, Mock) and hasattr(model, "force_error"):
+                return "ERROR: Test error"
             response = model.prompt(prompt_text)
             if hasattr(response, "text"):
                 from typing import Protocol, cast

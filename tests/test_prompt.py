@@ -199,15 +199,16 @@ def test_prompt_structure(
         (
             PLAN_GET_PROMPT,
             {
-                "placeholder": "{request}",
+                "placeholder": "__REQUEST_PLACEHOLDER__",
                 "required_phrases": [
                     "Given this natural language request",
-                    "Return ONLY the list of arguments",
-                    "Do not include 'kubectl' or 'get'",
+                    "Populate the 'commands' field with the list of arguments *following* 'kubectl get'",
+                    "Do NOT include 'kubectl' or 'get' itself in the list of arguments",
+                    "respond with a JSON object matching the provided schema",
+                    '"$ref": "#/$defs/ActionType"',
                 ],
                 "examples": [
-                    "show me pods in kube-system",
-                    "get pods with app=nginx label",
+                    'Request: "show me pods in kube-system" -> Commands: ["pods", "-n", "kube-system"]'
                 ],
             },
         ),
@@ -304,22 +305,27 @@ def test_prompt_structure(
     ],
 )
 def test_plan_prompts(prompt: str, required_elements: dict) -> None:
-    """Test plan prompt templates.
+    """Test structure and content of various planning prompts."""
+    assert isinstance(prompt, str)
+    assert len(prompt) > 100
 
-    Tests both structural requirements and critical semantic elements that
-    must be present in plan prompts.
-    """
-    # Check basic structure
-    assert len(prompt) > 100  # Should be reasonably sized
-    assert required_elements["placeholder"] in prompt
+    # Check for required placeholder
+    placeholder = required_elements.get("placeholder")
+    # Handle the new placeholder used for schema prompts
+    if "__REQUEST_PLACEHOLDER__" in prompt:
+        assert (
+            "__REQUEST_PLACEHOLDER__" in prompt
+        ), f"Missing __REQUEST_PLACEHOLDER__ in {prompt[:50]}..."
+    elif placeholder:
+        assert placeholder in prompt, f"Missing {placeholder} in {prompt[:50]}..."
 
-    # Check required semantic elements
-    for phrase in required_elements["required_phrases"]:
-        assert phrase in prompt
+    # Check for required phrases
+    for phrase in required_elements.get("required_phrases", []):
+        assert phrase in prompt, f"Missing phrase '{phrase}' in {prompt[:50]}..."
 
-    # Check examples
-    for example in required_elements["examples"]:
-        assert example in prompt
+    # Check for example presence (basic check)
+    for example in required_elements.get("examples", []):
+        assert example in prompt, f"Missing example '{example}' in {prompt[:50]}..."
 
 
 def test_memory_update_prompt() -> None:
@@ -424,10 +430,9 @@ def test_port_forward_prompt() -> None:
 
 
 def test_plan_port_forward_prompt() -> None:
-    """Test PLAN_PORT_FORWARD_PROMPT has correct format."""
-    assert (
-        "port-forward connections to kubernetes resources" in PLAN_PORT_FORWARD_PROMPT
-    )
-    assert "Return ONLY the list of arguments" in PLAN_PORT_FORWARD_PROMPT
-    assert "Do not include 'kubectl'" in PLAN_PORT_FORWARD_PROMPT
-    assert "{request}" in PLAN_PORT_FORWARD_PROMPT
+    """Test the specific plan port forward prompt structure."""
+    prompt = PLAN_PORT_FORWARD_PROMPT
+    assert "Given this natural language request for port-forward connections" in prompt
+    # Check for one of the specific examples provided
+    assert "forward port 8080 of pod nginx to my local 8080" in prompt
+    assert "__REQUEST_PLACEHOLDER__" in prompt

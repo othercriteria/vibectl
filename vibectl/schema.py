@@ -1,7 +1,7 @@
 """Defines Pydantic models for structured LLM responses."""
-from typing import List, Optional, Dict, Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
+from pydantic_core.core_schema import ValidationInfo
 
 from .types import ActionType
 
@@ -12,56 +12,81 @@ class LLMCommandResponse(BaseModel):
     action_type: ActionType = Field(
         ..., description="The type of action the LLM wants to perform."
     )
-    commands: Optional[List[str]] = Field(
+    commands: list[str] | None = Field(
         None,
         description=(
             "List of command parts (arguments) for kubectl. Required if action_type is"
             " COMMAND."
         ),
     )
-    explanation: Optional[str] = Field(
+    explanation: str | None = Field(
         None, description="Textual explanation or feedback from the LLM."
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         None,
         description=(
             "Error message if the LLM encountered an issue or refused the request."
             " Required if action_type is ERROR."
         ),
     )
-    wait_duration_seconds: Optional[int] = Field(
+    wait_duration_seconds: int | None = Field(
         None,
         description="Duration in seconds to wait. Required if action_type is WAIT.",
     )
 
-    @validator("commands", always=True)
-    def check_commands(cls, v: Optional[List[str]], values: Dict[str, Any]) -> Optional[List[str]]:
+    @field_validator("commands", mode="before")
+    @classmethod
+    def check_commands(
+        cls, v: list[str] | None, info: ValidationInfo
+    ) -> list[str] | None:
         """Validate commands field based on action_type."""
-        action_type = values.get("action_type")
-        if action_type == ActionType.COMMAND and not v:
-            raise ValueError("commands is required when action_type is COMMAND")
+        if "action_type" in info.data:
+            action_type_str = info.data["action_type"]
+            try:
+                action_type = ActionType(action_type_str)
+                if action_type == ActionType.COMMAND and not v:
+                    raise ValueError("commands is required when action_type is COMMAND")
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid action_type provided: {action_type_str}"
+                ) from e
         return v
 
-    @validator("error", always=True)
-    def check_error(cls, v: Optional[str], values: Dict[str, Any]) -> Optional[str]:
+    @field_validator("error", mode="before")
+    @classmethod
+    def check_error(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate error field based on action_type."""
-        action_type = values.get("action_type")
-        if action_type == ActionType.ERROR and not v:
-            raise ValueError("error is required when action_type is ERROR")
+        if "action_type" in info.data:
+            action_type_str = info.data["action_type"]
+            try:
+                action_type = ActionType(action_type_str)
+                if action_type == ActionType.ERROR and not v:
+                    raise ValueError("error is required when action_type is ERROR")
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid action_type provided: {action_type_str}"
+                ) from e
         return v
 
-    @validator("wait_duration_seconds", always=True)
-    def check_wait_duration(
-        cls, v: Optional[int], values: Dict[str, Any]
-    ) -> Optional[int]:
+    @field_validator("wait_duration_seconds", mode="before")
+    @classmethod
+    def check_wait_duration(cls, v: int | None, info: ValidationInfo) -> int | None:
         """Validate wait_duration_seconds field based on action_type."""
-        action_type = values.get("action_type")
-        if action_type == ActionType.WAIT and v is None:
-            raise ValueError(
-                "wait_duration_seconds is required when action_type is WAIT"
-            )
+        if "action_type" in info.data:
+            action_type_str = info.data["action_type"]
+            try:
+                action_type = ActionType(action_type_str)
+                if action_type == ActionType.WAIT and v is None:
+                    raise ValueError(
+                        "wait_duration_seconds is required when action_type is WAIT"
+                    )
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid action_type provided: {action_type_str}"
+                ) from e
         return v
 
-    class Config:
-        # Use enum values in the schema
-        use_enum_values = True 
+    model_config = {
+        "use_enum_values": True,
+        "extra": "ignore",
+    }

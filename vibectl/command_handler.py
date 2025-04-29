@@ -8,13 +8,12 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-from collections.abc import Callable
-from typing import Any, Optional
-import subprocess
-import json
 import time
+from collections.abc import Callable
+from json import JSONDecodeError
 
 import click
+from pydantic import ValidationError
 from rich.panel import Panel
 from rich.table import Table
 
@@ -34,7 +33,7 @@ from .live_display import (
 )
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
-from .model_adapter import ModelAdapter, get_model_adapter
+from .model_adapter import get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
     memory_fuzzy_update_prompt,
@@ -42,11 +41,9 @@ from .prompt import (
     recovery_prompt,
     wait_resource_prompt,
 )
-from .types import Error, OutputFlags, Result, Success, ActionType
-from .utils import console_manager
 from .schema import LLMCommandResponse
-from pydantic import ValidationError
-from json import JSONDecodeError
+from .types import ActionType, Error, OutputFlags, Result, Success
+from .utils import console_manager
 
 logger = _logger
 
@@ -490,7 +487,7 @@ def handle_vibe_request(
         # ---- START JSON Schema Handling ----
         try:
             # Get the schema dictionary from the Pydantic model
-            json_schema_dict = LLMCommandResponse.schema()
+            json_schema_dict = LLMCommandResponse.model_json_schema()
 
             # Execute the prompt with the schema
             llm_output_string = model_adapter.execute(
@@ -499,27 +496,30 @@ def handle_vibe_request(
 
             # Check for empty or potentially schema-related error string from adapter
             if not llm_output_string or (
-                ("schema" in llm_output_string.lower() or "json" in llm_output_string.lower())
+                (
+                    "schema" in llm_output_string.lower()
+                    or "json" in llm_output_string.lower()
+                )
                 and "error" in llm_output_string.lower()
             ):
                 logger.error(
                     "LLM failed to return valid JSON matching the schema. Output: %s",
-                    llm_output_string
+                    llm_output_string,
                 )
                 console_manager.print_error(
                     "The AI failed to generate a valid structured response."
                 )
                 return Error(
                     error="LLM did not return valid JSON according to schema",
-                    recovery_suggestions=llm_output_string # Pass raw output as suggestion
+                    recovery_suggestions=llm_output_string,  # Pass raw output as suggestion
                 )
 
             # Parse and validate the JSON response
-            response = LLMCommandResponse.parse_raw(llm_output_string)
+            response = LLMCommandResponse.model_validate_json(llm_output_string)
             logger.debug(f"Parsed LLM response object: {response}")
 
             # --- Explicit Enum Conversion --- #
-            action_type_str = response.action_type # This is currently a string
+            action_type_str = response.action_type  # This is currently a string
             try:
                 # Convert the string to the actual ActionType enum member
                 validated_action_type = ActionType(action_type_str)
@@ -541,17 +541,23 @@ def handle_vibe_request(
                 "Failed to parse/validate LLM JSON response: %s\nRaw output: %s",
                 e,
                 llm_output_string,
-                exc_info=True
+                exc_info=True,
             )
-            console_manager.print_error("Failed to understand the AI's response format.")
+            console_manager.print_error(
+                "Failed to understand the AI's response format."
+            )
             # MVP: Return error, include raw output in recovery suggestions
             return Error(
                 error=f"Invalid JSON response from LLM: {e}",
-                recovery_suggestions=llm_output_string
+                recovery_suggestions=llm_output_string,
             )
         except Exception as e:
-            logger.error("Unexpected error during LLM schema execution: %s", e, exc_info=True)
-            return Error(error=f"Unexpected error processing LLM response: {e}", exception=e)
+            logger.error(
+                "Unexpected error during LLM schema execution: %s", e, exc_info=True
+            )
+            return Error(
+                error=f"Unexpected error processing LLM response: {e}", exception=e
+            )
         # Display explanation if provided
         if response.explanation:
             console_manager.print_note(f"AI Explanation: {response.explanation}")
@@ -562,12 +568,16 @@ def handle_vibe_request(
             if not response.commands:
                 # Should be caught by Pydantic validation, but double-check
                 logger.error("ActionType is COMMAND but no commands provided.")
-                return Error(error="Internal error: LLM returned COMMAND action without commands.")
+                return Error(
+                    error="Internal error: LLM returned COMMAND action without commands."
+                )
 
             # Convert command parts list to a single string for downstream processing
             # Assuming space separation works for `get` command args for now
             kubectl_cmd_str = " ".join(response.commands)
-            logger.info(f"LLM planned command parts: {response.commands} -> Executing: {kubectl_cmd_str}")
+            logger.info(
+                f"LLM planned command parts: {response.commands} -> Executing: {kubectl_cmd_str}"
+            )
 
             # Process the command string generated by the LLM
             result = _process_and_execute_kubectl_command(
@@ -586,7 +596,9 @@ def handle_vibe_request(
             if not response.error:
                 # Should be caught by Pydantic validation
                 logger.error("ActionType is ERROR but no error message provided.")
-                return Error(error="Internal error: LLM returned ERROR action without message.")
+                return Error(
+                    error="Internal error: LLM returned ERROR action without message."
+                )
             # Use existing error handling logic
             logger.info(f"LLM returned planning error: {response.error}")
             # Pass the error string directly (it already includes the 'ERROR: ' prefix convention)
@@ -598,11 +610,15 @@ def handle_vibe_request(
             if response.wait_duration_seconds is None:
                 # Should be caught by Pydantic validation
                 logger.error("ActionType is WAIT but no duration provided.")
-                return Error(error="Internal error: LLM returned WAIT action without duration.")
+                return Error(
+                    error="Internal error: LLM returned WAIT action without duration."
+                )
 
             duration = response.wait_duration_seconds
             logger.info(f"LLM requested WAIT for {duration} seconds.")
-            console_manager.print_processing(f"Waiting for {duration} seconds as requested by AI...")
+            console_manager.print_processing(
+                f"Waiting for {duration} seconds as requested by AI..."
+            )
             time.sleep(duration)
             # Return success, indicating the requested action (waiting) was performed
             result = Success(message=f"Waited for {duration} seconds.")
@@ -622,7 +638,7 @@ def handle_vibe_request(
             )
             result = Error(
                 error=f"Internal error: Unknown or mismatched ActionType: "
-                      f"{validated_action_type}"
+                f"{validated_action_type}"
             )
         # ---- END JSON Schema Handling ----
         # If there was an error during command execution (not planning), query for recovery
@@ -721,9 +737,13 @@ def _process_and_execute_kubectl_command(
 
     # Parse the command string
     try:
+        logger.debug("Parsing command string...")
         cmd_args, yaml_content = _process_command_string(kubectl_cmd)
+        logger.debug(f"Parsed cmd_args: {cmd_args}, yaml_content: {yaml_content is not None}")
         args = _parse_command_args(cmd_args)
+        logger.debug(f"Parsed args: {args}")
         display_cmd = _create_display_command(args, yaml_content)
+        logger.debug(f"Created display command: {display_cmd}")
     except ValueError as ve:
         logger.error("Command parsing error: %s", ve, exc_info=True)
         console_manager.print_error(f"Command parsing error: {ve}")
@@ -731,6 +751,10 @@ def _process_and_execute_kubectl_command(
 
     # Determine if confirmation is needed
     needs_confirm = _needs_confirmation(command, semiauto) and not yes
+    logger.debug(f"Needs confirmation: {needs_confirm}")
+
+    # Check if any output will be shown using the original flags BEFORE modifying them
+    _check_output_visibility(output_flags)
 
     # Set a flag to prevent duplicate command display in output handling
     show_command_now = output_flags.show_kubectl or needs_confirm
@@ -771,7 +795,9 @@ def _process_and_execute_kubectl_command(
     logger.info(f"Executing command: {command} {display_cmd}")
 
     # Handle live display for specific command types
+    logger.debug(f"Checking for live display: command={command}, live_display={live_display}")
     if command == "wait" and live_display and len(args) > 0 and args[0] == "wait":
+        logger.debug("Dispatching to handle_wait_with_live_display")
         # Get the resource and args from the parsed command
         resource = args[1] if len(args) > 1 else ""
         wait_args = tuple(args[2:]) if len(args) > 2 else ()
@@ -791,6 +817,7 @@ def _process_and_execute_kubectl_command(
         and len(args) > 0
         and args[0] == "port-forward"
     ):
+        logger.debug("Dispatching to handle_port_forward_with_live_display")
         resource = args[1] if len(args) > 1 else ""
         port_args = tuple(args[2:]) if len(args) > 2 else ()
 
@@ -805,13 +832,11 @@ def _process_and_execute_kubectl_command(
     # Execute the standard kubectl command
     try:
         if yaml_content:
-            logger.debug("Executing command with YAML content")
-            logger.info(f"Executing kubectl command: {args} (yaml: True)")
+            logger.debug("Calling _execute_command with YAML content")
             # Pass the original command verb along
             result = _execute_command(command, args, yaml_content)
         else:
-            logger.debug("Executing standard command")
-            logger.info(f"Executing kubectl command: {args} (yaml: False)")
+            logger.debug("Calling _execute_command without YAML content")
             # Pass the original command verb along
             result = _execute_command(command, args, None)
 

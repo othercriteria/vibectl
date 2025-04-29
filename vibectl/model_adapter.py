@@ -9,7 +9,7 @@ from the details of model interaction.
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, cast, runtime_checkable, Optional, Dict
+from typing import Any, Protocol, cast, runtime_checkable
 
 import llm
 
@@ -49,7 +49,7 @@ class ModelAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute(self, model: Any, prompt_text: str, schema: Optional[Dict] = None) -> str:
+    def execute(self, model: Any, prompt_text: str, schema: dict | None = None) -> str:
         """Execute a prompt on the model and get a response.
 
         Args:
@@ -239,7 +239,7 @@ class LLMModelAdapter(ModelAdapter):
                 )
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
-    def execute(self, model: Any, prompt_text: str, schema: Optional[Dict] = None) -> str:
+    def execute(self, model: Any, prompt_text: str, schema: dict | None = None) -> str:
         """Execute a prompt on the model and get a response.
 
         Args:
@@ -269,12 +269,14 @@ class LLMModelAdapter(ModelAdapter):
                     # Pass schema directly to the underlying llm call
                     response = model.prompt(prompt_text, schema=schema)
                     logger.debug(
-                        "Model '%s' prompt executed successfully with schema", model_name
+                        "Model '%s' prompt executed successfully with schema",
+                        model_name,
                     )
                 else:
                     response = model.prompt(prompt_text)
                     logger.debug(
-                        "Model '%s' prompt executed successfully without schema", model_name
+                        "Model '%s' prompt executed successfully without schema",
+                        model_name,
                     )
 
                 if hasattr(response, "text"):

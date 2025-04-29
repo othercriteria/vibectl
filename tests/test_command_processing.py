@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+import json
 
 from vibectl.command_handler import (
     _create_display_command,
@@ -12,7 +13,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.k8s_utils import run_kubectl_with_yaml
-from vibectl.types import OutputFlags
+from vibectl.types import OutputFlags, Success, ActionType
 
 
 def test_process_command_string_basic() -> None:
@@ -131,14 +132,16 @@ def test_execute_command_with_spaces(
 
     # Run the command using the dispatcher in command_handler
     html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
+    # The command itself is the first argument for _execute_command
+    command = "create"
     args = [
-        "create",
         "configmap",
         "nginx-config",
         f"--from-literal=index.html={html_content}",
     ]
     # Store output but not used in assertions
-    _ = _execute_command(args, None)
+    # Pass command and args separately, and add yaml_content=None
+    _ = _execute_command(command=command, args=args, yaml_content=None)
 
     # Verify subprocess.run (mocked in k8s_utils) was called
     mock_subprocess_run.assert_called_once()
@@ -179,7 +182,19 @@ def test_execute_command_integration_with_spaces(
             mock_adapter = Mock()
             mock_model = Mock()
             mock_adapter.get_model.return_value = mock_model
-            mock_adapter.execute.return_value = cmd_str
+            # Update mock to return JSON
+            command_parts = [
+                "create",
+                "configmap",
+                "nginx-config",
+                f'--from-literal=index.html="{html}"'
+            ]
+            expected_response_plan = {
+                "action_type": ActionType.COMMAND.value,
+                "commands": command_parts,
+                "explanation": "Creating configmap with HTML.",
+            }
+            mock_adapter.execute.return_value = json.dumps(expected_response_plan)
             mock_get_adapter.return_value = mock_adapter
 
             # Call handle_vibe_request directly
@@ -272,19 +287,34 @@ def test_handle_vibe_request_with_heredoc_integration(
     mock_adapter.get_model.return_value = mock_model
     mock_get_adapter.return_value = mock_adapter
 
-    # Simulate model response with heredoc syntax
-    heredoc_cmd = (
-        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
-        "metadata:\n  name: nginx-deployment\nspec:\n  replicas: 3\n"
-        "  selector:\n    matchLabels:\n      app: nginx\n  template:\n"
-        "    metadata:\n      labels:\n        app: nginx\n    spec:\n"
-        "      containers:\n      - name: nginx\n"
-        "        image: nginx:latest\n"
-        "        ports:\n        - containerPort: 80\nEOF"
-    )
-    mock_adapter.execute.return_value = heredoc_cmd
+    # Simulate model response with heredoc syntax by constructing the JSON
+    yaml_content = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80"""
+    expected_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["create", "-f", "-", "---", yaml_content],
+        "explanation": "Creating deployment via heredoc.",
+    }
+    mock_adapter.execute.return_value = json.dumps(expected_plan)
 
-    # Mock the subprocess call for create -f - instead of patching internals
+    # Mock the subprocess call for create -f -
     with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
         # Set up subprocess to return success
         mock_process = Mock()
@@ -350,19 +380,35 @@ def test_handle_vibe_request_with_heredoc_error_integration(
     mock_adapter.get_model.return_value = mock_model
     mock_get_adapter.return_value = mock_adapter
 
-    # Simulate model response with heredoc syntax
-    heredoc_cmd = (
-        "create -f - << EOF\napiVersion: apps/v1\nkind: Deployment\n"
-        "metadata:\n  name: nginx-deployment\nspec:\n  replicas: invalid-value\n"
-        "  selector:\n    matchLabels:\n      app: nginx\n  template:\n"
-        "    metadata:\n      labels:\n        app: nginx\n    spec:\n"
-        "      containers:\n      - name: nginx\n"
-        "        image: nginx:latest\n"
-        "        ports:\n        - containerPort: 80\nEOF"
-    )
+    # Simulate model response with heredoc syntax containing an error
+    yaml_content_error = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: invalid-value
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80"""
+    expected_plan_error = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["create", "-f", "-", "---", yaml_content_error],
+        "explanation": "Creating deployment via heredoc (with error).",
+    }
+
     # Set up the model to return both the command and recovery suggestions
     mock_adapter.execute.side_effect = [
-        heredoc_cmd,  # First call returns the command
+        json.dumps(expected_plan_error),  # First call returns the JSON command
         "Here are recovery suggestions",  # Second call returns recovery suggestions
     ]
 
@@ -488,59 +534,33 @@ def test_parse_command_args_robust() -> None:
 @patch("vibectl.k8s_utils.subprocess.Popen")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_stdin_command(mock_console: Mock, mock_popen: Mock) -> None:
-    """Test executing a command with stdin input (kubectl create -f -)."""
-    # Set up mock
+    """Test executing command with YAML content via stdin."""
+    # Mock Popen for k8s_utils
     mock_process = Mock()
     mock_process.returncode = 0
-    mock_process.communicate.return_value = (b"deployment.apps/nginx created", b"")
+    mock_process.communicate.return_value = (b"pod/my-pod created", b"")
     mock_popen.return_value = mock_process
 
-    # YAML content to use
-    yaml_content = """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx
-"""
+    yaml_content = "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: my-pod"
+    # Call _execute_command directly (dispatcher in command_handler)
+    result = _execute_command(
+        command="apply", args=["-f", "-"], yaml_content=yaml_content
+    )
 
-    # Call _execute_command with "create -f -" args
-    _ = _execute_command(["create", "-f", "-"], yaml_content)
+    # Assert subprocess.Popen was called correctly in k8s_utils
+    mock_popen.assert_called_once_with(
+        ["kubectl", "apply", "-f", "-"],
+        stdin=-1,  # subprocess.PIPE
+        stdout=-1,
+        stderr=-1,
+        text=False,
+    )
 
-    # Verify Popen was called with correct arguments
-    mock_popen.assert_called_once()
-    args, kwargs = mock_popen.call_args
-    assert args[0][0] == "kubectl"
-    assert args[0][1] == "create"
-    assert args[0][2] == "-f"
-    assert args[0][3] == "-"
-    assert "stdin" in kwargs
-    assert kwargs["stdout"] is not None
-    assert kwargs["stderr"] is not None
+    # Assert the input was passed to communicate
+    mock_process.communicate.assert_called_once_with(input=yaml_content)
 
-    # Extract the actual input passed to communicate
-    actual_input = mock_process.communicate.call_args[1]["input"]
-
-    # The actual input should now contain a '---' marker due to our preprocessing
-    assert b"---" in actual_input
-
-    # Verify the original YAML content is still present (without checking exact format)
-    assert b"apiVersion: apps/v1" in actual_input
-    assert b"kind: Deployment" in actual_input
-    assert b"name: nginx" in actual_input
-    assert b"replicas: 3" in actual_input
+    # Assert the result indicates success
+    assert isinstance(result, Success)
 
 
 @patch("vibectl.k8s_utils.subprocess.Popen")
@@ -548,61 +568,35 @@ spec:
 def test_execute_stdin_command_with_other_flags(
     mock_console: Mock, mock_popen: Mock
 ) -> None:
-    """Test executing a command with stdin input and additional flags."""
-    # Set up mock
+    """Test executing command with YAML content via stdin and other flags."""
+    # Mock Popen for k8s_utils
     mock_process = Mock()
     mock_process.returncode = 0
-    mock_process.communicate.return_value = (b"deployment.apps/nginx created", b"")
+    mock_process.communicate.return_value = (b"pod/my-pod created", b"")
     mock_popen.return_value = mock_process
 
-    # YAML content to use
-    yaml_content = """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx
-  namespace: test
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx
-"""
+    yaml_content = "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: my-pod"
+    # Test with additional flags like --namespace
+    result = _execute_command(
+        command="apply",
+        args=["-f", "-", "-n", "my-namespace"],
+        yaml_content=yaml_content,
+    )
 
-    # Call _execute_command with "create -n test -f -" args (different order)
-    _ = _execute_command(["create", "-n", "test", "-f", "-"], yaml_content)
+    # Assert subprocess.Popen was called correctly in k8s_utils
+    mock_popen.assert_called_once_with(
+        ["kubectl", "apply", "-f", "-", "-n", "my-namespace"],
+        stdin=-1,  # subprocess.PIPE
+        stdout=-1,
+        stderr=-1,
+        text=False,
+    )
 
-    # Verify Popen was called with correct arguments
-    mock_popen.assert_called_once()
-    args, kwargs = mock_popen.call_args
-    assert args[0][0] == "kubectl"
-    assert args[0][1] == "create"
-    assert args[0][2] == "-n"
-    assert args[0][3] == "test"
-    assert args[0][4] == "-f"
-    assert args[0][5] == "-"
-    assert "stdin" in kwargs
+    # Assert the input was passed to communicate
+    mock_process.communicate.assert_called_once_with(input=yaml_content)
 
-    # Extract the actual input passed to communicate
-    actual_input = mock_process.communicate.call_args[1]["input"]
-
-    # The actual input should now contain a '---' marker due to our preprocessing
-    assert b"---" in actual_input
-
-    # Verify the original YAML content is still present (without checking exact format)
-    assert b"apiVersion: apps/v1" in actual_input
-    assert b"kind: Deployment" in actual_input
-    assert b"name: nginx" in actual_input
-    assert b"namespace: test" in actual_input
-    assert b"replicas: 3" in actual_input
+    # Assert the result indicates success
+    assert isinstance(result, Success)
 
 
 @patch("vibectl.k8s_utils.subprocess.Popen")

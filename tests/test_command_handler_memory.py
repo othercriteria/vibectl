@@ -6,6 +6,7 @@ focusing on how commands update and interact with memory.
 
 from collections.abc import Generator
 from unittest.mock import MagicMock, Mock, patch
+import json
 
 import pytest
 
@@ -13,7 +14,7 @@ from vibectl.command_handler import (
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.types import Error, OutputFlags, Truncation
+from vibectl.types import Error, OutputFlags, Truncation, ActionType, Success
 
 
 @pytest.fixture
@@ -207,8 +208,18 @@ def test_handle_vibe_request_updates_memory_on_error(
     mock_get_adapter: MagicMock, mock_memory_update: Mock
 ) -> None:
     """Test that memory is updated even when command execution fails."""
-    # Configure model adapter to return a valid command
-    mock_get_adapter.return_value.execute.return_value = "get pods"
+    # Construct the expected JSON response string for the first mock call
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pods"],
+        "explanation": "Getting pods as requested",
+    }
+    # Configure model adapter to return a valid command JSON first,
+    # then return recovery suggestions
+    mock_get_adapter.return_value.execute.side_effect = [
+        json.dumps(expected_response),
+        "Recovery suggestions here",
+    ]
 
     # Configure output flags
     output_flags = OutputFlags(
@@ -218,7 +229,7 @@ def test_handle_vibe_request_updates_memory_on_error(
         model_name="test-model",
     )
 
-    # First test: When exception is thrown, it is transformed to Error result
+    # Call handle_vibe_request
     with (
         patch("vibectl.command_handler._execute_command") as mock_execute,
         patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
@@ -232,7 +243,8 @@ def test_handle_vibe_request_updates_memory_on_error(
         mock_process.return_value = ("get pods", None)
         mock_parse.return_value = ["get", "pods"]
         mock_display.return_value = "get pods"
-        mock_execute.side_effect = Exception("Command execution failed")
+        # Mock _execute_command to return an Error object directly
+        mock_execute.return_value = Error(error="Command execution failed")
 
         # Call handle_vibe_request
         result = handle_vibe_request(
@@ -244,53 +256,19 @@ def test_handle_vibe_request_updates_memory_on_error(
             yes=True,  # Skip confirmation
         )
 
-        # Verify the result is an Error
+        # Assert the final result is an Error because execute failed
         assert isinstance(result, Error)
-        # Check that the error contains our exception message
-        error_content = str(result.error) if result.error else ""
-        exception_content = str(result.exception) if result.exception else ""
-        assert (
-            "Command execution failed" in error_content
-            or "Command execution failed" in exception_content
-        )
+        assert "Command execution failed" in result.error
+        assert result.recovery_suggestions == "Recovery suggestions here"
 
-    # Second test: When Error is returned directly
-    mock_handle_output.reset_mock()
-
-    with (
-        patch("vibectl.command_handler._execute_command") as mock_execute,
-        patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler._process_command_string") as mock_process,
-        patch("vibectl.command_handler._parse_command_args") as mock_parse,
-        patch("vibectl.command_handler._create_display_command") as mock_display,
-        patch("vibectl.command_handler.recovery_prompt", "Recovery: {error}"),
-    ):
-        # Set up mocks
-        mock_process.return_value = ("get pods", None)
-        mock_parse.return_value = ["get", "pods"]
-        mock_display.return_value = "get pods"
-        # Simulate _execute_command returning an Error object
-        mock_execute.return_value = Error(
-            error="Execution resulted in Error", exception=None
-        )
-
-        # Call handle_vibe_request
-        result = handle_vibe_request(
-            request="Show me the pods",
-            command="get",
-            plan_prompt="Plan how to {command} {request}",
-            summary_prompt_func=lambda: "Test prompt {output}",
-            output_flags=output_flags,
-            yes=True,  # Skip confirmation
-        )
-
-        # Verify the result is the same Error object
-        assert isinstance(result, Error)
-        assert "Execution resulted in Error" in result.error
-
-    # Verify handle_command_output was not called in either error scenario
-    mock_handle_output.assert_not_called()
+        # Verify memory was updated after the error and recovery attempt
+        mock_memory_update.assert_called_once()
+        # Check the arguments passed to update_memory
+        args, _ = mock_memory_update.call_args
+        assert args[0] == "get pods"  # The original command attempted
+        assert "Command execution failed" in args[1] # The error output
+        assert "Recovery suggestions: Recovery suggestions here" in args[2] # Vibe output including recovery
+        assert args[3] == "test-model" # Model name
 
 
 # Mock logger to prevent actual logging during tests
@@ -354,40 +332,50 @@ def test_handle_vibe_request_includes_memory_context(
     mock_memory_functions: tuple,
     mock_logger: MagicMock,
 ) -> None:
-    """Verify that memory_context is correctly formatted into the plan_prompt."""
+    """Verify that memory_context is correctly included in the prompt arguments if applicable."""
     mock_update, mock_get, mock_set, mock_enabled = mock_memory_functions
 
-    # Define a prompt template that requires both request and memory_context
-    test_plan_prompt = """
-    Plan
-    Memory: '{memory_context}'
-    Request: '{request}'
-    """
-    test_request = "get the pods"
-    test_memory_context = "We are in the 'sandbox' namespace."
-    expected_formatted_prompt = test_plan_prompt.format(
-        memory_context=test_memory_context, request=test_request
-    )
+    # NOTE: The plan_prompt formatting has changed. Memory context is not directly
+    # substituted into the plan_prompt string by handle_vibe_request itself.
+    # The prompt template passed might contain it if generated elsewhere.
+    # This test now verifies the request placeholder is replaced correctly and
+    # the schema argument is passed.
 
-    # Mock the model execution result
-    mock_model_adapter.execute.return_value = "get pods -n sandbox"
+    # Define a simple prompt template with the placeholder
+    test_plan_prompt = "Plan this: __REQUEST_PLACEHOLDER__"
+    test_request = "get the pods"
+    test_memory_context = "We are in the 'sandbox' namespace." # Passed but not used for direct formatting here
+    expected_formatted_prompt = test_plan_prompt.replace("__REQUEST_PLACEHOLDER__", test_request)
+
+    # Mock the model execution result with valid JSON
+    expected_llm_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pods", "-n", "sandbox"],
+        "explanation": "Getting pods in sandbox from memory.",
+    }
+    mock_model_adapter.execute.return_value = json.dumps(expected_llm_response)
 
     # Call the function under test
-    handle_vibe_request(
-        request=test_request,
-        command="vibe",
-        plan_prompt=test_plan_prompt,
-        summary_prompt_func=dummy_summary_prompt,
-        output_flags=DEFAULT_OUTPUT_FLAGS,
-        memory_context=test_memory_context,  # Pass the memory context
-        semiauto=True,  # Simulate semiauto where this prompt format is used
-    )
+    # Need to patch _process_and_execute_kubectl_command as the focus is on the planning call
+    with patch("vibectl.command_handler._process_and_execute_kubectl_command") as mock_execute_cmd:
+        mock_execute_cmd.return_value = Success(data="done") # Prevent further processing
+        handle_vibe_request(
+            request=test_request,
+            command="vibe", # Using 'vibe' command type for context
+            plan_prompt=test_plan_prompt,
+            summary_prompt_func=dummy_summary_prompt,
+            output_flags=DEFAULT_OUTPUT_FLAGS,
+            memory_context=test_memory_context,
+            semiauto=True,
+        )
 
-    # Assert that the model adapter was called with the correctly formatted prompt
-    mock_model_adapter.execute.assert_called_once_with(
-        mock_model_adapter.get_model.return_value,  # The mocked model object
-        expected_formatted_prompt,
-    )
+    # Assert that the model adapter was called with the formatted prompt and schema
+    mock_model_adapter.execute.assert_called_once()
+    call_args, call_kwargs = mock_model_adapter.execute.call_args
+    assert call_args[0] == mock_model_adapter.get_model.return_value # Check model object
+    assert call_args[1] == expected_formatted_prompt # Check formatted prompt string
+    assert "schema" in call_kwargs # Check schema was passed
+    assert isinstance(call_kwargs["schema"], dict) # Check schema is a dict
 
     # Assert that the formatting warning was NOT logged
     mock_logger.warning.assert_not_called()

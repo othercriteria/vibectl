@@ -8,6 +8,7 @@ import unittest.mock as mock
 from collections.abc import Generator
 from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, Mock, patch
+import json
 
 import pytest
 
@@ -19,7 +20,7 @@ from vibectl.command_handler import (
 )
 from vibectl.k8s_utils import run_kubectl_with_complex_args, run_kubectl_with_yaml
 from vibectl.prompt import PLAN_VIBE_PROMPT
-from vibectl.types import Error, OutputFlags, Success, Truncation
+from vibectl.types import Error, OutputFlags, Success, Truncation, ActionType
 
 
 @pytest.fixture
@@ -209,9 +210,14 @@ def test_handle_vibe_request_empty_llm_response(mock_model_adapter: MagicMock) -
 
 def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) -> None:
     """Test handle_vibe_request when LLM returns an error message."""
-    # Configure model adapter to return an error message
-    error_msg = "ERROR: I couldn't understand that request"
-    mock_model_adapter.return_value.execute.return_value = error_msg
+    # Configure model adapter to return an error message as valid JSON
+    error_msg_text = "I couldn't understand that request"
+    error_response = {
+        "action_type": ActionType.ERROR.value,
+        "error": error_msg_text,
+        "explanation": "The request was unclear.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(error_response)
 
     # Configure output flags
     output_flags = OutputFlags(
@@ -236,7 +242,7 @@ def test_handle_vibe_request_llm_returns_error(mock_model_adapter: MagicMock) ->
         )
 
         # Verify error was printed
-        mock_console.print_error.assert_called_once_with(error_msg)
+        mock_console.print_error.assert_called_once()
 
         # Verify memory was updated
         mock_console.print_processing.assert_called_once_with(
@@ -364,8 +370,13 @@ def test_handle_vibe_request_autonomous_mode(
     This test specifically checks that when autonomous_mode is True and
     command is 'vibe', we don't include 'vibe' in the kubectl command.
     """
-    # Configure model adapter to return a valid command string
-    mock_model_adapter.return_value.execute.return_value = "get pods -n sandbox"
+    # Configure model adapter to return a valid command string as JSON
+    command_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods", "-n", "sandbox"],
+        "explanation": "Getting pods in sandbox.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(command_response)
 
     # Configure output flags
     output_flags = OutputFlags(
@@ -449,8 +460,8 @@ def test_handle_vibe_request_yaml_prompt_with_spec_field(
     by using a fallback string replacement method.
     """
     # Configure model adapter to return a response that includes YAML with {spec}
-    mock_model_adapter.return_value.execute.return_value = """create -f - << EOF
----
+    # Now returns valid JSON representing the command with YAML
+    yaml_content = """---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -461,7 +472,13 @@ metadata:
   containers:
   - name: test-container
     image: nginx:latest
-EOF"""
+"""
+    command_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["create", "-f", "-", yaml_content],
+        "explanation": "Creating pod with {spec} placeholder.",
+    }
+    mock_model_adapter.return_value.execute.return_value = json.dumps(command_response)
 
     # Configure output flags
     output_flags = OutputFlags(

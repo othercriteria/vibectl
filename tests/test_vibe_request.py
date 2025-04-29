@@ -3,12 +3,14 @@
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
+import json
 
 import pytest
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
-from vibectl.types import Truncation
+from vibectl.types import Truncation, Success
+from vibectl.types import ActionType
 
 
 def get_test_summary_prompt() -> str:
@@ -220,8 +222,19 @@ def test_handle_vibe_request_llm_output_parsing(
 ) -> None:
     """Test vibe request with LLM output that includes delimiter."""
     caplog.set_level("INFO")
-    # Set up LLM response with delimiter - get commands will also be parsed for YAML now
-    mock_llm.execute.side_effect = ["get pods\n---\nother content", "Test response"]
+    # Construct expected JSON for planning
+    # The original mock value contained YAML, simulate that
+    yaml_content = "other content"
+    expected_response_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods", "---", yaml_content],
+        "explanation": "Getting pods, maybe with YAML?",
+    }
+    summary_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "Test response",
+    }
+    mock_llm.execute.side_effect = [json.dumps(expected_response_plan), json.dumps(summary_response)]
     # Mock subprocess.run for kubectl calls with YAML
     with (
         patch(
@@ -270,11 +283,20 @@ def test_handle_vibe_request_command_error(
 ) -> None:
     """Test vibe request with command execution error."""
     caplog.set_level("INFO")
+    # Construct expected JSON for planning
+    expected_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods"],
+        "explanation": "Getting pods as requested",
+    }
     # Set up LLM responses
+    recovery_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "You could try using --all-namespaces flag, or specify a namespace with -n.",
+    }
     mock_llm.execute.side_effect = [
-        "get pods",  # First call returns the command
-        "You could try using --all-namespaces flag, or specify"
-        " a namespace with -n.",  # Second call returns recovery suggestions
+        json.dumps(expected_response),  # First call returns the JSON command
+        json.dumps(recovery_response),  # Second call returns recovery suggestions as JSON
     ]
 
     # Set up kubectl to throw an exception
@@ -366,12 +388,20 @@ def test_handle_vibe_request_yaml_creation(
     mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with YAML creation."""
+    # Construct expected JSON for planning
+    expected_response_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods", "---", "-n default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"],
+        "explanation": "Creating pod from YAML definition.",
+    }
     # Set up model adapter response for both calls
-    # First call - planning with YAML content (separated by delimiter)
-    # Second call - output summarization
+    summary_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "Test response",
+    }
     mock_llm.execute.side_effect = [
-        "-n\ndefault\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod",
-        "Test response",
+        json.dumps(expected_response_plan),
+        json.dumps(summary_response), # Summary after successful execution as JSON
     ]
 
     # Set up confirmation to be True (explicitly, although it's the default)
@@ -415,10 +445,20 @@ def test_handle_vibe_request_yaml_response(
     mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with YAML response from planner."""
+    # Construct expected JSON for planning
+    expected_response_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods", "---", "-n default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"],
+        "explanation": "Creating pod from YAML.",
+    }
     # Set up model adapter response with YAML content (separated by delimiter)
+    summary_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "Test response",
+    }
     mock_llm.execute.side_effect = [
-        "pod\npod-name\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod",
-        "Test response",
+        json.dumps(expected_response_plan),
+        json.dumps(summary_response), # Summary as JSON
     ]
 
     # Mock subprocess.run for kubectl calls with YAML
@@ -476,16 +516,26 @@ def test_handle_vibe_request_create_pods_yaml(
     This test ensures the regression with create commands and YAML files
     doesn't happen again.
     """
-    # Simulate a model response for creating two pods
-    # Similar to the failing case from the issue
-    mock_llm.execute.side_effect = [
-        "-n default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: foo\n"
+    # Construct expected JSON for planning
+    expected_response_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods", "---", "-n default\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: foo\n"
         "  labels:\n    app: nginx-demo\nspec:\n  containers:\n  - name: nginx\n"
         "    image: nginx:latest\n    ports:\n    - containerPort: 80\n---\n"
         "apiVersion: v1\nkind: Pod\nmetadata:\n  name: bar\n  labels:\n"
         "    app: nginx-demo\nspec:\n  containers:\n  - name: nginx\n"
-        "    image: nginx:latest\n    ports:\n    - containerPort: 80",
-        "Test response",
+        "    image: nginx:latest\n    ports:\n    - containerPort: 80"],
+        "explanation": "Creating multiple pods from YAML.",
+    }
+
+    # Simulate a model response for creating two pods
+    summary_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "Test response",
+    }
+    mock_llm.execute.side_effect = [
+        json.dumps(expected_response_plan), # Planning step returns JSON
+        json.dumps(summary_response), # Summary step as JSON
     ]
 
     # Set up confirmation to be True
@@ -529,7 +579,16 @@ def test_show_kubectl_flag_controls_command_display(
 ) -> None:
     """Test that show_kubectl flag controls whether kubectl command is displayed."""
     # Set up model responses - first one is for plan, second for summary
-    mock_llm.execute.side_effect = ["get pods", "Test summary"]
+    expected_plan = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods"],
+        "explanation": "Get pods",
+    }
+    summary_response = {
+        "action_type": ActionType.FEEDBACK.value,
+        "explanation": "Test summary",
+    }
+    mock_llm.execute.side_effect = [json.dumps(expected_plan), json.dumps(summary_response)]
 
     # Test with show_kubectl=True
     show_kubectl_flags = OutputFlags(

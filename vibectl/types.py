@@ -5,8 +5,8 @@ Contains common type definitions used across the application.
 """
 
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
 from enum import Enum
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
