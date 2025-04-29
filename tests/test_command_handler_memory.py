@@ -271,7 +271,10 @@ def test_handle_vibe_request_updates_memory_on_error(
     call_kwargs = mock_memory_update.call_args.kwargs
     assert call_kwargs.get("command") == "vibe"
     assert call_kwargs.get("command_output") == error_msg
-    assert call_kwargs.get("vibe_output") == f"LLM Planning Error: {error_msg} - For request: {request_text}"
+    assert (
+        call_kwargs.get("vibe_output")
+        == f"LLM Planning Error: {error_msg} - For request: {request_text}"
+    )
     assert call_kwargs.get("model_name") == "test-model"
 
     # Assert the function returned an Error object
@@ -467,9 +470,9 @@ def test_handle_vibe_request_includes_memory_context(
     test_plan_prompt = "Plan this: __REQUEST_PLACEHOLDER__"
     test_request = "get the pods"
     test_memory_context = "We are in the 'sandbox' namespace."
-    expected_final_prompt = test_plan_prompt.replace(
-        "__REQUEST_PLACEHOLDER__", test_request
-    )
+    # expected_final_prompt = test_plan_prompt.replace(
+    #     "__REQUEST_PLACEHOLDER__", test_request
+    # ) # This variable is unused
 
     # Mock the model execution result with valid JSON
     expected_llm_response = {

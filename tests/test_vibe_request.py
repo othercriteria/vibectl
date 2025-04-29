@@ -96,7 +96,7 @@ def test_handle_vibe_request_success(
             # Verify handle_command_output was called *after* _execute_command
             mock_handle_output.assert_called_once()
             ho_call_args, ho_call_kwargs = mock_handle_output.call_args
-            # Check the first argument passed was the Success object from _execute_command
+            # Check first argument passed was the Success object from _execute_command
             assert isinstance(ho_call_args[0], Success)
             assert ho_call_args[0].data == kubectl_output_data
             # Check output_flags
@@ -107,7 +107,8 @@ def test_handle_vibe_request_success(
             )  # Assert verb passed to output handler
 
     # Verify memory was updated (mock_memory fixture should handle this if set up)
-    # mock_memory.add_interaction.assert_called() # Or similar assertion depending on fixture
+    # mock_memory.add_interaction.assert_called()
+    # Or similar assertion depending on fixture
 
 
 def test_handle_vibe_request_empty_response(
@@ -154,7 +155,6 @@ def test_handle_vibe_request_empty_response(
 
 
 def test_handle_vibe_request_error_response(
-    capsys: pytest.CaptureFixture,
     mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
@@ -308,7 +308,8 @@ def test_handle_vibe_request_no_output(
             output_flags=no_output_flags,
         )
 
-        # Verify warning was printed by the real handle_command_output -> _check_output_visibility
+        # Verify warning was printed by the real
+        # handle_command_output -> _check_output_visibility
         direct_console_mock.print_no_output_warning.assert_called_once()
 
         # Verify _execute_command was called
@@ -331,7 +332,7 @@ def test_handle_vibe_request_llm_output_parsing(
     test_cases = [
         # Errors caught by inner except (JSONDecodeError, ValidationError)
         ("Missing action_type", '{"commands": ["pods"]}', ValidationError, True),
-        # ("COMMAND missing commands", '{"action_type": "COMMAND"}', ValidationError, True),
+        # ("COMMAND without args", '{"action_type": "COMMAND"}', ValidationError, True),
         # ("ERROR missing error", '{"action_type": "ERROR"}', ValidationError, True),
         # ("WAIT missing duration", '{"action_type": "WAIT"}', ValidationError, True),
         # ("Malformed JSON", '{"action_type: "COMMAND"}', json.JSONDecodeError, True),
@@ -368,13 +369,14 @@ def test_handle_vibe_request_llm_output_parsing(
 
             if expect_inner_handler:
                 # Assertions for inner except blocks (using decorated mocks)
-                # assert mock_update_memory.call_count == 1, f"[{desc}] Expected mock_update_memory call_count to be 1, but was {mock_update_memory.call_count}" # Removing flaky assertion
+                assert mock_update_memory.call_count == 1
                 mock_create_api_error.assert_called_once()
                 call_args, call_kwargs = mock_create_api_error.call_args
                 # Check the exception passed to create_api_error
                 assert isinstance(call_args[1], expected_exception)
                 assert result == mock_create_api_error.return_value
-                mock_is_api_error.assert_not_called()  # Should not reach outer handler check
+                # Should not reach outer handler check
+                mock_is_api_error.assert_not_called()
             mock_update_memory.assert_called_once()
             mock_create_api_error.assert_called_once()
             assert isinstance(mock_create_api_error.call_args[0][1], expected_exception)
@@ -461,7 +463,6 @@ def test_handle_vibe_request_error(
     prevent_exit: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
     mock_memory: MagicMock,
-    capsys: pytest.CaptureFixture,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test vibe request handling when the LLM returns an error action."""
@@ -609,9 +610,7 @@ def test_handle_vibe_request_yaml_response(
             # Verify confirmation was prompted
             mock_prompt.assert_called_once()
             # Verify _execute_command was called with correct verb/args, None for yaml_content
-            mock_execute_cmd.assert_called_once_with(
-                "apply", ["-f", "-"], None
-            )  # <<< Updated args
+            mock_execute_cmd.assert_called_once_with("apply", ["-f", "-"], None)
 
             # Verify handle_command_output was called
             mock_handle_output.assert_called_once()

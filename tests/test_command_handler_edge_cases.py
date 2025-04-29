@@ -185,7 +185,7 @@ def test_handle_vibe_request_empty_llm_response(
         model_name="test-model",
     )
 
-    # Mock the functions called during error handling using parentheses for with statement
+    # Mock the functions called during error handling
     with (
         patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
         patch(
@@ -257,7 +257,10 @@ def test_handle_vibe_request_llm_returns_error(
         call_args, call_kwargs = mock_update_memory.call_args
         assert call_kwargs.get("command") == "vibe"
         assert call_kwargs.get("command_output") == error_msg
-        assert call_kwargs.get("vibe_output") == f"LLM Planning Error: {error_msg} - For request: {test_request}"
+        assert (
+            call_kwargs.get("vibe_output")
+            == f"LLM Planning Error: {error_msg} - For request: {test_request}"
+        )
         assert call_kwargs.get("model_name") == "test-model"
 
         # Verify console output
@@ -389,13 +392,6 @@ def test_handle_vibe_request_autonomous_mode(
             ["pods"],
             None,  # Match actual call signature: verb, args, yaml
         )
-        # Explicitly check the mock's return value
-        actual_mock_return = (
-            mock_execute_command_dec.return_value
-        )  # Check the configured return value
-        print(
-            f"DEBUG: Mock _execute_command configured return: type={type(actual_mock_return)}, data={getattr(actual_mock_return, 'data', None)}"
-        )
 
         # Verify update_memory was called ONCE after successful execution
         mock_update_memory_ctx.assert_called_once()
@@ -451,7 +447,6 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
     # Patch handle_command_output (should not be called)
     with (
         patch("vibectl.command_handler.handle_command_output") as mock_handle_output,
-        patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
         patch("vibectl.command_handler.is_api_error") as mock_is_api_error,
     ):
         mock_is_api_error.return_value = False  # Assume not API error
@@ -467,18 +462,19 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
 
         # Verify Error was returned directly from the autonomous check
         mock_execute_command.assert_not_called()
-        mock_memory.assert_not_called()  # Use mock_memory
-        mock_handle_output.assert_not_called()
-        mock_create_api_error.assert_not_called()  # Because is_api_error=False
-        mock_console.print_error.assert_called_once()
+        # mock_memory.assert_not_called()  # Use mock_memory - Old expectation
+        # Expect memory to be called once to record the error
+        mock_memory.assert_called_once()
+        _args, kwargs = mock_memory.call_args
+        assert kwargs.get("command") == "vibe"  # Should use original command here
+        assert "COMMAND action with no commands" in kwargs.get("command_output", "")
+        assert kwargs.get("model_name") == "test-model"
 
-        # Verify a plain Error object was returned from the autonomous mode logic
+        mock_handle_output.assert_not_called()
+        # Assert result is an Error
         assert isinstance(result, Error)
         # Check the specific error message for missing commands in COMMAND ActionType
-        assert (
-            "Internal error: LLM returned COMMAND action without arguments."
-            in result.error
-        )
+        assert "Internal error: LLM sent COMMAND action with no args." in result.error
         assert result.exception is None  # Verify no exception was attached
 
 
@@ -587,9 +583,14 @@ def test_handle_vibe_request_with_unknown_model(
         # Check kwargs
         call_kwargs = mock_update_mem.call_args.kwargs
         assert call_kwargs.get("command") == "system"
-        expected_error_string = f"Failed to get model '{output_flags.model_name}': {unknown_model_error}"
+        expected_error_string = (
+            f"Failed to get model '{output_flags.model_name}': {unknown_model_error}"
+        )
         assert call_kwargs.get("command_output") == expected_error_string
-        assert call_kwargs.get("vibe_output") == f"System Error: Failed to get model '{output_flags.model_name}'."
+        assert (
+            call_kwargs.get("vibe_output")
+            == f"System Error: Failed to get model '{output_flags.model_name}'."
+        )
         assert call_kwargs.get("model_name") == "bad-model"
         # Verify create_api_error was called with the raw error and exception
         mock_create_api_err.assert_called_once_with(

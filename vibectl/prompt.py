@@ -9,6 +9,7 @@ import datetime
 import json
 
 from .config import Config
+from .schema import LLMCommandResponse
 
 # No memory imports at the module level to avoid circular imports
 
@@ -225,21 +226,15 @@ with matched closing tags:
 
 
 # Template for planning kubectl get commands
-from .schema import LLMCommandResponse  # noqa: E402
-
-# Pre-generate the JSON schema string for the LLMCommandResponse model
-# Use model_json_schema() for Pydantic V2 compatibility
-_GET_SCHEMA_JSON = json.dumps(LLMCommandResponse.model_json_schema(), indent=2)
-
 PLAN_GET_PROMPT = create_planning_prompt(
     command="get",
-    description="Kubernetes resources",
-    examples=[  # Examples are now embedded directly in the prompt logic
+    description="getting Kubernetes resources",
+    examples=[
         ("show me pods in kube-system", "pods\n-n\nkube-system"),
         ("get pods with app=nginx label", "pods\n--selector=app=nginx"),
         ("show me all pods in every namespace", "pods\n--all-namespaces"),
     ],
-    schema_definition=_GET_SCHEMA_JSON,
+    schema_definition=json.dumps(LLMCommandResponse.model_json_schema())
 )
 
 
