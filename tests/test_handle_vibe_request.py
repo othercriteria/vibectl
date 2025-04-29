@@ -5,16 +5,16 @@ of kubeconfig flags to avoid regressions where kubeconfig flags appear in the wr
 position in the final command.
 """
 
+import json
 from collections.abc import Generator
 from unittest.mock import MagicMock, Mock, patch
-import json
 
 import pytest
 
 from vibectl.command_handler import (
     handle_vibe_request,
 )
-from vibectl.types import OutputFlags, Success, ActionType
+from vibectl.types import ActionType, OutputFlags, Success
 
 
 @pytest.fixture
@@ -91,6 +91,14 @@ def test_handle_vibe_request_kubeconfig_handling(
         # Configure _parse_command_args to return expected args
         with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
             mock_parse_args.return_value = ["get", "pods"]
+
+            # Patch the model adapter used in the memory module as well
+            with patch("vibectl.memory.get_model_adapter") as mock_memory_get_adapter:
+                # Configure the mock adapter and its get_model method
+                mock_adapter_instance = Mock()
+                mock_model_instance = Mock()
+                mock_adapter_instance.get_model.return_value = mock_model_instance
+                mock_memory_get_adapter.return_value = mock_adapter_instance
 
             # Make _execute_command pass through to run_kubectl
             # This is the key change - we mock _execute_command to actually

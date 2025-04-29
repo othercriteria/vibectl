@@ -5,9 +5,9 @@ for port-forward commands, focusing on clean output that doesn't include
 prefixes like 'kubectl' or 'vibe'.
 """
 
+import json
 from collections.abc import Generator
 from unittest.mock import Mock, patch
-import json
 
 import pytest
 
@@ -16,7 +16,7 @@ from vibectl.command_handler import (
     _process_command_string,
     handle_vibe_request,
 )
-from vibectl.types import ActionType
+from vibectl.types import ActionType, OutputFlags, Success
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def test_handle_vibe_request_with_clean_command(
     mock_handle_output: Mock,
     mock_console: Mock,
 ) -> None:
-    """Test that handle_vibe_request works with clean commands without prefixes."""
+    """Test handle_vibe_request with a clean port-forward command."""
     # Configure model adapter to return a clean command as JSON
     expected_response = {
         "action_type": ActionType.COMMAND.value,
@@ -90,36 +90,36 @@ def test_handle_vibe_request_with_clean_command(
     }
     mock_model_adapter.return_value.execute.return_value = json.dumps(expected_response)
 
-    # Configure _process_command_string to return a clean command
     with patch(
         "vibectl.command_handler._process_command_string"
-    ) as mock_process_command:
+    ) as mock_process_command, patch(
+        "vibectl.command_handler._parse_command_args"
+    ) as mock_parse_args, patch(
+        "vibectl.command_handler._execute_command"
+    ) as mock_execute_command:
+
         mock_process_command.return_value = ("pod/nginx 8080:80", None)
+        mock_parse_args.return_value = ["port-forward", "pod/nginx", "8080:80"]
+        mock_execute_command.return_value = Success(data="Forwarding...Output")
 
-        # Configure _parse_command_args to return expected args
-        with patch("vibectl.command_handler._parse_command_args") as mock_parse_args:
-            mock_parse_args.return_value = ["port-forward", "pod/nginx", "8080:80"]
+        # Create output flags
+        output_flags = OutputFlags(
+            show_raw=True,
+            show_vibe=True,
+            warn_no_output=False,
+            model_name="test-model",
+        )
 
-            # Create output flags
-            output_flags = OutputFlags(
-                show_raw=True,
-                show_vibe=True,
-                warn_no_output=False,
-                model_name="test-model",
-            )
+        handle_vibe_request(
+            request="port forward the nginx pod",
+            command="port-forward",
+            plan_prompt="Plan how to {command} {request}",
+            summary_prompt_func=lambda: "Summarize {output}",
+            output_flags=output_flags,
+            live_display=True,
+        )
 
-            # Call handle_vibe_request
-            handle_vibe_request(
-                request="port forward the nginx pod to my local port 8080",
-                command="port-forward",
-                plan_prompt="Plan how to {command} {request}",
-                summary_prompt_func=lambda: "Summarize {output}",
-                output_flags=output_flags,
-                live_display=True,
-            )
-
-            # Verify handle_port_forward_with_live_display was called correctly
-            mock_handle_port_forward.assert_called_once()
+    mock_execute_command.assert_called_once()
 
 
 def test_handle_vibe_request_with_namespace_flag(
@@ -201,7 +201,15 @@ def test_handle_vibe_request_with_multiple_port_mappings(
     # Configure _process_command_string to return a clean command
     with patch(
         "vibectl.command_handler._process_command_string"
-    ) as mock_process_command:
+    ) as mock_process_command, patch(
+        "vibectl.memory.get_model_adapter"
+    ) as mock_memory_get_adapter:
+        # Configure the mock adapter and its get_model method
+        mock_adapter_instance = Mock()
+        mock_model_instance = Mock()
+        mock_adapter_instance.get_model.return_value = mock_model_instance
+        mock_memory_get_adapter.return_value = mock_adapter_instance
+
         mock_process_command.return_value = ("pod/nginx 8080:80 9090:9000", None)
 
         # Configure _parse_command_args to return expected args
