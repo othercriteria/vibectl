@@ -1330,6 +1330,9 @@ def vibe_autonomous_prompt() -> str:
     Returns:
         str: The autonomous command generation prompt
     """
+    # Call helper function first
+    formatting_instructions = get_formatting_instructions()
+    # Return a regular string, embedding the instructions but keeping {output}
     return f"""Analyze this kubectl command output and provide a concise summary.
 Focus on the state of the resources, issues detected, and suggest logical next steps.
 
@@ -1343,7 +1346,7 @@ For resources with complex data:
 - For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
 - Avoid suggesting command line arguments with quoted content
 
-{get_formatting_instructions()}
+{formatting_instructions}
 
 Example format:
 [bold]3 pods[/bold] running in [blue]app namespace[/blue]
@@ -1357,7 +1360,7 @@ Next steps: Create the first pod or deployment using a YAML manifest
 
 Here's the output:
 
-{{output}}"""
+{{output}}""".replace("{{output}}", "{output}")  # Keep {output} literal
 
 
 # Template for planning kubectl port-forward commands

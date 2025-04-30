@@ -269,7 +269,11 @@ check_k8s_health
 log "Setting temporary custom instructions for exploration phase."
 EXPLORATION_INSTRUCTIONS="${ORIGINAL_CUSTOM_INSTRUCTIONS}
 
-IMPORTANT: You are currently in an initial exploration phase (first 10 interactions). Focus ONLY on understanding the environment. Use read-only commands (get, describe, logs, auth can-i). DO NOT make any changes, attempt attacks, or deploy defenses yet."
+IMPORTANT: You are currently in an initial exploration phase (first 10 interactions).
+
+Look but DO NOT TOUCH anything.
+
+Use read-only/non-mutating/non-destructive commands (get, describe, logs, auth can-i)."
 
 # Temporarily set exploration instructions using vibectl config
 vibectl config set custom_instructions "${EXPLORATION_INSTRUCTIONS}"
