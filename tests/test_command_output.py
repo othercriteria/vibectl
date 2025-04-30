@@ -615,5 +615,5 @@ def test_handle_command_output_llm_error(
 
         # Verify the error was logged and printed
         mock_console.print_error.assert_any_call(
-            "Error processing Vibe output: LLM API Error"
+            "Error getting Vibe summary: LLM API Error"
         )

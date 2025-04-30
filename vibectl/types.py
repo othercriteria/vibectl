@@ -8,6 +8,28 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
+# Keywords indicating potentially recoverable API errors
+# Used to identify transient issues that shouldn't halt autonomous loops
+RECOVERABLE_API_ERROR_KEYWORDS = [
+    "overloaded",
+    "rate_limit",
+    "rate limit",
+    "capacity",
+    "unavailable",
+    "retry",
+    "throttled",
+    "server error",  # Generic but often transient
+    "service_unavailable",
+    # Add specific provider error codes/types if known and helpful
+    # e.g., "insufficient_quota", "503 Service Unavailable"
+]
+
+
+class RecoverableApiError(ValueError):
+    """Custom exception for potentially recoverable API errors (e.g., rate limits)."""
+
+    pass
+
 
 @dataclass
 class OutputFlags:

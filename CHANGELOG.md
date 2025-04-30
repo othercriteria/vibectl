@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Define `RecoverableApiError` exception and `RECOVERABLE_API_ERROR_KEYWORDS` for better handling of transient API issues (rate limits, etc.).
 - New `yaml_manifest` field to `LLMCommandResponse` schema to handle YAML input for commands like `create -f -`.
 - Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
 - Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
@@ -21,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added missing `summary_prompt_func` arguments to internal subcommand calls.
 
 ### Changed
+- Refactor `PLAN_VIBE_PROMPT` to use the JSON schema approach for planning.
+- Update `model_adapter.py` to use `schema=` parameter for `llm` library compatibility.
+- Update error handling in `command_handler` to use `RecoverableApiError` and improve error reporting during Vibe processing.
+- Refine logic for determining `kubectl` verb/args in `handle_vibe_request` based on original command context.
+- Improve prompt display in `_handle_command_confirmation`.
+- Adjust `autonomous_mode` logic in `vibe_cmd.py`.
+- Refactor exception handling in `auto_cmd.py` loop.
+- Remove automatic confirmation bypass for `semiauto` mode.
 - Refactored `create_planning_prompt` to assume command verb is implied by context.
   - Prompt now focuses LLM on extracting target resource(s) and arguments.
   - Updated prompt instructions and structure.
@@ -33,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[Demo]** Update `examples/k8s-sandbox/ctf` demo to install `vibectl` from local source via `pip install -e .`.
 
 ### Fixed
+- Fix test failures related to `schema=` parameter change in `model_adapter`.
+- Correct `execute` method signatures in test mock adapters to align with base class and resolve mypy errors.
+- Correct `BaseModel` imports in test files (`pydantic` vs `typing`).
 - Updated numerous tests (`test_prompt.py`, `test_command_handler_edge_cases.py`) to align with prompt refactoring and confirmation logic changes.
 - Fixed redundant AI explanation print during command confirmation flow.
 - Replaced debug `print` statement with `logger.debug` in `handle_vibe_request`.

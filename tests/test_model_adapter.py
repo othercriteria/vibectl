@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from vibectl.model_adapter import (
     LLMModelAdapter,
@@ -109,8 +110,7 @@ class TestLLMModelAdapter:
 
         # Verify
         assert response == "Test response"
-        mock_model.prompt.assert_called_once_with("Test prompt")
-        mock_response.text.assert_called_once()
+        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_string_response(self, mock_llm: MagicMock) -> None:
@@ -125,7 +125,7 @@ class TestLLMModelAdapter:
 
         # Verify
         assert response == "Test response"
-        mock_model.prompt.assert_called_once_with("Test prompt")
+        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_error(self, mock_llm: MagicMock) -> None:
@@ -141,7 +141,7 @@ class TestLLMModelAdapter:
 
         # Verify
         assert "Error executing prompt: Test error" in str(exc_info.value)
-        mock_model.prompt.assert_called_once_with("Test prompt")
+        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_with_type_casting(self, mock_llm: MagicMock) -> None:
@@ -195,25 +195,6 @@ class TestLLMModelAdapter:
         # Verify all prompt calls
         assert mock_model.prompt.call_count == 4
 
-    @patch("vibectl.model_adapter.llm")
-    def test_execute_token_limit_error(
-        self, mock_llm: MagicMock, mock_model_adapter_logger: Mock
-    ) -> None:
-        adapter = LLMModelAdapter()
-        mock_model = Mock()
-        # Simulate a token limit error
-        mock_model.prompt.side_effect = Exception(
-            "Token limit exceeded: too many tokens in prompt"
-        )
-        with pytest.raises(ValueError) as exc_info:
-            adapter.execute(mock_model, "prompt")
-        assert "Token limit exceeded" in str(exc_info.value)
-        # Check that a warning was logged
-        assert any(
-            call[0][0].startswith("Token limit exceeded for model")
-            for call in mock_model_adapter_logger.warning.call_args_list
-        )
-
 
 def test_model_response_protocol_runtime_check() -> None:
     class DummyResponse:
@@ -230,7 +211,10 @@ def test_model_adapter_abc_methods() -> None:
             raise NotImplementedError()
 
         def execute(
-            self, model: object, prompt_text: str, schema: dict[Any, Any] | None = None
+            self,
+            model: Any,
+            prompt_text: str,
+            response_model: type[BaseModel] | None = None,
         ) -> str:
             raise NotImplementedError()
 

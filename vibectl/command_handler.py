@@ -41,7 +41,13 @@ from .prompt import (
     recovery_prompt,
 )
 from .schema import ActionType, LLMCommandResponse
-from .types import Error, OutputFlags, Result, Success
+from .types import (
+    Error,
+    OutputFlags,
+    RecoverableApiError,
+    Result,
+    Success,
+)
 from .utils import console_manager
 
 # Remove unused direct import of tl if it's no longer needed elsewhere
@@ -79,8 +85,9 @@ def handle_standard_command(
 
     if isinstance(result, Error):
         # Handle API errors specifically if needed
-        if is_api_error(result.error):
-            return create_api_error(result.error, result.exception)
+        # API errors are now handled by the RecoverableApiError exception type
+        # if they originate from the model adapter. Other kubectl errors
+        # are generally treated as halting.
         # Ensure exception exists before passing
         if result.exception:
             return _handle_standard_command_error(
@@ -203,34 +210,6 @@ def create_api_error(error_message: str, exception: Exception | None = None) -> 
     return Error(error=error_message, exception=exception, halt_auto_loop=False)
 
 
-def is_api_error(error_message: str) -> bool:
-    """
-    Check if an error message looks like an API error.
-
-    Args:
-        error_message: The error message to check
-
-    Returns:
-        True if the error appears to be an API error, False otherwise
-    """
-    # Check for API error formats
-    api_error_patterns = [
-        "Error executing prompt",
-        "overloaded_error",
-        "rate_limit",
-        "capacity",
-        "busy",
-        "throttle",
-        "anthropic.API",
-        "openai.API",
-        "llm error",
-        "model unavailable",
-    ]
-
-    error_message_lower = error_message.lower()
-    return any(pattern.lower() in error_message_lower for pattern in api_error_patterns)
-
-
 def handle_command_output(
     output: Result | str,
     output_flags: OutputFlags,
@@ -276,15 +255,15 @@ def handle_command_output(
     if output_flags.show_vibe:
         if output_str is not None:
             try:
-                # If we started with an error, generate a recovery prompt
                 if original_error_object:
+                    # If we started with an error, generate a recovery prompt
                     prompt_str = recovery_prompt(
                         command=command or "Unknown Command",
-                        error=output_str,  # Use the error message as input
+                        error=output_str,
                     )
                     logger.info(f"Generated recovery prompt: {prompt_str}")
                     vibe_output = _get_llm_summary(
-                        output_str,  # Pass error string as context
+                        output_str,
                         output_flags.model_name,
                         prompt_str,
                     )
@@ -304,41 +283,41 @@ def handle_command_output(
                     # If we started with success, generate a summary prompt
                     summary_prompt_str = summary_prompt_func()
                     vibe_result = _process_vibe_output(
-                        output_str,  # Use success output string
+                        output_str,
                         output_flags,
                         summary_prompt_str=summary_prompt_str,
                         command=command,
+                        original_error_object=original_error_object,
                     )
                     return vibe_result
-
+            except RecoverableApiError as api_err:
+                # Catch specific recoverable errors from _get_llm_summary
+                logger.warning(
+                    f"Recoverable API error during Vibe processing: {api_err}",
+                    exc_info=True,
+                )
+                console_manager.print_error(f"API Error: {api_err}")
+                # Create a non-halting error
+                return create_api_error(str(api_err), api_err)
             except Exception as e:
                 logger.error(f"Error during Vibe processing: {e}", exc_info=True)
-                console_manager.print_error(f"Error processing Vibe output: {e}")
                 error_str = str(e)
-                final_error = (
-                    create_api_error(error_str, exception=e)
-                    if is_api_error(error_str)
-                    else Error(error=error_str, exception=e)
-                )
-                # If we started with an error, create a new Error combining both
+                console_manager.print_error(f"Error getting Vibe summary: {error_str}")
+                # Create a standard halting error for Vibe summary failures
+                vibe_error = Error(error=error_str, exception=e)
+
                 if original_error_object:
-                    # Construct a new, more informative error message
+                    # Combine the original error with the Vibe failure
                     combined_error_msg = (
                         f"Original Error: {original_error_object.error}\n"
                         f"Recovery Failure: Failed to get recovery suggestions: "
-                        f"{final_error.error}"
+                        f"{vibe_error.error}"
                     )
-                    # Return a new Error object instead of mutating the original
-                    exc = original_error_object.exception or final_error.exception
-                    return Error(
-                        error=combined_error_msg,
-                        # Indicate recovery failed, maybe keep original exception?
-                        exception=exc,
-                    )
-
-                # If we didn't start with an error, just return the final error
-                # from the recovery process
-                return final_error
+                    exc = original_error_object.exception or vibe_error.exception
+                    return Error(error=combined_error_msg, exception=exc)
+                else:
+                    # If there was no original error, just return the Vibe error
+                    return vibe_error
         else:
             # Handle case where output was None but Vibe was requested
             logger.warning("Cannot process Vibe output because input was None.")
@@ -423,6 +402,7 @@ def _process_vibe_output(
     output_flags: OutputFlags,
     summary_prompt_str: str,
     command: str | None = None,
+    original_error_object: Error | None = None,
 ) -> Result:
     """Processes output using Vibe LLM for summary.
 
@@ -430,8 +410,8 @@ def _process_vibe_output(
         output: The raw command output string.
         output_flags: Flags controlling output format.
         summary_prompt_str: The formatted prompt string for the LLM.
-
         command: The original kubectl command type.
+        original_error_object: The original error object if available
 
     Returns:
         Result object with Vibe summary or an Error.
@@ -444,7 +424,7 @@ def _process_vibe_output(
         vibe_output = _get_llm_summary(
             processed_output,
             output_flags.model_name,
-            summary_prompt_str,  # Pass formatted string
+            summary_prompt_str,
         )
 
         # Check if the LLM returned an error string
@@ -452,12 +432,9 @@ def _process_vibe_output(
             error_message = vibe_output[7:].strip()
             logger.error(f"LLM summary error: {error_message}")
             console_manager.print_error(vibe_output)  # Display the full ERROR: string
-            # Check if it's an API error to set halt_auto_loop correctly
-            if is_api_error(error_message):
-                # Pass the error message without the ERROR: prefix
-                return create_api_error(error_message)
-            else:
-                return Error(error=error_message)
+            # Treat LLM-reported errors as potentially recoverable API errors
+            # Pass the error message without the ERROR: prefix
+            return create_api_error(error_message)
 
         _display_vibe_output(vibe_output)
 
@@ -469,10 +446,34 @@ def _process_vibe_output(
             model_name=output_flags.model_name,
         )
         return Success(message=vibe_output)
+    except RecoverableApiError as api_err:
+        # Catch specific recoverable errors from _get_llm_summary
+        logger.warning(
+            f"Recoverable API error during Vibe processing: {api_err}",
+            exc_info=True,
+        )
+        console_manager.print_error(f"API Error: {api_err}")
+        # Create a non-halting error
+        return create_api_error(str(api_err), api_err)
     except Exception as e:
         logger.error(f"Error getting Vibe summary: {e}", exc_info=True)
-        console_manager.print_error(f"Error processing Vibe output: {e}")
-        return Error(error=str(e), exception=e)
+        error_str = str(e)
+        console_manager.print_error(f"Error getting Vibe summary: {error_str}")
+        # Create a standard halting error for Vibe summary failures
+        vibe_error = Error(error=error_str, exception=e)
+
+        if original_error_object:
+            # Combine the original error with the Vibe failure
+            combined_error_msg = (
+                f"Original Error: {original_error_object.error}\n"
+                f"Recovery Failure: Failed to get recovery suggestions: "
+                f"{vibe_error.error}"
+            )
+            exc = original_error_object.exception or vibe_error.exception
+            return Error(error=combined_error_msg, exception=exc)
+        else:
+            # If there was no original error, just return the Vibe error
+            return vibe_error
 
 
 def _get_llm_summary(
@@ -560,8 +561,8 @@ def handle_vibe_request(
         return create_api_error(error_msg, e)
 
     # Generate the schema dict for the LLM response
-    # This schema dict is passed to the execute method
-    schema = LLMCommandResponse.model_json_schema()
+    # Pass the Pydantic model type itself for structured output
+    response_model_type = LLMCommandResponse
 
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
 
@@ -581,9 +582,9 @@ def handle_vibe_request(
         # Execute the prompt with the model adapter, passing the schema dict
         # Pass model instance as first argument
         llm_response = model_adapter.execute(
-            model,
-            final_plan_prompt,  # Pass the interpolated prompt string
-            schema=schema,  # Pass the schema dict here
+            model=model,
+            prompt_text=final_plan_prompt,  # Pass the interpolated prompt string
+            response_model=response_model_type,  # Pass the Pydantic model type
         )
         logger.info(f"Raw LLM response:\n{llm_response}")  # Log raw response
 
@@ -709,64 +710,51 @@ def handle_vibe_request(
                         error="Internal error: LLM sent COMMAND action with no args."
                     )
 
-                known_verbs = {  # TODO: Move this to a constant or config
-                    "get",
-                    "describe",
-                    "logs",
-                    "create",
-                    "apply",
-                    "delete",
-                    "scale",
-                    "rollout",
-                    "wait",
-                    "port-forward",
-                    "version",
-                    "cluster-info",
-                    "events",
-                }
-
-                kubectl_verb = command  # Default to original command
                 # Explicitly type kubectl_args
+                kubectl_verb: str
                 kubectl_args: list[str]
-                # Assign kubectl_args, handling potential None from response
-                if response.commands is not None:
-                    kubectl_args = response.commands
-                else:
-                    kubectl_args = []
                 yaml_content = response.yaml_manifest  # May be None
+                raw_llm_commands = response.commands or []  # Ensure it's a list
 
-                if command == "port-forward":
-                    # port-forward always uses the original verb
-                    kubectl_verb = "port-forward"
-                    # Ensure kubectl_args is a list even if response.commands is None
-                    kubectl_args = response.commands or []
-                elif response.commands:
-                    potential_verb = response.commands[0]
-                    if potential_verb.startswith("-"):
-                        # First element is a flag, use original verb
-                        kubectl_verb = command
-                        kubectl_args = response.commands
-                    elif potential_verb in known_verbs:
-                        # First element is a known verb, use it
-                        kubectl_verb = potential_verb
-                        kubectl_args = response.commands[1:]
-                    # Else (e.g., first element is resource name like 'pod/xyz')
-                    # Keep default: use original command as verb, all commands as args
+                # Determine the actual verb and args based on the *original* context
+                # If original command wasn't 'vibe', the LLM was only asked for args.
+                if command != "vibe":
+                    kubectl_verb = command  # Original command is the verb
+                    kubectl_args = raw_llm_commands  # All items are args
+                # If the original command was 'vibe', the LLM determined the verb.
+                elif raw_llm_commands:
+                    kubectl_verb = raw_llm_commands[0]  # First item is the verb
+                    kubectl_args = raw_llm_commands[1:]  # Rest are args
+                else:
+                    # COMMAND action type; empty commands list and original was 'vibe'
+                    # This case indicates an LLM error or misinterpretation
+                    logger.error(
+                        "LLM failed to provide command verb for 'vibe' request."
+                    )
+                    return Error(error="LLM planning failed: No command verb provided.")
+
+                # Safety check: Ensure determined verb is not empty
+                if not kubectl_verb:
+                    logger.error("Internal error: Could not determine kubectl verb.")
+                    return Error(
+                        error="Internal error: Could not determine kubectl verb."
+                    )
 
                 # Create the display command string using the extracted verb and args
                 # Need to parse resource/args correctly for live display handlers
-                resource_name_or_type = (
-                    kubectl_args[0] if kubectl_args else ""
-                )  # Basic extraction
-                remaining_args = (
-                    tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
-                )
+                # resource_name_or_type = (
+                #     kubectl_args[0] if kubectl_args else ""
+                # )  # Basic extraction
+                # remaining_args = (
+                #     tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
+                # )
 
                 # Rebuild the command for display purposes including the correct verb
                 # Pass the extracted arguments (kubectl_args) to the display helper
                 cmd_for_display = _create_display_command(kubectl_args)
-                display_cmd = f"kubectl {kubectl_verb} {cmd_for_display}"
+                display_cmd = (f"kubectl {kubectl_verb} {cmd_for_display}").strip()
 
+                # Show the command that will be run if show_kubectl is enabled
                 if output_flags.show_kubectl:
                     console_manager.print_processing(f"Running: {display_cmd}")
 
@@ -785,7 +773,7 @@ def handle_vibe_request(
                         display_cmd,
                         cmd_for_display,  # Pass args part for display context
                         semiauto,  # Pass semiauto flag directly
-                        model_name,
+                        output_flags.model_name,  # Pass model_name from output_flags
                         response.explanation,  # Pass explanation
                     )
                     # confirmation_result is None if user chose to *proceed*
@@ -811,8 +799,8 @@ def handle_vibe_request(
                             "'wait' command dispatched to live display handler."
                         )
                         return handle_wait_with_live_display(
-                            resource=resource_name_or_type,
-                            args=remaining_args,  # Rest are args/conditions
+                            resource=kubectl_args[0] if kubectl_args else "",
+                            args=tuple(kubectl_args[1:]),  # Rest are args/conditions
                             output_flags=output_flags,
                             summary_prompt_func=summary_prompt_func,
                         )
@@ -821,8 +809,8 @@ def handle_vibe_request(
                             "'port-forward' command dispatched to live display handler."
                         )
                         return handle_port_forward_with_live_display(
-                            resource=resource_name_or_type,
-                            args=remaining_args,  # Rest are args/port mappings
+                            resource=kubectl_args[0] if kubectl_args else "",
+                            args=tuple(kubectl_args[1:]),  # Rest are args/port mappings
                             output_flags=output_flags,
                             summary_prompt_func=summary_prompt_func,
                         )
@@ -878,6 +866,15 @@ def handle_vibe_request(
                         summary_prompt_func,
                         command=kubectl_verb,  # Pass the correct kubectl verb
                     )
+                except RecoverableApiError as api_err:
+                    logger.warning(
+                        f"Recoverable API error during command "
+                        f"execution/handling: {api_err}",
+                        exc_info=True,
+                    )
+                    console_manager.print_error(f"API Error: {api_err}")
+                    # Create a non-halting error
+                    return create_api_error(str(api_err), api_err)
                 except Exception as e:
                     logger.error(f"Error handling command output: {e}", exc_info=True)
                     return Error(
@@ -893,16 +890,20 @@ def handle_vibe_request(
                     f"LLM: {validated_action_type}"
                 )
 
+    except RecoverableApiError as api_err:
+        logger.warning(
+            f"Recoverable API error during Vibe request: {api_err}", exc_info=True
+        )
+        console_manager.print_error(f"API Error: {api_err}")
+        # Ensure it's treated as non-halting
+        return create_api_error(str(api_err), exception=api_err)
     except Exception as e:
         # Catch errors during LLM interaction OR parsing/validation OR dispatch
         logger.error(f"Error during LLM interaction: {e}", exc_info=True)
         error_str = str(e)
-        if is_api_error(error_str):
-            console_manager.print_error(f"API Error: {error_str}")
-            return create_api_error(error_str, exception=e)
-        else:
-            console_manager.print_error(f"Error executing vibe request: {error_str}")
-            return Error(error=error_str, exception=e)
+        # General errors are treated as halting by default
+        console_manager.print_error(f"Error executing vibe request: {error_str}")
+        return Error(error=error_str, exception=e)
 
 
 def _handle_command_confirmation(
@@ -933,23 +934,34 @@ def _handle_command_confirmation(
     prompt_suffix = f" ({'/'.join(choice_list)})"
 
     # Display the command and explanation before the prompt
-    console_manager.print_processing(
-        f"🔄 Proposed command: [bold]{cmd_for_display}[/bold]"
-    )
+    # Combine the display into a single prompt line
+    # console_manager.print_processing(
+    #     f"🔄 Proposed command: [bold]{cmd_for_display}[/bold]"
+    # )
     if explanation:
         console_manager.print_note(f"AI Explanation: {explanation}")
 
     # Print the available options clearly, using print with info style
-    console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
+    # console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
 
     while True:
         # Use lowercased prompt for consistency
+        # Print the prompt using console_manager which handles Rich markup
+        # Print the command line first
+        prompt_command_line = f"Execute: [bold]{display_cmd}[/bold]?"
+        console_manager.print(prompt_command_line, style="info")
+        # Print the options on a new line
+        prompt_options_line = f"{prompt_options}{prompt_suffix}"
+        console_manager.print(prompt_options_line, style="info")
+
+        # Use click.prompt just to get the input character
         choice = click.prompt(
-            "",
+            ">",  # Minimal prompt marker
             type=click.Choice(choice_list, case_sensitive=False),
             default="n",
-            show_choices=False,  # Options are already printed above
-            show_default=False,  # Options are already printed above
+            show_choices=False,  # Options are printed above
+            show_default=False,  # Default not shown explicitly
+            prompt_suffix="",  # Avoid adding extra colon
         ).lower()
 
         # Process the choice
@@ -1182,7 +1194,7 @@ def _create_display_command(args: list[str]) -> str:
 
 
 def _needs_confirmation(command: str, semiauto: bool) -> bool:
-    """Check if a command needs confirmation.
+    """Check if a command needs confirmation based on its type.
 
     Args:
         command: Command type
@@ -1192,15 +1204,15 @@ def _needs_confirmation(command: str, semiauto: bool) -> bool:
     Returns:
         Whether the command needs confirmation
     """
-    # Always confirm in semiauto mode
-    if semiauto:
-        return True
+    # Remove the automatic True return for semiauto mode.
+    # Confirmation is now controlled by the `yes` flag passed to handle_vibe_request
+    # combined with whether the command is considered dangerous.
 
     # These commands need confirmation due to their potentially dangerous nature
     dangerous_commands = [
         "delete",
         "scale",
-        "rollout",
+        "rollout",  # Includes undo, restart, pause, resume
         "patch",
         "apply",
         "replace",

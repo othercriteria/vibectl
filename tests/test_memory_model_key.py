@@ -6,10 +6,10 @@ This module tests how memory functions handle API keys when interacting with mod
 import os
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from vibectl.config import Config
 from vibectl.memory import update_memory
@@ -71,7 +71,10 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             return mock_model
 
         def execute(
-            self, model: Mock, prompt_text: str, schema: dict[Any, Any] | None = None
+            self,
+            model: Mock,
+            prompt_text: str,
+            response_model: type[BaseModel] | None = None,
         ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment
@@ -145,7 +148,10 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             return mock_model
 
         def execute(
-            self, model: Mock, prompt_text: str, schema: dict[Any, Any] | None = None
+            self,
+            model: Mock,
+            prompt_text: str,
+            response_model: type[BaseModel] | None = None,
         ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment

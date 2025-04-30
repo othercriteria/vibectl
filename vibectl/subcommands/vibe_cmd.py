@@ -52,6 +52,11 @@ def run_vibe_command(
             logger.info(f"Planning how to: {request}")
 
         try:
+            # Determine if the mode is truly autonomous (no confirmations needed)
+            # Semiauto is never autonomous. Base vibe is autonomous only
+            # if --yes is passed.
+            is_autonomous = not semiauto and yes
+
             result = handle_vibe_request(
                 request=request,
                 command="vibe",
@@ -61,7 +66,7 @@ def run_vibe_command(
                 yes=yes,
                 semiauto=semiauto,
                 memory_context=memory_context,
-                autonomous_mode=True,
+                autonomous_mode=is_autonomous,
             )
 
             # Log if it's a normal exit request

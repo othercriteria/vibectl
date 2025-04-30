@@ -260,7 +260,7 @@ class TestModelAdapterWithKeys:
         """Test that execute preserves the environment."""
         # Create mock model and response
         mock_model = Mock()
-        mock_model.name = "gpt-4"
+        mock_model.model_id = "gpt-4"
         mock_response = Mock()
         mock_response.text.return_value = "Test response"
         mock_model.prompt.return_value = mock_response

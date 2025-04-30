@@ -231,7 +231,7 @@ def test_recovery_suggestions_in_auto_mode(
     initial_plan_json = json.dumps(
         {
             "action_type": ActionType.COMMAND.value,
-            "commands": ["pods"],
+            "commands": ["get", "pods"],
             "explanation": "Get pods",
         }
     )
@@ -283,7 +283,7 @@ def test_recovery_suggestions_in_auto_mode(
     # Verify memory update was called for the first failed attempt
     mock_update_memory.assert_called_once()
     update_kwargs = mock_update_memory.call_args.kwargs
-    assert update_kwargs.get("command") == "vibe"
+    assert update_kwargs.get("command") == "get"
     assert update_kwargs.get("command_output") == original_error.error
     assert update_kwargs.get("vibe_output") == recovery_suggestion_text
 
@@ -293,3 +293,18 @@ def test_recovery_suggestions_in_auto_mode(
     # result2 = handle_vibe_request(...) # Call again or check loop
     # assert isinstance(result2, Success)
     # mock_update_memory.assert_called_once() # Check memory updated for second attempt
+
+    # Assertions for the first (failed) command execution
+    assert isinstance(result1, Error)  # First call should result in Error
+    assert result1.recovery_suggestions == recovery_suggestion_text
+
+    # Check the first memory update call (after the error)
+    mock_update_memory.assert_called_once()
+    update_args, update_kwargs = mock_update_memory.call_args
+    # The command should be the *failed* one ('get pods')
+    # Extract verb from the *failed* command's plan
+    failed_plan = json.loads(initial_plan_json)
+    failed_verb = failed_plan["commands"][0]
+    assert update_kwargs["command"] == failed_verb
+    assert original_error.error in update_kwargs["command_output"]
+    assert recovery_suggestion_text in update_kwargs["vibe_output"]

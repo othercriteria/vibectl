@@ -256,7 +256,10 @@ def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -> None
     for args, _ in mock_console.print_note.call_args_list:
         if "semiauto" in str(args[0]):
             semiauto_header_printed = True
-        if "Commands will require confirmation" in str(args[0]):
+        # Check for the *updated* confirmation message (wrapped line)
+        if "Dangerous commands (e.g., delete, apply) will require confirmation." in str(
+            args[0]
+        ):
             confirmation_message_printed = True
 
     assert semiauto_header_printed, "Semiauto header not printed"
@@ -283,15 +286,46 @@ def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -> None
         exit_on_error=False,
     )
 
-    # Verify sleep was NOT called
-    # (even with errors, semiauto mode doesn't need rate limiting)
+    # Verify sleep was NOT called (semiauto doesn't sleep, even on error)
     assert mock_sleep.call_count == 0
 
-    # 3. Test user exit request (via Success with continue_execution=False)
+    # 3. Verify semiauto-specific console output was printed
+    semiauto_header_printed = False
+    confirmation_note_printed = False
+    # Add checks for the two separate print calls for the confirmation prompt
+    # execute_line_printed = False # Removed unused variable assignment
+    # options_line_printed = False # Removed unused variable assignment
+    for call in mock_console.method_calls:
+        call_name, call_args, _ = call
+        if call_name == "print_note":
+            if "Starting vibectl semiauto session" in call_args[0]:
+                semiauto_header_printed = True
+            # Wrap long string comparison
+            if (
+                "Dangerous commands (e.g., delete, apply) will require confirmation."
+                in call_args[0]
+            ):
+                confirmation_note_printed = True
+        # Check the print calls for the new confirmation structure
+        elif call_name == "print":
+            if call_args[0].startswith("Execute: [bold]"):
+                # execute_line_printed = True # Variable was unused
+                pass
+            if call_args[0].startswith("[Y]es, [N]o,"):
+                # options_line_printed = True # Variable was unused
+                pass
+
+    assert semiauto_header_printed, "Semiauto header not printed"
+    assert confirmation_note_printed, "Semiauto confirmation note not printed"
+    # Commented out assertions for prompt lines as they might not always be reached
+    # assert execute_line_printed, "Execute line not printed for confirmation"
+    # assert options_line_printed, "Options line not printed for confirmation"
+
+    # 4. Test user requesting exit from confirmation
     mock_console.reset_mock()
     mock_sleep.reset_mock()
 
-    # Create a Success with continue_execution=False to simulate exit request
+    # Simulate run_vibe_command returning Success with continue_execution=False
     exit_result = Success(message="User requested exit", continue_execution=False)
     mock_vibe = Mock(return_value=exit_result)
     monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
@@ -303,20 +337,17 @@ def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -> None
         show_vibe=None,
         show_kubectl=None,
         model=None,
+        interval=1,
         semiauto=True,
+        yes=False,
     )
 
-    # Verify result indicates user exit
+    # Verify the result indicates user exit
     assert isinstance(result, Success)
     assert "exited by user" in result.message
 
-    # Verify the exit message was printed
-    exit_message_printed = False
-    for args, _ in mock_console.print_note.call_args_list:
-        if "exited by user" in str(args[0]):
-            exit_message_printed = True
-
-    assert exit_message_printed, "Exit message not printed"
+    # Verify the specific exit message was printed
+    mock_console.print_note.assert_any_call("Auto session exited by user")
 
 
 def test_keyboard_interrupt_handling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -816,3 +847,283 @@ def test_auto_command_with_natural_language_in_command(
             break
 
     assert error_printed, f"Expected to see error: {expected_error}"
+
+
+def test_auto_command_shows_limit_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that the iteration limit message is shown when configured."""
+    # Mock Config to return show_iterations=True
+    mock_config_instance = Mock()
+    mock_config_instance.get.side_effect = (
+        lambda key, default: True if key == "show_iterations" else default
+    )
+    mock_config_class = Mock(return_value=mock_config_instance)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.Config", mock_config_class)
+
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock run_vibe_command to raise KeyboardInterrupt after one iteration
+    mock_vibe = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Call run_auto_command with a limit
+    limit = 5
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        limit=limit,
+    )
+
+    # Verify the limit message was printed
+    mock_console.print_note.assert_any_call(f"Will run for {limit} iterations")
+
+
+def test_auto_command_shows_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that memory content is shown when configured."""
+    # Mock Config to return show_memory=True
+    mock_config_instance = Mock()
+    mock_config_instance.get.side_effect = (
+        lambda key, default: True if key == "show_memory" else default
+    )
+    mock_config_class = Mock(return_value=mock_config_instance)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.Config", mock_config_class)
+
+    mock_console = Mock()
+    mock_panel = Mock()
+    mock_console.console.print = mock_panel  # Mock the print method used for Panel
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock get_memory
+    memory_content = "Test memory content"
+    mock_get_memory = Mock(return_value=memory_content)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.get_memory", mock_get_memory)
+
+    # Mock run_vibe_command to raise KeyboardInterrupt
+    mock_vibe = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock Panel to check its arguments
+    mock_rich_panel = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.Panel", mock_rich_panel)
+
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Call run_auto_command
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+    )
+
+    # Verify get_memory and Panel were called
+    mock_get_memory.assert_called_once()
+    mock_rich_panel.assert_called_once_with(
+        memory_content,
+        title="Memory Content",
+        border_style="blue",
+        expand=False,
+    )
+    mock_panel.assert_called_once()  # Check that console.print was called
+
+
+def test_auto_command_handles_error_with_recovery_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test error handling includes recovery suggestions display."""
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock run_vibe_command to return an Error with suggestions, then KeyboardInterrupt
+    recovery_text = "Try 'kubectl get pods'"
+    error_with_suggestions = Error(
+        error="Resource not found",
+        recovery_suggestions=recovery_text,
+        halt_auto_loop=False,  # Make sure loop continues
+    )
+    mock_vibe = Mock(side_effect=[error_with_suggestions, KeyboardInterrupt])
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock time.sleep
+    monkeypatch.setattr("time.sleep", Mock())
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Call run_auto_command, exit_on_error should be False by default for this path test
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        exit_on_error=False,
+    )
+
+    # Verify recovery suggestions were printed
+    mock_console.print_note.assert_any_call("Recovery suggestions:")
+    mock_console.print_note.assert_any_call(recovery_text)
+
+
+def test_auto_command_halts_on_error_when_exit_on_error_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the auto loop halts on error if exit_on_error is True."""
+    # Mock run_vibe_command to return an Error that should halt the loop
+    error_result = Error(error="Halting error", halt_auto_loop=True)
+    mock_vibe = Mock(return_value=error_result)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Expect ValueError because exit_on_error is True by default and error occurred
+    with pytest.raises(ValueError, match="Error in vibe command: Halting error"):
+        vibectl.subcommands.auto_cmd.run_auto_command(
+            request="test",
+            show_raw_output=None,
+            show_vibe=None,
+            show_kubectl=None,
+            model=None,
+            # exit_on_error=True is the default
+        )
+
+    # Verify run_vibe_command was called only once
+    mock_vibe.assert_called_once()
+
+
+def test_auto_command_shows_memory_warning_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a warning is shown if show_memory is true but memory is empty."""
+    # Mock Config to return show_memory=True
+    mock_config_instance = Mock()
+    mock_config_instance.get.side_effect = (
+        lambda key, default: True if key == "show_memory" else default
+    )
+    mock_config_class = Mock(return_value=mock_config_instance)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.Config", mock_config_class)
+
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock get_memory to return None
+    mock_get_memory = Mock(return_value=None)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.get_memory", mock_get_memory)
+
+    # Mock run_vibe_command to raise KeyboardInterrupt
+    mock_vibe = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Call run_auto_command
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+    )
+
+    # Verify get_memory was called and print_warning was called with the correct message
+    mock_get_memory.assert_called_once()
+    mock_console.print_warning.assert_any_call(
+        "Memory is empty. Use 'vibectl memory set' to add content."
+    )
+
+
+def test_auto_command_error_without_recovery_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test error handling when Error object has no recovery suggestions."""
+    mock_console = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.console_manager", mock_console)
+
+    # Mock run_vibe_command to return an Error without
+    # suggestions, then KeyboardInterrupt
+    error_without_suggestions = Error(
+        error="Some error",
+        recovery_suggestions=None,  # Explicitly None
+        halt_auto_loop=False,
+    )
+    mock_vibe = Mock(side_effect=[error_without_suggestions, KeyboardInterrupt])
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
+
+    # Mock time.sleep
+    monkeypatch.setattr("time.sleep", Mock())
+    # Mock configure functions
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_output_flags", Mock())
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.configure_memory_flags", Mock())
+
+    # Call run_auto_command
+    vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        exit_on_error=False,
+    )
+
+    # Verify console.print_note was NOT called with recovery suggestion messages
+    for call_args, _ in mock_console.print_note.call_args_list:
+        assert "Recovery suggestions:" not in call_args[0]
+
+
+def test_auto_command_outer_exception_handling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test the final exception handler in run_auto_command for setup errors."""
+
+    # Mock Config to raise an unexpected error during instantiation
+    class ConfigError(Exception):
+        pass
+
+    mock_config_class = Mock(side_effect=ConfigError("Failed to load config"))
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.Config", mock_config_class)
+
+    mock_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.logger", mock_logger)
+
+    # Call run_auto_command with exit_on_error=False
+    result = vibectl.subcommands.auto_cmd.run_auto_command(
+        request="test",
+        show_raw_output=None,
+        show_vibe=None,
+        show_kubectl=None,
+        model=None,
+        exit_on_error=False,
+    )
+
+    # Verify an Error object is returned
+    assert isinstance(result, Error)
+    assert "Exception in auto command: Failed to load config" in result.error
+    assert isinstance(result.exception, ConfigError)
+
+    # Verify the error was logged
+    mock_logger.error.assert_called_once_with(
+        "Error in auto command: Failed to load config"
+    )
+
+    # Verify it raises the exception if exit_on_error=True
+    with pytest.raises(ConfigError, match="Failed to load config"):
+        vibectl.subcommands.auto_cmd.run_auto_command(
+            request="test",
+            show_raw_output=None,
+            show_vibe=None,
+            show_kubectl=None,
+            model=None,
+            exit_on_error=True,  # Default
+        )

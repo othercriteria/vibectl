@@ -77,15 +77,17 @@ def create_planning_prompt(
         )
 
     # Schema-based prompt
-    prompt_header = f"""You are planning arguments for the 'kubectl {command}' command.
+    prompt_header = f"""You are planning arguments for the 'kubectl {command}' command,
+which is used for {description}.
+
 Given a natural language request describing the target resource(s), determine the
 appropriate arguments *following* 'kubectl {command}' and respond with a JSON
 object matching the provided schema.
 
+The action '{command}' is implied by the context.
+
 Focus on extracting resource names, types, namespaces, selectors, and flags
 from the request.
-
-The action '{command}' is implied.
 
 Your response MUST be a valid JSON object conforming to this schema:
 ```json
@@ -96,8 +98,8 @@ Key fields:
 - `action_type`: Specify the intended action (usually COMMAND for planning args).
 - `commands`: List of string arguments *following* `kubectl {command}`. Include flags
   like `-n`, `-f -`, but *exclude* the command verb itself. **MUST be a JSON array
-  of strings, e.g., `["pods", "-n", "kube-system"]`, NOT a single string like
-  `"pods -n kube-system"` or `\'["pods", "-n", "kube-system"]\'` **.
+  of strings, e.g., `[\"pods\", \"-n\", \"kube-system\"]`, NOT a single string like
+  `\"pods -n kube-system\"` or `\'[\"pods\", \"-n\", \"kube-system\"]\'` **.
 - `yaml_manifest`: YAML content as a string (primarily for `create`).
 - `explanation`: Brief explanation of the planned arguments.
 - `error`: Required if action_type is ERROR (e.g., request is unclear).
@@ -105,6 +107,7 @@ Key fields:
 
 Example inputs (natural language target descriptions) and expected JSON outputs:
 """
+
     # Format examples to show expected JSON structure
     # The 'req' here is the *target description*, not the full original request.
     formatted_examples = "\n".join(
@@ -1217,12 +1220,14 @@ preserving other important existing context."""
 
 
 # Template for planning autonomous vibe commands
-PLAN_VIBE_PROMPT = """You are an AI assistant delegated to work in a Kubernetes cluster.
+PLAN_VIBE_PROMPT = f"""
+You are an AI assistant delegated to work in a Kubernetes cluster.
 
 The user's goal is expressed in the inputs--the current memory context and a
 request--either of which may be empty.
 
-Plan a single next kubectl command to execute which will:
+Plan a single next kubectl command (including the verb like 'get', 'describe', 'apply')
+or other action (ERROR, WAIT, FEEDBACK) to execute which will:
 - reduce uncertainty about the user's goal and its status, or if no uncertainty remains:
 - advance the user's goal, or if that is impossible:
 - reduce uncertainty about how to advance the user's goal, or if that is impossible:
@@ -1232,85 +1237,84 @@ You may be in a non-interactive context, so do NOT plan blocking commands like
 'kubectl wait' or 'kubectl port-forward' unless given an explicit request to the
 contrary, and even then use appropriate timeouts.
 
-Syntax requirements (follow these STRICTLY):
-- If the request is invalid, impossible, or incoherent, output 'ERROR: <reason>'
-- If the planned command is disruptive to the cluster or contrary to the user's
-  overall intent, output 'ERROR: not executing <command> because <reason>'
-- Otherwise, output ONLY the command arguments
-  * Do not include a leading 'kubectl' in the output
-  * Do not include any other text in the output
-- For creating resources with complex data (HTML, strings with spaces, etc.):
-  * PREFER using YAML manifests with 'create -f -' approach
-  * If command-line flags like --from-literal must be used, ensure correct quoting
-  * For multiple resources, separate each YAML document with '---' on its own
-    line with NO INDENTATION
+Your response MUST be a valid JSON object conforming to this schema:
+```json
+{_SCHEMA_DEFINITION_JSON}
+```
 
-# BEGIN Example inputs and outputs:
+Key fields reminder:
+- `action_type`: COMMAND, ERROR, WAIT, or FEEDBACK.
+- `commands`: If action_type is COMMAND, this is a JSON list of strings representing the
+  *full* command *including the verb* (e.g., `[\"get\", \"pods\", \"-n\", \"app\"]`).
+- `yaml_manifest`: If action_type is COMMAND and involves creating/applying complex
+  resources, provide the YAML here as a single string.
+- `error`: Required if action_type is ERROR.
+- `wait_duration_seconds`: Required if action_type is WAIT.
+- `explanation`: Brief explanation of the planned action.
 
-Memory: "We are working in namespace 'app'. We have deployed 'frontend' and
-'backend' services."
+# BEGIN Example inputs (memory and request) and outputs
+
+Memory: "We are working in namespace 'app'. Deployed 'frontend' and 'backend' services."
 Request: "check if everything is healthy"
 Output:
-get pods -n app
+{{  "action_type": "COMMAND",
+    "commands": ["get", "pods", "-n", "app"],
+    "explanation": "Checking pod status in the 'app' namespace."
+}}
 
 Memory: "We need to debug why the database pod keeps crashing."
 Request: "help me troubleshoot"
 Output:
-describe pod -l app=database
+{{  "action_type": "COMMAND",
+    "commands": ["describe", "pod", "-l", "app=database"],
+    "explanation": "Describing the database pod to troubleshoot."
+}}
 
 Memory: "We need to debug why the database pod keeps crashing."
 Request: ""
 Output:
-describe pod -l app=database
+{{  "action_type": "COMMAND",
+    "commands": ["describe", "pod", "-l", "app=database"],
+    "explanation": "Examining the database pod based on memory context."
+}}
 
 Memory: ""
 Request: "help me troubleshoot the database pod"
 Output:
-describe pod -l app=database
+{{  "action_type": "COMMAND",
+    "commands": ["describe", "pod", "-l", "app=database"],
+    "explanation": "Describing the database pod as requested."
+}}
 
 Memory: "Wait until pod 'foo' is deleted"
 Request: ""
 Output:
-ERROR: not executing kubectl wait --for=delete pod/foo because it is blocking
+{{  "action_type": "ERROR",
+    "error": "The command 'kubectl wait --for=delete pod/foo' is potentially blocking" \
+             " and should not be run autonomously unless explicitly confirmed.",
+    "explanation": "Refusing to run a potentially blocking 'wait' command."
+}}
 
 Memory: "We need to create multiple resources for our application."
 Request: "create the frontend and backend pods"
 Output:
-create -f - << EOF
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: frontend
-  labels:
-    app: myapp
-    component: frontend
-spec:
-  containers:
-  - name: frontend
-    image: nginx:latest
-    ports:
-    - containerPort: 80
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: backend
-  labels:
-    app: myapp
-    component: backend
-spec:
-  containers:
-  - name: backend
-    image: redis:latest
-    ports:
-    - containerPort: 6379
-EOF
+{{  "action_type": "COMMAND",
+    "commands": ["create", "-f", "-"],
+    "yaml_manifest": (
+        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: frontend\n  labels:\n"
+        "    app: myapp\n    component: frontend\nspec:\n  containers:\n"
+        "  - name: frontend\n    image: nginx:latest\n    ports:\n"
+        "    - containerPort: 80\n---\napiVersion: v1\nkind: Pod\nmetadata:\n"
+        "  name: backend\n  labels:\n    app: myapp\n    component: backend\nspec:\n"
+        "  containers:\n  - name: backend\n    image: redis:latest\n    ports:\n"
+        "    - containerPort: 6379"
+    ),
+    "explanation": "Creating frontend and backend pods using YAML as requested."
+}}
 
-# END Example inputs and outputs
+# END Example inputs (memory and request) and outputs
 
-Recall the syntax requirements above and follow them strictly in responding to
-the user's goal:
+Respond with ONLY the JSON object conforming to the schema based on the user's goal:
 
 Memory: "__MEMORY_CONTEXT_PLACEHOLDER__"
 Request: "__REQUEST_PLACEHOLDER__"

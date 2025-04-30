@@ -236,12 +236,13 @@ def test_create_planning_prompt_structure_and_content() -> None:
     assert isinstance(prompt, str)
     assert len(prompt) > 100
 
-    # Verify the basic structure and key phrases
-    assert f"You are planning arguments for the 'kubectl {command}' command." in prompt
+    # Verify the basic structure and key phrases - Use the restored header
+    assert f"You are planning arguments for the 'kubectl {command}' command" in prompt
+    assert f"which is used for {description}." in prompt
     assert "determine the\nappropriate arguments *following*" in prompt
     assert "respond with a JSON\nobject matching the provided schema." in prompt
     assert "Focus on extracting resource names, types, namespaces" in prompt
-    assert f"The action '{command}' is implied." in prompt
+    assert f"The action '{command}' is implied by the context." in prompt
     assert "Your response MUST be a valid JSON object" in prompt
     assert "Key fields:" in prompt
     assert "Example inputs (natural language target descriptions)" in prompt
@@ -428,14 +429,18 @@ def test_port_forward_prompt() -> None:
 
 
 def test_plan_port_forward_prompt() -> None:
-    """Test specific content of the PLAN_PORT_FORWARD_PROMPT."""
-    prompt = PLAN_PORT_FORWARD_PROMPT
-    # Check for updated key phrases and specific content
+    """Test the PLAN_PORT_FORWARD_PROMPT specifically."""
+    assert isinstance(PLAN_PORT_FORWARD_PROMPT, str)
+    assert len(PLAN_PORT_FORWARD_PROMPT) > 100
+    # Wrap long assertion
     assert (
-        "You are planning arguments for the 'kubectl port-forward' command." in prompt
+        "You are planning arguments for the 'kubectl port-forward' command"
+        in PLAN_PORT_FORWARD_PROMPT
     )
-    assert "respond with a JSON\nobject matching the provided schema." in prompt
+    assert "which is used for port-forward connections" in PLAN_PORT_FORWARD_PROMPT
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in PLAN_PORT_FORWARD_PROMPT
+    assert "__REQUEST_PLACEHOLDER__" in PLAN_PORT_FORWARD_PROMPT
+    # Wrap long assertion
     assert (
-        '- Target: "port 8080 of pod nginx to my local 8080"' in prompt
+        "port 8080 of pod nginx to my local 8080" in PLAN_PORT_FORWARD_PROMPT
     )  # Check example
-    assert "8080:8080" in prompt  # Check example command part

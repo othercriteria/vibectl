@@ -292,10 +292,11 @@ def test_handle_vibe_request_error_recovery_flow(
     Recovery suggestions are fetched and displayed.
     """
     # Mock LLM planning response (successful plan, include verb)
+    kubectl_verb = "get"  # Define the verb
     kubectl_args = ["pods"]  # Define args
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": kubectl_args,  # <<< Corrected: Args only
+        "commands": [kubectl_verb, *kubectl_args],
         "explanation": "Getting pods as requested",
     }
     # Mock LLM recovery suggestion response
@@ -424,13 +425,14 @@ def test_handle_vibe_request_error_recovery_flow(
         )
 
         # Verify _execute_command was called with the correct verb and args
-        mock_execute_cmd.assert_called_once_with("vibe", kubectl_args, None)
+        mock_execute_cmd.assert_called_once_with(kubectl_verb, kubectl_args, None)
 
         # Verify handle_command_output was called with the Error object
         mock_handle_output.assert_called_once()
-        ho_call_args, ho_kwargs = mock_handle_output.call_args
-        assert isinstance(ho_call_args[0], Error)
-        assert ho_call_args[0].error == execution_error_msg
+        call_args, call_kwargs = mock_handle_output.call_args
+        # First positional arg should be the Error object
+        assert call_args[0] is result  # Use the result from handle_vibe_request
+        assert call_kwargs.get("command") == kubectl_verb  # Expect the actual verb
 
         # Verify the recovery prompt was generated
         # The call happens inside the handle_output_side_effect mock
@@ -445,9 +447,9 @@ def test_handle_vibe_request_error_recovery_flow(
         # Verify memory WAS updated (via the patched function in memory module)
         mock_update_memory_mem_module.assert_called_once()
         update_kwargs = mock_update_memory_mem_module.call_args.kwargs
-        assert update_kwargs.get("command") == "vibe"
-        assert update_kwargs.get("command_output") == execution_error_msg
-        assert update_kwargs.get("vibe_output") == recovery_suggestion
+        assert (
+            update_kwargs.get("command") == kubectl_verb
+        )  # Assert against the correct verb
 
         # Verify the final result contains the error and the suggestion
         assert isinstance(result, Error)

@@ -63,10 +63,12 @@ def test_handle_vibe_request_success(
     mock_memory: MagicMock,
 ) -> None:
     """Test successful vibe request handling."""
-    # Mock the planning response with JSON, excluding the verb
+    # Mock the planning response with JSON, including the verb
+    kubectl_verb = "get"
+    kubectl_args = ["pods"]
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["pods"],  # <<< NEW (verb is prepended later)
+        "commands": [kubectl_verb, *kubectl_args],
         "explanation": "Get the pods.",
     }
     kubectl_output_data = "pod-a\npod-b"
@@ -91,7 +93,7 @@ def test_handle_vibe_request_success(
             )
 
             # Verify _execute_command was called with correct args
-            mock_execute_cmd.assert_called_once_with("vibe", ["pods"], None)
+            mock_execute_cmd.assert_called_once_with(kubectl_verb, kubectl_args, None)
 
             # Verify handle_command_output was called *after* _execute_command
             mock_handle_output.assert_called_once()
@@ -103,7 +105,7 @@ def test_handle_vibe_request_success(
             assert ho_call_args[1] == mock_output_flags_for_vibe_request
             # Check the command kwarg is the extracted verb
             assert (
-                ho_call_kwargs.get("command") == "vibe"
+                ho_call_kwargs.get("command") == kubectl_verb
             )  # Assert verb passed to output handler
 
     # Verify memory was updated (mock_memory fixture should handle this if set up)
@@ -353,11 +355,7 @@ def test_handle_vibe_request_llm_output_parsing(
         with (
             patch("vibectl.command_handler.update_memory") as mock_update_memory,
             patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
-            patch("vibectl.command_handler.is_api_error") as mock_is_api_error,
         ):
-            # Assume is_api_error is False if outer handler is reached
-            mock_is_api_error.return_value = False
-
             result = handle_vibe_request(
                 request=f"test {desc}",
                 command="get",
@@ -375,8 +373,6 @@ def test_handle_vibe_request_llm_output_parsing(
                 # Check the exception passed to create_api_error
                 assert isinstance(call_args[1], expected_exception)
                 assert result == mock_create_api_error.return_value
-                # Should not reach outer handler check
-                mock_is_api_error.assert_not_called()
             mock_update_memory.assert_called_once()
             mock_create_api_error.assert_called_once()
             assert isinstance(mock_create_api_error.call_args[0][1], expected_exception)
