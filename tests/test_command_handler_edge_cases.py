@@ -22,7 +22,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.k8s_utils import run_kubectl_with_complex_args
-from vibectl.types import Error, Success, Truncation
+from vibectl.types import Error, RecoverableApiError, Success, Truncation
 
 
 @pytest.fixture
@@ -1007,3 +1007,165 @@ def test_handle_standard_command_unexpected_error(
         "Unexpected error handling standard command"
         in mock_logger.error.call_args[0][0]
     )
+
+
+# --- Test Cases for Vibe Processing Error Handling --- #
+
+
+@patch("vibectl.command_handler.update_memory")  # Mock memory updates
+@patch("vibectl.command_handler.output_processor")  # Mock output processor
+def test_handle_command_output_vibe_recoverable_error(
+    mock_processor: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter_patch: MagicMock,  # Use the adapter fixture
+    mock_console: MagicMock,
+) -> None:
+    """
+    Test handle_command_output when Vibe processing (_get_llm_summary)
+    raises a RecoverableApiError.
+    """
+    # Arrange: Simulate successful command output, but LLM summary fails
+    command_output = "Some successful command output."
+    output_flags = OutputFlags(
+        model_name="test", show_raw=False, show_vibe=True, warn_no_output=False
+    )
+
+    # Define dummy prompt function using def
+    def dummy_prompt_func() -> str:
+        return "Summarize: {output}"
+
+    mock_processor.process_auto.return_value = Truncation(
+        original=command_output, truncated=command_output
+    )
+
+    # Mock the LLM execute call to raise a RecoverableApiError
+    api_error = RecoverableApiError("LLM rate limit exceeded")
+    mock_get_adapter_patch.execute.side_effect = api_error
+
+    # Act
+    result = handle_command_output(
+        output=command_output,
+        output_flags=output_flags,
+        summary_prompt_func=dummy_prompt_func,
+        command="get pods",
+    )
+
+    # Assert
+    assert isinstance(result, Error), f"Expected Error, got {type(result)}"
+    assert "API Error: LLM rate limit exceeded" in result.error
+    assert result.exception == api_error
+    assert result.halt_auto_loop is False  # Should be non-halting
+    mock_console.print_error.assert_any_call("API Error: LLM rate limit exceeded")
+    mock_update_memory.assert_not_called()  # Memory shouldn't update on Vibe error
+
+
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_vibe_general_error(
+    mock_processor: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_console: MagicMock,
+) -> None:
+    """
+    Test handle_command_output when Vibe processing (_get_llm_summary)
+    raises a general Exception.
+    """
+    # Arrange
+    command_output = "More successful output."
+    output_flags = OutputFlags(
+        model_name="test", show_raw=False, show_vibe=True, warn_no_output=False
+    )
+
+    # Define dummy prompt function using def
+    def dummy_prompt_func() -> str:
+        return "Summarize: {output}"
+
+    mock_processor.process_auto.return_value = Truncation(
+        original=command_output, truncated=command_output
+    )
+
+    # Mock the LLM execute call to raise a general Exception
+    general_error = ValueError("Unexpected LLM client issue")
+    mock_get_adapter_patch.execute.side_effect = general_error
+
+    # Act
+    result = handle_command_output(
+        output=command_output,
+        output_flags=output_flags,
+        summary_prompt_func=dummy_prompt_func,
+        command="describe node",
+    )
+
+    # Assert
+    assert isinstance(result, Error), f"Expected Error, got {type(result)}"
+    assert "Error getting Vibe summary: Unexpected LLM client issue" in result.error
+    assert result.exception == general_error
+    # General errors during vibe processing should be halting by default
+    assert result.halt_auto_loop is True
+    mock_console.print_error.assert_any_call(
+        "Error getting Vibe summary: Unexpected LLM client issue"
+    )
+    mock_update_memory.assert_not_called()
+
+
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_recovery_llm_fails(
+    mock_processor: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_console: MagicMock,
+) -> None:
+    """
+    Test handle_command_output when the initial command failed, show_vibe is True,
+    and the subsequent LLM call for recovery suggestions also fails.
+    """
+    # Arrange: Simulate initial command error
+    initial_error_msg = "kubectl command failed initially"
+    initial_error = Error(
+        error=initial_error_msg, exception=RuntimeError("kubectl error")
+    )
+    output_flags = OutputFlags(
+        model_name="test", show_raw=False, show_vibe=True, warn_no_output=False
+    )
+
+    # Define dummy prompt function using def
+    def dummy_prompt_func() -> str:
+        return "unused"
+
+    # Mock the LLM execute call (for recovery) to raise an error
+    recovery_llm_error = ValueError("Recovery LLM failed")
+    mock_get_adapter_patch.execute.side_effect = recovery_llm_error
+
+    # Act
+    result = handle_command_output(
+        output=initial_error,  # Pass the initial Error object
+        output_flags=output_flags,
+        summary_prompt_func=dummy_prompt_func,
+        command="delete pod",
+    )
+
+    # Assert
+    assert isinstance(result, Error), f"Expected Error, got {type(result)}"
+    # Check for combined error message (matching actual format)
+    assert f"Original Error: {initial_error_msg}" in result.error
+    assert (
+        f"Vibe Failure: Error getting Vibe summary: {recovery_llm_error}"
+        in result.error
+    )
+    # Exception should be the *original* error's exception or the recovery one
+    assert (
+        result.exception == initial_error.exception
+        or result.exception == recovery_llm_error
+    )
+    assert result.halt_auto_loop is True  # Should be halting
+    mock_console.print_error.assert_any_call(initial_error_msg)  # Prints original error
+    mock_console.print_error.assert_any_call(
+        f"Error getting Vibe summary: {recovery_llm_error}"
+    )  # Prints recovery failure
+    # Update memory should be called *only* for the initial error logging
+    # inside the recovery block before the LLM call fails.
+    # Refine: memory update happens *after* successful recovery LLM call.
+    # So it should NOT be called here.
+    mock_update_memory.assert_not_called()

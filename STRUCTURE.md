@@ -16,8 +16,8 @@ This document provides an overview of the project's structure and organization.
 - `model_adapter.py` - Abstraction layer for LLM model interactions
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
-- `schema.py` - Pydantic models for structured LLM output schemas
-- `types.py` - Custom type definitions
+- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning)
+- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema)
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 - `logutil.py` - Logging setup and configuration
@@ -215,9 +215,14 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Updates memory context based on command execution
    - Uses model adapter instead of direct LLM calls
 4. `prompt.py` - Defines prompt templates used by model adapters
-   - Command-specific prompt templates
+   - Command-specific prompt templates (e.g., `create_planning_prompt`)
+   - Includes instructions for generating JSON output matching defined schemas
    - Formatting instructions
    - Consistent prompt structure for all LLM interactions
+5. Schema Integration (`schema.py`, `types.py`, `command_handler.py`)
+   - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure.
+   - `model_adapter.py` passes the generated schema dictionary to the LLM.
+   - `command_handler.py` parses the JSON response, validates it against the Pydantic model, and handles actions based on `ActionType`.
 
 ### Proxy Support
 1. `proxy.py` - Proxy handling for model requests

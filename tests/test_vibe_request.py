@@ -993,8 +993,12 @@ def test_handle_vibe_request_general_exception_during_recovery(
 
             # Assert the error message combines original error and recovery failure
             assert initial_error_message in result.error
-            assert "Recovery Failure" in result.error
+            # Updated to check for the actual "Vibe Failure:" prefix
+            assert "Vibe Failure: Error getting Vibe summary:" in result.error
             assert recovery_exception_message in result.error
+
+            # Assert the exception in the Error object is original command's exception
+            assert isinstance(result.exception, RuntimeError)
 
             # Verify the console output includes the combined error message
             mock_console.print_error.assert_any_call(

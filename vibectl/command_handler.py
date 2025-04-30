@@ -314,23 +314,26 @@ def handle_command_output(
                     exc_info=True,
                 )
                 console_manager.print_error(f"API Error: {api_err}")
-                # Create a non-halting error
-                return create_api_error(str(api_err), api_err)
+                # Create a non-halting error with the formatted message
+                return create_api_error(f"API Error: {api_err}", api_err)
             except Exception as e:
                 logger.error(f"Error during Vibe processing: {e}", exc_info=True)
                 error_str = str(e)
-                console_manager.print_error(f"Error getting Vibe summary: {error_str}")
+                formatted_error_msg = f"Error getting Vibe summary: {error_str}"
+                console_manager.print_error(formatted_error_msg)
                 # Create a standard halting error for Vibe summary failures
-                vibe_error = Error(error=error_str, exception=e)
+                # using the formatted message
+                vibe_error = Error(error=formatted_error_msg, exception=e)
 
                 if original_error_object:
                     # Combine the original error with the Vibe failure
+                    # Use the formatted vibe_error message here too
                     combined_error_msg = (
                         f"Original Error: {original_error_object.error}\n"
-                        f"Recovery Failure: Failed to get recovery suggestions: "
-                        f"{vibe_error.error}"
+                        f"Vibe Failure: {vibe_error.error}"
                     )
                     exc = original_error_object.exception or vibe_error.exception
+                    # Return combined error, keeping original exception if possible
                     return Error(error=combined_error_msg, exception=exc)
                 else:
                     # If there was no original error, just return the Vibe error
@@ -470,23 +473,26 @@ def _process_vibe_output(
             exc_info=True,
         )
         console_manager.print_error(f"API Error: {api_err}")
-        # Create a non-halting error
-        return create_api_error(str(api_err), api_err)
+        # Create a non-halting error with the formatted message
+        return create_api_error(f"API Error: {api_err}", api_err)
     except Exception as e:
         logger.error(f"Error getting Vibe summary: {e}", exc_info=True)
         error_str = str(e)
-        console_manager.print_error(f"Error getting Vibe summary: {error_str}")
+        formatted_error_msg = f"Error getting Vibe summary: {error_str}"
+        console_manager.print_error(formatted_error_msg)
         # Create a standard halting error for Vibe summary failures
-        vibe_error = Error(error=error_str, exception=e)
+        # using the formatted message
+        vibe_error = Error(error=formatted_error_msg, exception=e)
 
         if original_error_object:
             # Combine the original error with the Vibe failure
+            # Use the formatted vibe_error message here too
             combined_error_msg = (
                 f"Original Error: {original_error_object.error}\n"
-                f"Recovery Failure: Failed to get recovery suggestions: "
-                f"{vibe_error.error}"
+                f"Vibe Failure: {vibe_error.error}"
             )
             exc = original_error_object.exception or vibe_error.exception
+            # Return combined error, keeping original exception if possible
             return Error(error=combined_error_msg, exception=exc)
         else:
             # If there was no original error, just return the Vibe error
@@ -890,8 +896,8 @@ def handle_vibe_request(
                         exc_info=True,
                     )
                     console_manager.print_error(f"API Error: {api_err}")
-                    # Create a non-halting error
-                    return create_api_error(str(api_err), api_err)
+                    # Create a non-halting error with the formatted message
+                    return create_api_error(f"API Error: {api_err}", api_err)
                 except Exception as e:
                     logger.error(f"Error handling command output: {e}", exc_info=True)
                     return Error(
