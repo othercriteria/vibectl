@@ -55,11 +55,11 @@ def create_kubectl_error(
 
     # Define patterns for recoverable client-side errors
     recoverable_patterns = [
-        "error from server",  # Existing: Server-side errors (NotFound, etc.)
-        "unknown command",  # Existing: Completely wrong command
-        "unknown flag",  # New: Invalid flag used
-        "invalid argument",  # New: Invalid argument value or format
-        # Add more specific kubectl client error patterns here if needed
+        "error from server",  # Server-side errors (NotFound, etc.)
+        "unknown command",  # Completely wrong command
+        "unknown flag",  # Invalid flag used
+        "invalid argument",  # Invalid argument value or format
+        "is invalid:",  # Catch server-side validation errors (like immutable fields)
     ]
 
     # Check if the error message matches any recoverable pattern (case-insensitive)

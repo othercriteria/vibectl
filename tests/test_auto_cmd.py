@@ -1,11 +1,13 @@
 """Tests for vibectl auto command."""
 
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from click.testing import CliRunner
 
 import vibectl.subcommands.auto_cmd  # Import for direct module access
+from vibectl.cli import cli
 from vibectl.types import Error, Success
 
 
@@ -1127,3 +1129,47 @@ def test_auto_command_outer_exception_handling(monkeypatch: pytest.MonkeyPatch) 
             model=None,
             exit_on_error=True,  # Default
         )
+
+
+@patch("vibectl.subcommands.auto_cmd.run_vibe_command")
+def test_auto_loop_continues_on_kubectl_error_with_recovery(
+    mock_run_vibe_command: MagicMock,
+) -> None:
+    """
+    Test that the auto loop continues when run_vibe_command returns a recoverable
+    Error (e.g., from kubectl execution) with recovery suggestions.
+    The loop should log the error and suggestions and proceed.
+    """
+    # Simulate the first iteration returning a recoverable error that shouldn't
+    # halt the loop.
+    error_result = Error(
+        error="Simulated kubectl error: is invalid",  # Match the pattern
+        recovery_suggestions="Try deleting and recreating.",
+        halt_auto_loop=False,  # This should be the *correct* value now
+    )
+
+    # Simulate the second iteration stopping the loop cleanly
+    success_result = Success(message="Stopped after error", continue_execution=False)
+
+    # Configure the mock to return the error first, then success
+    mock_run_vibe_command.side_effect = [error_result, success_result]
+
+    runner = CliRunner()
+    # Use --limit 2 to allow the loop to attempt a second iteration
+    # Use --interval 0 to prevent timeouts during testing
+    result = runner.invoke(
+        cli,
+        ["auto", "--limit", "2", "--interval", "0"],
+        catch_exceptions=True,
+    )  # Catch exceptions
+
+    # --- ASSERTIONS ---
+    # Check that the command completed successfully despite the internal error
+    assert result.exit_code == 0
+    assert result.exception is None
+
+    # Optional: Check logs/output for expected messages
+    # assert "Simulated kubectl error" in result.output # Adjust based on actual output
+
+    # Verify run_vibe_command was called twice
+    assert mock_run_vibe_command.call_count == 2
