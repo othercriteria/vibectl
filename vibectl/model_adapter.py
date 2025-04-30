@@ -161,7 +161,10 @@ class ModelEnvironment:
 
         # Get the API key for this provider
         api_key = self.config.get_model_key(self.provider)
-        if api_key:
+
+        # Only set the environment variable if an API key exists
+        # AND the provider is NOT ollama (ollama often runs locally without keys)
+        if api_key and self.provider != "ollama":
             # Set the environment variable for the LLM package to use
             os.environ[legacy_key_name] = api_key
 
@@ -261,7 +264,7 @@ class LLMModelAdapter(ModelAdapter):
                     "Failed to get model '%s': %s",
                     model_name,
                     e,
-                    exc_info=logger.isEnabledFor(10),
+                    exc_info=True,
                 )
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
@@ -277,27 +280,61 @@ class LLMModelAdapter(ModelAdapter):
             model: The model instance to execute the prompt on
             prompt_text: The prompt text to execute
             response_model: Optional Pydantic model for structured JSON response.
+                            If provided, attempts to use the model's schema support.
+                            If the model doesn't support schemas, it falls back
+                            to a regular prompt call.
 
         Returns:
-            str: The response text
+            str: The response text (either raw text or JSON string if schema used).
 
         Raises:
             ValueError: If there is an error executing the prompt. The message will
                         indicate if the error seems recoverable based on keywords.
+            RecoverableApiError: If the error seems recoverable (e.g., rate limit).
         """
         logger.debug(
             "Executing prompt on model '%s' with response model: %s",
             model.model_id,
             response_model.__name__ if response_model else "None",
         )
-        if logger.isEnabledFor(10):  # Check if DEBUG is enabled
-            logger.debug("Prompt text:\n%s", prompt_text)
+        logger.debug("Prompt text:\n%s", prompt_text)
 
         # Use context manager for environment variables
         with ModelEnvironment(model.model_id, self.config):
+            response: Any = None
             try:
-                # Standard llm way: Pass response_model directly
-                response = model.prompt(prompt_text, schema=response_model)
+                if response_model:
+                    # Attempt schema-based call first
+                    try:
+                        logger.debug("Attempting schema-based prompt call.")
+                        # Assume llm might raise specific error if schema not supported
+                        # e.g., llm.SchemaUnsupportedError - adjust if different
+                        response = model.prompt(prompt_text, schema=response_model)
+                        logger.debug("Schema-based call successful.")
+                    except AttributeError as ae:
+                        # Catch potential AttributeError if model lacks schema support
+                        # or if llm library changes how unsupported schemas are signaled
+                        # Also catch placeholder SchemaUnsupportedError
+                        # TODO: Identify and catch the specific exception raised by llm
+                        #       when a model doesn't support schemas.
+                        #       Replace this broad catch if possible.
+                        if "schema" in str(ae).lower():  # Basic check
+                            logger.warning(
+                                "Model '%s' may not support schemas or schema feature "
+                                "failed (%s). Falling back to non-schema prompt.",
+                                model.model_id,
+                                ae,
+                            )
+                            # Fallback: Call without schema
+                            response = model.prompt(prompt_text)
+                        else:
+                            # Re-raise if the AttributeError is unrelated to schemas
+                            raise ae
+                else:
+                    # Regular call if no schema is provided
+                    response = model.prompt(prompt_text)
+
+                # --- Process the response ---
 
                 # Check if the response conforms to the expected protocol
                 if not isinstance(response, ModelResponse):
@@ -313,23 +350,32 @@ class LLMModelAdapter(ModelAdapter):
                         logger.error(
                             "Failed to convert bad model response to string: %s",
                             conversion_err,
-                            exc_info=logger.isEnabledFor(10),
+                            exc_info=True,
                         )
                         raise ValueError(
                             f"Model response type {type(response)} cannot be processed."
                         ) from conversion_err
 
                 # Get text from the response object
-                return cast("ModelResponse", response).text()
+                # Cast needed because 'response' could be Any after fallback
+                response_text = cast("ModelResponse", response).text()
+
+                # If a schema was *attempted* and fallback occurred, the result might
+                # be unstructured text. If schema succeeded, it should be JSON.
+                # The caller (e.g., handle_vibe_request) needs to handle parsing.
+                return response_text
 
             except Exception as e:
+                # Re-raise the original AttributeError directly
+                raise e
+
                 error_message = str(e)
                 error_message_lower = error_message.lower()
                 logger.error(
                     "Error executing prompt on model '%s': %s",
                     model.model_id,
                     error_message,
-                    exc_info=logger.isEnabledFor(10),  # Log traceback at DEBUG
+                    exc_info=True,  # Log traceback directly at ERROR level
                 )
 
                 # Check if the error message indicates a recoverable API error

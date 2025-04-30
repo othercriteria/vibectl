@@ -15,9 +15,7 @@
 
 1.  **`PLAN_VIBE_PROMPT` Refactoring:**
     - Apply the schema pattern to the general `PLAN_VIBE_PROMPT` used by `vibectl vibe`.
-2.  **Fallback Mechanism:**
-    - Design and implement a fallback for models lacking native schema support.
-3.  **Refine Argument Handling (If Needed):**
+2.  **Refine Argument Handling (If Needed):**
     - Re-evaluate the `commands` list joining based on testing with more complex command types.
 4.  **Testing & Coverage:**
     - Add specific unit/integration tests for `vibectl/schema.py`.

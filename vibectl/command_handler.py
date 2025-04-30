@@ -34,7 +34,7 @@ from .live_display import (
 )
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
-from .model_adapter import get_model_adapter
+from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
     memory_fuzzy_update_prompt,
@@ -44,7 +44,6 @@ from .schema import ActionType, LLMCommandResponse
 from .types import (
     Error,
     OutputFlags,
-    RecoverableApiError,
     Result,
     Success,
 )
@@ -563,6 +562,8 @@ def handle_vibe_request(
     """
     model_name = output_flags.model_name
     model_adapter = get_model_adapter()
+    response_model_type = LLMCommandResponse  # Schema type we expect
+
     # Get the model instance
     try:
         model = model_adapter.get_model(model_name)
@@ -604,63 +605,92 @@ def handle_vibe_request(
     try:
         # Execute the prompt with the model adapter, passing the schema dict
         # Pass model instance as first argument
-        llm_response = model_adapter.execute(
+        llm_response_text = model_adapter.execute(
             model=model,
             prompt_text=final_plan_prompt,  # Pass the interpolated prompt string
             response_model=response_model_type,  # Pass the Pydantic model type
         )
-        logger.info(f"Raw LLM response:\n{llm_response}")  # Log raw response
+        logger.info(f"Raw LLM response text:\n{llm_response_text}")
 
-        # === STEP 2: PARSE AND VALIDATE JSON RESPONSE ===
+        # === STEP 2: PARSE AND VALIDATE RESPONSE ===
         # If the response is empty or whitespace, return an error
-        if not llm_response or llm_response.strip() == "":
+        if not llm_response_text or llm_response_text.strip() == "":
             logger.error("LLM returned an empty response.")
+            # Update memory with failure
+            update_memory(
+                command="system",
+                command_output="LLM Error: Empty response.",
+                vibe_output="LLM Error: Empty response.",
+                model_name=output_flags.model_name,
+            )
             return Error("LLM returned an empty response.")
 
-        try:
-            # Use model_validate_json for Pydantic V2
-            response = LLMCommandResponse.model_validate_json(llm_response)
-            logger.debug(f"Parsed LLM response object: {response}")
-            # Explicitly convert string to ActionType enum after validation
-            validated_action_type = ActionType(response.action_type)
-            logger.info(f"Validated ActionType: {validated_action_type}")
+        response: LLMCommandResponse | None = None
 
+        # Try parsing as JSON first, assuming schema was attempted
+        try:
+            response = LLMCommandResponse.model_validate_json(llm_response_text)
+            logger.debug(f"Parsed LLM response object: {response}")
+            # Ensure action_type is enum after validation
             if isinstance(response.action_type, str):
-                response.action_type = ActionType(response.action_type)
+                response.action_type = ActionType(
+                    response.action_type
+                )  # Convert validated string to Enum
+            logger.info(f"Validated ActionType: {response.action_type}")
 
         except (JSONDecodeError, ValidationError) as e:
-            error_msg = f"Failed to parse or validate LLM response: {e}"
-            # Handle specific error types for more informative messages
+            logger.warning(
+                f"Failed to parse LLM response as JSON ({type(e).__name__}). "
+                f"This might be due to schema fallback or LLM non-compliance. "
+                f"Response Text: {llm_response_text[:500]}..."  # Log truncated text
+            )
+            # If parsing fails, we cannot proceed with structured actions.
+            # Treat this as a planning failure. Update memory and return error.
+            error_msg = f"Failed to parse LLM response as expected JSON: {e}"
             truncated_llm_response = output_processor.process_auto(
-                llm_response, budget=100
+                llm_response_text, budget=100
             ).truncated
-            logger.error(f"{error_msg}\nLLM Output:\n{llm_response}")
-
             update_memory(
                 command="system",
                 command_output=error_msg,
                 vibe_output=(
                     f"System Error: Failed to parse LLM response: "
-                    f"{truncated_llm_response}..."
-                ),  # Use truncated response
+                    f"{truncated_llm_response}... Check model or prompt."
+                ),
                 model_name=output_flags.model_name,
             )
+            # Use create_api_error because this could be a model/API issue
+            # (non-compliance)
             return create_api_error(error_msg, e)
 
+        # If parsing succeeded, 'response' is now a validated LLMCommandResponse object.
+        # Check for potential ValueError during initial execution (e.g., model loading)
+        # This catch block might be less relevant now with parsing done first,
+        # but kept for safety against other potential ValueErrors from adapter.execute
         except ValueError as e:
             # Catch ValueErrors specifically (e.g., from unknown model name)
             error_msg = f"Error during LLM request execution: {e}"
             logger.error(f"{error_msg}", exc_info=True)  # Log with traceback
-            # Treat as an API error to avoid halting loops
             update_memory(
-                "system",
-                error_msg,
-                f"System Error: LLM execution failed - {memory_context}",
-            )  # Store raw error, clarify type in vibe_output
-            return create_api_error(error_msg, e)
+                command="system",
+                command_output=error_msg,
+                vibe_output=f"System Error: LLM execution failed - {error_msg}",
+                model_name=output_flags.model_name,
+            )
+            return create_api_error(error_msg, e)  # Treat as API error
 
-        # === STEP 3: Implement ActionType Dispatch (ERROR, WAIT, FEEDBACK) ===
-        match validated_action_type:
+        # Ensure response is not None before proceeding (should be guaranteed if no
+        # exception)
+        if response is None:
+            # This should ideally not happen if parsing succeeded or threw error
+            logger.error(
+                "Internal Error: Response object is None after parsing attempt."
+            )
+            return Error("Internal error: Failed to process LLM response object.")
+
+        # === STEP 3: Implement ActionType Dispatch (ERROR, WAIT, FEEDBACK, COMMAND) ===
+        # Use the validated response object directly
+        match response.action_type:
             case ActionType.ERROR:
                 if not response.error:
                     logger.error("ActionType is ERROR but no error message provided.")
@@ -906,11 +936,11 @@ def handle_vibe_request(
 
             case _:
                 logger.error(
-                    f"Internal error: Unknown ActionType: {validated_action_type}"
+                    f"Internal error: Unknown ActionType: {response.action_type}"
                 )
                 return Error(
                     error=f"Internal error: Unknown ActionType received from "
-                    f"LLM: {validated_action_type}"
+                    f"LLM: {response.action_type}"
                 )
 
     except RecoverableApiError as api_err:

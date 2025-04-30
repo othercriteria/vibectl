@@ -290,7 +290,7 @@ class TestModelAdapterWithKeys:
                 assert response == "Test response"
 
                 # Verify prompt was called
-                mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
+                mock_model.prompt.assert_called_once_with("Test prompt")
 
             # Verify environment variable is still there (the core of this test)
             assert "ORIGINAL_VAR" in os.environ

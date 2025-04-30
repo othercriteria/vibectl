@@ -149,7 +149,13 @@ def test_handle_vibe_request_empty_response(
     assert result.error == "LLM returned an empty response."
 
     # Verify update_memory and create_api_error were NOT called for this specific path
-    mock_update_memory.assert_not_called()
+    mock_update_memory.assert_called_once()
+    call_args = mock_update_memory.call_args.kwargs
+    assert call_args.get("command") == "system"
+    assert call_args.get("command_output") == "LLM Error: Empty response."
+    assert call_args.get("vibe_output") == "LLM Error: Empty response."
+    assert call_args.get("model_name") == mock_output_flags_for_vibe_request.model_name
+
     mock_create_api_error.assert_not_called()
 
     # Verify kubectl was NOT called
@@ -242,8 +248,15 @@ def test_handle_vibe_request_invalid_format(
         # Check kwargs for update_memory call
         call_kwargs = mock_update_memory.call_args.kwargs
         assert call_kwargs.get("command") == "system"
-        assert "Failed to parse or validate LLM response" in call_kwargs.get(
-            "command_output"
+        assert "Failed to parse LLM response as expected JSON" in call_kwargs.get(
+            "command_output", ""
+        )
+        assert "System Error: Failed to parse LLM response:" in call_kwargs.get(
+            "vibe_output", ""
+        )
+        assert (
+            call_kwargs.get("model_name")
+            == mock_output_flags_for_vibe_request.model_name
         )
 
         # Verify create_api_error was called

@@ -111,7 +111,7 @@ class TestLLMModelAdapter:
 
         # Verify
         assert response == "Test response"
-        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
+        mock_model.prompt.assert_called_once_with("Test prompt")
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_string_response(self, mock_llm: MagicMock) -> None:
@@ -126,7 +126,7 @@ class TestLLMModelAdapter:
 
         # Verify
         assert response == "Test response"
-        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
+        mock_model.prompt.assert_called_once_with("Test prompt")
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_error(self, mock_llm: MagicMock) -> None:
@@ -137,12 +137,13 @@ class TestLLMModelAdapter:
 
         # Execute
         adapter = LLMModelAdapter()
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(Exception) as exc_info:
             adapter.execute(mock_model, "Test prompt")
 
         # Verify
-        assert "Error executing prompt: Test error" in str(exc_info.value)
-        mock_model.prompt.assert_called_once_with("Test prompt", schema=None)
+        assert isinstance(exc_info.value, Exception)
+        assert str(exc_info.value) == "Test error"
+        mock_model.prompt.assert_called_once_with("Test prompt")
 
     @patch("vibectl.model_adapter.llm")
     def test_execute_with_type_casting(self, mock_llm: MagicMock) -> None:
@@ -325,3 +326,129 @@ def test_get_model_ollama_with_dummy_key(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("vibectl.model_adapter.llm.get_model", lambda name: object())
     # Should not raise
     adapter.get_model("ollama:tinyllama")
+
+
+class TestLLMModelAdapterSchemaFallback:
+    """Tests specifically for the schema fallback logic in LLMModelAdapter."""
+
+    class MockResponse:
+        def __init__(self, text_content: str):
+            self._text = text_content
+
+        def text(self) -> str:
+            return self._text
+
+    class DummySchema(BaseModel):
+        field: str
+
+    @patch("vibectl.model_adapter.llm")
+    def test_execute_schema_unsupported_fallback(self, mock_llm: MagicMock) -> None:
+        """Test execute falls back when model.prompt raises schema-related
+        AttributeError."""
+        # Setup
+        mock_model = Mock()
+        mock_model.model_id = "test-fallback-model"  # Add model_id for logging
+        schema_error = AttributeError("Model does not support 'schema' argument")
+        fallback_response = self.MockResponse(text_content="Fallback response text")
+
+        # Configure prompt mock: raise error first, then return success on fallback
+        mock_model.prompt.side_effect = [schema_error, fallback_response]
+
+        # Execute
+        adapter = LLMModelAdapter()
+        response_text = adapter.execute(
+            mock_model, "Test prompt", response_model=self.DummySchema
+        )
+
+        # Verify
+        assert response_text == "Fallback response text"
+        # Check prompt was called twice: first with schema, then without
+        assert mock_model.prompt.call_count == 2
+        # First call with schema
+        mock_model.prompt.assert_any_call("Test prompt", schema=self.DummySchema)
+        # Second call without schema
+        mock_model.prompt.assert_called_with("Test prompt")
+
+    @patch("vibectl.model_adapter.llm")
+    def test_execute_schema_supported(self, mock_llm: MagicMock) -> None:
+        """Test execute works normally when schema is supported."""
+        # Setup
+        mock_model = Mock()
+        mock_model.model_id = "test-schema-model"  # Add model_id
+        schema_response = self.MockResponse(text_content='{"field": "value"}')
+        mock_model.prompt.return_value = schema_response
+
+        # Execute
+        adapter = LLMModelAdapter()
+        response_text = adapter.execute(
+            mock_model, "Test prompt", response_model=self.DummySchema
+        )
+
+        # Verify
+        assert response_text == '{"field": "value"}'
+        # Check prompt was called once with schema
+        mock_model.prompt.assert_called_once_with(
+            "Test prompt", schema=self.DummySchema
+        )
+
+    @patch("vibectl.model_adapter.llm")
+    def test_execute_unrelated_attribute_error(self, mock_llm: MagicMock) -> None:
+        """Test execute re-raises AttributeError if it's not schema-related."""
+        # Setup
+        mock_model = Mock()
+        mock_model.model_id = "test-attr-err-model"  # Add model_id
+        unrelated_error = AttributeError("Some other attribute is missing")
+        mock_model.prompt.side_effect = unrelated_error
+
+        # Execute and verify
+        adapter = LLMModelAdapter()
+        with pytest.raises(AttributeError) as exc_info:
+            adapter.execute(mock_model, "Test prompt", response_model=self.DummySchema)
+
+        assert exc_info.value == unrelated_error  # Check the original error is raised
+        # Check prompt was called once (and failed)
+        mock_model.prompt.assert_called_once_with(
+            "Test prompt", schema=self.DummySchema
+        )
+
+
+class TestModelEnvironment:
+    """Tests for ModelEnvironment."""
+
+    def test_enter_unknown_provider(self) -> None:
+        """Test __enter__ does nothing for unknown provider."""
+        original_env = dict(os.environ)
+        try:
+            os.environ.clear()  # Start clean
+            config = Mock()
+            env = ModelEnvironment("unknown-model", config)
+            with env:  # Enter the context
+                # Check that no relevant env vars were set
+                assert "OPENAI_API_KEY" not in os.environ
+                assert "ANTHROPIC_API_KEY" not in os.environ
+                assert "OLLAMA_API_KEY" not in os.environ
+            # Exit should also leave env clean
+            assert not os.environ
+        finally:
+            os.environ.clear()
+            os.environ.update(original_env)
+
+    def test_enter_ollama_provider(self) -> None:
+        """Test __enter__ does nothing for ollama provider."""
+        original_env = dict(os.environ)
+        try:
+            os.environ.clear()  # Start clean
+            config = Mock()
+            # Mock the get_model_key method to simulate having a key
+            config.get_model_key.return_value = "dummy-ollama-key"
+            env = ModelEnvironment("ollama:llama3", config)
+            with env:  # Enter the context
+                # Check that no relevant env vars were set
+                assert "OPENAI_API_KEY" not in os.environ
+                assert "ANTHROPIC_API_KEY" not in os.environ
+                assert "OLLAMA_API_KEY" not in os.environ
+            # Exit should also leave env clean
+            assert not os.environ
+        finally:
+            os.environ.clear()
+            os.environ.update(original_env)

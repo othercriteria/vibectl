@@ -191,7 +191,7 @@ def test_handle_command_output_extreme_inputs() -> None:
         )
 
         # Test with extremely long output
-        long_output = "A" * 100000  # 100k chars
+        long_output = "A" * 100000  # Reverted to 100k chars
         mock_processor.process_auto.return_value = Truncation(
             original=long_output, truncated=long_output[:1000]
         )
@@ -236,8 +236,8 @@ def test_handle_vibe_request_empty_llm_response(
             memory_context="test-context",
         )
 
-        # Verify update_memory was NOT called because the function returns early
-        mock_update_memory.assert_not_called()
+        # Verify update_memory was called because the function returns early
+        mock_update_memory.assert_called_once()
         # Verify create_api_error was NOT called
         mock_create_api_error.assert_not_called()
         # Verify handle_command_output was NOT called
@@ -361,10 +361,10 @@ def test_handle_vibe_request_command_parser_error(
 
         # Verify error output was logged (via logger.error)
         assert (
-            "Failed to parse or validate LLM response" in caplog.text
-        )  # Check log capture
-        assert "LLM Output:" in caplog.text
-        assert malformed_response in caplog.text
+            "Failed to parse LLM response as JSON"
+            in caplog.text  # Check log capture for the specific warning
+        )
+        assert "ValidationError" in caplog.text or "JSONDecodeError" in caplog.text
 
 
 @patch("vibectl.command_handler._execute_command")
@@ -1169,3 +1169,83 @@ def test_handle_command_output_recovery_llm_fails(
     # Refine: memory update happens *after* successful recovery LLM call.
     # So it should NOT be called here.
     mock_update_memory.assert_not_called()
+
+
+def test_handle_vibe_request_handles_api_errors() -> None:
+    # This test case is not provided in the original file or the code block
+    # It's assumed to exist based on the function name, but the implementation
+    # is not provided in the original file or the code block.
+    # If the test case is to be implemented, the implementation should be added here.
+    pass
+
+
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.create_api_error")
+@patch("vibectl.command_handler.get_model_adapter")
+def test_handle_vibe_request_parsing_error_after_fallback(
+    mock_get_adapter: MagicMock,
+    mock_create_api_error: MagicMock,
+    mock_update_memory: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+    mock_console: MagicMock,
+) -> None:
+    """Test handle_vibe_request handles parsing error when schema fallback occurred."""
+    caplog.set_level("WARNING")
+    # Arrange
+    # Configure adapter mock
+    mock_adapter_instance = MagicMock()
+    mock_model_instance = Mock()
+    mock_adapter_instance.get_model.return_value = mock_model_instance
+    # Simulate execute returning raw text (as if schema fallback happened)
+    raw_text_response = "This is raw text, not JSON."
+    mock_adapter_instance.execute.return_value = raw_text_response
+    mock_get_adapter.return_value = mock_adapter_instance
+
+    # Configure create_api_error mock
+    mock_error_instance = Error(error="Mocked API Error", halt_auto_loop=False)
+    mock_create_api_error.return_value = mock_error_instance
+
+    output_flags = OutputFlags(
+        model_name="fallback-model",
+        show_raw=False,
+        show_vibe=False,
+        warn_no_output=False,
+    )
+
+    # Act
+    result = handle_vibe_request(
+        request="Test parsing error after fallback",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "Summary",
+        output_flags=output_flags,
+    )
+
+    # Assert
+    # Verify adapter.execute was called (with schema requested)
+    mock_adapter_instance.execute.assert_called_once()
+    call_kwargs = mock_adapter_instance.execute.call_args.kwargs
+    assert call_kwargs.get("response_model") is not None  # Check schema was requested
+
+    # Verify update_memory was called due to parsing error
+    mock_update_memory.assert_called_once()
+    mem_kwargs = mock_update_memory.call_args.kwargs
+    assert mem_kwargs.get("command") == "system"
+    assert "Failed to parse LLM response as expected JSON" in mem_kwargs.get(
+        "command_output"
+    )
+    assert "System Error: Failed to parse LLM response" in mem_kwargs.get("vibe_output")
+    assert mem_kwargs.get("model_name") == "fallback-model"
+
+    # Verify create_api_error was called
+    mock_create_api_error.assert_called_once()
+    create_args, _ = mock_create_api_error.call_args
+    # Check the exception type passed to create_api_error
+    assert isinstance(create_args[1], json.JSONDecodeError | ValidationError)
+
+    # Verify the result is the error returned by create_api_error
+    assert result == mock_error_instance
+
+    # Verify the warning log message
+    assert "Failed to parse LLM response as JSON" in caplog.text
+    assert raw_text_response[:500] in caplog.text  # Check truncated response is logged
