@@ -236,3 +236,7 @@ Implementation should prioritize commands that provide the most value to users w
 ## Test Structure Cleanup
 - Flattened `tests/coverage/` into `tests/` for now.
 - Revisit test organization and structure comprehensively later.
+
+## Prompt Templating
+- Consider using a dedicated templating library (e.g., Jinja2) for prompt
+  construction to avoid manual string formatting issues like brace escaping.

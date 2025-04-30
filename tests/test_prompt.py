@@ -411,6 +411,41 @@ def test_vibe_autonomous_prompt() -> None:
     assert "{output}" in result
 
 
+def test_vibe_autonomous_prompt_formatting() -> None:
+    """Test that the vibe autonomous prompt can be formatted correctly,
+    even when formatting instructions contain braces (simulating memory context).
+    """
+    # Simulate memory content with braces that could conflict with f-string formatting
+    mock_memory_content = '{"key": "value with {braces}"}'
+
+    # Patch get_formatting_instructions to return a string that includes
+    # the mock memory content (simulating how it gets embedded).
+    # This also implicitly tests the interaction with the original f-string
+    # structure within vibe_autonomous_prompt if the fix isn't applied.
+    with patch(
+        "vibectl.prompt.get_formatting_instructions",
+        return_value=f"Mock formatting with memory:\n{mock_memory_content}\n---",
+    ):
+        prompt_template = vibe_autonomous_prompt()
+
+    test_output = "This is some test output."
+
+    try:
+        # Attempt to format the prompt string. This should not raise KeyError.
+        _ = prompt_template.format(output=test_output)
+    except KeyError as e:
+        pytest.fail(
+            f"Formatting vibe_autonomous_prompt failed with KeyError: {e}\\\n"
+            f"Prompt template (with mocked instructions):\\n{prompt_template}"
+        )
+    except Exception as e:
+        pytest.fail(
+            f"Formatting vibe_autonomous_prompt failed with "
+            f"unexpected exception: {e}\\\n"
+            f"Prompt template (with mocked instructions):\\n{prompt_template}"
+        )
+
+
 def test_wait_resource_prompt() -> None:
     """Test wait_resource_prompt has correct format."""
     prompt = wait_resource_prompt()

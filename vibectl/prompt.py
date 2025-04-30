@@ -1324,16 +1324,22 @@ Output:
 
 # Template for summarizing vibe autonomous command output
 def vibe_autonomous_prompt() -> str:
-    """Get the prompt for generating autonomous kubectl commands based on
-    natural language.
+    """Get the prompt for summarizing command output in autonomous mode.
 
     Returns:
-        str: The autonomous command generation prompt
+        str: The summarization prompt string.
     """
-    # Call helper function first
     formatting_instructions = get_formatting_instructions()
-    # Return a regular string, embedding the instructions but keeping {output}
-    return f"""Analyze this kubectl command output and provide a concise summary.
+    # Escape any stray braces within the instructions themselves to prevent
+    # potential interference with the final .format(output=...) call.
+    escaped_formatting_instructions = formatting_instructions.replace(
+        "{", "{{"
+    ).replace("}", "}}")
+
+    # Construct the prompt using standard string concatenation/joining
+    # to avoid f-string interpolation issues with the literal '{output}'
+    prompt_parts = [
+        """Analyze this kubectl command output and provide a concise summary.
 Focus on the state of the resources, issues detected, and suggest logical next steps.
 
 If the output indicates "Command returned no output" or "No resources found",
@@ -1344,15 +1350,16 @@ next steps (checking namespace, creating resources, etc.).
 For resources with complex data:
 - Suggest YAML manifest approaches over inline flags
 - For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
-- Avoid suggesting command line arguments with quoted content
-
-{formatting_instructions}
-
-Example format:
+- Avoid suggesting command line arguments with quoted content""",
+        # Add the pre-escaped formatting instructions
+        escaped_formatting_instructions,
+        # Add examples and the final output placeholder
+        """Example format:
 [bold]3 pods[/bold] running in [blue]app namespace[/blue]
 [green]All deployments healthy[/green] with proper replica counts
 [yellow]Note: database pod has high CPU usage[/yellow]
-Next steps: Consider checking logs for database pod or scaling the deployment
+Next steps: Consider checking logs for database pod
+or scaling the deployment
 
 For empty output:
 [yellow]No pods found[/yellow] in [blue]sandbox namespace[/blue]
@@ -1360,7 +1367,11 @@ Next steps: Create the first pod or deployment using a YAML manifest
 
 Here's the output:
 
-{{output}}""".replace("{{output}}", "{output}")  # Keep {output} literal
+{output}""",
+    ]
+
+    # Join the parts with double newlines where appropriate (between major sections)
+    return "\n\n".join(prompt_parts)
 
 
 # Template for planning kubectl port-forward commands
