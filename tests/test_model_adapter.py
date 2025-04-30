@@ -101,7 +101,8 @@ class TestLLMModelAdapter:
         # Setup
         mock_model = Mock()
         mock_response = Mock()
-        mock_response.text.return_value = "Test response"
+        # Explicitly make .text a callable mock
+        mock_response.text = Mock(return_value="Test response")
         mock_model.prompt.return_value = mock_response
 
         # Execute
@@ -156,16 +157,20 @@ class TestLLMModelAdapter:
 
         # Create mock responses with text() methods returning different types
         mock_response_int = Mock()
-        mock_response_int.text.return_value = 42
+        # Explicitly make .text a callable mock
+        mock_response_int.text = Mock(return_value=42)
 
         mock_response_float = Mock()
-        mock_response_float.text.return_value = 3.14
+        # Explicitly make .text a callable mock
+        mock_response_float.text = Mock(return_value=3.14)
 
         mock_response_bool = Mock()
-        mock_response_bool.text.return_value = True
+        # Explicitly make .text a callable mock
+        mock_response_bool.text = Mock(return_value=True)
 
         mock_response_none = Mock()
-        mock_response_none.text.return_value = None
+        # Explicitly make .text a callable mock
+        mock_response_none.text = Mock(return_value=None)
 
         # Test each response type
         adapter = LLMModelAdapter()
@@ -173,9 +178,7 @@ class TestLLMModelAdapter:
         # Test integer response
         mock_model.prompt.return_value = mock_response_int
         response_int = adapter.execute(mock_model, "Integer prompt")
-        assert (
-            response_int == 42
-        )  # The adapter returns the actual value, not a string conversion
+        assert response_int == 42
 
         # Test float response
         mock_model.prompt.return_value = mock_response_float
