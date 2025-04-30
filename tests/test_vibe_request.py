@@ -12,7 +12,7 @@ from pytest_mock import MockerFixture
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
-from vibectl.model_adapter import LLMModelAdapter
+from vibectl.model_adapter import LLMModelAdapter, RecoverableApiError
 from vibectl.types import ActionType, Error, Success
 
 
@@ -409,13 +409,15 @@ def test_handle_vibe_request_command_error(
             error=error_message, exception=RuntimeError("simulated kubectl error")
         )
 
-        # Mock the LLM summary call *within* handle_command_output
-        with (
-            patch("vibectl.command_handler._get_llm_summary") as mock_get_summary,
-            patch("vibectl.command_handler.update_memory") as mock_update_memory_ch,
-        ):  # Patch update_memory directly
-            mock_get_summary.return_value = "Recovery suggestion: Check pod status."
+        # Set up side_effect for model_adapter.execute: plan first, then recovery
+        expected_recovery_suggestion = "Recovery suggestion: Check pod status."
+        mock_llm.execute.side_effect = [
+            json.dumps(plan_response),
+            expected_recovery_suggestion,
+        ]
 
+        # Mock update_memory directly (no need to mock _get_llm_summary)
+        with patch("vibectl.command_handler.update_memory") as mock_update_memory_ch:
             # Call the function under test
             result = handle_vibe_request(
                 request="run a command that fails",
@@ -440,14 +442,12 @@ def test_handle_vibe_request_command_error(
     assert (
         call_kwargs.get("command_output") == error_message
     )  # Original command error output
-    assert call_kwargs.get("vibe_output") == "Recovery suggestion: Check pod status."
-    # Check model name was passed (assuming it's in standard_output_flags)
-    assert call_kwargs.get("model_name") == standard_output_flags.model_name
+    assert call_kwargs.get("vibe_output") == expected_recovery_suggestion
 
     # Assert the final result (handle_command_output returns the modified Error)
     assert isinstance(result, Error)
     assert result.error == error_message  # Original error message
-    assert result.recovery_suggestions == "Recovery suggestion: Check pod status."
+    assert result.recovery_suggestions == expected_recovery_suggestion
 
 
 def test_handle_vibe_request_error(
@@ -849,3 +849,154 @@ def _create_display_command_for_test(args: list[str]) -> str:
         else:
             display_args.append(arg)
     return " ".join(display_args)
+
+
+def test_handle_vibe_request_recoverable_api_error_during_summary(
+    mock_llm: MagicMock,
+    mock_console: Mock,
+    prevent_exit: MagicMock,
+    standard_output_flags: OutputFlags,
+    mock_memory: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test RecoverableApiError during Vibe summary phase is handled.
+
+    When the LLM call for summary fails with a recoverable error, it should
+    be caught, logged, and returned as a non-halting API error.
+    """
+    caplog.set_level("WARNING")
+    standard_output_flags.show_vibe = True  # Ensure Vibe processing is enabled
+
+    # Mock the planning response (successful)
+    plan_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "pods"],
+        "explanation": "Get the pods.",
+    }
+    kubectl_output_data = "pod-a\npod-b"
+    mock_llm.execute.return_value = json.dumps(plan_response)
+
+    # Patch _execute_command to return success
+    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
+        mock_execute_cmd.return_value = Success(data=kubectl_output_data)
+
+        # Patch _get_llm_summary to raise the recoverable error
+        with (
+            patch("vibectl.command_handler._get_llm_summary") as mock_get_summary,
+            patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
+        ):
+            # Configure the mock to raise RecoverableApiError
+            api_error_message = "LLM API rate limit exceeded"
+            mock_get_summary.side_effect = RecoverableApiError(api_error_message)
+            # Mock create_api_error to check its call without actually creating
+            mock_create_api_error.side_effect = lambda msg, exc: Error(
+                error=msg, exception=exc, halt_auto_loop=False
+            )
+
+            # Call function
+            result = handle_vibe_request(
+                request="show me the pods",
+                command="vibe",
+                plan_prompt="Plan this: {request}",
+                summary_prompt_func=get_test_summary_prompt,
+                output_flags=standard_output_flags,
+                yes=True,
+            )
+
+            # Verify _get_llm_summary was called (during _process_vibe_output)
+            mock_get_summary.assert_called_once()
+
+            # Verify create_api_error was called with the correct message
+            mock_create_api_error.assert_called_once()
+            create_args, _ = mock_create_api_error.call_args
+            assert api_error_message in create_args[0]
+            assert isinstance(create_args[1], RecoverableApiError)
+
+            # Verify the final result is the non-halting Error
+            assert isinstance(result, Error)
+            assert api_error_message in result.error
+            assert result.halt_auto_loop is False
+
+            # Verify console output includes the API error message
+            mock_console.print_error.assert_any_call(f"API Error: {api_error_message}")
+
+
+def test_handle_vibe_request_general_exception_during_recovery(
+    mock_llm: MagicMock,
+    mock_console: Mock,
+    prevent_exit: MagicMock,
+    standard_output_flags: OutputFlags,
+    mock_memory: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test general Exception during recovery suggestion phase is handled.
+
+    When the direct LLM call for recovery suggestions (after an initial command
+    error) fails with an unexpected exception, the original error should be
+    combined with the recovery failure message.
+    """
+    caplog.set_level("ERROR")
+    standard_output_flags.show_vibe = True  # Ensure Vibe recovery is attempted
+
+    # Mock the planning response (successful plan initially)
+    plan_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["get", "configmaps"],
+        "explanation": "Get configmaps",
+    }
+    initial_error_message = "Error: ConfigMap 'test-cm' not found"
+
+    # Patch _execute_command to return an Error
+    with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
+        mock_execute_cmd.return_value = Error(
+            error=initial_error_message,
+            exception=RuntimeError("simulated kubectl error"),
+        )
+
+        # Mock the LLM adapter execute method
+        # First call (planning) returns the plan
+        # Second call (recovery) raises a general Exception
+        recovery_exception_message = "Unexpected LLM service outage"
+        mock_llm.execute.side_effect = [
+            json.dumps(plan_response),
+            Exception(recovery_exception_message),
+        ]
+
+        # Mock update_memory to check its call (it should be called for initial error)
+        with patch("vibectl.command_handler.update_memory") as mock_update_memory:
+            # Call the function under test
+            result = handle_vibe_request(
+                request="get a non-existent configmap",
+                command="get",  # Actual verb being executed
+                plan_prompt="Plan this",
+                summary_prompt_func=get_test_summary_prompt,
+                output_flags=standard_output_flags,  # Assumes show_vibe=True
+                yes=True,  # Bypass confirmation
+            )
+
+            # Verify the LLM execute was called twice (plan + recovery attempt)
+            assert mock_llm.execute.call_count == 2
+
+            # Verify update_memory was NOT called for the recovery failure itself
+            # (it might be called for the *initial* error before recovery is attempted)
+            # Let's check it wasn't called with the recovery exception details.
+            for call in mock_update_memory.call_args_list:
+                assert recovery_exception_message not in call.kwargs.get(
+                    "command_output", ""
+                )
+                assert recovery_exception_message not in call.kwargs.get(
+                    "vibe_output", ""
+                )
+
+            # Assert the final result is an Error
+            assert isinstance(result, Error)
+
+            # Assert the error message combines original error and recovery failure
+            assert initial_error_message in result.error
+            assert "Recovery Failure" in result.error
+            assert recovery_exception_message in result.error
+
+            # Verify the console output includes the combined error message
+            mock_console.print_error.assert_any_call(
+                f"Error getting Vibe summary: {recovery_exception_message}"
+            )

@@ -262,11 +262,21 @@ def handle_command_output(
                         error=output_str,
                     )
                     logger.info(f"Generated recovery prompt: {prompt_str}")
-                    vibe_output = _get_llm_summary(
-                        output_str,
-                        output_flags.model_name,
-                        prompt_str,
-                    )
+
+                    # Call LLM adapter directly for recovery, bypassing _get_llm_summary
+                    try:
+                        model_adapter = get_model_adapter()
+                        model = model_adapter.get_model(output_flags.model_name)
+                        vibe_output = model_adapter.execute(model, prompt_str)
+                    except Exception as llm_exc:
+                        # Handle LLM execution errors during recovery appropriately
+                        logger.error(
+                            f"Error getting recovery suggestions from LLM: {llm_exc}",
+                            exc_info=True,
+                        )
+                        # Re-raise to be caught by the outer exception handler
+                        raise llm_exc
+
                     logger.info(f"LLM recovery suggestion: {vibe_output}")
                     console_manager.print_vibe(vibe_output)
                     # Update the original error object with the suggestion
