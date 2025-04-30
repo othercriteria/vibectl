@@ -90,6 +90,10 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             """Mock implementation of validate_model_key."""
             return None
 
+        def validate_model_name(self, model_name: str) -> str | None:
+            """Mock implementation for the new abstract method."""
+            return None
+
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
     set_model_adapter(mock_adapter)
@@ -165,6 +169,10 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
 
         def validate_model_key(self, model_name: str) -> str | None:
             """Mock implementation of validate_model_key."""
+            return None
+
+        def validate_model_name(self, model_name: str) -> str | None:
+            """Mock implementation for the new abstract method."""
             return None
 
     # Create our adapter instance

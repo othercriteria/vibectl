@@ -15,6 +15,9 @@ import llm
 from pydantic import BaseModel
 
 from .config import Config
+
+# Import the new validation function
+from .llm_interface import is_valid_llm_model_name
 from .logutil import logger
 
 # Import the consolidated keywords and custom exception
@@ -80,6 +83,18 @@ class ModelAdapter(ABC):
 
         Returns:
             Optional warning message if there are potential issues, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    def validate_model_name(self, model_name: str) -> str | None:
+        """Validate the model name against the underlying provider/library.
+
+        Args:
+            model_name: The name of the model to validate.
+
+        Returns:
+            Optional error message string if validation fails, None otherwise.
         """
         pass
 
@@ -329,8 +344,25 @@ class LLMModelAdapter(ModelAdapter):
                     # Raise a general ValueError for other errors
                     raise ValueError(f"Error executing prompt: {error_message}") from e
 
+    def validate_model_name(self, model_name: str) -> str | None:
+        """Validate if the model name is recognized by the llm library.
+
+        This check does not validate API keys.
+
+        Args:
+            model_name: The name of the model to validate.
+
+        Returns:
+            Optional error message string if validation fails, None otherwise.
+        """
+        # Delegate to the config-independent function
+        is_valid, error_msg = is_valid_llm_model_name(model_name)
+        if not is_valid:
+            return error_msg
+        return None
+
     def validate_model_key(self, model_name: str) -> str | None:
-        """Validate the API key for a model.
+        """Validate the API key for a model, assuming the model name is valid.
 
         Args:
             model_name: The name of the model to validate
@@ -378,8 +410,11 @@ class LLMModelAdapter(ModelAdapter):
             )
             return self._format_key_validation_message(provider)
 
+        # The actual model loading check is removed from here.
+        # We now assume the model name is valid and focus only on the key.
+
         logger.debug(
-            "API key for provider '%s' (model '%s') validated successfully",
+            "API key for provider '%s' (model '%s') passed basic validation.",
             provider,
             model_name,
         )

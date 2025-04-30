@@ -224,6 +224,9 @@ def test_model_adapter_abc_methods() -> None:
         def validate_model_key(self, model_name: str) -> str | None:
             raise NotImplementedError()
 
+        def validate_model_name(self, model_name: str) -> str | None:
+            raise NotImplementedError()
+
     adapter = DummyAdapter()
     with pytest.raises(NotImplementedError):
         adapter.get_model("foo")

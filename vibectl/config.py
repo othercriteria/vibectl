@@ -7,6 +7,11 @@ from typing import Any, TypeVar, cast
 
 import yaml
 
+# Import the adapter function to use for validation
+# Remove this import as we'll use the llm_interface directly
+# from .model_adapter import get_model_adapter
+from .llm_interface import is_valid_llm_model_name
+
 # Default values
 DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
@@ -259,8 +264,11 @@ class Config:
                     value.startswith("gpt-") or value.startswith("claude-")
                 ):
                     return
-            if value not in valid_values:
+            # Remove the strict check against the hardcoded list for 'model'
+            # if value not in valid_values:
+            if key != "model" and value not in valid_values:
                 # For model, show pattern in error message
+                # This part is now unreachable for 'model', but kept for other keys
                 if key == "model":
                     valid_str = (
                         ", ".join(str(v) for v in valid_values)
@@ -277,7 +285,15 @@ class Config:
         self._validate_key(key)
         # Convert to correct type
         converted_value = self._convert_to_type(key, str(value))
-        # Validate allowed values (if any)
+
+        # Perform model name validation if setting the 'model' key
+        if key == "model":
+            # Call the config-independent validation function directly
+            is_valid, error_msg = is_valid_llm_model_name(converted_value)
+            if not is_valid:
+                raise ValueError(error_msg)
+
+        # Validate allowed values (if any) - this no longer checks model name existence
         self._validate_allowed_values(key, converted_value)
         self._config[key] = converted_value
         self._save_config()
