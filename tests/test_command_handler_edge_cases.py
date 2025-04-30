@@ -6,14 +6,16 @@ the command handler is robust against unexpected or malformed inputs.
 
 import json
 from collections.abc import Generator
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
+from rich.panel import Panel
 
 from vibectl.command_handler import (
     ActionType,
     OutputFlags,
+    _handle_command_confirmation,
     _parse_command_args,
     handle_command_output,
     handle_vibe_request,
@@ -26,21 +28,12 @@ from vibectl.types import Error, Success, Truncation
 def mock_get_adapter_patch() -> Generator[MagicMock, None, None]:
     """Mock the get_model_adapter function. Yields the mocked adapter instance."""
     with patch("vibectl.command_handler.get_model_adapter") as mock_patch:
-        # Create the mock adapter instance that the factory will return
         mock_adapter_instance = MagicMock()
-
-        # Configure default behavior for the adapter's methods if needed
-        # For instance, mock get_model to avoid errors if called unexpectedly
         mock_model_instance = Mock()
         mock_adapter_instance.get_model.return_value = mock_model_instance
-        # execute will typically be configured per-test
         mock_adapter_instance.execute = MagicMock()
-
-        # Configure the factory patch to return our mock instance
         mock_patch.return_value = mock_adapter_instance
-
-        # Yield the mock adapter instance for tests to use and configure
-        yield mock_adapter_instance  # Yield the instance (Correct)
+        yield mock_adapter_instance
 
 
 @pytest.fixture
@@ -64,6 +57,44 @@ def mock_include_memory() -> Generator[MagicMock, None, None]:
         # Default behavior: return prompt unmodified
         mock.side_effect = lambda prompt, **kwargs: prompt
         yield mock
+
+
+@pytest.fixture
+def mock_click_prompt() -> Generator[MagicMock, None, None]:
+    """Mock click.prompt."""
+    with patch("click.prompt") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_memory_helpers() -> Generator[dict[str, MagicMock], None, None]:
+    """Mocks memory helpers (get_memory, set_memory, update_memory, prompt)."""
+    # Patch get_memory in both locations it's imported/used
+    with (
+        patch("vibectl.command_handler.get_memory") as mock_get_ch,
+        patch.object(
+            _handle_command_confirmation, "get_memory", create=True
+        ) as mock_get_local,
+        patch("vibectl.command_handler.set_memory") as mock_set,
+        patch("vibectl.command_handler.update_memory") as mock_update,
+        patch("vibectl.command_handler.memory_fuzzy_update_prompt") as mock_prompt_func,
+    ):  # Patch where it's called
+        # Configure mocks
+        mock_get_ch.return_value = "Initial memory content (ch)."
+        mock_get_local.return_value = "Initial memory content (local)."
+        mock_prompt_func.return_value = "Generated fuzzy update prompt."
+
+        # Combine get mocks if needed or keep separate?
+        # For simplicity, let's yield both - tests can use the relevant one.
+
+        yield {
+            "get_ch": mock_get_ch,  # Called by _handle_fuzzy_memory_update
+            "get_local": mock_get_local,  # ('m' option)
+            "set": mock_set,
+            "update": mock_update,
+            "prompt_func": mock_prompt_func,
+            # Removed adapter mock
+        }
 
 
 def test_parse_command_args_invalid_quotes() -> None:
@@ -601,3 +632,326 @@ def test_handle_vibe_request_with_unknown_model(
 
         # Verify the final result is the one returned by create_api_error
         assert result is api_error_return
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_confirmation_yes(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_console: MagicMock,
+    mock_memory_helpers: dict,
+) -> None:
+    """Test confirmation flow when user inputs 'y' (Yes)."""
+    # Setup: LLM response for a dangerous command
+    llm_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod", "-n", "test"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    mock_get_adapter_patch.execute.return_value = llm_response_str
+    mock_click_prompt.return_value = "y"  # Simulate user pressing 'y'
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,  # Trigger confirmation
+    )
+
+    assert isinstance(
+        result, Success
+    ), f"Expected Success, got {type(result).__name__}: {result}"
+    mock_execute_command.assert_called_once_with(
+        "delete", ["pod", "my-pod", "-n", "test"], None
+    )
+    mock_console.print_cancelled.assert_not_called()
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_confirmation_no(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_console: MagicMock,
+    mock_memory_helpers: dict,
+) -> None:
+    """Test confirmation flow when user inputs 'n' (No)."""
+    llm_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    mock_get_adapter_patch.execute.return_value = llm_response_str
+    mock_click_prompt.return_value = "n"
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,
+    )
+
+    assert isinstance(result, Success)
+    assert result.message == "Command execution cancelled by user"
+    mock_execute_command.assert_not_called()
+    mock_console.print_cancelled.assert_called_once()
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_confirmation_exit_semiauto(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_console: MagicMock,
+    mock_memory_helpers: dict,
+) -> None:
+    """Test confirmation flow when user inputs 'e' (Exit) in semiauto mode."""
+    llm_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    mock_get_adapter_patch.execute.return_value = llm_response_str
+    mock_click_prompt.return_value = "e"
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,  # Semiauto mode enables 'e'
+    )
+
+    assert isinstance(result, Success)
+    assert result.message == "User requested exit from semiauto loop"
+    assert result.continue_execution is False
+    mock_execute_command.assert_not_called()
+    # Check console output for exit message? Maybe too detailed.
+
+
+@patch("vibectl.command_handler._execute_command")
+@patch(
+    "vibectl.command_handler.console_manager.safe_print"
+)  # Mock safe_print for Panel
+@patch("vibectl.memory.get_memory")  # Explicitly patch the target of the local import
+def test_confirmation_memory(
+    mock_local_get_memory: MagicMock,  # Add mock for the explicit patch
+    mock_safe_print: MagicMock,
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_memory_helpers: dict,  # Still use this for other mocks if needed
+    mock_console: MagicMock,
+) -> None:
+    """Test confirmation flow when user inputs 'm' (Memory) then 'y'."""
+    llm_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    mock_get_adapter_patch.execute.return_value = llm_response_str
+    # Simulate 'm' then 'y'
+    mock_click_prompt.side_effect = ["m", "y"]
+    # Configure the specific mock for the local import
+    mock_local_get_memory.return_value = "Memory content shown via local import."
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,
+    )
+
+    assert isinstance(result, Success)
+    assert mock_click_prompt.call_count == 2
+    # Check the mock for the local import was called
+    mock_local_get_memory.assert_called_once()
+    # Check the command_handler import mock was NOT called
+    mock_memory_helpers["get_ch"].assert_not_called()
+    # Check that Panel was printed
+    assert any(
+        isinstance(arg, Panel)
+        for call_args in mock_safe_print.call_args_list
+        for arg in call_args.args
+    )
+    mock_execute_command.assert_called_once()  # Command eventually executed
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_confirmation_yes_and(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_memory_helpers: dict,
+    mock_console: MagicMock,
+) -> None:
+    """Test confirmation flow for 'a' (Yes And) with successful fuzzy memory update."""
+    # Mock planning LLM response (first execute call)
+    planning_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    # Mock fuzzy update LLM response (second execute call)
+    fuzzy_update_response_str = "Updated memory content"
+    mock_get_adapter_patch.execute.side_effect = [
+        planning_response_str,
+        fuzzy_update_response_str,
+    ]
+
+    # Simulate 'a' then memory input
+    mock_click_prompt.side_effect = ["a", "User added context"]
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,
+    )
+
+    assert isinstance(result, Success)
+    assert mock_click_prompt.call_count == 2  # Confirmation + Memory input
+    # Check the command_handler import mock for fuzzy update
+    mock_memory_helpers["get_ch"].assert_called_once()
+    mock_memory_helpers["prompt_func"].assert_called_once()
+    # Check execute was called twice (planning + fuzzy update)
+    assert mock_get_adapter_patch.execute.call_count == 2
+    # Check set_memory was called with the fuzzy update response
+    mock_memory_helpers["set"].assert_called_once_with(
+        fuzzy_update_response_str, ANY
+    )  # Config obj passed
+    mock_execute_command.assert_called_once()  # Command executed after update
+    mock_console.print_success.assert_any_call("Memory updated")
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_confirmation_no_but(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_memory_helpers: dict,
+    mock_console: MagicMock,
+) -> None:
+    """Test confirmation flow for 'b' (No But) with successful fuzzy memory update."""
+    # Mock planning LLM response (first execute call)
+    planning_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    # Mock fuzzy update LLM response (second execute call)
+    fuzzy_update_response_str = "Updated memory with alternative"
+    mock_get_adapter_patch.execute.side_effect = [
+        planning_response_str,
+        fuzzy_update_response_str,
+    ]
+
+    mock_click_prompt.side_effect = ["b", "User added alternative"]
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,
+    )
+
+    assert isinstance(result, Success)
+    assert result.message == "Command execution cancelled by user"
+    assert mock_click_prompt.call_count == 2
+    # Check the command_handler import mock for fuzzy update
+    mock_memory_helpers["get_ch"].assert_called_once()
+    mock_memory_helpers["prompt_func"].assert_called_once()
+    assert mock_get_adapter_patch.execute.call_count == 2
+    mock_memory_helpers["set"].assert_called_once_with(fuzzy_update_response_str, ANY)
+    mock_execute_command.assert_not_called()  # Command NOT executed
+    mock_console.print_cancelled.assert_called_once()
+    mock_console.print_success.assert_any_call("Memory updated")
+
+
+@patch("vibectl.command_handler._execute_command")
+def test_fuzzy_memory_update_llm_error(
+    mock_execute_command: MagicMock,
+    mock_get_adapter_patch: MagicMock,
+    mock_click_prompt: MagicMock,
+    mock_memory_helpers: dict,
+    mock_console: MagicMock,
+) -> None:
+    """Test confirmation flow 'a' (Yes And) when fuzzy memory update LLM fails."""
+    # Mock planning LLM response (first execute call)
+    planning_response_str = json.dumps(
+        {
+            "action_type": "COMMAND",
+            "commands": ["delete", "pod", "my-pod"],
+            "explanation": "Deleting the pod.",
+        }
+    )
+    # Simulate LLM error during fuzzy update call (second execute call)
+    llm_error = ValueError("LLM API failed")
+    mock_get_adapter_patch.execute.side_effect = [planning_response_str, llm_error]
+
+    # Simulate 'a' then memory input
+    mock_click_prompt.side_effect = ["a", "User context"]
+
+    output_flags = OutputFlags(
+        model_name="test-model", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+    result = handle_vibe_request(
+        request="delete the pod",
+        command="vibe",
+        plan_prompt="Plan: {request}",
+        summary_prompt_func=lambda: "",
+        output_flags=output_flags,
+        semiauto=True,
+    )
+
+    # Expect an Error result because the memory update failed
+    assert isinstance(result, Error)
+    assert "Error updating memory" in result.error
+    assert result.exception == llm_error
+
+    # Command should not execute if memory update fails
+    mock_execute_command.assert_not_called()
+    mock_memory_helpers["set"].assert_not_called()
+    mock_console.print_error.assert_any_call(f"Error updating memory: {llm_error}")
