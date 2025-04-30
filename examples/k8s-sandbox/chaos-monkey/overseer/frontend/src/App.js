@@ -123,7 +123,7 @@ function App() {
               <Row>
                 <Col md={12}>
                   <div className="mb-4">
-                    <HealthStatusGraph history={status} overview={overview} />
+                    <HealthStatusGraph />
                   </div>
                 </Col>
               </Row>

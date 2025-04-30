@@ -2,10 +2,16 @@ import { io } from 'socket.io-client';
 
 // Determine base URL based on environment
 const getBaseUrl = () => {
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
-  const port = process.env.NODE_ENV === 'development' ? ':8080' : window.location.port;
-  return `${protocol}//${hostname}${port}`;
+  // For local development using react-scripts start (usually on port 3000)
+  // connect to the backend server explicitly (usually on 8080)
+  if (process.env.NODE_ENV === 'development') {
+    // Construct the backend URL assuming http for local dev
+    const hostname = window.location.hostname; // typically localhost
+    return `http://${hostname}:8080`;
+  }
+  // For production or when served by Flask, use the current origin
+  // which includes protocol, hostname, and port (if non-default)
+  return window.location.origin;
 };
 
 class SocketService {

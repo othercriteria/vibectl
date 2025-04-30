@@ -1,223 +1,77 @@
 # Chaos Monkey Demo Structure
 
-This directory contains a "chaos monkey" style sandbox environment that simulates a red team vs. blue team scenario where:
-- A "blue" agent tries to maintain service uptime and system stability
-- A "red" agent attempts to disrupt the service through various attack vectors
-- A poller continuously checks system availability
-- An overseer provides a dashboard with real-time monitoring
+This directory contains a "chaos monkey" style sandbox environment simulating a red team vs. blue team scenario within a Kubernetes cluster using `vibectl` agents.
+
+## Overview
+
+The demo orchestrates several components via Docker Compose:
+- A **Kind Kubernetes cluster** (`k8s-sandbox`) hosting intentionally vulnerable services.
+- A **Blue Agent** (`blue-agent`) using `vibectl` to defend the services.
+- A **Red Agent** (`red-agent`) using `vibectl` to attack the services.
+- A **Poller** (`poller`) service monitoring the health of the target services.
+- An **Overseer** (`overseer`) web dashboard displaying real-time status, logs, and metrics.
 
 ## Directory Structure
 
 ```
 examples/k8s-sandbox/chaos-monkey/
-├── README.md                  # Main documentation
-├── STRUCTURE.md               # Project structure documentation
+├── README.md                  # Main documentation for the demo
+├── STRUCTURE.md               # This file: structure of the chaos-monkey demo
 ├── run.sh                     # Primary script to launch the demo
-├── docker-compose.yaml        # Docker Compose configuration
+├── docker-compose.yaml        # Docker Compose configuration for all demo services
 ├── Makefile                   # Build and development utilities
 │
-├── k8s-sandbox/               # Kubernetes sandbox environment
-│   ├── Dockerfile             # Container definition for k8s-sandbox
-│   ├── k8s-entrypoint.sh      # Entrypoint for k8s-sandbox container
-│   └── kubernetes/            # Kubernetes resource definitions
-│       └── demo-services.yaml # Basic services with vulnerabilities
+├── k8s-sandbox/               # Kind cluster setup and target service manifests
+│   └── kubernetes/            # Kubernetes resource definitions (services, RBAC, etc.)
 │
-├── agent/                     # Unified agent container
-│   ├── Dockerfile             # Container definition for agents
-│   ├── agent-entrypoint.sh    # Unified entrypoint for both agents
-│   ├── blue-memory-init.txt   # Memory initialization for blue agent
-│   ├── red-memory-init.txt    # Memory initialization for red agent
-│   ├── blue-custom-instructions.txt # Custom instructions for blue agent
-│   ├── red-custom-instructions.txt  # Custom instructions for red agent
-│   ├── attack-playbook.txt    # Attack strategies for red agent
-│   └── defense-playbook.txt   # Defense strategies for blue agent
+├── agent/                     # Shared Dockerfile and entrypoint for Blue/Red agents
+│   ├── blue-memory-init.txt   # Initial memory for blue agent
+│   ├── red-memory-init.txt    # Initial memory for red agent
+│   ├── blue-custom-instructions.txt # Persistent instructions for blue agent
+│   ├── red-custom-instructions.txt  # Persistent instructions for red agent
+│   └── ... (playbooks)        # Agent strategy guides
 │
-├── poller/                    # Service availability checker
-│   ├── Dockerfile             # Container definition for poller
-│   └── poller.py              # Python service monitoring script
+├── poller/                    # Service availability checker code and Dockerfile
 │
-└── overseer/                  # Dashboard and monitoring system
-    ├── Dockerfile             # Container definition for overseer
-    ├── overseer.py            # Main application for monitoring
-    ├── requirements.txt       # Python dependencies
-    ├── README.md              # Overseer documentation
-    ├── STRUCTURE.md           # Overseer structure documentation
-    ├── static/                # Static web assets
-    │   └── style.css          # Additional CSS styles
-    └── templates/             # HTML templates
-        └── index.html         # Dashboard template
+└── overseer/                  # Overseer dashboard code (Flask backend, React frontend)
+    └── STRUCTURE.md           # Detailed structure of the overseer component
 ```
 
-## Key Components
+## Key Files & Directories
 
-### K8s Sandbox
-
-The K8s Sandbox container creates and manages the Kind Kubernetes cluster where:
-- It sets up a multi-node Kubernetes cluster in Docker
-- Deploys a set of intentionally vulnerable services
-- Manages networking for access to cluster services
-- Shares kubeconfig with agent containers
-
-### Target Services
-
-The demo deploys microservices with intentional vulnerabilities:
-- Frontend web app (Nginx with a simple status page)
-- Backend API (Nginx with minimal configuration)
-- Database (Redis with no persistence)
-- Cache (Memcached with minimal resource limits)
-- Load balancer (Nginx)
-
-These services have various vulnerabilities:
-- Insufficient replicas for high-availability
-- Missing health checks
-- Inadequate resource limits
-- No persistent storage
-- Secret management issues
-
-### Blue Agent
-
-The blue agent is responsible for defending and maintaining services:
-- Uses vibectl to interact with the cluster
-- Has permissions to fix and maintain services
-- Implements defensive strategies from the defense playbook
-- Monitors for attacks and service disruptions
-- Works to restore and improve service resilience
-
-### Red Agent
-
-The red agent is responsible for simulating attacks and disruptions:
-- Uses vibectl to identify and target system vulnerabilities
-- Has limited RBAC permissions to prevent unrecoverable damage
-- Implements various attack vectors:
-  - Resource exhaustion
-  - Pod termination
-  - Configuration tampering
-  - Network disruption
-  - Service degradation
-
-### Poller
-
-The poller continuously checks service availability:
-- Python-based monitoring system with comprehensive checks
-- Monitors the Kubernetes cluster health and individual service status
-- Tracks pod readiness, restart counts, and container status
-- Reports response times and HTTP status codes for each service
-- Performs content validation for web services
-- Checks Redis and Memcached connectivity
-- Maintains a visual history of service health over time
-- Generates detailed JSON status reports
-
-### Overseer
-
-The overseer provides a web-based dashboard and monitoring system:
-- Flask-based web server with Socket.IO for real-time updates
-- Scrapes poller data for service availability metrics
-- Follows logs from both red and blue agents
-- Visualizes service health history with interactive charts
-- Calculates uptime statistics and availability trends
-- Provides a responsive UI accessible at http://localhost:8080
-- Maintains persistent storage of historical data
-- Color-codes logs and status indicators for quick assessment
-
-## Architecture
-
-The demo operates with five main components in an isolated Docker network:
-
-1. **K8s Sandbox Container**: Hosts a Kind Kubernetes cluster with target services
-   - Creates a multi-tier application with multiple failure points
-   - Provides a controlled environment for the simulation
-   - Shares kubeconfig with agent containers
-
-2. **Blue Agent Container**: Runs vibectl to defend and maintain the services
-   - Monitors for failures and attacks
-   - Implements defense strategies
-   - Restores services when they fail
-   - Uses the unified agent container with blue-specific configuration
-
-3. **Red Agent Container**: Runs vibectl to simulate attacks
-   - Implements various attack strategies
-   - Operates with a delay to allow blue agent time to assess the environment
-   - Limited permissions to prevent unrecoverable damage
-   - Uses the unified agent container with red-specific configuration
-
-4. **Poller Container**: Monitors service availability
-   - Checks cluster health continuously
-   - Monitors pod status across namespaces
-   - Provides regular status reports with colored indicators
-   - Tracks service availability history and response times
-
-5. **Overseer Container**: Provides dashboard and coordination
-   - Web-based UI for monitoring the simulation in real-time
-   - Aggregates data from poller for service availability metrics
-   - Follows logs from both red and blue agents
-   - Calculates and displays uptime metrics
-   - Maintains persistent record of service health
-   - Exposes a web interface on port 8080
+- **`run.sh`**: The main entry point to start and stop the entire demo environment. Handles argument parsing and Docker Compose orchestration.
+- **`docker-compose.yaml`**: Defines the five core services (k8s-sandbox, blue-agent, red-agent, poller, overseer), their builds, dependencies, networks, and configurations.
+- **`Makefile`**: Provides convenience targets for building, running, logging, and cleaning the demo environment.
+- **`k8s-sandbox/`**: Contains the setup for the Kind Kubernetes cluster and the YAML manifests for the vulnerable demo services deployed within it. Includes RBAC definitions for the agents.
+- **`agent/`**: Contains the unified Docker setup for both Blue and Red agents. Includes the `agent-entrypoint.sh` which handles role-specific logic, and the text files defining agent memory, instructions, and playbooks.
+- **`poller/`**: Contains the Python script and Dockerfile for the service that continuously monitors the health of the target applications in the Kubernetes cluster.
+- **`overseer/`**: Contains the Flask backend and React frontend for the monitoring dashboard. See `overseer/STRUCTURE.md` for its internal details.
 
 ## Unified Agent Architecture
 
-The agents share a unified codebase with role-specific configuration:
+Both Blue and Red agents utilize the same Docker image built from `agent/Dockerfile` and the same `agent/agent-entrypoint.sh`. Their distinct behaviors are configured via:
+- Environment variables (`AGENT_ROLE`).
+- Role-specific memory initialization (`blue-memory-init.txt`, `red-memory-init.txt`).
+- Role-specific custom instructions (`blue-custom-instructions.txt`, `red-custom-instructions.txt`).
+- Role-specific playbooks (`defense-playbook.txt`, `attack-playbook.txt`).
+- Different Kubernetes RBAC permissions defined in `k8s-sandbox/kubernetes/rbac.yaml`.
 
-1. **Shared Components**:
-   - Common Dockerfile with all necessary tools
-   - Unified entrypoint script that adapts behavior based on role
-   - Same underlying Kubernetes API access mechanism
-   - Shared kubeconfig from k8s-sandbox container
+## Demo Configuration
 
-2. **Role-Specific Configuration**:
-   - Agent role (blue/red) set via environment variables
-   - Custom memory initialization based on role
-   - Different playbooks (defense/attack) loaded based on role
-   - Role-specific custom instructions
-   - Different RBAC permissions in Kubernetes
-   - Color-coded output for easy distinction (blue/red)
+Key parameters for running this demo (primarily set via `run.sh` arguments or environment variables passed to `docker-compose.yaml`):
 
-3. **Safety Features**:
-   - Fail-fast on missing kubeconfig
-   - Health checks to ensure cluster connectivity
-   - Initial delay for red agent to allow blue agent preparation time
+- **`SESSION_DURATION`**: How long the agents run before the demo stops (minutes).
+- **`VERBOSE`**: Enables detailed logging for agents and other components.
+- **`USE_STABLE_VERSIONS`**: Flag to use published PyPI packages (`true`) instead of local development code (`false`) for `vibectl` and dependencies.
+- **`VIBECTL_MODEL`**: Specifies the Anthropic model used by the `vibectl` agents.
+- **Agent Parameters**:
+    - `BLUE_MEMORY_MAX_CHARS`/`RED_MEMORY_MAX_CHARS`: Controls context window size.
+    - `BLUE_ACTION_PAUSE_TIME`/`RED_ACTION_PAUSE_TIME`: Pause between agent actions.
+
+*(Note: API Key configuration (`VIBECTL_ANTHROPIC_API_KEY`) is handled according to the main project's standards and passed via environment variables).*
 
 ## Safety Measures
 
-To ensure the demonstration runs without unintended consequences:
-
-1. The red agent has limitations to prevent:
-   - Attacking system components
-   - Breaking out of the sandbox environment
-   - Making permanent or unrecoverable changes
-
-2. Critical infrastructure is protected:
-   - The blue agent has backup/restore capabilities
-   - System state can be reset if needed
-   - The entire environment is containerized to prevent external impact
-
-## Configuration
-
-The demo can be configured with the following parameters:
-
-- `VIBECTL_ANTHROPIC_API_KEY`: Required API key for Claude
-- `VIBECTL_MODEL`: Model to use for agents (defaults to claude-3.7-sonnet)
-- `SESSION_DURATION`: How long the demonstration should run (in minutes)
-- `DOCKER_GID`: Docker group ID for socket access (auto-detected)
-- `POLL_INTERVAL_SECONDS`: How frequently the poller checks service status (in seconds)
-- `METRICS_INTERVAL`: How frequently the overseer updates metrics (in seconds)
-- `VERBOSE`: Enable detailed logging output
-
-## Agent Parameters
-
-The agents can be fine-tuned with these parameters:
-
-- `BLUE_MEMORY_MAX_CHARS`/`RED_MEMORY_MAX_CHARS`: Maximum memory size for each agent
-- `BLUE_ACTION_PAUSE_TIME`/`RED_ACTION_PAUSE_TIME`: Time between actions for each agent
-- `INITIAL_DELAY`: Delay before agent starts operations (useful for red agent)
-
-These parameters provide natural control over the balance between agents and can be adjusted to achieve different scenarios.
-
-## API Key Handling
-
-API keys are handled securely through these mechanisms:
-
-1. User provides API key via environment variable or interactive prompt
-2. Key is passed to containers through Docker Compose environment variables
-3. Each agent container configures vibectl with the API key
-4. No API keys are stored in container images or filesystem
+- The demo runs in an isolated Docker network.
+- The Red Agent operates under specific RBAC constraints defined in `k8s-sandbox/kubernetes/rbac.yaml` to prevent actions outside the intended scope (e.g., attacking the monitoring infrastructure or the host system).
+- The entire environment can be easily created and destroyed via `run.sh` or `make`.

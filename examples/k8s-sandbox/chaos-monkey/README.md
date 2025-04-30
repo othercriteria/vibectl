@@ -101,7 +101,7 @@ A Python-based service that:
 3. Target services are deployed in the cluster with **deliberately created vulnerabilities**
 4. The poller begins monitoring service availability and feeds data to the overseer
 5. The blue agent is initialized with defensive responsibilities
-6. The red agent begins **actively attacking services** after a short delay
+6. The red agent begins **actively attacking services**
 7. Throughout the demo, the overseer provides a comprehensive view of the battle between agents and the evolving cluster state
 
 ## Customization

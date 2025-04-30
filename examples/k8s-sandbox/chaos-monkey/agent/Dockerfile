@@ -20,9 +20,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl" && \
-    chmod +x kubectl && \
-    mv kubectl /usr/local/bin/
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
+    && rm kubectl
 
 # Create source directory for the vibectl repo and shared files
 RUN mkdir -p /vibectl-src /config /playbooks
@@ -41,7 +41,6 @@ ENV ACTION_PAUSE_TIME=30
 ENV AGENT_ROLE=blue
 ENV AGENT_NAME=defender
 ENV KUBE_CONFIG=/config/kube/config
-ENV INITIAL_DELAY=0
 ENV USE_STABLE_VERSIONS=false
 ENV VIBECTL_VERSION=${VIBECTL_VERSION}
 ENV LLM_ANTHROPIC_VERSION=${LLM_ANTHROPIC_VERSION}
