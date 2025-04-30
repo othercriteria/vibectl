@@ -114,12 +114,19 @@ def handle_standard_command(
     # Process and display output based on flags
     # Pass command type to handle_command_output
     # Output is guaranteed to be a string here
-    return handle_command_output(
-        output,
-        output_flags,
-        summary_prompt_func,
-        command=command,
-    )
+    try:
+        return handle_command_output(
+            output,
+            output_flags,
+            summary_prompt_func,
+            command=command,
+        )
+    except Exception as e:
+        # If handle_command_output raises an unexpected error, handle it
+        # logger.error(
+        #     f"Unexpected error during command output processing: {e}", exc_info=True
+        # ) # Removed redundant log, _handle_standard_command_error logs it.
+        return _handle_standard_command_error(command, resource, args, e)
 
 
 def _run_standard_kubectl_command(command: str, resource: str, args: tuple) -> Result:

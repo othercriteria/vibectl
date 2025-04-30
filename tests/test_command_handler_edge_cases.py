@@ -18,6 +18,7 @@ from vibectl.command_handler import (
     _handle_command_confirmation,
     _parse_command_args,
     handle_command_output,
+    handle_standard_command,
     handle_vibe_request,
 )
 from vibectl.k8s_utils import run_kubectl_with_complex_args
@@ -955,3 +956,54 @@ def test_fuzzy_memory_update_llm_error(
     mock_execute_command.assert_not_called()
     mock_memory_helpers["set"].assert_not_called()
     mock_console.print_error.assert_any_call(f"Error updating memory: {llm_error}")
+
+
+@patch("vibectl.command_handler._run_standard_kubectl_command")
+@patch("vibectl.command_handler.handle_command_output")
+@patch("vibectl.command_handler.logger")  # Mock logger to check calls
+def test_handle_standard_command_unexpected_error(
+    mock_logger: MagicMock,
+    mock_handle_output: MagicMock,
+    mock_run_kubectl: MagicMock,
+    mock_console: MagicMock,  # Use existing fixture
+) -> None:
+    """
+    Test handle_standard_command when an unexpected error occurs
+    after successful kubectl execution (triggering _handle_standard_command_error).
+    """
+    # Arrange: Simulate kubectl success, but error during output handling
+    mock_run_kubectl.return_value = Success(data="kubectl successful output")
+    test_exception = ValueError("Unexpected error during output handling")
+    mock_handle_output.side_effect = test_exception
+
+    output_flags = OutputFlags(
+        model_name="test", show_raw=False, show_vibe=False, warn_no_output=False
+    )
+
+    # Define dummy prompt function using def
+    def dummy_prompt_func() -> str:
+        return "prompt"
+
+    # Act
+    result = handle_standard_command(
+        command="get",
+        resource="pods",
+        args=("-n", "test"),  # Use tuple literal
+        output_flags=output_flags,
+        summary_prompt_func=dummy_prompt_func,
+    )
+
+    # Assert
+    assert isinstance(result, Error), f"Expected Error, got {type(result)}"
+    # Check that the error message format is correct (shortened)
+    assert "Unexpected error: Unexpected error" in result.error
+    assert result.exception == test_exception
+    mock_run_kubectl.assert_called_once_with("get", "pods", ("-n", "test"))
+    mock_handle_output.assert_called_once()
+    # Verify logger.error was called only once (by the handler)
+    mock_logger.error.assert_called_once()
+    # Optionally, check the specific call content
+    assert (
+        "Unexpected error handling standard command"
+        in mock_logger.error.call_args[0][0]
+    )
