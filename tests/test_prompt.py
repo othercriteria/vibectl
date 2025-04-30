@@ -207,8 +207,22 @@ def test_create_planning_prompt_structure_and_content() -> None:
     command = "test-cmd"
     description = "testing the command"
     examples = [
-        ("request 1", ["arg1", "val1"]),
-        ("request 2", ["arg2", "--flag"]),
+        (
+            "request 1",
+            {
+                "action_type": "COMMAND",
+                "commands": ["arg1", "val1"],
+                "explanation": "Explanation for request 1.",
+            },
+        ),
+        (
+            "request 2",
+            {
+                "action_type": "COMMAND",
+                "commands": ["arg2", "--flag"],
+                "explanation": "Explanation for request 2.",
+            },
+        ),
     ]
 
     prompt = create_planning_prompt(
@@ -222,25 +236,39 @@ def test_create_planning_prompt_structure_and_content() -> None:
     assert isinstance(prompt, str)
     assert len(prompt) > 100
 
-    # Verify inclusion of dynamic parts
-    assert f"kubectl {command} command arguments" in prompt
-    assert description in prompt
-    assert _TEST_SCHEMA_JSON in prompt  # Check schema is included
+    # Verify the basic structure and key phrases
+    assert f"You are planning arguments for the 'kubectl {command}' command." in prompt
+    assert "determine the\nappropriate arguments *following*" in prompt
+    assert "respond with a JSON\nobject matching the provided schema." in prompt
+    assert "Focus on extracting resource names, types, namespaces" in prompt
+    assert f"The action '{command}' is implied." in prompt
+    assert "Your response MUST be a valid JSON object" in prompt
+    assert "Key fields:" in prompt
+    assert "Example inputs (natural language target descriptions)" in prompt
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
 
     # Verify placeholders
     assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
     assert "__REQUEST_PLACEHOLDER__" in prompt
 
-    # Verify example formatting
-    assert "- Request: \"request 1\" -> Commands: ['arg1', 'val1']" in prompt
-    assert "- Request: \"request 2\" -> Commands: ['arg2', '--flag']" in prompt
+    # Verify example formatting (updated to check for JSON structure)
+    # Check if the prompt contains the start of the JSON example block
+    assert '- Target: "request 1" -> Expected JSON output:' in prompt
+    # Check if it contains parts of the expected JSON for the first example
+    assert '"action_type": "COMMAND"' in prompt
+    assert '"commands": [' in prompt
+    assert '"arg1"' in prompt
+    assert '"val1"' in prompt
 
     # Verify key instructions related to schema fields are present
     assert "`action_type`" in prompt
     assert "`commands`: List of string arguments" in prompt
-    assert "`explanation`: Optional clarification" in prompt
+    assert "`explanation`: Brief explanation of the planned arguments." in prompt
     assert "`error`: Required if action_type is ERROR" in prompt
     assert "`wait_duration_seconds`: Required if action_type is WAIT" in prompt
+
+    # Verify inclusion of dynamic parts
+    assert _TEST_SCHEMA_JSON in prompt  # Check schema is included
 
 
 def test_create_planning_prompt_raises_without_schema() -> None:
@@ -271,11 +299,24 @@ def test_create_planning_prompt_raises_without_schema() -> None:
     ],
 )
 def test_plan_prompt_constants_are_generated(plan_prompt_constant: str) -> None:
-    """Verify that the PLAN_*_PROMPT constants are non-empty strings."""
+    """Test that all plan prompt constants are generated correctly."""
     assert isinstance(plan_prompt_constant, str)
-    assert len(plan_prompt_constant) > 0
-    # Optionally add a very basic check common to all create_planning_prompt outputs
-    assert "JSON object matching the provided schema" in plan_prompt_constant
+    assert len(plan_prompt_constant) > 100  # Basic check for content
+
+    # Check for updated key phrases common to all planning prompts
+    assert "You are planning arguments for the 'kubectl" in plan_prompt_constant
+    assert (
+        "respond with a JSON\nobject matching the provided schema."
+        in plan_prompt_constant
+    )
+    assert "Key fields:" in plan_prompt_constant
+    assert (
+        "Example inputs (natural language target descriptions)" in plan_prompt_constant
+    )
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in plan_prompt_constant
+    assert "__REQUEST_PLACEHOLDER__" in plan_prompt_constant
+    assert "action_type" in plan_prompt_constant  # Ensure schema elements are present
+    assert "commands" in plan_prompt_constant
 
 
 def test_plan_create_prompt_structure() -> None:
@@ -387,9 +428,14 @@ def test_port_forward_prompt() -> None:
 
 
 def test_plan_port_forward_prompt() -> None:
-    """Test the specific plan port forward prompt structure."""
+    """Test specific content of the PLAN_PORT_FORWARD_PROMPT."""
     prompt = PLAN_PORT_FORWARD_PROMPT
-    assert "Given this natural language request for port-forward connections" in prompt
-    # Check for one of the specific examples provided
-    assert "forward port 8080 of pod nginx to my local 8080" in prompt
-    assert "__REQUEST_PLACEHOLDER__" in prompt
+    # Check for updated key phrases and specific content
+    assert (
+        "You are planning arguments for the 'kubectl port-forward' command." in prompt
+    )
+    assert "respond with a JSON\nobject matching the provided schema." in prompt
+    assert (
+        '- Target: "port 8080 of pod nginx to my local 8080"' in prompt
+    )  # Check example
+    assert "8080:8080" in prompt  # Check example command part

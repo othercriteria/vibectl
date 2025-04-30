@@ -607,7 +607,6 @@ def handle_vibe_request(
         except (JSONDecodeError, ValidationError) as e:
             error_msg = f"Failed to parse or validate LLM response: {e}"
             # Handle specific error types for more informative messages
-            # Use tl.truncate_string for consistent truncation
             truncated_llm_response = output_processor.process_auto(
                 llm_response, budget=100
             ).truncated
@@ -648,10 +647,7 @@ def handle_vibe_request(
                 error_message = response.error
                 logger.info(f"LLM returned planning error: {error_message}")
                 # Display explanation first if provided
-                if response.explanation:
-                    console_manager.print_note(
-                        f"AI Explanation: {response.explanation}"
-                    )
+                console_manager.print_note(f"AI Explanation: {response.explanation}")
                 try:
                     update_memory(
                         command=command,
@@ -680,10 +676,7 @@ def handle_vibe_request(
                 duration = response.wait_duration_seconds
                 logger.info(f"LLM requested WAIT for {duration} seconds.")
                 # Display explanation first if provided
-                if response.explanation:
-                    console_manager.print_note(
-                        f"AI Explanation: {response.explanation}"
-                    )
+                console_manager.print_note(f"AI Explanation: {response.explanation}")
                 console_manager.print_processing(
                     f"Waiting for {duration} seconds as requested by AI..."
                 )
@@ -702,14 +695,14 @@ def handle_vibe_request(
                 return Success(message="Received feedback from AI.")
 
             case ActionType.COMMAND:
-                if not response.commands:
+                if not response.commands and not response.yaml_manifest:
                     logger.error(
-                        "LLM returned COMMAND action but no commands provided."
+                        "LLM returned COMMAND action but no commands or YAML provided."
                     )
                     update_memory(
                         command=command or "system",
-                        command_output="LLM Error: COMMAND action with no commands.",
-                        vibe_output="LLM Error: COMMAND action with no commands.",
+                        command_output="LLM Error: COMMAND action with no args.",
+                        vibe_output="LLM Error: COMMAND action with no args.",
                         model_name=output_flags.model_name,
                     )
                     return Error(
@@ -733,12 +726,20 @@ def handle_vibe_request(
                 }
 
                 kubectl_verb = command  # Default to original command
-                kubectl_args = response.commands
+                # Explicitly type kubectl_args
+                kubectl_args: list[str]
+                # Assign kubectl_args, handling potential None from response
+                if response.commands is not None:
+                    kubectl_args = response.commands
+                else:
+                    kubectl_args = []
+                yaml_content = response.yaml_manifest  # May be None
 
                 if command == "port-forward":
                     # port-forward always uses the original verb
                     kubectl_verb = "port-forward"
-                    kubectl_args = response.commands
+                    # Ensure kubectl_args is a list even if response.commands is None
+                    kubectl_args = response.commands or []
                 elif response.commands:
                     potential_verb = response.commands[0]
                     if potential_verb.startswith("-"):
@@ -751,12 +752,6 @@ def handle_vibe_request(
                         kubectl_args = response.commands[1:]
                     # Else (e.g., first element is resource name like 'pod/xyz')
                     # Keep default: use original command as verb, all commands as args
-
-                # Display explanation if provided
-                if response.explanation:
-                    console_manager.print_note(
-                        f"AI Explanation: {response.explanation}"
-                    )
 
                 # Create the display command string using the extracted verb and args
                 # Need to parse resource/args correctly for live display handlers
@@ -774,7 +769,6 @@ def handle_vibe_request(
 
                 if output_flags.show_kubectl:
                     console_manager.print_processing(f"Running: {display_cmd}")
-                # Note: YAML content is not handled in this MVP schema version
 
                 # Handle command confirmation using the extracted verb
                 confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
@@ -792,6 +786,7 @@ def handle_vibe_request(
                         cmd_for_display,  # Pass args part for display context
                         semiauto,  # Pass semiauto flag directly
                         model_name,
+                        response.explanation,  # Pass explanation
                     )
                     # confirmation_result is None if user chose to *proceed*
                     if confirmation_result is not None:
@@ -809,12 +804,6 @@ def handle_vibe_request(
 
                     # If confirmation_result IS None, proceed to command execution...
                     logger.debug("Proceeding with command execution after confirmation")
-
-                    # Display explanation if provided and user proceeded
-                    if response.explanation:
-                        console_manager.print_note(
-                            f"AI Explanation: {response.explanation}"
-                        )
 
                 if live_display:  # Check if live display is generally enabled
                     if kubectl_verb == "wait":
@@ -840,11 +829,11 @@ def handle_vibe_request(
 
                 # Execute the command using the original verb and the LLM-provided args
                 logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
-                result = _execute_command(kubectl_verb, kubectl_args, None)
+                result = _execute_command(kubectl_verb, kubectl_args, yaml_content)
 
                 if autonomous_mode:
-                    print(
-                        f"DEBUG: result type={type(result)}, "
+                    logger.debug(
+                        f"Result type={type(result)}, "
                         f"result.data='{getattr(result, 'data', None)}'"
                     )
                     # Correctly extract error or data for command_output_str
@@ -917,39 +906,50 @@ def handle_vibe_request(
 
 
 def _handle_command_confirmation(
-    display_cmd: str, cmd_for_display: str, semiauto: bool, model_name: str
+    display_cmd: str,
+    cmd_for_display: str,
+    semiauto: bool,
+    model_name: str,
+    explanation: str | None = None,
 ) -> Result | None:
     """Handle command confirmation with enhanced options.
 
     Args:
-        display_cmd: The command to display
-        cmd_for_display: The command prefix to display
-        semiauto: Whether this is operating in semiauto mode
-        model_name: The model name used
+        display_cmd: The command string (used for logging/memory).
+        cmd_for_display: The command arguments part for display.
+        semiauto: Whether this is operating in semiauto mode.
+        model_name: The model name used.
+        explanation: Optional explanation from the AI.
 
     Returns:
-        Result if the command was cancelled, None if it should proceed
+        Result if the command was cancelled or memory update failed,
+        None if the command should proceed.
     """
-    # Enhanced confirmation dialog with new options: yes, no, and, but, exit, memory
-    if semiauto:
-        console_manager.print_note(
-            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, [M]emory, or [E]xit? (y/n/a/b/m/e)"
-        )
-    else:
-        console_manager.print_note(
-            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory? (y/n/a/b/m)"
-        )
+    # Enhanced confirmation dialog with options: yes, no, and, but, memory, [exit]
+    options_base = "[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory?"
+    options_exit = " or [E]xit?"
+    prompt_options = f"{options_base}{options_exit if semiauto else ''}"
+    choice_list = ["y", "n", "a", "b", "m"] + (["e"] if semiauto else [])
+    prompt_suffix = f" ({'/'.join(choice_list)})"
+
+    # Display the command and explanation before the prompt
+    console_manager.print_processing(
+        f"🔄 Proposed command: [bold]{cmd_for_display}[/bold]"
+    )
+    if explanation:
+        console_manager.print_note(f"AI Explanation: {explanation}")
+
+    # Print the available options clearly, using print with info style
+    console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
 
     while True:
+        # Use lowercased prompt for consistency
         choice = click.prompt(
             "",
-            type=click.Choice(
-                ["y", "n", "a", "b", "m", "e"]
-                if semiauto
-                else ["y", "n", "a", "b", "m"],
-                case_sensitive=False,
-            ),
+            type=click.Choice(choice_list, case_sensitive=False),
             default="n",
+            show_choices=False,  # Options are already printed above
+            show_default=False,  # Options are already printed above
         ).lower()
 
         # Process the choice
@@ -972,7 +972,8 @@ def _handle_command_confirmation(
                 console_manager.print_warning(
                     "Memory is empty. Use 'vibectl memory set' to add content."
                 )
-            # Don't return, continue the loop to show the confirmation dialog again
+            # Re-print options before looping
+            console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
             continue
 
         if choice in ["n", "b"]:
@@ -985,15 +986,16 @@ def _handle_command_confirmation(
 
             # If "but" is chosen, do a fuzzy memory update
             if choice == "b":
-                return _handle_fuzzy_memory_update("no but", model_name)
+                memory_result = _handle_fuzzy_memory_update("no but", model_name)
+                if isinstance(memory_result, Error):
+                    return memory_result  # Propagate memory update error
             return Success(message="Command execution cancelled by user")
 
         # Handle the Exit option if in semiauto mode
         elif choice == "e" and semiauto:
             logger.info("User chose to exit the semiauto loop")
             console_manager.print_note("Exiting semiauto session")
-            # Instead of raising an exception or returning an Exit type,
-            # return a Success with continue_execution=False
+            # Return a Success with continue_execution=False to signal exit
             return Success(
                 message="User requested exit from semiauto loop",
                 continue_execution=False,
@@ -1003,14 +1005,14 @@ def _handle_command_confirmation(
             # Yes or Yes And - execute the command
             logger.info("User approved execution of planned command")
 
-            # If "and" is chosen, do a fuzzy memory update
+            # If "and" is chosen, do a fuzzy memory update *before* proceeding
             if choice == "a":
                 memory_result = _handle_fuzzy_memory_update("yes and", model_name)
                 if isinstance(memory_result, Error):
-                    return memory_result
+                    return memory_result  # Propagate memory update error
 
             # Proceed with command execution
-            return None
+            return None  # Indicates proceed
 
 
 def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:

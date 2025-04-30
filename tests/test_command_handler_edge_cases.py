@@ -263,7 +263,7 @@ def test_handle_vibe_request_llm_returns_error(
         )
         assert call_kwargs.get("model_name") == "test-model"
 
-        # Verify console output
+        # Verify console output - Restored check for print_note with explanation
         mock_console.print_note.assert_called_with(
             "AI Explanation: Some explanation why."
         )
@@ -418,9 +418,6 @@ def test_handle_vibe_request_autonomous_mode(
         assert "Success!" not in captured.out  # Output should be handled by mocks
         assert "Error" not in captured.err
 
-        # Check AI Explanation was printed
-        mock_console.print_note.assert_called_with("AI Explanation: Fetching pods.")
-
 
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
@@ -467,7 +464,7 @@ def test_handle_vibe_request_autonomous_mode_missing_commands(
         mock_memory.assert_called_once()
         _args, kwargs = mock_memory.call_args
         assert kwargs.get("command") == "vibe"  # Should use original command here
-        assert "COMMAND action with no commands" in kwargs.get("command_output", "")
+        assert "COMMAND action with no args" in kwargs.get("command_output", "")
         assert kwargs.get("model_name") == "test-model"
 
         mock_handle_output.assert_not_called()

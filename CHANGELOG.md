@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- New `yaml_manifest` field to `LLMCommandResponse` schema to handle YAML input for commands like `create -f -`.
 - Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
 - Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
 - Update `ModelAdapter` to support passing JSON schemas to compatible LLM models.
@@ -20,9 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added missing `summary_prompt_func` arguments to internal subcommand calls.
 
 ### Changed
+- Refactored `create_planning_prompt` to assume command verb is implied by context.
+  - Prompt now focuses LLM on extracting target resource(s) and arguments.
+  - Updated prompt instructions and structure.
+- Updated most `PLAN_*_PROMPT` constants (get, describe, delete, logs, scale, rollout, wait, port-forward, version, cluster-info, events) to use the refactored prompt structure.
+  - Examples now focus on target description, removing action verbs.
+- Updated `PLAN_CREATE_PROMPT` examples to include a mix of implicit and explicit creation requests.
+- Updated `handle_vibe_request` and `_execute_command` to process `yaml_manifest` from LLM response.
+- Refined `_handle_command_confirmation` to restore full option handling (`a`, `e`) and improve prompt clarity.
 - Simplified `port-forward` handler tests for improved stability and clarity.
 
 ### Fixed
+- Updated numerous tests (`test_prompt.py`, `test_command_handler_edge_cases.py`) to align with prompt refactoring and confirmation logic changes.
+- Fixed redundant AI explanation print during command confirmation flow.
+- Replaced debug `print` statement with `logger.debug` in `handle_vibe_request`.
+- Fixed `AttributeError` for `print_command_info` by using `print_processing`.
+- Resolved persistent Mypy assignment errors in `command_handler.py`.
+- Removed unused `flags` parameter from `create_planning_prompt`.
 - Resolve prompt formatting issues when embedding JSON schema definition.
 - Ensure correct command verb is used when executing LLM-planned commands.
 - Correct `update_memory` calls within `handle_vibe_request` for errors and autonomous mode.

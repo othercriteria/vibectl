@@ -13,7 +13,7 @@ from .schema import LLMCommandResponse
 
 # No memory imports at the module level to avoid circular imports
 
-# Shared JSON schema definition string
+# Regenerate the shared JSON schema definition string from the Pydantic model
 _SCHEMA_DEFINITION_JSON = json.dumps(LLMCommandResponse.model_json_schema(), indent=2)
 
 
@@ -45,18 +45,26 @@ def format_examples(examples: list[tuple[str, str]]) -> str:
 def create_planning_prompt(
     command: str,
     description: str,
-    examples: list[tuple[str, list[str]]],
-    flags: str = "-n, --selector, etc.",
+    examples: list[tuple[str, dict]],
     schema_definition: str | None = None,
 ) -> str:
     """Create a standard planning prompt for kubectl commands using JSON schema.
 
+    This prompt assumes the kubectl command verb (get, describe, delete, etc.)
+    is already determined by the context (e.g., the specific vibectl subcommand
+    being run). The LLM's task is to interpret the natural language request
+    to identify the target resource(s) and any necessary arguments/flags
+    (like namespace, selectors, specific names), and then format the response
+    as JSON according to the provided schema.
+
     Args:
-        command: The kubectl command (get, describe, etc.)
-        description: Description of what the prompt is for
-        examples: List of tuples where each tuple contains (input_text,
-                  expected_commands_list)
-        flags: Common flags for this command (used for context in examples)
+        command: The kubectl command verb (get, describe, etc.) used for context.
+        description: Description of the overall goal (e.g., "getting resources").
+        examples: List of tuples where each tuple contains:
+                  (natural_language_target_description, expected_json_output_dict)
+                  The target description should focus on *what* resource(s) to
+                  target, not the action itself (e.g., "pods in kube-system"
+                  instead of "get pods in kube-system").
         schema_definition: JSON schema definition string.
                            Must be provided for structured JSON output.
 
@@ -68,11 +76,16 @@ def create_planning_prompt(
             "schema_definition must be provided for create_planning_prompt"
         )
 
-    # Schema-based prompt (only branch now)
-    # Simplify instructions slightly, relying more on schema structure
-    prompt_header = f"""Given this natural language request for {description},
-determine the appropriate kubectl {command} command arguments and respond
-with a JSON object matching the provided schema.
+    # Schema-based prompt
+    prompt_header = f"""You are planning arguments for the 'kubectl {command}' command.
+Given a natural language request describing the target resource(s), determine the
+appropriate arguments *following* 'kubectl {command}' and respond with a JSON
+object matching the provided schema.
+
+Focus on extracting resource names, types, namespaces, selectors, and flags
+from the request.
+
+The action '{command}' is implied.
 
 Your response MUST be a valid JSON object conforming to this schema:
 ```json
@@ -80,27 +93,35 @@ Your response MUST be a valid JSON object conforming to this schema:
 ```
 
 Key fields:
-- `action_type`: Specify the intended action (COMMAND, ERROR, WAIT, FEEDBACK).
-- `commands`: List of string arguments *following* `kubectl {command}`.
-  * Required for COMMAND action.
-  * Example: for `kubectl get pods -n x`, `commands` = ["pods", "-n", "x"]
-- `explanation`: Optional clarification or notes.
-- `error`: Required if action_type is ERROR.
+- `action_type`: Specify the intended action (usually COMMAND for planning args).
+- `commands`: List of string arguments *following* `kubectl {command}`. Include flags
+  like `-n`, `-f -`, but *exclude* the command verb itself. **MUST be a JSON array
+  of strings, e.g., `["pods", "-n", "kube-system"]`, NOT a single string like
+  `"pods -n kube-system"` or `\'["pods", "-n", "kube-system"]\'` **.
+- `yaml_manifest`: YAML content as a string (primarily for `create`).
+- `explanation`: Brief explanation of the planned arguments.
+- `error`: Required if action_type is ERROR (e.g., request is unclear).
 - `wait_duration_seconds`: Required if action_type is WAIT.
 
-Examples (request -> expected JSON 'commands' field content for 'kubectl {command}'):
+Example inputs (natural language target descriptions) and expected JSON outputs:
 """
-    # Add examples formatted correctly
+    # Format examples to show expected JSON structure
+    # The 'req' here is the *target description*, not the full original request.
     formatted_examples = "\n".join(
-        [f'- Request: "{req}" -> Commands: {cmd}' for req, cmd in examples]
+        [
+            f'- Target: "{req}" -> '
+            f"Expected JSON output:\n{json.dumps(output, indent=2)}"
+            for req, output in examples
+        ]
     )
 
     # Append the placeholders for memory and request
+    # '__REQUEST_PLACEHOLDER__' will contain the user's original request.
     prompt = (
         prompt_header
-        + formatted_examples  # Add formatted examples here
+        + formatted_examples
         + '\n\nHere\'s the request:\n\nMemory: "__MEMORY_CONTEXT_PLACEHOLDER__"'
-        + '\nRequest: "__REQUEST_PLACEHOLDER__"'
+        + '\nRequest: "__REQUEST_PLACEHOLDER__"'  # The user's original full request
     )
 
     return prompt
@@ -200,9 +221,30 @@ PLAN_GET_PROMPT = create_planning_prompt(
     command="get",
     description="getting Kubernetes resources",
     examples=[
-        ("show me pods in kube-system", ["pods", "-n", "kube-system"]),
-        ("get pods with app=nginx label", ["pods", "--selector=app=nginx"]),
-        ("show me all pods in every namespace", ["pods", "--all-namespaces"]),
+        (
+            "pods in kube-system",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "-n", "kube-system"],
+                "explanation": "Getting pods in the kube-system namespace.",
+            },
+        ),
+        (
+            "pods with app=nginx label",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "--selector=app=nginx"],
+                "explanation": "Getting pods matching the label app=nginx.",
+            },
+        ),
+        (
+            "all pods in every namespace",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "--all-namespaces"],
+                "explanation": "Getting all pods across all namespaces.",
+            },
+        ),
     ],
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
@@ -283,14 +325,29 @@ PLAN_DESCRIBE_PROMPT = create_planning_prompt(
     command="describe",
     description="Kubernetes resource details",
     examples=[
-        ("tell me about the nginx pod", ["pods", "nginx"]),
         (
-            "describe the deployment in kube-system namespace",
-            ["deployments", "-n", "kube-system"],
+            "the nginx pod",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "nginx"],
+                "explanation": "Describing the pod named nginx.",
+            },
         ),
         (
-            "show me details of all pods with app=nginx",
-            ["pods", "--selector=app=nginx"],
+            "the deployment in kube-system namespace",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["deployments", "-n", "kube-system"],
+                "explanation": "Describing deployments in the kube-system namespace.",
+            },
+        ),
+        (
+            "details of all pods with app=nginx",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "--selector=app=nginx"],
+                "explanation": "Describing pods matching the label app=nginx.",
+            },
         ),
     ],
     schema_definition=_SCHEMA_DEFINITION_JSON,
@@ -301,136 +358,153 @@ PLAN_LOGS_PROMPT = create_planning_prompt(
     command="logs",
     description="Kubernetes logs",
     examples=[
-        ("show me logs from the nginx pod", ["pod/nginx"]),
-        ("get logs from the api container in my-app pod", ["pod/my-app", "-c", "api"]),
         (
-            "show me the last 100 lines from all pods with app=nginx",
-            ["--selector=app=nginx", "--tail=100"],
+            "logs from the nginx pod",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod/nginx"],
+                "explanation": "Getting logs for the pod named nginx.",
+            },
+        ),
+        (
+            "logs from the api container in my-app pod",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod/my-app", "-c", "api"],
+                "explanation": "Getting logs for the 'api' container in pod 'my-app'.",
+            },
+        ),
+        (
+            "the last 100 lines from all pods with app=nginx",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--selector=app=nginx", "--tail=100"],
+                "explanation": (
+                    "Getting the last 100 log lines for pods with label app=nginx."
+                ),
+            },
         ),
     ],
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
-# Template for planning kubectl create commands
-PLAN_CREATE_PROMPT = """Given this natural language request to create Kubernetes
-resources, determine the appropriate kubectl create command arguments and YAML manifest.
-
-Important:
-- Return the list of arguments (if any) followed by '---' and then the YAML manifest
-- Do not include 'kubectl' or 'create' in the output
-- Include any necessary flags (-n, etc.)
-- Use standard kubectl syntax and conventions
-- If the request is unclear, use reasonable defaults
-- If the request is invalid or impossible, return 'ERROR: <reason>'
-- For commands with complex arguments (e.g., --from-literal with spaces, HTML, or
-  special characters):
-  * PREFER creating a YAML file with '---' separator instead of inline --from-literal
-    arguments
-  * If --from-literal must be used, ensure values are properly quoted
-- For multiple resources in a single manifest:
-  * Separate each document with '---' on a line by itself with NO INDENTATION
-  * Every YAML document must start with '---' on a line by itself
-
-Example inputs and outputs:
-
-Input: "create an nginx hello world pod"
-Output:
--n
-default
----
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-hello
-  labels:
-    app: nginx
-spec:
-  containers:
-  - name: nginx
-    image: nginx:latest
-    ports:
-    - containerPort: 80
-
-Input: "create a configmap with HTML content"
-Output:
--n
-default
----
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: html-content
-data:
-  index.html: |
-    <html><body><h1>Hello World</h1></body></html>
-
-Input: "create a deployment with 3 nginx replicas in prod namespace"
-Output:
--n
-prod
----
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deployment
-  labels:
-    app: nginx
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:latest
-        ports:
-        - containerPort: 80
-
-Input: "create frontend and backend pods for my application"
-Output:
--n
-default
----
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: frontend
-  labels:
-    app: myapp
-    component: frontend
-spec:
-  containers:
-  - name: frontend
-    image: nginx:latest
-    ports:
-    - containerPort: 80
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: backend
-  labels:
-    app: myapp
-    component: backend
-spec:
-  containers:
-  - name: backend
-    image: redis:latest
-    ports:
-    - containerPort: 6379
-
-Here's the request:
-
-__REQUEST_PLACEHOLDER__"""
+# Template for planning kubectl create commands - Uses the new schema approach
+PLAN_CREATE_PROMPT = create_planning_prompt(
+    command="create",
+    description="creating Kubernetes resources using YAML manifests",
+    examples=[
+        (
+            "an nginx hello world pod in default",  # Implicit creation request
+            {
+                "action_type": "COMMAND",
+                "commands": ["-f", "-", "-n", "default"],
+                "yaml_manifest": (
+                    "---\n"
+                    "apiVersion: v1\n"
+                    "kind: Pod\n"
+                    "metadata:\n"
+                    "  name: nginx-hello\n"
+                    "  labels:\n"
+                    "    app: nginx\n"
+                    "spec:\n"
+                    "  containers:\n"
+                    "  - name: nginx\n"
+                    "    image: nginx:latest\n"
+                    "    ports:\n"
+                    "    - containerPort: 80"
+                ),
+                "explanation": "Creating a simple Nginx pod.",
+            },
+        ),
+        (
+            "create a configmap with HTML content",  # Explicit creation request
+            {
+                "action_type": "COMMAND",
+                "commands": ["-f", "-"],
+                "yaml_manifest": (
+                    "---\n"
+                    "apiVersion: v1\n"
+                    "kind: ConfigMap\n"
+                    "metadata:\n"
+                    "  name: html-content\n"
+                    "data:\n"
+                    "  index.html: |\n"
+                    "    <html><body><h1>Hello World</h1></body></html>"
+                ),
+                "explanation": "Creating a ConfigMap with HTML data.",
+            },
+        ),
+        (
+            "frontend and backend pods for my application",  # Implicit creation request
+            {
+                "action_type": "COMMAND",
+                "commands": ["-f", "-"],
+                "yaml_manifest": (
+                    "---\n"
+                    "apiVersion: v1\n"
+                    "kind: Pod\n"
+                    "metadata:\n"
+                    "  name: frontend\n"
+                    "  labels:\n"
+                    "    app: myapp\n"
+                    "    component: frontend\n"
+                    "spec:\n"
+                    "  containers:\n"
+                    "  - name: frontend\n"
+                    "    image: nginx:latest\n"
+                    "    ports:\n"
+                    "    - containerPort: 80\n"
+                    "---\n"
+                    "apiVersion: v1\n"
+                    "kind: Pod\n"
+                    "metadata:\n"
+                    "  name: backend\n"
+                    "  labels:\n"
+                    "    app: myapp\n"
+                    "    component: backend\n"
+                    "spec:\n"
+                    "  containers:\n"
+                    "  - name: backend\n"
+                    "    image: redis:latest\n"
+                    "    ports:\n"
+                    "    - containerPort: 6379"
+                ),
+                "explanation": "Creating two pods using a multi-document YAML.",
+            },
+        ),
+        (
+            "spin up a basic redis deployment",  # Explicit creation verb
+            {
+                "action_type": "COMMAND",
+                "commands": ["-f", "-"],
+                "yaml_manifest": (
+                    "---\n"
+                    "apiVersion: apps/v1\n"
+                    "kind: Deployment\n"
+                    "metadata:\n"
+                    "  name: redis-deployment\n"
+                    "spec:\n"
+                    "  replicas: 1\n"
+                    "  selector:\n"
+                    "    matchLabels:\n"
+                    "      app: redis\n"
+                    "  template:\n"
+                    "    metadata:\n"
+                    "      labels:\n"
+                    "        app: redis\n"
+                    "    spec:\n"
+                    "      containers:\n"
+                    "      - name: redis\n"
+                    "        image: redis:alpine\n"
+                    "        ports:\n"
+                    "        - containerPort: 6379\n"
+                ),
+                "explanation": "Creating a single-replica Redis deployment.",
+            },
+        ),
+    ],
+    schema_definition=_SCHEMA_DEFINITION_JSON,
+)
 
 
 # Template for planning kubectl version commands
@@ -438,11 +512,31 @@ PLAN_VERSION_PROMPT = create_planning_prompt(
     command="version",
     description="Kubernetes version information",
     examples=[
-        ("show version in json format", ["--output=json"]),
-        ("get client version only", ["--client=true", "--output=json"]),
-        ("show version in yaml", ["--output=yaml"]),
+        (
+            "version in json format",  # Target/flag description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--output=json"],
+                "explanation": "Getting version information in JSON format.",
+            },
+        ),
+        (
+            "client version only",  # Target/flag description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--client=true", "--output=json"],
+                "explanation": "Getting only the client version in JSON format.",
+            },
+        ),
+        (
+            "version in yaml",  # Target/flag description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--output=yaml"],
+                "explanation": "Getting version information in YAML format.",
+            },
+        ),
     ],
-    flags="--output, --short, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -451,27 +545,67 @@ PLAN_CLUSTER_INFO_PROMPT = create_planning_prompt(
     command="cluster-info",
     description="Kubernetes cluster information",
     examples=[
-        ("show cluster info", ["dump"]),
-        ("show basic cluster info", []),
-        ("show detailed cluster info", ["dump"]),
+        (
+            "cluster info",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["dump"],  # Default behavior is dump
+                "explanation": "Getting detailed cluster information using dump.",
+            },
+        ),
+        (
+            "basic cluster info",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": [],  # No extra args needed for basic info
+                "explanation": "Getting basic cluster endpoint information.",
+            },
+        ),
+        (
+            "detailed cluster info",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["dump"],
+                "explanation": "Getting detailed cluster information using dump.",
+            },
+        ),
     ],
-    flags="--context, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
 # Template for planning kubectl events commands
+# Note: We deliberately use the 'kubectl events' command here instead of
+# 'kubectl get events'. While 'get events' works, 'kubectl events' is the
+# more idiomatic command for viewing events and offers specific flags like --for.
 PLAN_EVENTS_PROMPT = create_planning_prompt(
-    command="get events",
+    command="events",  # Use the dedicated 'events' command
     description="Kubernetes events",
     examples=[
-        ("show events in default namespace", ["-n", "default"]),
         (
-            "get events for pod nginx",
-            ["--field-selector=involvedObject.name=nginx,involvedObject.kind=Pod"],
+            "events in default namespace",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": [],  # Default namespace is implicit
+                "explanation": "Getting events in the default namespace.",
+            },
         ),
-        ("show all events in all namespaces", ["--all-namespaces"]),
+        (
+            "events for pod nginx",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--for=pod/nginx"],
+                "explanation": "Getting events related to the pod named nginx.",
+            },
+        ),
+        (
+            "all events in all namespaces",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["--all-namespaces"],  # Use -A or --all-namespaces
+                "explanation": "Getting all events across all namespaces.",
+            },
+        ),
     ],
-    flags="-n, --field-selector, --sort-by, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -568,14 +702,31 @@ PLAN_DELETE_PROMPT = create_planning_prompt(
     command="delete",
     description="Kubernetes resources",
     examples=[
-        ("delete the nginx pod", ["pod", "nginx"]),
         (
-            "remove deployment in kube-system namespace",
-            ["deployment", "-n", "kube-system"],
+            "the nginx pod",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod", "nginx"],
+                "explanation": "Deleting the pod named nginx.",
+            },
         ),
-        ("delete all pods with app=nginx", ["pods", "--selector=app=nginx"]),
+        (
+            "deployment in kube-system namespace",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["deployment", "-n", "kube-system"],
+                "explanation": "Deleting deployments in the kube-system namespace.",
+            },
+        ),
+        (
+            "all pods with app=nginx",  # Target description
+            {
+                "action_type": "COMMAND",
+                "commands": ["pods", "--selector=app=nginx"],
+                "explanation": "Deleting pods matching the label app=nginx.",
+            },
+        ),
     ],
-    flags="-n, --grace-period, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -604,14 +755,37 @@ PLAN_SCALE_PROMPT = create_planning_prompt(
     command="scale",
     description="scaling Kubernetes resources",
     examples=[
-        ("scale deployment nginx to 3 replicas", ["deployment/nginx", "--replicas=3"]),
         (
-            "increase the redis statefulset to 5 replicas in the cache namespace",
-            ["statefulset/redis", "--replicas=5", "-n", "cache"],
+            "deployment nginx to 3 replicas",
+            {
+                "action_type": "COMMAND",
+                "commands": ["deployment/nginx", "--replicas=3"],
+                "explanation": "Scaling the nginx deployment to 3 replicas.",
+            },
         ),
-        ("scale down the api deployment", ["deployment/api", "--replicas=1"]),
+        (
+            "the redis statefulset to 5 replicas in the cache namespace",
+            {
+                "action_type": "COMMAND",
+                "commands": ["statefulset/redis", "--replicas=5", "-n", "cache"],
+                "explanation": (
+                    "Scaling the redis statefulset in the cache "
+                    "namespace to 5 replicas."
+                ),
+            },
+        ),
+        (
+            "down the api deployment",
+            {
+                "action_type": "COMMAND",
+                "commands": [
+                    "deployment/api",
+                    "--replicas=1",
+                ],  # Assuming scale down means 1
+                "explanation": "Scaling down the api deployment to 1 replica.",
+            },
+        ),
     ],
-    flags="--replicas, -n, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -643,19 +817,40 @@ PLAN_WAIT_PROMPT = create_planning_prompt(
     description="waiting on Kubernetes resources",
     examples=[
         (
-            "wait for the deployment my-app to be ready",
-            ["deployment/my-app", "--for=condition=Available"],
+            "for the deployment my-app to be ready",
+            {
+                "action_type": "COMMAND",
+                "commands": ["deployment/my-app", "--for=condition=Available"],
+                "explanation": "Waiting for the my-app deployment to become Available.",
+            },
         ),
         (
-            "wait until the pod nginx becomes ready with 5 minute timeout",
-            ["pod/nginx", "--for=condition=Ready", "--timeout=5m"],
+            "until the pod nginx becomes ready with 5 minute timeout",
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod/nginx", "--for=condition=Ready", "--timeout=5m"],
+                "explanation": (
+                    "Waiting up to 5 minutes for the nginx pod to become Ready."
+                ),
+            },
         ),
         (
-            "wait for all jobs in billing namespace to complete",
-            ["jobs", "--all", "-n", "billing", "--for=condition=Complete"],
+            "for all jobs in billing namespace to complete",
+            {
+                "action_type": "COMMAND",
+                "commands": [
+                    "jobs",
+                    "--all",
+                    "-n",
+                    "billing",
+                    "--for=condition=Complete",
+                ],
+                "explanation": (
+                    "Waiting for all jobs in the billing namespace to Complete."
+                ),
+            },
         ),
     ],
-    flags="--for, --timeout, -n, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -698,22 +893,57 @@ PLAN_ROLLOUT_PROMPT = create_planning_prompt(
     command="rollout",
     description="managing Kubernetes rollouts",
     examples=[
-        ("check status of deployment nginx", ["status", "deployment/nginx"]),
         (
-            "rollback frontend deployment to revision 2",
-            ["undo", "deployment/frontend", "--to-revision=2"],
+            "status of deployment nginx",
+            {
+                "action_type": "COMMAND",
+                "commands": ["status", "deployment/nginx"],
+                "explanation": "Checking the rollout status of the nginx deployment.",
+            },
         ),
         (
-            "pause the rollout of my-app deployment in production namespace",
-            ["pause", "deployment/my-app", "-n", "production"],
+            "frontend deployment to revision 2",  # Target/rollout action description
+            {
+                "action_type": "COMMAND",
+                "commands": ["undo", "deployment/frontend", "--to-revision=2"],
+                "explanation": ("Rolling back the frontend deployment to revision 2."),
+            },
         ),
         (
-            "restart all deployments in default namespace",
-            ["restart", "deployment", "-l", "app"],
+            "the rollout of my-app deployment in production namespace",
+            {
+                "action_type": "COMMAND",
+                "commands": ["pause", "deployment/my-app", "-n", "production"],
+                "explanation": (
+                    "Pausing the rollout for the my-app deployment in the "
+                    "production namespace."
+                ),
+            },
         ),
-        ("show history of statefulset/redis", ["history", "statefulset/redis"]),
+        (
+            "all deployments in default namespace",
+            {
+                "action_type": "COMMAND",
+                "commands": [
+                    "restart",
+                    "deployment",
+                    "-n",
+                    "default",
+                ],  # Or add selector if needed
+                "explanation": "Restarting all deployments in the default namespace.",
+            },
+        ),
+        (
+            "history of statefulset/redis",
+            {
+                "action_type": "COMMAND",
+                "commands": ["history", "statefulset/redis"],
+                "explanation": (
+                    "Showing the rollout history for the redis statefulset."
+                ),
+            },
+        ),
     ],
-    flags="-n, --revision, etc.",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
@@ -1137,25 +1367,64 @@ PLAN_PORT_FORWARD_PROMPT = create_planning_prompt(
         "your response."
     ),
     examples=[
-        ("forward port 8080 of pod nginx to my local 8080", ["pod/nginx", "8080:8080"]),
         (
-            "connect to the redis service port 6379 on local port 6380",
-            ["service/redis", "6380:6379"],
+            "port 8080 of pod nginx to my local 8080",
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod/nginx", "8080:8080"],
+                "explanation": (
+                    "Forwarding local port 8080 to port 8080 of the nginx pod."
+                ),
+            },
         ),
         (
-            "forward deployment webserver port 80 to my local 8000",
-            ["deployment/webserver", "8000:80"],
+            "the redis service port 6379 on local port 6380",
+            {
+                "action_type": "COMMAND",
+                "commands": ["service/redis", "6380:6379"],
+                "explanation": (
+                    "Forwarding local port 6380 to port 6379 of the redis service."
+                ),
+            },
         ),
         (
-            "proxy my local 5000 to port 5000 on the api pod in namespace test",
-            ["pod/api", "5000:5000", "--namespace", "test"],
+            "deployment webserver port 80 to my local 8000",
+            {
+                "action_type": "COMMAND",
+                "commands": ["deployment/webserver", "8000:80"],
+                "explanation": (
+                    "Forwarding local port 8000 to port 80 of the webserver deployment."
+                ),
+            },
         ),
         (
-            "forward ports with the app running on namespace production",
-            ["pod/app", "8080:80", "--namespace", "production"],
+            "my local 5000 to port 5000 on the api pod in namespace test",
+            {
+                "action_type": "COMMAND",
+                "commands": ["pod/api", "5000:5000", "--namespace", "test"],
+                "explanation": (
+                    "Forwarding local port 5000 to port 5000 of the "
+                    "api pod in the test namespace."
+                ),
+            },
+        ),
+        (
+            "ports with the app running on namespace production",
+            {
+                "action_type": "COMMAND",
+                "commands": [
+                    "pod/app",
+                    "8080:80",
+                    "--namespace",
+                    "production",
+                ],  # Needs better inference?
+                "explanation": (
+                    "Forwarding local port 8080 to port 80 of the app "
+                    "pod in the production namespace."
+                ),
+            },
         ),
     ],
-    flags="--namespace, --address, --pod-running-timeout",
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
 
