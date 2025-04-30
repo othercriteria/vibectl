@@ -163,6 +163,26 @@ fi
 echo "🔍 Verifying cluster status..."
 kubectl cluster-info
 
+# <<< ADDED: Install vibectl from source >>>
+echo "🔧 Installing vibectl from source..."
+VIBECTL_SOURCE_DIR="/home/sandbox/vibectl-src" # Define source mount point
+if [ -d "${VIBECTL_SOURCE_DIR}" ]; then
+    echo "Installing vibectl from source directory: ${VIBECTL_SOURCE_DIR}..."
+    cd "${VIBECTL_SOURCE_DIR}"
+    # Install in editable mode
+    if ! pip install --quiet -e .; then # Added --quiet
+        echo "❌ Error: Failed to install vibectl from source."
+        exit 1
+    fi
+    echo "✅ vibectl installed from source"
+    cd - >/dev/null
+else
+    echo "❌ Error: vibectl source directory not found at ${VIBECTL_SOURCE_DIR}" >&2
+    echo "   Make sure the volume is mounted correctly in compose.yml" >&2
+    exit 1
+fi
+# <<< END ADDED SECTION >>>
+
 # Set vibectl config (from environment variables provided by Docker Compose)
 echo "📝 Configuring vibectl..."
 vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}

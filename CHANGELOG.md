@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `handle_vibe_request` and `_execute_command` to process `yaml_manifest` from LLM response.
 - Refined `_handle_command_confirmation` to restore full option handling (`a`, `e`) and improve prompt clarity.
 - Simplified `port-forward` handler tests for improved stability and clarity.
+- **[Demo]** Update `examples/k8s-sandbox/ctf` demo to install `vibectl` from local source via `pip install -e .`.
 
 ### Fixed
 - Updated numerous tests (`test_prompt.py`, `test_command_handler_edge_cases.py`) to align with prompt refactoring and confirmation logic changes.
@@ -100,70 +101,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2025-04-22
 
 ### Added
-- New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes` pattern
-- New `vibectl semiauto` subcommand as sugar for `auto` with negated `--yes` behavior
-- Enhanced confirmation dialog with new options:
-  - `yes [A]nd` for accepting with fuzzy memory update
-  - `no [B]ut` for rejecting with fuzzy memory update
-  - `[E]xit` option (in semiauto mode) to exit the loop cleanly
-
-### Changed
-- Updated `chaos-monkey` example to use the new `vibectl auto` subcommand
-- Improved interactive-commands rule to clarify the proper usage of `--no-pager` with git commands
-
-### Fixed
-- Fixed error messages shown when a user selects [E]xit in semiauto mode
-  - Updated exception handling to properly handle normal exits without displaying error messages
-  - Improves user experience by ensuring clean exit behavior
-- Fixed `vibectl auto` breaking on API errors like "overloaded_error"
-  - Added detection of API-related errors and marked them as non-halting
-  - Auto loop now continues despite transient API issues like rate limiting or service overload
-  - Improved resilience for automated/scheduled usage of vibectl
-- Fixed recovery suggestions not being integrated into memory state
-  - Added update_memory call when recovery suggestions are generated
-  - Ensures that suggestions from one command are available for subsequent commands in auto mode
-  - Improves the continuity of error recovery in multi-step workflows
-
-## [0.4.1] - 2025-04-19
-
-### Added
-- New chaos-monkey demo in examples/k8s-sandbox featuring:
-  - Red team vs. blue team competitive scenario
-  - Blue agent for maintaining system stability
-  - Red agent for simulating service disruptions
-  - Metrics collection and performance evaluation
-  - Containerized vibectl agents interacting with K8s cluster
-
-### Fixed
-- Fixed KeyError when prompts contain format placeholders like `{spec}` that conflict with formatting operations
-  - Added fallback string replacement method for robust prompt handling
-  - Prevents crash in chaos-monkey agent when generating Kubernetes YAML templates
-- Resolved linting issues in chaos-monkey overseer component
-  - Fixed line length violations for improved code quality
-  - Ensured code adheres to project's style standards
-
-## [0.4.0] - 2025-04-18
-
-### Added
-- Basic structured logging to vibectl for improved observability and debugging
-  - Configurable log levels for different verbosity needs
-  - Console and file output support
-  - Structured logging for machine-readable output
-- Configurable log level via config or VIBECTL_LOG_LEVEL environment variable
-- User-facing warnings and errors are surfaced via the console
-- Logging test pattern and fixtures for reliable assertions on log output
-
-## [0.3.2] - 2025-04-15
-
-### Added
-- New `port-forward` command for Kubernetes service port forwarding
-  - Supports standard kubectl port-forward functionality
-  - Features rich progress display with connection status
-  - Includes vibe-based natural language request support
-  - Provides configurable proxy monitoring warnings
-- New `wait` command for Kubernetes condition monitoring
-  - Supports standard kubectl wait functionality
-  - Includes vibe-based natural language request support
-
-### Changed
-- Implemented asyncio for `wait`
+- New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes`

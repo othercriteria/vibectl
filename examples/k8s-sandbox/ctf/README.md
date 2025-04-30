@@ -2,6 +2,8 @@
 
 This directory contains a Capture The Flag (CTF) style sandbox environment for testing vibectl's autonomous mode capabilities using an isolated Kubernetes environment. The sandbox supports multiple difficulty levels to gradually test and improve vibectl's capabilities.
 
+**Note:** This demo installs `vibectl` directly from your local source code (`pip install -e .`). This allows you to test local changes within the sandbox.
+
 ## Requirements
 
 - Docker and Docker Compose
