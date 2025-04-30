@@ -29,31 +29,50 @@ def create_kubectl_error(
     error_str = ""
     if isinstance(error_message, bytes):
         try:
-            error_str = error_message.decode("utf-8", errors="replace").strip()
-        except Exception as decode_err:
+            # Attempt decoding
+            error_str = error_message.decode(
+                "utf-8", errors="strict"
+            )  # Use strict first
+        except UnicodeDecodeError as decode_err:  # Catch specific error
             logger.warning(f"Failed to decode error message bytes: {decode_err}")
-            # Fallback to a generic message if decoding fails
+            # Assign specific fallback message on decoding error
             error_str = "Failed to decode error message from kubectl."
+        except Exception as decode_err:
+            # Catch other potential exceptions during decode/strip
+            logger.warning(
+                f"Unexpected error processing error message bytes: {decode_err}"
+            )
+            error_str = "Unexpected error processing error message from kubectl."
     elif isinstance(error_message, str):
         error_str = error_message.strip()
     else:
         logger.warning(f"Unexpected error message type: {type(error_message)}")
-        error_str = str(error_message)  # Attempt to convert to string
+        # Handle non-str/bytes input - treat as halting
+        error_type_name = type(error_message).__name__
+        error_str = f"Unexpected error message type: {error_type_name}"
+        # Directly return halting error for unexpected input types
+        return Error(error=error_str, exception=exception, halt_auto_loop=True)
 
-    # For kubectl server errors (like NotFound, Forbidden, etc.),
-    # set halt_auto_loop=False so auto loops can continue
-    # Use the decoded string for checks
-    if "Error from server" in error_str:
+    # Define patterns for recoverable client-side errors
+    recoverable_patterns = [
+        "error from server",  # Existing: Server-side errors (NotFound, etc.)
+        "unknown command",  # Existing: Completely wrong command
+        "unknown flag",  # New: Invalid flag used
+        "invalid argument",  # New: Invalid argument value or format
+        # Add more specific kubectl client error patterns here if needed
+    ]
+
+    # Check if the error message matches any recoverable pattern (case-insensitive)
+    error_lower = error_str.lower()
+    is_recoverable = any(pattern in error_lower for pattern in recoverable_patterns)
+
+    if is_recoverable:
+        logger.debug(f"Kubectl error identified as recoverable: {error_str}")
         return Error(error=error_str, exception=exception, halt_auto_loop=False)
-
-    # For unknown command errors (usually from malformed LLM output),
-    # set halt_auto_loop=False so the auto loop can continue and the LLM can
-    # correct itself
-    if "unknown command" in error_str.lower():
-        return Error(error=error_str, exception=exception, halt_auto_loop=False)
-
-    # For other errors, use the default (halt_auto_loop=True)
-    return Error(error=error_str, exception=exception)
+    else:
+        # For other errors, use the default (halt_auto_loop=True)
+        logger.debug(f"Kubectl error treated as halting: {error_str}")
+        return Error(error=error_str, exception=exception)
 
 
 def run_kubectl(
