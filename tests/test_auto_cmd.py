@@ -1173,3 +1173,90 @@ def test_auto_loop_continues_on_kubectl_error_with_recovery(
 
     # Verify run_vibe_command was called twice
     assert mock_run_vibe_command.call_count == 2
+
+
+@patch("vibectl.subcommands.vibe_cmd.handle_vibe_request")
+def test_auto_command_exits_nonzero_on_llm_missing_verb_error(
+    mock_handle_vibe_request: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    Test that `vibectl auto` exits with a non-zero code when handle_vibe_request
+    within the vibe command fails due to the LLM not providing a command verb.
+    """
+    # Simulate handle_vibe_request raising the specific ValueError
+    # This error should be caught by run_vibe_command and turned into an Error
+    # which then propagates to run_auto_command.
+    mock_handle_vibe_request.side_effect = ValueError(
+        "LLM planning failed: No command verb provided."
+    )
+
+    # Mock sleep to avoid delays
+    mock_sleep = Mock()
+    monkeypatch.setattr("time.sleep", mock_sleep)
+
+    # Mock configure functions used by run_auto_command setup
+    # We need these because run_auto_command is now actually running
+    mock_configure_output = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_output_flags", mock_configure_output
+    )
+    mock_configure_memory = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.configure_memory_flags", mock_configure_memory
+    )
+    # Mock get_memory if needed by configure_memory_flags or run_auto_command
+    mock_get_memory = Mock(return_value=("", {}))  # Return empty memory context
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.get_memory", mock_get_memory)
+    # Mock logger inside auto_cmd to suppress excessive output during test
+    mock_auto_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.auto_cmd.logger", mock_auto_logger)
+    # Mock console inside auto_cmd
+    mock_auto_console = Mock()
+    monkeypatch.setattr(
+        "vibectl.subcommands.auto_cmd.console_manager", mock_auto_console
+    )
+    # Mock logger inside vibe_cmd where the exception is caught
+    mock_vibe_logger = Mock()
+    monkeypatch.setattr("vibectl.subcommands.vibe_cmd.logger", mock_vibe_logger)
+
+    runner = CliRunner()
+    # Use catch_exceptions=True to check the exit code directly
+    result = runner.invoke(
+        cli,
+        ["auto", "--limit", "1", "--interval", "0", "get pods"],  # Simple request
+        catch_exceptions=True,  # Catch Abort() and check exit code
+    )
+
+    # Assertions
+    # Since the ValueError is now non-halting, the command should complete iteration 1
+    # and then exit due to the limit=1.
+    assert (
+        result.exit_code == 0
+    ), f"Expected exit code 0 for non-halting error, but got {result.exit_code}"
+
+    # Check that the specific error was logged by vibe_cmd's handler
+    error_logged_in_vibe = False
+    for call in mock_vibe_logger.warning.call_args_list:  # Check warning level now
+        args, kwargs = call
+        # Check if the error message or the exception itself matches
+        if "LLM planning failed: No command verb provided." in str(args[0]) or (
+            kwargs.get("exc_info")
+            and "LLM planning failed: No command verb provided." in str(args[1])
+        ):
+            error_logged_in_vibe = True
+            break
+    assert (
+        error_logged_in_vibe
+    ), "The specific ValueError was not logged as warning by vibe_cmd"
+
+    # Check that the auto command logger logged the continuation message
+    continuation_logged = False
+    for call in mock_auto_logger.info.call_args_list:
+        args, _ = call
+        if args and "Continuing auto loop despite non-halting error" in args[0]:
+            continuation_logged = True
+            break
+    assert continuation_logged, "Continuation message was not logged by auto_cmd logger"
+
+    # Ensure handle_vibe_request was called once
+    mock_handle_vibe_request.assert_called_once()

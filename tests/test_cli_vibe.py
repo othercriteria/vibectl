@@ -168,9 +168,9 @@ def test_vibe_command_handle_vibe_request_exception() -> None:
             "do something", None, None, None, None, exit_on_error=False
         )
         assert isinstance(result, Error)
-        assert "Exception in handle_vibe_request" in result.error
+        assert result.error == "Unexpected error in handle_vibe_request: fail!"
         mock_logger.error.assert_any_call(
-            "Error in handle_vibe_request: %s", ANY, exc_info=True
+            "Unexpected error in handle_vibe_request: %s", ANY, exc_info=True
         )
 
 
@@ -189,7 +189,7 @@ def test_vibe_command_outer_exception() -> None:
             "do something", None, None, None, None, exit_on_error=False
         )
         assert isinstance(result, Error)
-        assert "Exception in 'vibe' subcommand" in result.error
+        assert result.error == "Error in vibe command: outer fail"
         mock_logger.error.assert_any_call(
             "Error in 'vibe' subcommand: %s", ANY, exc_info=True
         )
@@ -251,7 +251,7 @@ def test_vibe_command_handle_vibe_request_exception_exit_on_error_true() -> None
             run_vibe_command("do something", None, None, None, None, exit_on_error=True)
         assert "fail!" in str(excinfo.value)
         mock_logger.error.assert_any_call(
-            "Error in handle_vibe_request: %s", ANY, exc_info=True
+            "Unexpected error in handle_vibe_request: %s", ANY, exc_info=True
         )
 
 
