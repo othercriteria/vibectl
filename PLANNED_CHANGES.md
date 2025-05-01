@@ -9,7 +9,7 @@
 - **MVP First:** Focused implementation on `vibectl get vibe` initially, then expanded.
 - **Happy Path Focus:** Primarily tested successful schema generation/parsing, with some error handling tests.
 - **Schema Tooling:** Leveraged `llm` library's schema support.
-- **Command Joining:** Currently derives `kubectl` arguments from `commands: List[str]`. Works for many cases but might need refinement (e.g., complex quoting, heredocs handled via `yaml_manifest`).
+- **Command Joining:** Derives `kubectl` arguments from `commands: List[str]`. Confirmed robust handling via `subprocess` list argument passing; no issues found.
 
 **Outstanding Work / Next Steps:**
 
@@ -20,7 +20,6 @@
 4.  **Testing & Coverage:**
     - Add specific unit/integration tests for `vibectl/schema.py`.
     - Expand test coverage for `handle_vibe_request` (more scenarios for all `ActionType`s).
-    - Increase test coverage towards 100% for `vibectl/command_handler.py`.
     - Increase test coverage towards 100% for `vibectl/memory.py`.
 5.  **Robustness & Refinement:**
     - Test planning prompts with more complex/varied requests.
