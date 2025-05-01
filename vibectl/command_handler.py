@@ -871,43 +871,41 @@ def handle_vibe_request(
                 logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
                 result = _execute_command(kubectl_verb, kubectl_args, yaml_content)
 
-                if autonomous_mode:
-                    logger.debug(
-                        f"Result type={type(result)}, "
-                        f"result.data='{getattr(result, 'data', None)}'"
+                logger.debug(
+                    f"Result type={type(result)}, "
+                    f"result.data='{getattr(result, 'data', None)}'"
+                )
+                # Correctly extract error or data for command_output_str
+                if isinstance(result, Success):
+                    command_output_str = (
+                        str(result.data) if result.data is not None else ""
                     )
-                    # Correctly extract error or data for command_output_str
-                    if isinstance(result, Success):
-                        command_output_str = (
-                            str(result.data) if result.data is not None else ""
-                        )
-                    elif isinstance(result, Error):
-                        command_output_str = (
-                            str(result.error) if result.error is not None else ""
-                        )
-                    else:
-                        command_output_str = ""  # Should not happen
-
-                    vibe_output_str = (
-                        response.explanation
-                        or f"Executed autonomously: kubectl {kubectl_verb} "
-                        f"{cmd_for_display}"
+                elif isinstance(result, Error):
+                    command_output_str = (
+                        str(result.error) if result.error is not None else ""
                     )
+                else:
+                    command_output_str = ""  # Should not happen
 
-                    try:
-                        update_memory(
-                            command=f"kubectl {kubectl_verb} {' '.join(kubectl_args)}",
-                            command_output=command_output_str,
-                            vibe_output=vibe_output_str,
-                            model_name=output_flags.model_name,
-                        )
-                        logger.info(
-                            "Memory updated after autonomous command execution."
-                        )
-                    except Exception as mem_e:
-                        logger.error(
-                            f"Failed to update memory after autonomous command: {mem_e}"
-                        )
+                vibe_output_str = (
+                    response.explanation
+                    or f"Executed: kubectl {kubectl_verb} {cmd_for_display}"
+                )
+
+                try:
+                    update_memory(
+                        command=f"kubectl {kubectl_verb} {' '.join(kubectl_args)}",
+                        command_output=command_output_str,
+                        vibe_output=vibe_output_str,
+                        model_name=output_flags.model_name,
+                    )
+                    logger.info(
+                        "Memory updated after command execution (regardless of mode)."
+                    )
+                except Exception as mem_e:
+                    logger.error(
+                        f"Failed to update memory after command execution: {mem_e}"
+                    )
 
                 try:
                     # Handle output display based on flags, passing the original verb
@@ -985,11 +983,6 @@ def _handle_command_confirmation(
     choice_list = ["y", "n", "a", "b", "m"] + (["e"] if semiauto else [])
     prompt_suffix = f" ({'/'.join(choice_list)})"
 
-    # Display the command and explanation before the prompt
-    # Combine the display into a single prompt line
-    # console_manager.print_processing(
-    #     f"🔄 Proposed command: [bold]{cmd_for_display}[/bold]"
-    # )
     if explanation:
         console_manager.print_note(f"AI Explanation: {explanation}")
 

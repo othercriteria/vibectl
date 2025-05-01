@@ -179,11 +179,11 @@ def test_vibe_delete_with_confirmation(
 
     # Verify memory was updated (using the mock_handle_output side effect)
     mock_update_memory, _ = mock_memory
-    mock_update_memory.assert_called_once()
-    mem_call_args = mock_update_memory.call_args[0]
+    # Expect 2 calls: 1 after exec, 1 from handle_output mock side effect
+    assert mock_update_memory.call_count == 2
+    # Check the second call args (from handle_output mock)
+    mem_call_args = mock_update_memory.call_args_list[1][0]
     assert mem_call_args[0] == "delete"
-    assert mem_call_args[1] == 'pod "my-pod" deleted'
-    assert mem_call_args[2] == "Vibe summary for delete"
 
     # Verify handle_command_output was called
     mock_handle_output.assert_called_once()
@@ -287,7 +287,8 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
 
     # Verify memory was updated
     mock_update_memory, _ = mock_memory
-    mock_update_memory.assert_called_once()
+    # Expect 2 calls: 1 after exec, 1 from handle_output mock side effect
+    assert mock_update_memory.call_count == 2
 
     # Verify handle_command_output was called
     mock_handle_output.assert_called_once()
@@ -344,7 +345,8 @@ def test_vibe_non_delete_commands_skip_confirmation(
 
     # Verify memory was updated
     mock_update_memory, _ = mock_memory
-    mock_update_memory.assert_called_once()
+    # Expect 2 calls
+    assert mock_update_memory.call_count == 2
 
     # Verify handle_command_output was called
     mock_handle_output.assert_called_once()

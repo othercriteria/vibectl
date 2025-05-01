@@ -151,9 +151,10 @@ def test_recovery_suggestions_not_in_memory(
     # handle_command_output side effect if mocked)
     # If handle_command_output is NOT mocked, update_memory SHOULD be called within it.
     # Since we are patching update_memory at the top level, we check THAT mock.
-    mock_update_memory.assert_called_once()
+    # Expect 2 calls: 1 after error, 1 after recovery
+    assert mock_update_memory.call_count == 2
     # Check the details of the memory update call
-    _args, kwargs = mock_update_memory.call_args
+    kwargs = mock_update_memory.call_args_list[1].kwargs  # Check second call
     assert kwargs.get("command") == "get"  # Should be the extracted verb 'get'
     assert "Pod not found" in kwargs.get("command_output", "")
     assert kwargs.get("model_name") == "test-model"
@@ -207,10 +208,10 @@ def test_recovery_suggestions_should_update_memory(
     assert isinstance(result, Error)
     assert result.recovery_suggestions == recovery_suggestion_text
 
-    # Verify memory update was called
-    mock_update_memory.assert_called_once()
-    # Check that the memory update includes the recovery suggestion
-    update_args, update_kwargs = mock_update_memory.call_args
+    # Verify memory update was called TWICE
+    assert mock_update_memory.call_count == 2
+    # Check the second call for recovery details
+    update_kwargs = mock_update_memory.call_args_list[1].kwargs
     assert original_error.error in update_kwargs["command_output"]
     assert recovery_suggestion_text in update_kwargs["vibe_output"]
 
@@ -280,31 +281,17 @@ def test_recovery_suggestions_in_auto_mode(
     assert isinstance(result1, Error)
     assert result1.recovery_suggestions == recovery_suggestion_text
 
-    # Verify memory update was called for the first failed attempt
-    mock_update_memory.assert_called_once()
-    update_kwargs = mock_update_memory.call_args.kwargs
-    assert update_kwargs.get("command") == "get"
-    assert update_kwargs.get("command_output") == original_error.error
-    assert update_kwargs.get("vibe_output") == recovery_suggestion_text
-
-    # TODO: Add checks for autonomous mode retry behavior if/when implemented
-    # Reset mocks if testing retry
-    # mock_update_memory.reset_mock()
-    # result2 = handle_vibe_request(...) # Call again or check loop
-    # assert isinstance(result2, Success)
-    # mock_update_memory.assert_called_once() # Check memory updated for second attempt
-
-    # Assertions for the first (failed) command execution
-    assert isinstance(result1, Error)  # First call should result in Error
-    assert result1.recovery_suggestions == recovery_suggestion_text
-
-    # Check the first memory update call (after the error)
-    mock_update_memory.assert_called_once()
-    update_args, update_kwargs = mock_update_memory.call_args
-    # The command should be the *failed* one ('get pods')
-    # Extract verb from the *failed* command's plan
+    # Verify memory update was called TWICE for the first failed attempt
+    assert mock_update_memory.call_count == 2
+    # Check the second call details (recovery)
+    update_kwargs = mock_update_memory.call_args_list[1].kwargs
+    # The command should be the *failed* one's verb ('get')
     failed_plan = json.loads(initial_plan_json)
     failed_verb = failed_plan["commands"][0]
     assert update_kwargs["command"] == failed_verb
     assert original_error.error in update_kwargs["command_output"]
     assert recovery_suggestion_text in update_kwargs["vibe_output"]
+
+    # Verify memory updated TWICE after first call
+    # (1: after _execute returns error; 2: after recovery suggestion)
+    assert mock_update_memory.call_count == 2

@@ -444,23 +444,24 @@ def test_handle_vibe_request_command_error(
     # Assertions (outside inner 'with' block, but _execute_cmd is from outer block)
     mock_execute_cmd.assert_called_once_with("get", ["nonexistent-resource"], None)
 
-    # Assert the mock patched in the 'with' block was called
-    mock_update_memory_ch.assert_called_once()
-    # Check arguments passed using kwargs
-    assert mock_update_memory_ch.call_args is not None  # Ensure call_args exists
-    call_kwargs = (
-        mock_update_memory_ch.call_args.kwargs
-    )  # Access keyword args via .kwargs
-    assert call_kwargs.get("command") == "get"  # Command verb
+    # Assert the mock patched in the 'with' block was called TWICE
+    assert mock_update_memory_ch.call_count == 2
+    # Check arguments passed using kwargs for the *second* call (recovery)
+    assert mock_update_memory_ch.call_args_list[1] is not None  # Check list index
+    second_call_kwargs = mock_update_memory_ch.call_args_list[1].kwargs
+    assert second_call_kwargs.get("command") == "get"  # Command verb
     assert (
-        call_kwargs.get("command_output") == error_message
+        second_call_kwargs.get("command_output") == error_message
     )  # Original command error output
-    assert call_kwargs.get("vibe_output") == expected_recovery_suggestion
+    assert second_call_kwargs.get("vibe_output") == expected_recovery_suggestion
 
     # Assert the final result (handle_command_output returns the modified Error)
     assert isinstance(result, Error)
     assert result.error == error_message  # Original error message
     assert result.recovery_suggestions == expected_recovery_suggestion
+
+    # Verify that memory was updated TWICE (once after exec, once after summary)
+    # assert mock_memory.call_count == 2
 
 
 def test_handle_vibe_request_error(
@@ -518,9 +519,11 @@ def test_handle_vibe_request_yaml_creation(
     mock_confirm: MagicMock,
     prevent_exit: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
-    mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with YAML creation."""
+    # Disable vibe summary to prevent extra LLM call/timeout
+    mock_output_flags_for_vibe_request.show_vibe = False
+
     # Construct expected JSON for planning
     expected_response_plan = {
         "action_type": ActionType.COMMAND.value,
@@ -552,6 +555,7 @@ def test_handle_vibe_request_yaml_creation(
             return_value="Plan this: create pod yaml",
         ),
         patch("subprocess.run") as mock_subprocess,
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
     ):
         # Configure mock subprocess to return success
         mock_process = MagicMock()
@@ -568,9 +572,13 @@ def test_handle_vibe_request_yaml_creation(
             yes=True,  # Bypass the interactive prompt
         )
 
-    # Verify that memory was updated
-    mock_memory.assert_called_once()
+    # Verify that memory was updated TWICE (once after exec, once after summary)
+    # assert mock_memory.call_count == 2
+
     # No need to verify specific args as they can vary by implementation
+
+    # Expect only ONE call because show_vibe is False
+    assert mock_update_memory.call_count == 1
 
 
 def test_handle_vibe_request_yaml_response(
@@ -633,13 +641,15 @@ def test_handle_vibe_request_create_pods_yaml(
     mock_confirm: MagicMock,
     prevent_exit: MagicMock,
     mock_output_flags_for_vibe_request: OutputFlags,
-    mock_memory: MagicMock,
 ) -> None:
     """Test vibe request that specifically creates multiple pods using a YAML manifest.
 
     This test ensures the regression with create commands and YAML files
     doesn't happen again.
     """
+    # Disable vibe summary to prevent extra LLM call/timeout
+    mock_output_flags_for_vibe_request.show_vibe = False
+
     # Construct expected JSON for planning
     expected_response_plan = {
         "action_type": ActionType.COMMAND.value,
@@ -677,6 +687,7 @@ def test_handle_vibe_request_create_pods_yaml(
             return_value="Plan this: Create nginx demo pods foo and bar.",
         ),
         patch("subprocess.run") as mock_subprocess,
+        patch("vibectl.command_handler.update_memory") as mock_update_memory,
     ):
         # Configure mock subprocess to return success
         mock_process = MagicMock()
@@ -693,10 +704,13 @@ def test_handle_vibe_request_create_pods_yaml(
             yes=True,  # Bypass the interactive prompt
         )
 
-    # Verify that memory was updated
-    mock_memory.assert_called_once()
+    # Verify that memory was updated TWICE (once after exec, once after summary)
+    # assert mock_memory.call_count == 2
 
     # No need to verify specific args as they can vary by implementation
+
+    # Expect only ONE call because show_vibe is False
+    assert mock_update_memory.call_count == 1
 
 
 @patch("vibectl.command_handler.console_manager")

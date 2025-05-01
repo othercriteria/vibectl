@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vibectl.command_handler import (
+    LLMCommandResponse,
     _create_display_command,
     _execute_command,
     _handle_fuzzy_memory_update,
@@ -215,118 +216,137 @@ spec:
 
 
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.handle_command_output")
-@patch("vibectl.command_handler.run_kubectl")
-def test_handle_vibe_request_with_heredoc_error_integration(
-    mock_run_kubectl: Mock,
-    mock_handle_output: Mock,
-    mock_get_adapter: Mock,
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.recovery_prompt")
+@patch("vibectl.command_handler.console_manager")
+def test_handle_vibe_request_error_with_recovery(
+    mock_console: Mock,
+    mock_recovery_prompt: Mock,
+    mock_update_memory: Mock,
+    mock_execute_cmd: Mock,
+    mock_get_adapter: Mock,  # Fixture providing the adapter mock
 ) -> None:
-    """Test handle_vibe_request with command error recovery integration."""
-    # Set up mocks for the adapter
-    mock_model = Mock()
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = mock_model
-    mock_get_adapter.return_value = mock_adapter
+    """Test error during command execution triggers recovery and memory updates."""
+    # --- Test Setup --- #
+    mock_adapter_instance = mock_get_adapter.return_value  # Get the instance
+    mock_model_instance = Mock()  # Mock the model
+    mock_adapter_instance.get_model.return_value = mock_model_instance
 
-    # Simulate model response for initial planning (COMMAND action)
-    expected_plan = {
+    # 1. LLM Planning Response (COMMAND action with YAML)
+    plan_verb = "apply"
+    plan_args = ["-f", "-"]
+    plan_yaml = "apiVersion: v1\nkind: ConfigMap\n...invalid..."
+    plan_explanation = "Applying invalid ConfigMap."
+    plan_response_dict = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["-f", "-"],  # Args only
-        "explanation": "Creating deployment.",
+        "commands": [plan_verb, *plan_args],  # LLM includes verb now
+        "yaml_manifest": plan_yaml,
+        "explanation": plan_explanation,
     }
+    plan_response_json = json.dumps(plan_response_dict)
 
-    # Set up the model to return the plan first, then recovery suggestions
-    mock_adapter.execute.side_effect = [
-        json.dumps(expected_plan),  # First call (planning)
-        "Recovery suggestion for apply error",  # Second call (recovery)
+    # 2. LLM Recovery Response (simple string)
+    expected_recovery_suggestion = "Check the YAML syntax near line 3."
+
+    # Configure adapter execute side effect (Plan -> Recovery)
+    mock_adapter_instance.execute.side_effect = [
+        plan_response_json,
+        expected_recovery_suggestion,
     ]
 
-    # Define the error that _execute_command should return
-    simulated_kubectl_error_msg = "Error: unable to parse YAML"
-    simulated_error_result = Error(error=simulated_kubectl_error_msg)
+    # 3. _execute_command Mock (returns Error)
+    simulated_kubectl_error_msg = (
+        "Error parsing YAML: mapping values are not allowed here"
+    )
+    simulated_error_obj = Error(
+        error=simulated_kubectl_error_msg,
+        exception=RuntimeError("kubectl apply failed"),
+    )
+    mock_execute_cmd.return_value = simulated_error_obj
 
-    # Create output flags (ensure show_vibe=True for recovery)
+    # 4. Recovery Prompt Mock
+    mock_recovery_prompt.return_value = "Generated recovery prompt asking for help."
+
+    # 5. Output Flags (show_vibe=True enables recovery)
     output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=True,  # <<< Important for recovery flow
+        show_raw=False,
+        show_vibe=True,
         warn_no_output=False,
-        model_name="test-model",
-        show_kubectl=True,
+        model_name="test-recovery-model",
+        show_kubectl=True,  # Show the planned command
     )
 
-    # Patch _execute_command directly and other necessary functions
-    with (
-        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
-        patch("vibectl.command_handler.update_memory") as mock_update_memory,
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: error test",
-        ),
-        patch(
-            "vibectl.command_handler.recovery_prompt",
-            return_value="Recovery prompt template",
-        ) as mock_recovery_prompt,
-        patch(
-            "vibectl.command_handler.handle_command_output"
-        ) as mock_handle_cmd_output,  # <<< Re-patch handle_command_output
-    ):  # <<< Re-patch handle_command_output
-        # Configure _execute_command to return the simulated error
-        mock_execute_cmd.return_value = simulated_error_result
-
-        # Configure the mock handle_command_output to return the error object
-        # with suggestions added
-        # (This simulates what the real function *should* do in this scenario)
-        modified_error = Error(
-            error=simulated_error_result.error,
-            recovery_suggestions="Recovery suggestion for apply error",
-        )
-        mock_handle_cmd_output.return_value = modified_error
-
-        # Call handle_vibe_request with yes=True to skip confirmation
-        result = handle_vibe_request(
-            request="create nginx deployment",
-            command="apply",  # Verb matching the desired command
-            plan_prompt="Test prompt",
-            summary_prompt_func=lambda: "Test summary",
-            output_flags=output_flags,
-            yes=True,  # Skip confirmation
-        )
+    # --- Execute --- #
+    # Call handle_vibe_request - this will internally call the mocked functions
+    result = handle_vibe_request(
+        request="apply invalid yaml",
+        command="vibe",  # User initially typed vibe
+        plan_prompt="Plan to apply invalid yaml",
+        summary_prompt_func=lambda: "Summarize {output}",  # Not used in error path
+        output_flags=output_flags,
+        yes=True,  # Bypass confirmation for apply
+    )
 
     # --- Assertions --- #
 
-    # 1. Verify _execute_command was called correctly
-    mock_execute_cmd.assert_called_once_with("apply", ["-f", "-"], None)
-
-    # 2. Verify handle_command_output was called with the Error from _execute_command
-    mock_handle_cmd_output.assert_called_once()
-    call_args, call_kwargs = mock_handle_cmd_output.call_args
+    # Verify LLM planner call
+    assert mock_adapter_instance.execute.call_count == 2
+    planner_call = mock_adapter_instance.execute.call_args_list[0]
+    # Access positional args [0] and keyword args [1]
     assert (
-        call_args[0] is simulated_error_result
-    )  # Check Error object passed (position 0)
-    assert call_args[1] is output_flags  # Check output_flags passed (position 1)
-    assert call_kwargs.get("command") == "apply"  # Check command kwarg
+        planner_call[1]["prompt_text"] == "Plan to apply invalid yaml"
+    )  # Check prompt kwarg
+    assert planner_call[1]["response_model"] == LLMCommandResponse  # Check schema kwarg
 
-    # 3. Verify the model adapter was called only ONCE (for planning)
-    #    Because we mocked handle_command_output, the recovery call within
-    #    it is bypassed.
-    assert mock_adapter.execute.call_count == 1
+    # Verify _execute_command call
+    mock_execute_cmd.assert_called_once_with(plan_verb, plan_args, plan_yaml)
 
-    # 4. Verify memory update did NOT happen directly here (would happen
-    # inside handle_command_output)
-    mock_update_memory.assert_not_called()
+    # Verify Memory Update - Called TWICE
+    assert mock_update_memory.call_count == 2
+    # Call 1: Immediately after _execute_command error
+    first_mem_call_kwargs = mock_update_memory.call_args_list[0].kwargs
+    assert (
+        first_mem_call_kwargs["command"] == f"kubectl {plan_verb} {' '.join(plan_args)}"
+    )
+    assert first_mem_call_kwargs["command_output"] == simulated_kubectl_error_msg
+    assert first_mem_call_kwargs["vibe_output"] == plan_explanation
+    # Call 2: After successful recovery suggestion generation
+    second_mem_call_kwargs = mock_update_memory.call_args_list[1].kwargs
+    assert second_mem_call_kwargs["command"] == plan_verb  # Uses the original verb
+    assert second_mem_call_kwargs["command_output"] == simulated_kubectl_error_msg
+    assert second_mem_call_kwargs["vibe_output"] == expected_recovery_suggestion
 
-    # 5. Verify recovery_prompt was NOT called directly here (would happen
-    # inside handle_command_output)
-    mock_recovery_prompt.assert_not_called()
+    # Verify Recovery Prompt Generation
+    mock_recovery_prompt.assert_called_once()
+    rec_prompt_kwargs = mock_recovery_prompt.call_args.kwargs
+    assert rec_prompt_kwargs["command"] == plan_verb
+    assert rec_prompt_kwargs["error"] == simulated_kubectl_error_msg
 
-    # 6. Verify console output did NOT happen directly here (would happen
-    # inside handle_command_output)
-    mock_console.print_vibe.assert_not_called()
+    # Verify LLM recovery call
+    recovery_call = mock_adapter_instance.execute.call_args_list[1]
+    # Access positional args [0]
+    assert (
+        recovery_call[0][1] == "Generated recovery prompt asking for help."
+    )  # Check prompt text (positional arg 1)
+    assert (
+        "response_model" not in recovery_call[1]
+    )  # No schema kwarg for recovery string
 
-    # 7. Verify the final result is the one returned by our mock handle_command_output
-    assert result is modified_error
+    # Verify Console Output
+    mock_console.print_processing.assert_any_call(
+        f"Running: kubectl {plan_verb} {' '.join(plan_args)}"
+    )
+    mock_console.print_error.assert_any_call(simulated_kubectl_error_msg)
+    mock_console.print_vibe.assert_called_once_with(expected_recovery_suggestion)
+
+    # Verify Final Result
+    assert isinstance(result, Error)
+    assert result.error == simulated_kubectl_error_msg
+    assert result.recovery_suggestions == expected_recovery_suggestion
+    assert (
+        result.exception is simulated_error_obj.exception
+    )  # Ensure original exception is preserved
 
 
 # Use a simpler approach to directly test the YAML processing
