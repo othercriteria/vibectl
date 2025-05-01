@@ -185,6 +185,7 @@ fi
 echo "📝 Configuring vibectl..."
 vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}
 vibectl config set model "$VIBECTL_MODEL"
+vibectl config set show_memory true
 
 # Configure output options based on verbose mode
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
@@ -204,7 +205,14 @@ cat <<EOF | vibectl instructions set
 $CHALLENGE_TEXT
 
 Time limit from cluster creation: ${RUNTIME_MINUTES} minutes.
-You will continue running until challenge completion or time limit.
+
+Success is checked programmatically so make sure you *exactly* conform to the goal.
+
+Checks for the success condition run at a cadence of <1 minute.
+
+You will be repeatedly able to act on the cluster, and execution ends only on success or timeout.
+
+So if you are running, you have not succeeded (yet!).
 EOF
 vibectl instructions show
 vibectl memory set "You are working on a fresh kind k8s cluster."
@@ -238,53 +246,39 @@ cat > "$SANDBOX_STATUS_FILE" <<EOF
 }
 EOF
 
-# Pause between vibectl runs
-PAUSE_SECONDS=5
+# Check if the challenge has been completed *before* starting the loop
+COMPLETION_FILE="$STATUS_DIR/challenge_complete.json"
+if [ -f "$COMPLETION_FILE" ]; then
+  MESSAGE=$(jq -r '.message' "$COMPLETION_FILE" 2>/dev/null || echo "Challenge complete!")
+  echo "🏆 $MESSAGE"
+  echo "✅ CTF Challenge completed successfully. Exiting gracefully."
+  exit 0
+fi
 
-while true; do
-  # Check if the challenge has been completed
-  COMPLETION_FILE="$STATUS_DIR/challenge_complete.json"
-  if [ -f "$COMPLETION_FILE" ]; then
-    MESSAGE=$(jq -r '.message' "$COMPLETION_FILE" 2>/dev/null || echo "Challenge complete!")
-    echo "🏆 $MESSAGE"
-    echo "✅ CTF Challenge completed successfully. Exiting gracefully."
-    exit 0
-  fi
+# Check cluster health *before* starting the potentially long-running process
+check_k8s_health
 
-  # Check cluster health before running vibectl
-  check_k8s_health
+# Run vibectl in autonomous mode
+echo "🔄 Starting vibectl autonomous mode with 5s interval..."
 
-  # Run vibectl with auto-confirmation
-  echo "🔄 Running vibectl vibe..."
+# Show vibectl memory in verbose mode (will be shown by auto if configured)
+if [ "$VIBECTL_VERBOSE" = "true" ]; then
+  echo "Verbose mode is enabled. vibectl auto will show memory if configured."
+  # vibectl memory show # Not needed here, auto handles it
+fi
 
-  # Show vibectl memory in verbose mode
-  if [ "$VIBECTL_VERBOSE" = "true" ]; then
-    vibectl memory show
-  fi
-
-  # Capture full output and error for debugging
-  VIBECTL_OUTPUT=$(mktemp)
-  if ! vibectl vibe --yes > "$VIBECTL_OUTPUT" 2>&1; then
+# Capture full output and error for debugging (less critical for auto, but useful if it fails)
+# Run vibectl auto indefinitely with a 5-second interval
+if ! vibectl auto --interval 5; then
     ERROR_CODE=$?
-    echo "⚠️ vibectl exited with code $ERROR_CODE - retrying in $PAUSE_SECONDS seconds"
-    echo "──────────────────── vibectl output (for debugging) ────────────────────"
-    cat "$VIBECTL_OUTPUT"
-    echo "──────────────────────────── end of output ─────────────────────────────"
+    echo "⚠️ vibectl auto exited unexpectedly with code $ERROR_CODE"
     echo "If the error above is unclear, try running with VIBECTL_VERBOSE=true or check if a Python traceback is available."
-  else
-    cat "$VIBECTL_OUTPUT"
-  fi
-  rm -f "$VIBECTL_OUTPUT"
+    exit $ERROR_CODE # Exit if auto fails
+fi
 
-  # Update status
-  cat > "$SANDBOX_STATUS_FILE" <<EOF
-{
-  "sandbox_started_at": "$(date -Iseconds)",
-  "status": "running",
-  "last_updated": "$(date -Iseconds)"
-}
-EOF
+# If vibectl auto exits cleanly (e.g., interrupted), we just finish.
+echo "✅ vibectl auto finished or was interrupted."
 
-  # Brief pause before next attempt
-  sleep $PAUSE_SECONDS
-done
+# The status update is no longer needed within a loop.
+# The completion check happens before starting auto, and the overseer monitors completion.
+# The loop structure is completely replaced by the single `vibectl auto` command above.

@@ -79,6 +79,7 @@ cleanup() {
   echo "🧹 Cleaning up containers and resources..."
 
   # Stop and remove containers via docker compose
+  # Ensure this runs even if compose up failed
   docker compose -f compose.yml down --volumes --remove-orphans 2>/dev/null || true
 
   # Try to delete the kind cluster if kind is available
@@ -98,14 +99,10 @@ cleanup() {
   echo "🔌 Cleaning up networks..."
   docker network rm kind k8s-sandbox_ctf-network 2>/dev/null || true
 
-  # Remove any docker volumes
-  echo "🗂️ Cleaning up volumes..."
-  docker volume rm k8s-sandbox_status-volume 2>/dev/null || true
-
   echo "✅ Cleanup completed"
 }
 
-# Clean up any previous runs
+# Clean up any previous runs first.
 cleanup
 
 # Detect Docker GID
@@ -138,5 +135,11 @@ if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode: enabled"
 fi
 
-# Run docker compose with explicit file specification
-docker compose -f compose.yml up --build
+# Run docker compose in foreground and abort when any container exits
+# Overseer should exit when challenge is complete or timed out
+echo "🏗️ Starting Docker Compose. Will abort when overseer exits..."
+docker compose -f compose.yml up --build --abort-on-container-exit
+
+echo "🏁 Docker Compose finished. Triggering cleanup via trap..."
+# The trap will handle the actual cleanup on script exit
+exit 0

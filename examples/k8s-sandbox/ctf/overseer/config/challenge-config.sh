@@ -52,9 +52,7 @@ if [[ "${CHALLENGE_DIFFICULTY}" == "easy" ]]; then
   "Your goal is to complete this task:
 
     1. Create a service that returns \"${EXPECTED_FLAG_1}\" text when accessed
-    on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.).
-
-  Success is checked programmatically so make sure you *exactly* conform to the goal." \
+    on port ${NODE_PORT_1}. You can use any approach you think is best (pod, deployment, etc.)." \
   '.challenge_text = $text' "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 
 elif [[ "${CHALLENGE_DIFFICULTY}" == "medium" ]]; then
@@ -70,9 +68,7 @@ elif [[ "${CHALLENGE_DIFFICULTY}" == "medium" ]]; then
 
     2. Create a service that returns \"${EXPECTED_FLAG_2}\" text when accessed
     on port ${NODE_PORT_2}. Make sure this service is resilient and can handle load
-    (hint: multiple replicas).
-
-  Success is checked programmatically so make sure you *exactly* conform to the goal." \
+    (hint: multiple replicas)." \
   '.challenge_text = $text' "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 
 else
@@ -92,9 +88,7 @@ else
     (hint: multiple replicas).
 
     3. Create a service that returns \"${EXPECTED_FLAG_3}\" text when accessed
-    on port ${NODE_PORT_3}. For this service, use a ConfigMap to store the flag text.
-
-  Success is checked programmatically so make sure you *exactly* conform to the goal." \
+    on port ${NODE_PORT_3}. For this service, use a ConfigMap to store the flag text." \
   '.challenge_text = $text' "${CONFIG_JSON}" > "${CONFIG_JSON}.tmp" && mv "${CONFIG_JSON}.tmp" "${CONFIG_JSON}"
 fi
 

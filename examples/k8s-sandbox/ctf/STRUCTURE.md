@@ -4,47 +4,51 @@ This directory contains a Capture The Flag (CTF) style sandbox environment for t
 
 ## Key Files
 
-- `run.sh`: Main entry script that sets up the Docker environment and starts the sandbox
-  - Detects Docker GID
-  - Checks for Anthropic API key and prompts if not set
-  - Handles cleanup on exit
-  - Accepts `--difficulty` parameter to set challenge level
-- `sandbox-entrypoint.sh`: Script executed inside the sandbox container to initialize Kind and challenge environment
-  - Validates API key environment variables
-  - Configures vibectl with the API key and model settings
-  - Sets up memory for the challenges based on selected difficulty level
-- `compose.yml`: Docker Compose configuration defining the sandbox and poller services
-  - Passes API key and challenge difficulty from host environment to containers
-- `Dockerfile`: Container definition for the sandbox environment
-- `README.md`: User documentation for the sandbox
-- `STRUCTURE.md`: This file, documenting component structure
+- `run.sh`: Main entry script that sets up the Docker environment and starts the sandbox.
+  - Detects Docker GID.
+  - Checks for Anthropic API key and prompts if not set.
+  - Calls `docker compose up --build --abort-on-container-exit` to run the services.
+  - Relies on the `overseer` container exiting to trigger shutdown via Docker Compose.
+  - Sets a `trap` to ensure `docker compose down` runs for thorough cleanup on script exit (normal or interrupted).
+- `sandbox-entrypoint.sh`: Script executed inside the `sandbox` container to initialize Kind and run the `vibectl auto` process.
+  - Validates API key environment variables.
+  - Configures vibectl with the API key and model settings.
+  - Sets up initial memory/instructions for vibectl.
+  - Runs `vibectl auto` which continues until the container is stopped.
+- `compose.yml`: Docker Compose configuration defining the `overseer`, `sandbox`, and `poller` services and their dependencies.
+  - Defines shared named volumes (`status-volume`, `llm-keys-volume`).
+  - Configures health checks and dependencies to manage startup order.
+  - Passes API key and challenge difficulty from host environment to containers.
+- `Dockerfile`: Container definition for the `sandbox` service.
+- `README.md`: User documentation for the sandbox.
+- `STRUCTURE.md`: This file, documenting component structure.
 
 ## Directories
 
-- `poller/`: Contains the service that monitors challenge completion
-  - `poller.sh`: Script that polls endpoints to detect successful challenges
-  - `Dockerfile`: Container definition for the poller
-  - `README.md`: Documentation for the poller component
-- `overseer/`: Contains the overseer component that coordinates the challenges
-  - Monitors and reports on challenge progress
-  - Provides feedback to the user
+- `poller/`: Contains the service that monitors challenge completion by checking service endpoints.
+  - `poller.sh`: Script that polls endpoints and writes status to the shared `status-volume`.
+  - `Dockerfile`: Container definition for the poller.
+  - `README.md`: Documentation for the poller component.
+- `overseer/`: Contains the service that coordinates the challenge.
+  - `overseer.sh`: Script that generates challenge config, monitors the poller status and time limit via the shared `status-volume`, writes completion status, and exits when the challenge ends.
+  - `config/`: Contains configuration generation logic.
+  - `Dockerfile`: Container definition for the overseer.
+  - `README.md`: Documentation for the overseer component.
 
 ## Architecture
 
-The sandbox operates with two main components in an isolated Docker network:
+The sandbox operates with three main components in an isolated Docker network:
 
-1. **Sandbox Container**: Creates a Kind Kubernetes cluster and runs vibectl to solve challenges
-   - Uses internal nodePort services on fixed ports (30001-30003)
-   - Executes vibectl in autonomous mode to solve challenges
-   - Mounts Docker socket to run Kind inside the container
-   - Uses a health check to verify the cluster is ready
+1.  **Overseer Container**: Initializes the challenge configuration (difficulty, ports, flags, runtime) and writes it to the shared `status-volume`. Monitors the `poller` status and the overall time limit. Writes a completion message to the `status-volume` and exits when the challenge ends (success or timeout).
+2.  **Sandbox Container**: Waits for the `overseer` to be healthy. Creates a Kind Kubernetes cluster. Runs `vibectl auto` to solve the challenge based on initial instructions. Continues running until stopped by Docker Compose.
+3.  **Poller Container**: Waits for `overseer` and `sandbox` to be healthy. Reads challenge config from `status-volume`. Monitors success by checking service endpoints within the internal network. Writes verification progress to `status-volume`.
 
-2. **Poller Container**: Monitors success by checking endpoints within the internal network
-   - Connects directly to the sandbox container (no host port mapping)
-   - Polls each service port for the expected flag text
-   - Reports completion status
-   - Waits for sandbox container health check before starting
-   - Exits when all challenges at the selected difficulty level are completed
+**Shutdown Sequence:**
+- `overseer.sh` detects completion/timeout, writes final status, and exits (code 0).
+- Docker Compose, running with `--abort-on-container-exit`, detects the `overseer` container exit.
+- Docker Compose stops all other running containers (`sandbox`, `poller`).
+- The `run.sh` script, which was waiting for `docker compose up` to finish, now proceeds.
+- The `trap` in `run.sh` executes the `cleanup` function, running `docker compose down --volumes --remove-orphans` to remove containers, networks, and volumes, and deleting the Kind cluster.
 
 ## Challenge Difficulty Levels
 
@@ -73,7 +77,7 @@ This sandbox demonstrates vibectl's autonomous capabilities by creating a contro
 
 ## Configuration
 
-The sandbox can be configured with the following environment variables:
+The sandbox can be configured with the following environment variables in `run.sh`:
 
 - `VIBECTL_ANTHROPIC_API_KEY`: Required API key for Claude (passed from host to container)
 - `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet)
@@ -86,7 +90,5 @@ API keys are handled securely through these mechanisms:
 
 1. User provides API key via environment variable or interactive prompt in `run.sh`
 2. Key is passed to containers through Docker Compose environment variables
-3. `sandbox-entrypoint.sh` validates key presence and configures vibectl with:
-   - Direct environment variable export (VIBECTL_ANTHROPIC_API_KEY and ANTHROPIC_API_KEY)
-   - Configuration via `vibectl config set model_keys.anthropic`
-4. No API keys are stored in container images or filesystem
+3. `sandbox-entrypoint.sh` uses the key via the `llm` library's credential handling (writing to a keys file in the `llm-keys-volume`).
+4. No API keys are stored in container images.
