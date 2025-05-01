@@ -710,3 +710,310 @@ def test_handle_command_output_llm_error(
         mock_console.print_error.assert_any_call(
             "Error getting Vibe summary: LLM API Error"
         )
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_error_input_no_vibe(
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with Error input and show_vibe=False."""
+    test_exception = RuntimeError("Original Error")
+    error_input = Error(error="Command failed", exception=test_exception)
+    output_flags = OutputFlags(
+        show_raw=False,  # Doesn't matter for this test
+        show_vibe=False,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+
+    result = handle_command_output(
+        output=error_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+    )
+
+    # Verify the original error object is returned directly
+    assert result is error_input
+    # Verify no LLM calls were made
+    mock_get_adapter.assert_not_called()
+    # Verify no memory update
+    mock_update_memory.assert_not_called()
+    # Verify error was printed
+    mock_console.print_error.assert_called_with(error_input.error)
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_error_input_with_vibe_recovery(
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with Error input, show_vibe=True, and
+    successful recovery."""
+    test_exception = RuntimeError("Original Error")
+    error_input = Error(error="Command failed badly", exception=test_exception)
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+
+    # Mock the LLM call for recovery
+    mock_adapter = Mock()
+    mock_model = Mock()
+    mock_get_adapter.return_value = mock_adapter
+    mock_adapter.get_model.return_value = mock_model
+    mock_adapter.execute.return_value = "Try restarting the pod."
+
+    result = handle_command_output(
+        output=error_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,  # Not used for recovery path
+        command="test-command",
+    )
+
+    # Verify the result is the original Error object, but modified
+    assert isinstance(result, Error)
+    assert result is error_input
+    assert result.recovery_suggestions == "Try restarting the pod."
+    # Verify LLM was called (for recovery)
+    mock_adapter.execute.assert_called_once()
+    # Verify memory was updated with error and suggestion
+    mock_update_memory.assert_called_once_with(
+        command="test-command",
+        command_output="Command failed badly",
+        vibe_output="Try restarting the pod.",
+        model_name=DEFAULT_MODEL,
+    )
+    # Verify original error and suggestion were printed
+    mock_console.print_error.assert_called_with(error_input.error)
+    mock_console.print_vibe.assert_called_with("Try restarting the pod.")
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_error_input_with_vibe_recoverable_api_error(
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with Error input, show_vibe=True, and
+    RecoverableApiError during recovery."""
+    from vibectl.model_adapter import RecoverableApiError
+
+    test_exception = RuntimeError("Original Error")
+    error_input = Error(error="Command failed badly", exception=test_exception)
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+
+    # Mock the LLM call for recovery to raise RecoverableApiError
+    mock_adapter = Mock()
+    mock_model = Mock()
+    mock_get_adapter.return_value = mock_adapter
+    mock_adapter.get_model.return_value = mock_model
+    api_error = RecoverableApiError("API Overloaded")
+    mock_adapter.execute.side_effect = api_error
+
+    result = handle_command_output(
+        output=error_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+        command="test-command",
+    )
+
+    # Verify the result is a *new* Error object representing the API error
+    assert isinstance(result, Error)
+    assert result is not error_input
+    assert result.error == "API Error: API Overloaded"
+    assert result.exception == api_error
+    assert result.halt_auto_loop is False  # Key check for recoverable errors
+    # Verify LLM was called
+    mock_adapter.execute.assert_called_once()
+    # Verify memory was NOT updated because Vibe failed
+    mock_update_memory.assert_not_called()
+    # Verify original error and API error were printed
+    mock_console.print_error.assert_any_call(error_input.error)
+    mock_console.print_error.assert_any_call("API Error: API Overloaded")
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+def test_handle_command_output_error_input_with_vibe_generic_error(
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with Error input, show_vibe=True, and generic
+    Exception during recovery."""
+    test_exception = RuntimeError("Original Error")
+    error_input = Error(error="Command failed badly", exception=test_exception)
+    generic_exception = TimeoutError("LLM timed out")
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+
+    # Mock the LLM call for recovery to raise generic Exception
+    mock_adapter = Mock()
+    mock_model = Mock()
+    mock_get_adapter.return_value = mock_adapter
+    mock_adapter.get_model.return_value = mock_model
+    mock_adapter.execute.side_effect = generic_exception
+
+    result = handle_command_output(
+        output=error_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+        command="test-command",
+    )
+
+    # Verify the result is a new Error combining original and Vibe error
+    assert isinstance(result, Error)
+    assert result is not error_input
+    expected_error_msg = (
+        f"Original Error: {error_input.error}\n"
+        f"Vibe Failure: Error getting Vibe summary: {generic_exception}"
+    )
+    assert result.error == expected_error_msg
+    # Exception should be the original one if present, otherwise the vibe one
+    assert result.exception == test_exception
+    assert result.halt_auto_loop is True  # Should be halting
+    # Verify LLM was called
+    mock_adapter.execute.assert_called_once()
+    # Verify memory was NOT updated
+    mock_update_memory.assert_not_called()
+    # Verify original error and Vibe failure error were printed
+    mock_console.print_error.assert_any_call(error_input.error)
+    mock_console.print_error.assert_any_call(
+        f"Error getting Vibe summary: {generic_exception}"
+    )
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")  # Mock the summary function directly
+def test_handle_command_output_success_input_with_vibe_recoverable_api_error(
+    mock_get_llm_summary: MagicMock,
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with success input, show_vibe=True, and
+    RecoverableApiError during summary."""
+    from vibectl.model_adapter import RecoverableApiError
+
+    success_input = Success(data="Good output")
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+    mock_output_processor.process_auto.return_value = Truncation(
+        original="Good output", truncated="Processed good output"
+    )
+
+    # Mock the LLM summary call to raise RecoverableApiError
+    api_error = RecoverableApiError("API Key Invalid")
+    mock_get_llm_summary.side_effect = api_error
+
+    result = handle_command_output(
+        output=success_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+        command="test-command",
+    )
+
+    # Verify the result is an Error object representing the API error
+    assert isinstance(result, Error)
+    assert result.error == "API Error: API Key Invalid"
+    assert result.exception == api_error
+    assert result.halt_auto_loop is False
+    # Verify LLM summary func was called
+    mock_get_llm_summary.assert_called_once()
+    # Verify memory was NOT updated
+    mock_update_memory.assert_not_called()
+    # Verify API error was printed
+    mock_console.print_error.assert_called_with("API Error: API Key Invalid")
+
+
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler._get_llm_summary")  # Mock the summary function directly
+def test_handle_command_output_success_input_with_vibe_generic_error(
+    mock_get_llm_summary: MagicMock,
+    mock_output_processor: MagicMock,
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,
+    default_summary_prompt: Callable[[], str],
+) -> None:
+    """Test handle_command_output with success input, show_vibe=True, and generic
+    Exception during summary."""
+    success_input = Success(data="Good output")
+    generic_exception = ValueError("Something went wrong during summary")
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+    )
+    mock_output_processor.process_auto.return_value = Truncation(
+        original="Good output", truncated="Processed good output"
+    )
+
+    # Mock the LLM summary call to raise generic Exception
+    mock_get_llm_summary.side_effect = generic_exception
+
+    result = handle_command_output(
+        output=success_input,
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+        command="test-command",
+    )
+
+    # Verify the result is an Error object representing the Vibe summary failure
+    assert isinstance(result, Error)
+    expected_error_msg = f"Error getting Vibe summary: {generic_exception}"
+    assert result.error == expected_error_msg
+    assert result.exception == generic_exception
+    assert result.halt_auto_loop is True  # Should be halting
+    # Verify LLM summary func was called
+    mock_get_llm_summary.assert_called_once()
+    # Verify memory was NOT updated
+    mock_update_memory.assert_not_called()
+    # Verify Vibe failure error was printed
+    mock_console.print_error.assert_called_with(expected_error_msg)

@@ -212,26 +212,35 @@ def test_handle_vibe_request_error_response(
     mock_memory.add_interaction.assert_not_called()
 
 
+@patch("vibectl.command_handler.create_api_error")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_vibe_request_invalid_format(
+    mock_update_memory: MagicMock,
+    mock_create_api_error: MagicMock,
     mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
     mock_output_flags_for_vibe_request: OutputFlags,
-    mock_memory: MagicMock,
 ) -> None:
     """Test vibe request with non-JSON format from planner."""
     # Set up invalid response
     non_json_response = "kubectl get pods # This is not JSON"
     mock_llm.execute.return_value = non_json_response
 
-    # Expect JSONDecodeError path
-    with (
-        patch("vibectl.command_handler.update_memory") as mock_update_memory,
-        patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: invalid format test",
-        ),
+    # Configure the mock create_api_error to return a specific Error object
+    # Need a dummy exception instance for the mock
+    dummy_exception = ValidationError.from_exception_data("DummyValidationError", [])
+    expected_error_return = Error(
+        error="Failed API error during parsing",
+        exception=dummy_exception,
+        halt_auto_loop=False,
+    )
+    mock_create_api_error.return_value = expected_error_return
+
+    # Expect JSONDecodeError path - removed inner with block for patches
+    with patch(
+        "vibectl.memory.include_memory_in_prompt",
+        return_value="Plan this: invalid format test",
     ):
         result = handle_vibe_request(
             request="show me the pods invalid format",
@@ -242,10 +251,8 @@ def test_handle_vibe_request_invalid_format(
             memory_context="invalid-json-context",
         )
 
-        # --- Assertions within the patch scope --- #
         # Verify update_memory and create_api_error were called due to parsing failure
         mock_update_memory.assert_called_once()
-        # Check kwargs for update_memory call
         call_kwargs = mock_update_memory.call_args.kwargs
         assert call_kwargs.get("command") == "system"
         assert "Failed to parse LLM response as expected JSON" in call_kwargs.get(
@@ -259,14 +266,11 @@ def test_handle_vibe_request_invalid_format(
             == mock_output_flags_for_vibe_request.model_name
         )
 
-        # Verify create_api_error was called
+        # Verify create_api_error was called (now happens in _get_llm_plan)
         mock_create_api_error.assert_called_once()
 
-        # Verify the function returned the result of create_api_error
-        assert result == mock_create_api_error.return_value
-
-    # Verify kubectl was NOT called
-    mock_run_kubectl.assert_not_called()
+        # Verify the function returned the specific Error object we configured
+        assert result is expected_error_return
 
 
 def test_handle_vibe_request_no_output(
@@ -337,65 +341,133 @@ def test_handle_vibe_request_no_output(
     prevent_exit.assert_not_called()
 
 
+@patch("vibectl.command_handler.create_api_error")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_vibe_request_llm_output_parsing(
+    mock_update_memory: MagicMock,
+    mock_create_api_error: MagicMock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
     mock_output_flags_for_vibe_request: OutputFlags,
 ) -> None:
     """Test vibe request handles different JSON parsing/validation errors."""
-    # TODO: fix broken (commented out) test cases
+    from json import JSONDecodeError
+
+    # Note: We expect create_api_error to return a basic Error for assertion comparison
+    mock_create_api_error.side_effect = lambda msg, exc: Error(
+        error=msg, exception=exc, halt_auto_loop=False
+    )
+
     test_cases = [
-        # Errors caught by inner except (JSONDecodeError, ValidationError)
-        ("Missing action_type", '{"commands": ["pods"]}', ValidationError, True),
-        # ("COMMAND without args", '{"action_type": "COMMAND"}', ValidationError, True),
-        # ("ERROR missing error", '{"action_type": "ERROR"}', ValidationError, True),
-        # ("WAIT missing duration", '{"action_type": "WAIT"}', ValidationError, True),
-        # ("Malformed JSON", '{"action_type: "COMMAND"}', json.JSONDecodeError, True),
-        # Error caught by inner except ValueError
+        # Desc
+        # LLM Response
+        # Expected Result Type
+        # Expected Error Substring
+        # Halt Loop
+        # API Error Called
         (
-            "Invalid action_type",
-            '{"action_type": "INVALID", "commands": ["pods"]}',
-            ValueError,
+            "Malformed JSON",
+            '{"action_type: "COMMAND"}',
+            Error,
+            "Failed to parse LLM response",
+            False,
             True,
+        ),
+        (
+            "Missing action_type",
+            '{"commands": ["pods"]}',
+            Error,
+            "Failed to parse LLM response",
+            False,
+            True,
+        ),
+        (
+            "Invalid action_type enum",
+            '{"action_type": "INVALID"}',
+            Error,
+            "Failed to parse LLM response",
+            False,
+            True,
+        ),
+        (
+            "COMMAND missing args",
+            '{"action_type": "COMMAND"}',
+            Error,
+            "LLM sent COMMAND action with no args.",
+            True,
+            False,
+        ),
+        (
+            "ERROR missing error",
+            '{"action_type": "ERROR"}',
+            Error,
+            "LLM sent ERROR action without message.",
+            True,
+            False,
+        ),
+        (
+            "WAIT missing duration",
+            '{"action_type": "WAIT"}',
+            Error,
+            "LLM sent WAIT action without duration.",
+            True,
+            False,
         ),
     ]
 
-    for desc, invalid_json, expected_exception, expect_inner_handler in test_cases:
-        print(f"Running test case: {desc}")  # Debugging print
-        mock_llm.execute.return_value = invalid_json
-
-        # Patch all potentially relevant functions
-        with (
-            patch("vibectl.command_handler.update_memory") as mock_update_memory,
-            patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
-        ):
-            result = handle_vibe_request(
-                request=f"test {desc}",
-                command="get",
-                plan_prompt="Plan this",
-                summary_prompt_func=get_test_summary_prompt,
-                output_flags=mock_output_flags_for_vibe_request,
-                memory_context=f"ctx-{desc.replace(' ', '-')}",
-            )
-
-            if expect_inner_handler:
-                # Assertions for inner except blocks (using decorated mocks)
-                assert mock_update_memory.call_count == 1
-                mock_create_api_error.assert_called_once()
-                call_args, call_kwargs = mock_create_api_error.call_args
-                # Check the exception passed to create_api_error
-                assert isinstance(call_args[1], expected_exception)
-                assert result == mock_create_api_error.return_value
-            mock_update_memory.assert_called_once()
-            mock_create_api_error.assert_called_once()
-            assert isinstance(mock_create_api_error.call_args[0][1], expected_exception)
-            assert result == mock_create_api_error.return_value
-
-        # Reset mocks for next iteration
-        mock_llm.reset_mock()
+    for (
+        desc,
+        llm_response,
+        expected_type,
+        expected_substring,
+        expect_halt,
+        expect_api_error_call,
+    ) in test_cases:
+        print(f"Running test case: {desc}")
+        mock_llm.execute.return_value = llm_response
         mock_update_memory.reset_mock()
         mock_create_api_error.reset_mock()
-        mock_run_kubectl.assert_not_called()  # Should not be called in any error case
+
+        result = handle_vibe_request(
+            request=f"test {desc}",
+            command="vibe",  # Use vibe command to allow LLM to specify verb
+            plan_prompt="Plan this",
+            summary_prompt_func=get_test_summary_prompt,
+            output_flags=mock_output_flags_for_vibe_request,
+            memory_context=f"ctx-{desc.replace(' ', '-')}",
+        )
+
+        # General Assertions
+        assert isinstance(result, expected_type)
+        if isinstance(result, Error):
+            assert expected_substring in result.error
+            assert result.halt_auto_loop == expect_halt
+
+        # Specific mock call assertions
+        if expect_api_error_call:
+            # Errors caught by _get_llm_plan (parsing/validation)
+            mock_create_api_error.assert_called_once()
+            # Check the exception type passed to create_api_error
+            call_args, _ = mock_create_api_error.call_args
+            assert isinstance(call_args[1], JSONDecodeError | ValidationError)
+            # Memory update should have happened inside _get_llm_plan
+            mock_update_memory.assert_called_once()
+            assert (
+                "System Error: Failed to parse LLM response"
+                in mock_update_memory.call_args.kwargs.get("vibe_output", "")
+            )
+        else:
+            # Internal errors caught inside handle_vibe_request
+            mock_create_api_error.assert_not_called()
+            # Memory update might happen depending on the specific internal error
+            if desc == "COMMAND missing args":
+                mock_update_memory.assert_called_once()
+                assert (
+                    "LLM Error: COMMAND action with no args."
+                    in mock_update_memory.call_args.kwargs.get("vibe_output", "")
+                )
+            else:
+                mock_update_memory.assert_not_called()
 
 
 def test_handle_vibe_request_command_error(

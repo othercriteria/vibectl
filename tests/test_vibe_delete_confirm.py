@@ -3,12 +3,12 @@
 import json
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
 from vibectl.command_handler import ActionType, OutputFlags, handle_vibe_request
-from vibectl.types import Result, Success  # Import Result
+from vibectl.types import Error, Result, Success  # Import Result and Error
 
 
 @pytest.fixture
@@ -352,3 +352,149 @@ def test_vibe_non_delete_commands_skip_confirmation(
     mock_handle_output.assert_called_once()
     _, ho_call_kwargs = mock_handle_output.call_args
     assert ho_call_kwargs.get("command") == "get"
+
+
+@patch("vibectl.memory.get_memory")
+@patch("vibectl.command_handler.console_manager")
+def test_vibe_delete_confirmation_memory_option(
+    mock_console: MagicMock,
+    mock_get_memory: MagicMock,
+    mock_llm: MagicMock,
+    mock_run_kubectl: MagicMock,
+    prevent_exit: MagicMock,
+    standard_output_flags: OutputFlags,
+    mock_memory: tuple[MagicMock, MagicMock],
+    mock_handle_output: MagicMock,
+) -> None:
+    """Test the 'm' (memory) option during command confirmation."""
+    # Mock LLM response for delete command
+    plan_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pod", "mem-test"],
+        "explanation": "Deleting pod mem-test.",
+    }
+    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
+
+    # Mock get_memory return value
+    mock_get_memory.return_value = "Current memory content."
+
+    # Patch _execute_command and click.prompt
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
+        patch("click.prompt") as mock_click_prompt,
+    ):
+        # Simulate user entering 'm' then 'y'
+        mock_click_prompt.side_effect = ["m", "y"]
+        mock_execute_cmd.return_value = Success(data='pod "mem-test" deleted')
+
+        handle_vibe_request(
+            request="delete mem-test pod",
+            command="delete",
+            plan_prompt="Plan: {request}",
+            summary_prompt_func=lambda: "Summary: {output}",
+            output_flags=standard_output_flags,
+            yes=False,
+        )
+
+        # Verify prompt was called twice (once for 'm', once for 'y')
+        assert mock_click_prompt.call_count == 2
+        # Verify get_memory was called after 'm' was entered
+        mock_get_memory.assert_called_once()
+        # Verify memory content was printed (via console_manager.safe_print)
+        # Use assert_any_call as other prints might happen
+        mock_console.safe_print.assert_any_call(
+            mock_console.console, ANY
+        )  # ANY checks for Panel object
+        # Verify command was executed after 'y' was entered
+        mock_execute_cmd.assert_called_once_with("delete", ["pod", "mem-test"], None)
+
+    # Verify memory was updated (expect 2 calls)
+    mock_update_memory, _ = mock_memory
+    assert mock_update_memory.call_count == 2
+
+    # Verify handle_command_output was called
+    mock_handle_output.assert_called_once()
+
+
+@patch("vibectl.command_handler.set_memory")  # Mock set_memory
+@patch("vibectl.command_handler.get_memory")
+@patch("vibectl.command_handler.get_model_adapter")  # Mock adapter for fuzzy update
+@patch("vibectl.command_handler.console_manager")
+def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
+    mock_console: MagicMock,
+    mock_get_adapter: MagicMock,
+    mock_get_memory: MagicMock,
+    mock_set_memory: MagicMock,  # Added mock
+    mock_llm: MagicMock,  # Original planning mock
+    mock_run_kubectl: MagicMock,
+    prevent_exit: MagicMock,
+    standard_output_flags: OutputFlags,
+    mock_memory: tuple[MagicMock, MagicMock],
+    mock_handle_output: MagicMock,
+) -> None:
+    """Test 'no but' confirmation where the fuzzy memory update LLM call fails."""
+    # Mock LLM response for original delete command planning
+    plan_response = {
+        "action_type": ActionType.COMMAND.value,
+        "commands": ["pod", "fuzzy-fail"],
+        "explanation": "Deleting pod fuzzy-fail.",
+    }
+    planning_response_str = json.dumps(plan_response)
+
+    # Mock get_memory for the fuzzy update part
+    mock_get_memory.return_value = "Existing memory"
+
+    # Mock the *single* adapter instance provided by the mock_get_adapter fixture
+    # Make its execute method have a side effect: first success, then failure
+    mock_fuzzy_adapter = mock_get_adapter.return_value  # Get the mock adapter instance
+    fuzzy_update_exception = ConnectionError("Fuzzy LLM unavailable")
+    mock_fuzzy_adapter.execute.side_effect = [
+        planning_response_str,  # First call (planning) succeeds
+        fuzzy_update_exception,  # Second call (fuzzy update) raises error
+    ]
+
+    # Patch _execute_command and click.prompt
+    with (
+        patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
+        patch("click.prompt") as mock_click_prompt,
+    ):
+        # Simulate user entering 'b' (no but) and then the update text
+        mock_click_prompt.side_effect = ["b", "extra context"]
+
+        result = handle_vibe_request(
+            request="delete fuzzy-fail pod",
+            command="delete",
+            plan_prompt="Plan: {request}",
+            summary_prompt_func=lambda: "Summary: {output}",
+            output_flags=standard_output_flags,
+            yes=False,
+        )
+
+        # Verify prompt was called twice (once for 'b', once for update text)
+        assert mock_click_prompt.call_count == 2
+        # Verify get_memory was called for the update
+        mock_get_memory.assert_called_once()
+        # Verify the fuzzy update LLM call was attempted (execute called twice total)
+        assert mock_fuzzy_adapter.execute.call_count == 2
+        # Verify set_memory was NOT called because the update failed
+        mock_set_memory.assert_not_called()
+        # Verify original command was NOT executed
+        mock_execute_cmd.assert_not_called()
+
+    # Verify the result is an Error reflecting the fuzzy update failure
+    assert isinstance(result, Error)
+    assert result.error == f"Error updating memory: {fuzzy_update_exception}"
+    assert result.exception == fuzzy_update_exception
+
+    # Verify cancellation was printed initially
+    mock_console.print_cancelled.assert_called_once()
+    # Verify fuzzy update error was printed
+    mock_console.print_error.assert_called_with(
+        f"Error updating memory: {fuzzy_update_exception}"
+    )
+
+    # Verify memory was NOT updated via the main update_memory function
+    mock_update_main, _ = mock_memory
+    mock_update_main.assert_not_called()
+    # Verify handle_command_output was NOT called
+    mock_handle_output.assert_not_called()

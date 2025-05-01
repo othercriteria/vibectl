@@ -15,6 +15,8 @@ from rich.panel import Panel
 from vibectl.command_handler import (
     ActionType,
     OutputFlags,
+    _create_display_command,
+    _execute_command,
     _handle_command_confirmation,
     handle_command_output,
     handle_standard_command,
@@ -1220,3 +1222,68 @@ def test_handle_vibe_request_parsing_error_after_fallback(
     # Verify the warning log message
     assert "Failed to parse LLM response as JSON" in caplog.text
     assert raw_text_response[:500] in caplog.text  # Check truncated response is logged
+
+
+def test_create_display_command_edge_cases() -> None:
+    """Test _create_display_command with edge cases."""
+    # Test -f with non-'-' argument
+    args1 = ["apply", "-f", "my-file.yaml"]
+    assert _create_display_command(args1) == "apply -f my-file.yaml"
+
+    # Test -f without following argument (should not happen but test)
+    args2 = ["apply", "-f"]
+    assert _create_display_command(args2) == "apply -f"
+
+    # Test args with special characters
+    args3 = ["get", "pod", "--field-selector", "status.phase!=Running"]
+    assert (
+        _create_display_command(args3)
+        == "get pod --field-selector status.phase!=Running"
+    )
+
+    # Test complex args with quotes already present (should handle gracefully)
+    args4 = ["exec", "-it", "my-pod", "--", 'bash -c "echo hello > /tmp/test"']
+    assert (
+        _create_display_command(args4)
+        == 'exec -it my-pod -- "bash -c "echo hello > /tmp/test""'
+    )
+
+
+@patch("vibectl.command_handler.run_kubectl_with_yaml")
+@patch("vibectl.command_handler.run_kubectl_with_complex_args")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.logger")  # Mock logger
+def test_execute_command_exception_handling(
+    mock_logger: MagicMock,
+    mock_run_std: MagicMock,
+    mock_run_complex: MagicMock,
+    mock_run_yaml: MagicMock,
+) -> None:
+    """Test the except block in _execute_command."""
+    test_exception = OSError("Disk full")
+
+    # Test exception from standard run_kubectl
+    mock_run_std.side_effect = test_exception
+    result = _execute_command("get", ["pods"], None)
+    assert isinstance(result, Error)
+    assert "Error executing command: Disk full" in result.error
+    assert result.exception == test_exception
+    mock_logger.error.assert_called_once()
+    mock_logger.reset_mock()
+
+    # Test exception from run_kubectl_with_complex_args
+    mock_run_complex.side_effect = test_exception
+    result = _execute_command("exec", ["pod", "--", "cmd with space"], None)
+    assert isinstance(result, Error)
+    assert "Error executing command: Disk full" in result.error
+    assert result.exception == test_exception
+    mock_logger.error.assert_called_once()
+    mock_logger.reset_mock()
+
+    # Test exception from run_kubectl_with_yaml
+    mock_run_yaml.side_effect = test_exception
+    result = _execute_command("apply", ["-f", "-"], "apiVersion: v1")
+    assert isinstance(result, Error)
+    assert "Error executing command: Disk full" in result.error
+    assert result.exception == test_exception
+    mock_logger.error.assert_called_once()
