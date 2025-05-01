@@ -16,7 +16,6 @@ from vibectl.command_handler import (
     ActionType,
     OutputFlags,
     _handle_command_confirmation,
-    _parse_command_args,
     handle_command_output,
     handle_standard_command,
     handle_vibe_request,
@@ -96,34 +95,6 @@ def mock_memory_helpers() -> Generator[dict[str, MagicMock], None, None]:
             "prompt_func": mock_prompt_func,
             # Removed adapter mock
         }
-
-
-def test_parse_command_args_invalid_quotes() -> None:
-    """Test command argument parsing with invalid quotes."""
-    # Unbalanced quotes
-    args = _parse_command_args('get pod "test-pod')
-    assert len(args) == 3
-    assert args == ["get", "pod", '"test-pod']
-
-    # Mixed quotes
-    args = _parse_command_args("get pod \"test-pod'")
-    assert len(args) == 3
-    assert args == ["get", "pod", "\"test-pod'"]
-
-
-def test_parse_command_args_special_characters() -> None:
-    """Test command argument parsing with special characters."""
-    # Command with special characters
-    args = _parse_command_args(
-        'get pods -l app=nginx,env=prod --sort-by="{.status.phase}"'
-    )
-    assert len(args) == 5
-    assert args[-1] == "--sort-by={.status.phase}"
-
-    # Command with glob patterns
-    args = _parse_command_args("get pods app-*")
-    assert len(args) == 3
-    assert args[-1] == "app-*"
 
 
 def test_execute_command_with_complex_args_edge_cases() -> None:

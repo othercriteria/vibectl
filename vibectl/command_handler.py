@@ -8,7 +8,6 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import shlex
 import time
 from collections.abc import Callable
 from json import JSONDecodeError
@@ -1136,66 +1135,6 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         logger.error(f"Error updating memory: {e}")
         console_manager.print_error(f"Error updating memory: {e}")
         return Error(error=f"Error updating memory: {e}", exception=e)
-
-
-def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
-    """Process the command string to extract YAML content and command arguments.
-
-    Args:
-        kubectl_cmd: The command string from the model
-
-    Returns:
-        Tuple of (command arguments, YAML content or None)
-    """
-    # Check for heredoc syntax (create -f - << EOF)
-    if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
-        # Find the start of the heredoc
-        if " << EOF" in kubectl_cmd:
-            cmd_parts = kubectl_cmd.split(" << EOF", 1)
-        else:
-            cmd_parts = kubectl_cmd.split(" <<EOF", 1)
-
-        cmd_args = cmd_parts[0].strip()
-        yaml_content = None
-
-        # If there's content after the heredoc marker, treat it as YAML
-        if len(cmd_parts) > 1:
-            yaml_content = cmd_parts[1].strip()
-            # Remove trailing EOF if present
-            if yaml_content.endswith("EOF"):
-                yaml_content = yaml_content[:-3].strip()
-
-        return cmd_args, yaml_content
-
-    # Check for YAML content separated by --- (common in kubectl manifests)
-    cmd_parts = kubectl_cmd.split("---", 1)
-    cmd_args = cmd_parts[0].strip()
-    yaml_content = None
-    if len(cmd_parts) > 1:
-        yaml_content = "---" + cmd_parts[1]
-
-    return cmd_args, yaml_content
-
-
-def _parse_command_args(cmd_args: str) -> list[str]:
-    """Parse command arguments using shlex, handling errors."""
-    try:
-        # Use default shlex splitting (posix=True)
-        parsed_args: list[str] = shlex.split(cmd_args)
-        return parsed_args
-    except ValueError as e:
-        # Handle potential errors during parsing (e.g., unbalanced quotes)
-        logger.error(f"Error parsing command arguments '{cmd_args}': {e}")
-        # Return the original string split by spaces as a fallback
-        # This might not be perfect but provides some basic splitting
-        return cmd_args.split()
-    except Exception as e:
-        # Catch any other unexpected errors
-        logger.error(
-            f"Unexpected error parsing command arguments '{cmd_args}': {e}",
-            exc_info=True,
-        )
-        return []  # Return empty list on other errors
 
 
 def _create_display_command(args: list[str]) -> str:
