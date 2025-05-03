@@ -366,8 +366,14 @@ class LLMModelAdapter(ModelAdapter):
                 return response_text
 
             except Exception as e:
-                # Re-raise the original AttributeError directly
-                raise e
+                # BUG FIX: Remove the immediate re-raise that prevented error checking.
+                # raise e # <<< REMOVE THIS LINE
+
+                # If this is an AttributeError likely re-raised from schema fallback,
+                # let it propagate directly without wrapping.
+                if isinstance(e, AttributeError) and response_model is not None:
+                    logger.debug("Re-raising AttributeError from schema handling.")
+                    raise e
 
                 error_message = str(e)
                 error_message_lower = error_message.lower()

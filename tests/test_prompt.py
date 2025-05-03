@@ -382,20 +382,13 @@ def test_recovery_prompt() -> None:
     error = "Error: the server doesn't have a resource type 'pods'"
 
     # Test with default max_chars
-    result = recovery_prompt(command, error)
-
-    # Check basic structure
-    assert len(result) > 100  # Should be reasonably sized
+    result = recovery_prompt(command, error, None)
+    assert "Failed Command:" in result
     assert command in result
-    assert f"Error:\n```\n{error}\n```" in result
-    assert "Explain the error in simple terms" in result
-    assert "alternative approaches" in result
-    assert "Keep your response under 1500 characters." in result
-
-    # Test with custom token limit
-    max_chars = 500
-    result_custom = recovery_prompt(command, error, max_chars)
-    assert f"Keep your response under {max_chars} characters." in result_custom
+    assert "Error Output:" in result
+    # Check for new prompt content
+    assert "Analyze the error output" in result
+    assert "Suggestions:" in result
 
 
 def test_vibe_autonomous_prompt() -> None:
@@ -479,3 +472,40 @@ def test_plan_port_forward_prompt() -> None:
     assert (
         "port 8080 of pod nginx to my local 8080" in PLAN_PORT_FORWARD_PROMPT
     )  # Check example
+
+
+def test_recovery_prompt_with_original_explanation() -> None:
+    """Test recovery prompt generation with original explanation."""
+    # Test with a simple command and error
+    command = "get pods"
+    error = "Error: the server doesn't have a resource type 'pods'"
+
+    # Test with default max_chars
+    result = recovery_prompt(command, error, None)
+    assert "Failed Command:" in result
+    assert command in result
+    assert "Error Output:" in result
+    # Check for new prompt content
+    assert "Analyze the error output" in result
+    assert "Suggestions:" in result
+
+    # Check prompt when original explanation is available
+    mock_error = Mock()
+    mock_error.original_explanation = "Deploying nginx"
+    prompt_content = recovery_prompt(
+        failed_command="kubectl create deploy nginx --image=nginx:latest",
+        error_output="deploy fail",
+        original_explanation=mock_error.original_explanation,
+    )
+
+    # Check for key components instead of exact string match
+    assert "A command failed during execution." in prompt_content
+    assert "Failed Command:" in prompt_content
+    assert "kubectl create deploy nginx --image=nginx:latest" in prompt_content
+    assert "Error Output:" in prompt_content
+    assert "deploy fail" in prompt_content
+    assert "Original plan explanation:" in prompt_content
+    assert "Deploying nginx" in prompt_content
+    assert "Analyze the error output" in prompt_content
+    assert "actionable steps" in prompt_content
+    assert "Suggestions:" in prompt_content

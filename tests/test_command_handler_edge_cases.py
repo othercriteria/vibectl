@@ -1121,27 +1121,28 @@ def test_handle_command_output_recovery_llm_fails(
 
     # Assert
     assert isinstance(result, Error), f"Expected Error, got {type(result)}"
-    # Check for combined error message (matching actual format)
-    assert f"Original Error: {initial_error_msg}" in result.error
-    assert (
-        f"Vibe Failure: Error getting Vibe summary: {recovery_llm_error}"
-        in result.error
+    # Check that the original error message is preserved
+    assert result.error == initial_error_msg
+    # Check that recovery suggestions indicate failure
+    assert "Failed to get recovery suggestions" in (result.recovery_suggestions or "")
+    # Check that the original exception is preserved
+    assert result.exception == initial_error.exception
+    # Check that halt_auto_loop is still True because recovery failed
+    assert result.halt_auto_loop is True
+
+    # Verify console output
+    # Initial error print
+    mock_console.print_error.assert_any_call(initial_error_msg)
+    # Recovery LLM failure print
+    mock_console.print_vibe.assert_called_once_with(
+        f"Failed to get recovery suggestions: {recovery_llm_error}"
     )
-    # Exception should be the *original* error's exception or the recovery one
-    assert (
-        result.exception == initial_error.exception
-        or result.exception == recovery_llm_error
-    )
-    assert result.halt_auto_loop is True  # Should be halting
-    mock_console.print_error.assert_any_call(initial_error_msg)  # Prints original error
-    mock_console.print_error.assert_any_call(
-        f"Error getting Vibe summary: {recovery_llm_error}"
-    )  # Prints recovery failure
-    # Update memory should be called *only* for the initial error logging
-    # inside the recovery block before the LLM call fails.
-    # Refine: memory update happens *after* successful recovery LLM call.
-    # So it should NOT be called here.
-    mock_update_memory.assert_not_called()
+
+    # Verify memory update was attempted with failure info
+    mock_update_memory.assert_called_once()
+    mem_kwargs = mock_update_memory.call_args.kwargs
+    assert mem_kwargs["command_output"] == initial_error_msg
+    assert "Failed to get recovery suggestions" in mem_kwargs["vibe_output"]
 
 
 def test_handle_vibe_request_handles_api_errors() -> None:

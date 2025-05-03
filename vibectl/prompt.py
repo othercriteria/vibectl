@@ -1080,34 +1080,49 @@ your response.
 Just provide the direct memory content itself with no additional labels or headers."""
 
 
-# Update the recovery_prompt function to use the helper function
-def recovery_prompt(command: str, error: str, max_chars: int = 1500) -> str:
-    """Get the prompt template for generating recovery suggestions when a command fails.
+def recovery_prompt(
+    failed_command: str, error_output: str, original_explanation: str | None
+) -> str:
+    """Generate a prompt to ask the LLM for recovery suggestions.
 
     Args:
-        command: The kubectl command that failed
-        error: The error message
-        max_chars: Maximum characters for the response
+        failed_command: The kubectl command that failed
+        error_output: The error message
+        original_explanation: The original explanation of the command
 
     Returns:
         str: The recovery prompt template
     """
-    return f"""
-The following kubectl command failed with an error:
+    explanation_section = (
+        f"\n\nOriginal plan explanation:\n```\n{original_explanation}\n```"
+        if original_explanation
+        else ""
+    )
+    return f"""A command failed during execution.
+
+Failed Command:
 ```
-{command}
+{failed_command}
 ```
 
-Error:
+Error Output:
 ```
-{error}
+{error_output}
 ```
+{explanation_section}
 
-- Explain the error in simple terms and provide 2-3 alternative approaches to
-fix the issue.
-- Focus on common syntax issues or kubectl command structure problems
-- Keep your response under {max_chars} characters.
-"""
+Analyze the error output.
+
+Provide concise suggestions on how to fix the command or achieve the original
+goal differently. Focus on actionable steps.
+
+Structure your response clearly, possibly using sections like:
+# Error Explanation
+# How to Fix This
+## (Recommended) Fix YAML syntax error
+## Use --from-literal flag for Secrets payload
+
+Suggestions:"""
 
 
 # Update the memory_update_prompt function to use the helper function

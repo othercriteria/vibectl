@@ -141,8 +141,12 @@ class TestLLMModelAdapter:
             adapter.execute(mock_model, "Test prompt")
 
         # Verify
-        assert isinstance(exc_info.value, Exception)
-        assert str(exc_info.value) == "Test error"
+        # Expect ValueError wrapping the original error message
+        assert isinstance(exc_info.value, ValueError)
+        assert str(exc_info.value) == "Error executing prompt: Test error"
+        # Check that the original exception is the cause
+        assert isinstance(exc_info.value.__cause__, Exception)
+        assert str(exc_info.value.__cause__) == "Test error"
         mock_model.prompt.assert_called_once_with("Test prompt")
 
     @patch("vibectl.model_adapter.llm")

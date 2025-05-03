@@ -320,10 +320,12 @@ def test_handle_vibe_request_error_with_recovery(
     # Verify Recovery Prompt Generation
     mock_recovery_prompt.assert_called_once()
     rec_prompt_kwargs = mock_recovery_prompt.call_args.kwargs
-    assert rec_prompt_kwargs["command"] == plan_verb
-    assert rec_prompt_kwargs["error"] == simulated_kubectl_error_msg
+    # Check the correct keyword argument name
+    assert rec_prompt_kwargs["failed_command"] == plan_verb
+    assert rec_prompt_kwargs["error_output"] == simulated_kubectl_error_msg
+    assert rec_prompt_kwargs["original_explanation"] is None
 
-    # Verify LLM recovery call
+    # Verify Recovery LLM Call
     recovery_call = mock_adapter_instance.execute.call_args_list[1]
     # Access positional args [0]
     assert (

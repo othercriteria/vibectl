@@ -263,8 +263,9 @@ def handle_command_output(
                 if original_error_object:
                     # If we started with an error, generate a recovery prompt
                     prompt_str = recovery_prompt(
-                        command=command or "Unknown Command",
-                        error=output_str,
+                        failed_command=command or "Unknown Command",
+                        error_output=output_str,
+                        original_explanation=None,
                     )
                     logger.info(f"Generated recovery prompt: {prompt_str}")
 
@@ -273,6 +274,7 @@ def handle_command_output(
                         model_adapter = get_model_adapter()
                         model = model_adapter.get_model(output_flags.model_name)
                         vibe_output = model_adapter.execute(model, prompt_str)
+                        suggestions_generated = True
                     except Exception as llm_exc:
                         # Handle LLM execution errors during recovery appropriately
                         logger.error(
@@ -280,19 +282,41 @@ def handle_command_output(
                             exc_info=True,
                         )
                         # Re-raise to be caught by the outer exception handler
-                        raise llm_exc
+                        # If suggestions fail, we don't mark as recoverable
+                        suggestions_generated = False
+                        vibe_output = f"Failed to get recovery suggestions: {llm_exc}"
+                        # Don't raise here, let the function return the original error
+                        # possibly annotated with the failure message.
+                        # raise llm_exc
 
                     logger.info(f"LLM recovery suggestion: {vibe_output}")
                     console_manager.print_vibe(vibe_output)
-                    # Update the original error object with the suggestion
+                    # Update the original error object with suggestion/failure message
                     original_error_object.recovery_suggestions = vibe_output
-                    # Update memory with error and recovery suggestion
-                    update_memory(
-                        command=command or "Unknown",
-                        command_output=original_error_object.error,
-                        vibe_output=vibe_output,
-                        model_name=output_flags.model_name,
-                    )
+
+                    # If suggestions were generated, mark as non-halting for auto mode
+                    if suggestions_generated:
+                        logger.info(
+                            "Marking error as non-halting due to successful "
+                            "recovery suggestion."
+                        )
+                        original_error_object.halt_auto_loop = False
+
+                    # Update memory with error and recovery suggestion (or
+                    # failure message)
+                    # Wrap memory update in try-except as it's non-critical path
+                    try:
+                        update_memory(
+                            command=command or "Unknown",
+                            command_output=original_error_object.error,
+                            vibe_output=vibe_output,
+                            model_name=output_flags.model_name,
+                        )
+                    except Exception as mem_err:
+                        logger.error(
+                            f"Failed to update memory during error recovery: {mem_err}"
+                        )
+
                     return original_error_object  # Return the modified error
                 else:
                     # If we started with success, generate a summary prompt

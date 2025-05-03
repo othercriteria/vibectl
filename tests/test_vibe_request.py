@@ -1078,28 +1078,38 @@ def test_handle_vibe_request_general_exception_during_recovery(
 
             # Verify update_memory was NOT called for the recovery failure itself
             # (it might be called for the *initial* error before recovery is attempted)
-            # Let's check it wasn't called with the recovery exception details.
+            # The second call (in handle_command_output) *will* contain the message.
+            call_count = 0
             for call in mock_update_memory.call_args_list:
-                assert recovery_exception_message not in call.kwargs.get(
-                    "command_output", ""
-                )
-                assert recovery_exception_message not in call.kwargs.get(
-                    "vibe_output", ""
-                )
+                call_count += 1
+                # The second call should have the recovery failure message
+                if call_count == 2:
+                    assert recovery_exception_message in call.kwargs.get(
+                        "vibe_output", ""
+                    )
+            # Ensure update_memory was called (at least once for initial, maybe twice)
+            assert call_count > 0
 
-            # Assert the final result is an Error
+            # Verify the final result is the *original* Error object, annotated
             assert isinstance(result, Error)
 
-            # Assert the error message combines original error and recovery failure
-            assert initial_error_message in result.error
-            # Updated to check for the actual "Vibe Failure:" prefix
-            assert "Vibe Failure: Error getting Vibe summary:" in result.error
-            assert recovery_exception_message in result.error
+            # Assert the error message is the ORIGINAL error message
+            assert result.error == initial_error_message
+            # Assert the recovery suggestions contain the failure message
+            assert "Failed to get recovery suggestions" in (
+                result.recovery_suggestions or ""
+            )
+            assert recovery_exception_message in (result.recovery_suggestions or "")
+            # Assert the halt loop remains True because recovery failed
+            assert result.halt_auto_loop is True
 
             # Assert the exception in the Error object is original command's exception
             assert isinstance(result.exception, RuntimeError)
 
-            # Verify the console output includes the combined error message
-            mock_console.print_error.assert_any_call(
-                f"Error getting Vibe summary: {recovery_exception_message}"
+            # Verify console output:
+            # 1. Initial error printed
+            mock_console.print_error.assert_any_call(initial_error_message)
+            # 2. Recovery failure message printed via print_vibe
+            mock_console.print_vibe.assert_called_once_with(
+                f"Failed to get recovery suggestions: {recovery_exception_message}"
             )

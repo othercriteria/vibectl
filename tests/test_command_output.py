@@ -842,19 +842,22 @@ def test_handle_command_output_error_input_with_vibe_recoverable_api_error(
         command="test-command",
     )
 
-    # Verify the result is a *new* Error object representing the API error
+    # Verify the result is the *original* Error object, modified
     assert isinstance(result, Error)
-    assert result is not error_input
-    assert result.error == "API Error: API Overloaded"
-    assert result.exception == api_error
-    assert result.halt_auto_loop is False  # Key check for recoverable errors
-    # Verify LLM was called
-    mock_adapter.execute.assert_called_once()
-    # Verify memory was NOT updated because Vibe failed
-    mock_update_memory.assert_not_called()
-    # Verify original error and API error were printed
-    mock_console.print_error.assert_any_call(error_input.error)
-    mock_console.print_error.assert_any_call("API Error: API Overloaded")
+    assert result is error_input  # Should return the same object instance
+    assert "API Overloaded" in (result.recovery_suggestions or "")
+    assert result.halt_auto_loop is True  # Recovery failed, should still halt
+
+    # Verify console output
+    mock_console.print_error.assert_any_call("Command failed badly")
+    mock_console.print_vibe.assert_called_once_with(
+        "Failed to get recovery suggestions: API Overloaded"
+    )
+    # Verify memory update called with failure
+    mock_update_memory.assert_called_once()
+    mem_kwargs = mock_update_memory.call_args.kwargs
+    assert mem_kwargs["command_output"] == "Command failed badly"
+    assert "API Overloaded" in mem_kwargs["vibe_output"]
 
 
 @patch("vibectl.command_handler.get_model_adapter")
@@ -894,26 +897,23 @@ def test_handle_command_output_error_input_with_vibe_generic_error(
         command="test-command",
     )
 
-    # Verify the result is a new Error combining original and Vibe error
+    # Verify the result is the *original* Error object, modified
     assert isinstance(result, Error)
-    assert result is not error_input
-    expected_error_msg = (
-        f"Original Error: {error_input.error}\n"
-        f"Vibe Failure: Error getting Vibe summary: {generic_exception}"
+    assert result is error_input  # Should return the same object instance
+    assert "LLM timed out" in (result.recovery_suggestions or "")
+    assert result.halt_auto_loop is True  # Recovery failed, should still halt
+
+    # Verify console output
+    mock_console.print_error.assert_any_call("Command failed badly")
+    mock_console.print_vibe.assert_called_once_with(
+        f"Failed to get recovery suggestions: {generic_exception}"
     )
-    assert result.error == expected_error_msg
-    # Exception should be the original one if present, otherwise the vibe one
-    assert result.exception == test_exception
-    assert result.halt_auto_loop is True  # Should be halting
-    # Verify LLM was called
-    mock_adapter.execute.assert_called_once()
-    # Verify memory was NOT updated
-    mock_update_memory.assert_not_called()
-    # Verify original error and Vibe failure error were printed
-    mock_console.print_error.assert_any_call(error_input.error)
-    mock_console.print_error.assert_any_call(
-        f"Error getting Vibe summary: {generic_exception}"
-    )
+
+    # Verify memory update called with failure
+    mock_update_memory.assert_called_once()
+    mem_kwargs = mock_update_memory.call_args.kwargs
+    assert mem_kwargs["command_output"] == "Command failed badly"
+    assert "LLM timed out" in mem_kwargs["vibe_output"]
 
 
 @patch("vibectl.command_handler.get_model_adapter")

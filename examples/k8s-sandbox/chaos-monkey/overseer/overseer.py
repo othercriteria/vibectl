@@ -37,9 +37,11 @@ class ResourceUsage(TypedDict):
     usage: float
     capacity: float
 
+
 class NodeUsage(TypedDict):
     cpu: ResourceUsage
     memory: ResourceUsage
+
 
 class QuotaInfo(TypedDict):
     name: str
@@ -50,14 +52,17 @@ class QuotaInfo(TypedDict):
     cpu_used: float
     memory_used: float
 
+
 class NamespacePodUsage(TypedDict):
     cpu: float
     memory: float
 
+
 class ResourceInfoType(TypedDict):
     quotas: dict[str, QuotaInfo]  # Changed Dict to dict
     node_usage: NodeUsage
-    pod_usage: dict[str, NamespacePodUsage] # Changed Dict to dict
+    pod_usage: dict[str, NamespacePodUsage]  # Changed Dict to dict
+
 
 # Configuration from environment variables
 METRICS_INTERVAL = int(os.environ.get("METRICS_INTERVAL", "1"))
