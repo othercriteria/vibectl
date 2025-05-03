@@ -2,19 +2,10 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: chaos-monkey
 networking:
-  # Don't expose API server port to host
   podSubnet: "10.244.0.0/16"
   serviceSubnet: "10.245.0.0/16"
 nodes:
 - role: control-plane
-  # Map the service nodeports within the container, but don't expose to host
-  extraPortMappings:
-  - containerPort: ${NODE_PORT_1}
-    hostPort: ${NODE_PORT_1}
-  - containerPort: ${NODE_PORT_2}
-    hostPort: ${NODE_PORT_2}
-  - containerPort: ${NODE_PORT_3}
-    hostPort: ${NODE_PORT_3}
   kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration

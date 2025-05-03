@@ -1,45 +1,48 @@
 FROM ubuntu:22.04
 
-# Avoid prompts during package installation
+# Set environment variables to prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Create docker group with proper GID
-ARG DOCKER_GID=999
-RUN groupadd -g ${DOCKER_GID} docker 2>/dev/null || groupmod -g ${DOCKER_GID} docker 2>/dev/null || echo "Using existing docker group"
-
-# Add current user to docker group
-RUN useradd -m -s /bin/bash docker-user && usermod -aG docker docker-user || echo "User already exists"
-
-# Install required packages - only what's necessary for running kind and kubectl
-RUN apt-get update && apt-get install -y \
-    curl \
-    docker.io \
-    iproute2 \
-    netcat-openbsd \
-    dnsutils \
-    jq \
-    gettext-base \
-    net-tools \
-    procps \
+# Install prerequisites for adding K8s & Docker repos and necessary packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    apt-transport-https \
     ca-certificates \
-    --no-install-recommends && \
+    gpg \
+    curl \
+    gettext-base \
+    netcat-openbsd && \
+    # --- Add Docker GPG key & Repo ---
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    chmod a+r /etc/apt/keyrings/docker.gpg && \
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    # --- Add Kubernetes GPG key & Repo ---
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list && \
+    # --- Update apt cache again and install kubectl & docker-ce-cli ---
+    apt-get update && \
+    apt-get install -y --no-install-recommends kubectl docker-ce-cli && \
+    # Clean up
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install kind
-RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 \
-    && chmod +x /usr/local/bin/kind
+# Install Kind binary
+ARG KIND_VERSION=v0.23.0
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64 && \
+    chmod +x ./kind && \
+    mv ./kind /usr/local/bin/kind
 
-# Install kubectl (matching Kind node version)
-RUN curl -LO "https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl" && \
-    chmod +x kubectl && \
-    mv kubectl /usr/local/bin/
+# Create directories
+RUN mkdir -p /kubernetes /config/kube
 
-# Copy entrypoint and service definitions
-COPY k8s-entrypoint.sh /k8s-entrypoint.sh
-COPY kubernetes/ /kubernetes/
+# Copy Kubernetes manifests and entrypoint script
+# COPY kubernetes/ /kubernetes/ # Removed to allow volume mounting
+COPY k8s-entrypoint.sh /usr/local/bin/k8s-entrypoint.sh
+RUN chmod +x /usr/local/bin/k8s-entrypoint.sh
 
-# Make entrypoint executable
-RUN chmod +x /k8s-entrypoint.sh
-
-# Set up the entrypoint
-ENTRYPOINT ["/k8s-entrypoint.sh"]
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/k8s-entrypoint.sh"]

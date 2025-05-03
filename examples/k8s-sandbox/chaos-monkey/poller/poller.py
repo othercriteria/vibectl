@@ -20,16 +20,22 @@ from rich.panel import Panel
 from rich.table import Table
 
 # Configuration from environment variables
-POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
-SESSION_DURATION = int(os.environ.get("SESSION_DURATION", "30"))
-STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
-KIND_CONTAINER = os.environ.get("KIND_CONTAINER", "chaos-monkey-control-plane")
+KUBECONFIG = os.environ.get("KUBECONFIG", None)
+POLLER_INTERVAL = float(os.environ.get("POLLER_INTERVAL", "1"))
+POLLER_HISTORY = int(os.environ.get("POLLER_HISTORY", "1000"))
+PASSIVE_DURATION = int(os.environ.get("PASSIVE_DURATION", "5"))
+ACTIVE_DURATION = int(os.environ.get("ACTIVE_DURATION", "25"))
+TOTAL_DURATION_MINUTES = PASSIVE_DURATION + ACTIVE_DURATION
 VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
+KIND_CONTAINER = os.environ.get("KIND_CONTAINER", "chaos-monkey-control-plane")
+OVERSEER_HOST = os.environ.get("OVERSEER_HOST", "overseer")
+STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
 
 # Status codes
 STATUS_HEALTHY = "HEALTHY"
 STATUS_DEGRADED = "DEGRADED"
 STATUS_DOWN = "DOWN"
+STATUS_PENDING = "PENDING"
 
 # Set up logging
 logging.basicConfig(
@@ -48,6 +54,7 @@ def status_style_map(status: str) -> str:
         STATUS_HEALTHY: "green",
         STATUS_DEGRADED: "yellow",
         STATUS_DOWN: "red",
+        STATUS_PENDING: "cyan",
     }.get(status, "white")
 
 
@@ -423,88 +430,154 @@ def print_status(status: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """Main function to run the poller."""
-    try:
-        # Create a nice header
-        console.print(
-            Panel.fit(
-                "[bold blue]Chaos Monkey App Service Poller[/bold blue]\n"
-                "[italic]Monitoring app service health[/italic]",
-                border_style="blue",
-            )
+    """Main poller function."""
+    console.log("[yellow]Poller starting...[/yellow]")
+
+    sandbox_container = find_sandbox_container()
+    if not sandbox_container:
+        console.log(
+            "[bold red]Error: Could not find sandbox container. Exiting.[/bold red]"
         )
-
-        # Create status directory
-        Path(STATUS_DIR).mkdir(parents=True, exist_ok=True)
-
-        console.log("[green]Starting to monitor app service...[/green]")
-
-        # Calculate end time based on session duration
-        end_time = time.time() + (SESSION_DURATION * 60)
-        check_count = 0
-
-        while True:
-            # Check if session duration has elapsed
-            current_time = time.time()
-            if current_time >= end_time:
-                console.log(
-                    f"[green]Session duration ({SESSION_DURATION} min) elapsed.[/green]"
-                )
-                sys.exit(0)
-
-            console.log(f"[blue]Running service check #{check_count}...[/blue]")
-
-            # Find the sandbox container
-            sandbox_container = find_sandbox_container()
-            if not sandbox_container:
-                status = {
-                    "status": STATUS_DOWN,
-                    "response_time": "N/A",
-                    "message": "Kubernetes sandbox container not found",
-                    "endpoint": "app.services:80",
-                }
-                update_status_file(status)
-                print_status(status)
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
-
-            # Check if Kubernetes cluster is running
-            if not check_kubernetes_status(sandbox_container):
-                status = {
-                    "status": STATUS_DOWN,
-                    "response_time": "N/A",
-                    "message": "Kubernetes cluster unavailable",
-                    "endpoint": "app.services:80",
-                }
-                update_status_file(status)
-                print_status(status)
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
-
-            # Check app service
-            status = check_app_service(sandbox_container)
-
-            # Print status
-            print_status(status)
-
-            # Update status file
-            update_status_file(status)
-
-            # Increment check counter
-            check_count += 1
-
-            # Wait before next check
-            console.log(f"Waiting {POLL_INTERVAL_SECONDS} seconds until next check...")
-            time.sleep(POLL_INTERVAL_SECONDS)
-
-    except KeyboardInterrupt:
-        console.log("[yellow]Poller interrupted by user. Exiting gracefully.[/yellow]")
-        sys.exit(0)
-    except Exception as e:
-        console.log(f"[red]Unexpected error: {e}[/red]")
-        console.print_exception()
         sys.exit(1)
+
+    console.log(f"[cyan]Found sandbox container: {sandbox_container}[/cyan]")
+
+    # Check if Kubernetes cluster is running
+    if not check_kubernetes_status(sandbox_container):
+        console.log(
+            "[bold red]Error: Kubernetes cluster is not ready. Exiting.[/bold red]"
+        )
+        sys.exit(1)
+
+    console.log("[green]Kubernetes cluster is running.[/green]")
+
+    # Create status directory if it doesn't exist
+    Path(STATUS_DIR).mkdir(parents=True, exist_ok=True)
+    console.log(f"[cyan]Status directory: {STATUS_DIR}[/cyan]")
+
+    # --- Wait for target services to be deployed ---
+    target_deployments = ["app", "demo-db"]
+    namespace = "services"
+    max_wait_seconds = 180  # 3 minutes timeout
+    wait_interval = 5  # Check every 5 seconds
+    wait_start_time = time.time()
+
+    console.log(
+        f"[yellow]Waiting up to {max_wait_seconds}s for deployments "
+        f"{', '.join(target_deployments)} in namespace '{namespace}'...[/yellow]"
+    )
+    while True:
+        found_all = True
+        missing_deployments = []
+        for deployment_name in target_deployments:
+            check_cmd = [
+                "docker",
+                "exec",
+                sandbox_container,
+                "kubectl",
+                "--kubeconfig",
+                "/etc/kubernetes/admin.conf",
+                "get",
+                "deployment",
+                deployment_name,
+                "-n",
+                namespace,
+                "--ignore-not-found",
+                "-o",
+                "name",
+            ]
+            exit_code, stdout, _ = run_command(check_cmd)
+            if exit_code != 0 or not stdout.strip():
+                found_all = False
+                missing_deployments.append(deployment_name)
+                break  # No need to check others if one is missing
+
+        if found_all:
+            console.log(
+                f"[green]All target deployments {target_deployments} found.[/green]"
+            )
+            break
+
+        if time.time() - wait_start_time > max_wait_seconds:
+            console.log(
+                f"[bold red]Error: Timed out waiting for deployments: "
+                f"{missing_deployments}. Exiting.[/bold red]"
+            )
+            sys.exit(1)
+
+        console.log(
+            f"[yellow]Deployments not yet ready ({missing_deployments} missing), "
+            f"waiting {wait_interval}s...[/yellow]"
+        )
+        time.sleep(wait_interval)
+    # --- End wait for target services ---
+
+    # Create curl pod for health checks
+    if not create_curl_pod_if_needed(sandbox_container):
+        console.log(
+            "[bold red]Error: Could not create health checker pod. Exiting.[/bold red]"
+        )
+        sys.exit(1)
+    console.log("[green]Health checker pod is ready.[/green]")
+
+    effective_status = STATUS_PENDING  # Track the reported state
+    history: list[dict[str, Any]] = []
+
+    while True:
+        current_time = datetime.now()
+        console.clear()
+
+        # Get the current actual status
+        current_check = check_app_service(sandbox_container)
+
+        # Determine what status to report based on the effective_status
+        status_to_report: dict[str, Any]
+        if effective_status == STATUS_PENDING:
+            if current_check.get("status") == STATUS_HEALTHY:
+                console.log(
+                    "[bold green]Service reported HEALTHY for the first "
+                    "time.[/bold green]"
+                )
+                effective_status = STATUS_HEALTHY
+                status_to_report = current_check
+            else:
+                # Stay in PENDING until the first HEALTHY check
+                status_to_report = {
+                    "status": STATUS_PENDING,
+                    "message": "Waiting for service to become healthy...",
+                    "response_time": "N/A",
+                    "endpoint": current_check.get("endpoint", "app.services:80"),
+                }
+        else:
+            # Once out of PENDING, report the actual current status
+            effective_status = current_check.get("status", STATUS_DOWN)
+            # Update effective status
+            status_to_report = current_check
+
+        # Add timestamp and update history/file/display with the status_to_report
+        status_to_report["timestamp"] = current_time.isoformat()
+
+        # Update history
+        history.append(status_to_report)
+        if len(history) > POLLER_HISTORY:
+            history.pop(0)
+
+        # Update status file
+        update_status_file(status_to_report)
+
+        # Print status
+        print_status(status_to_report)
+
+        time.sleep(POLLER_INTERVAL)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        console.log("Poller stopped by user.")
+        sys.exit(0)
+    except Exception as e:
+        logger.exception(f"Poller encountered an unexpected error: {e}")
+        console.print_exception(show_locals=True)
+        sys.exit(1)

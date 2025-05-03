@@ -2,34 +2,30 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: red-agent
-  namespace: default
+  namespace: services
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: red-agent-role
 rules:
-# Core resources - Allow complete destruction capabilities
+# Core resources - Read-only cluster-wide (including quotas)
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps"]
-  verbs: ["get", "list", "watch", "delete"]
-# Workload resources - Allow more destructive capabilities including deletion
+  resources: ["pods", "services", "configmaps", "resourcequotas"]
+  verbs: ["get", "list", "watch"]
+# Workload resources - Read-only cluster-wide
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "update", "patch", "delete"]
-# Allow creating new attack resources (like stress test pods)
+  verbs: ["get", "list", "watch"]
+# Allow creating new attack resources (like stress test pods) cluster-wide
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["create"]
-# Allow scaling of deployments for resource attacks
-- apiGroups: ["apps"]
-  resources: ["deployments/scale"]
-  verbs: ["get", "update", "patch"]
-# Allow checking own RBAC permissions to better understand attack surface
+# Allow checking own RBAC permissions
 - apiGroups: ["authorization.k8s.io"]
   resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
   verbs: ["create"]
-# Monitoring capabilities
+# Monitoring capabilities - Read-only nodes
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
@@ -41,7 +37,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: ClusterRole
   name: red-agent-role
@@ -54,12 +50,19 @@ metadata:
   name: red-agent-attack-services
   namespace: services
 rules:
+# Core resources - Full CRUD within services namespace (including quotas)
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "secrets"]
-  verbs: ["get", "list", "watch", "delete"]
+  resources: ["pods", "services", "configmaps", "secrets", "resourcequotas"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Workload resources - CRUD except deployment deletion within services namespace
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+# Allow scaling within services namespace
+- apiGroups: ["apps"]
+  resources: ["deployments/scale"]
+  verbs: ["get", "update", "patch"]
+# Allow exec/portforward within services namespace pods
 - apiGroups: [""]
   resources: ["pods/exec", "pods/portforward"]
   verbs: ["create", "get"]
@@ -72,7 +75,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: Role
   name: red-agent-attack-services
@@ -96,7 +99,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: Role
   name: red-agent-restricted
@@ -119,7 +122,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: Role
   name: red-agent-no-access

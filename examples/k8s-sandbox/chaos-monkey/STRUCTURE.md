@@ -17,7 +17,7 @@ The demo orchestrates several components via Docker Compose:
 examples/k8s-sandbox/chaos-monkey/
 ├── README.md                  # Main documentation for the demo
 ├── STRUCTURE.md               # This file: structure of the chaos-monkey demo
-├── run.sh                     # Primary script to launch the demo
+├── run.sh                     # Primary script to launch the demo environment
 ├── docker-compose.yaml        # Docker Compose configuration for all demo services
 ├── Makefile                   # Build and development utilities
 │
@@ -42,7 +42,13 @@ examples/k8s-sandbox/chaos-monkey/
 - **`run.sh`**: The main entry point to start and stop the entire demo environment. Handles argument parsing and Docker Compose orchestration.
 - **`docker-compose.yaml`**: Defines the five core services (k8s-sandbox, blue-agent, red-agent, poller, overseer), their builds, dependencies, networks, and configurations.
 - **`Makefile`**: Provides convenience targets for building, running, logging, and cleaning the demo environment.
-- **`k8s-sandbox/`**: Contains the setup for the Kind Kubernetes cluster and the YAML manifests for the vulnerable demo services deployed within it. Includes RBAC definitions for the agents.
+- **`k8s-sandbox/`**: Contains the setup for the Kind Kubernetes cluster. Key files include:
+    - `k8s-entrypoint.sh`: Script run inside the sandbox container to create the Kind cluster, apply manifests, and manage phase transitions.
+    - `Dockerfile`: Defines the sandbox container image.
+    - `kubernetes/kind-config.yaml`: Configuration for the Kind cluster itself.
+    - `kubernetes/resource-quotas.yaml`: Defines CPU/memory quotas for namespaces.
+    - `kubernetes/demo-*.yaml`: Manifests for the vulnerable demo services deployed within the cluster.
+    - `kubernetes/*-rbac.yaml`: RBAC definitions for the agents (passive and active).
 - **`agent/`**: Contains the unified Docker setup for both Blue and Red agents. Includes the `agent-entrypoint.sh` which handles role-specific logic, and the text files defining agent memory, instructions, and playbooks.
 - **`poller/`**: Contains the Python script and Dockerfile for the service that continuously monitors the health of the target applications in the Kubernetes cluster.
 - **`overseer/`**: Contains the Flask backend and React frontend for the monitoring dashboard. See `overseer/STRUCTURE.md` for its internal details.
@@ -60,7 +66,8 @@ Both Blue and Red agents utilize the same Docker image built from `agent/Dockerf
 
 Key parameters for running this demo (primarily set via `run.sh` arguments or environment variables passed to `docker-compose.yaml`):
 
-- **`SESSION_DURATION`**: How long the agents run before the demo stops (minutes).
+- **`PASSIVE_DURATION`**: How long the initial passive (read-only) phase runs (minutes).
+- **`ACTIVE_DURATION`**: How long the main active (attack/defense) phase runs (minutes).
 - **`VERBOSE`**: Enables detailed logging for agents and other components.
 - **`USE_STABLE_VERSIONS`**: Flag to use published PyPI packages (`true`) instead of local development code (`false`) for `vibectl` and dependencies.
 - **`VIBECTL_MODEL`**: Specifies the Anthropic model used by the `vibectl` agents.

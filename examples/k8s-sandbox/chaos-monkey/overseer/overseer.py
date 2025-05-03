@@ -11,6 +11,7 @@ Monitors service availability and agent activities:
 - Displays Kubernetes cluster status and resource usage
 """
 
+# Standard library imports
 import json
 import logging
 import os
@@ -18,22 +19,60 @@ import os.path
 import re
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
-import docker
+# Third-party imports
+import docker  # type: ignore
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
 from flask import Flask, Response, jsonify, send_file
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO  # type: ignore
 from rich.console import Console
 
+
+# Define types for nested structures using class syntax
+class ResourceUsage(TypedDict):
+    usage: float
+    capacity: float
+
+class NodeUsage(TypedDict):
+    cpu: ResourceUsage
+    memory: ResourceUsage
+
+class QuotaInfo(TypedDict):
+    name: str
+    cpu_limit: float
+    cpu_request: float
+    memory_limit: float
+    memory_request: float
+    cpu_used: float
+    memory_used: float
+
+class NamespacePodUsage(TypedDict):
+    cpu: float
+    memory: float
+
+class ResourceInfoType(TypedDict):
+    quotas: dict[str, QuotaInfo]  # Changed Dict to dict
+    node_usage: NodeUsage
+    pod_usage: dict[str, NamespacePodUsage] # Changed Dict to dict
+
 # Configuration from environment variables
-METRICS_INTERVAL = 1
-SESSION_DURATION = int(os.environ.get("SESSION_DURATION", "30"))
+METRICS_INTERVAL = int(os.environ.get("METRICS_INTERVAL", "1"))
+PASSIVE_DURATION = int(os.environ.get("PASSIVE_DURATION", "5"))
+ACTIVE_DURATION = int(os.environ.get("ACTIVE_DURATION", "25"))
+TOTAL_DURATION_MINUTES = PASSIVE_DURATION + ACTIVE_DURATION
 VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 POLLER_STATUS_DIR = "/tmp/status"  # Path inside the poller container
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
+AGENT_LOG_INTERVAL = int(os.environ.get("AGENT_LOG_INTERVAL", "2"))
+CLUSTER_STATUS_INTERVAL = int(os.environ.get("CLUSTER_STATUS_INTERVAL", "2"))
+OVERVIEW_REFRESH_INTERVAL = int(os.environ.get("OVERVIEW_REFRESH_INTERVAL", "1"))
+STALE_THRESHOLD_SECONDS = int(
+    os.environ.get("STALE_THRESHOLD_SECONDS", "30")
+)  # Add staleness threshold
 
 # Application setup - set static folder to /app/static
 # where js and css files are located
@@ -54,6 +93,8 @@ agent_logs: dict[str, dict[str, Any]] = {
         "entries": [],
     },
 }
+last_data_update_time: float = time.monotonic()  # Track last data update
+is_stale: bool = False  # Track current staleness state
 
 # Set up logging
 logging.basicConfig(
@@ -69,25 +110,26 @@ docker_client = docker.from_env()
 def run_command(
     command: list[str], capture_output: bool = True, timeout: int = 30
 ) -> tuple[int, str, str]:
-    """Run a shell command and return exit code, stdout, and stderr."""
+    """Run a shell command with timeout and capture output."""
+    # Reverted: Removed retry logic as the underlying kubeconfig issue is fixed.
     try:
-        if VERBOSE:
-            logger.info(f"Running command: {' '.join(command)}")
-
-        result = subprocess.run(
+        logger.debug(f"Running command: {' '.join(command)}")
+        process = subprocess.run(
             command,
             capture_output=capture_output,
             text=True,
             timeout=timeout,
-            check=False,
+            check=False,  # Don't raise exception on non-zero exit code
         )
-        # Explicitly cast stdout and stderr to string to avoid type issues
-        stdout = result.stdout if result.stdout is not None else ""
-        stderr = result.stderr if result.stderr is not None else ""
-        return result.returncode, stdout, stderr
+        stderr_output = process.stderr.strip() if process.stderr else ""
+        stdout_output = process.stdout.strip() if process.stdout else ""
+        return process.returncode, stdout_output, stderr_output
+
     except subprocess.TimeoutExpired:
-        return 124, "", "Command timed out"
+        logger.error(f"Command timed out after {timeout}s: {' '.join(command)}")
+        return 1, "", f"Command timed out after {timeout}s"
     except Exception as e:
+        logger.error(f"Error running command {' '.join(command)}: {e}")
         return 1, "", f"Error running command: {e!s}"
 
 
@@ -106,7 +148,7 @@ def get_poller_status() -> dict[str, Any]:
             return {
                 "status": "PENDING",
                 "message": "Poller container not found - waiting for startup",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         # Get the status file contents
@@ -129,7 +171,7 @@ def get_poller_status() -> dict[str, Any]:
                 return {
                     "status": "ERROR",
                     "message": "Failed to read status file",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
         # Parse the JSON
@@ -141,7 +183,7 @@ def get_poller_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": f"Failed to parse status JSON: {e}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     except Exception as e:
@@ -149,7 +191,7 @@ def get_poller_status() -> dict[str, Any]:
         return {
             "status": "ERROR",
             "message": f"Error: {e!s}",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -237,7 +279,7 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, Any]
             if match:
                 timestamp, message = match.groups()
             else:
-                timestamp = datetime.now().isoformat()
+                timestamp = datetime.now(timezone.utc).isoformat()
                 message = line
 
             # Clean the message to remove problematic ANSI codes
@@ -290,34 +332,44 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, Any]
 
 
 def update_service_status() -> None:
-    """Update the service status from the poller and track history."""
-    global latest_status, service_history
+    """Fetch latest service status, update history, and emit updates."""
+    global service_history, latest_status, last_data_update_time
 
-    new_status = get_poller_status()
-    if not new_status:
-        logger.warning("Failed to get poller status")
+    logger.info("Updating service status")
+    poller_status = get_poller_status()
+
+    if not poller_status or poller_status.get("status") == "ERROR":
+        logger.warning("Failed to get valid poller status, skipping update")
+        # Do not update last_data_update_time if we failed to get status
         return
 
+    # If we got valid status, update the timestamp
+    last_data_update_time = time.monotonic()
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "status": poller_status.get("status"),
+        "message": poller_status.get("message"),
+        "timestamp": timestamp,
+        "last_updated": timestamp,
+    }
+
     # Update the latest status
-    latest_status = new_status
+    latest_status = entry
 
     # Add to history with timestamp if not already there
-    if "timestamp" not in new_status:
-        new_status["timestamp"] = datetime.now().isoformat()
+    if "timestamp" not in entry:
+        entry["timestamp"] = timestamp
 
     # Save to history
-    service_history.append(new_status)
+    service_history.append(entry)
 
     # Limit history length
     if len(service_history) > 1000:
         service_history = service_history[-1000:]
 
-    # Add last_updated timestamp to help track freshness
-    update_timestamp = datetime.now().isoformat()
-    new_status["last_updated"] = update_timestamp
-
     # Calculate service overview information for dashboard
-    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0}
+    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0, "PENDING": 0}
 
     # Count statuses in history
     for entry in service_history:
@@ -326,16 +378,22 @@ def update_service_status() -> None:
             status_counts[status] += 1
 
     # Calculate uptime percentage
-    total_checks = sum(status_counts.values())
+    # Denominator should exclude PENDING states
+    total_relevant_checks = (
+        status_counts["HEALTHY"]
+        + status_counts["DEGRADED"]
+        + status_counts["DOWN"]
+        + status_counts["ERROR"]
+    )
     uptime_percentage = 0
-    if total_checks > 0:
+    if total_relevant_checks > 0:
         healthy_count = status_counts["HEALTHY"]
         degraded_count = status_counts["DEGRADED"]
         # Include ERROR states in uptime calculation
         error_count = status_counts["ERROR"]
         uptime_calc = (
             (healthy_count + degraded_count + error_count) * 100
-        ) // total_checks
+        ) // total_relevant_checks  # Use relevant checks for denominator
         uptime_percentage = int(uptime_calc)
 
     # Get entries counts safely
@@ -346,14 +404,14 @@ def update_service_status() -> None:
     db_status = latest_status.get("db_status", "unknown")
 
     # Emit updates to connected clients
-    socketio.emit("status_update", new_status)
+    socketio.emit("status_update", entry)
 
     # Emit a specific dashboard update with timestamp to help track updates
     dashboard_update = {
-        "status": new_status.get("status", "UNKNOWN"),
-        "message": new_status.get("message", ""),
-        "db_status": new_status.get("db_status", "unknown"),
-        "last_updated": update_timestamp,
+        "status": entry.get("status", "UNKNOWN"),
+        "message": entry.get("message", ""),
+        "db_status": entry.get("db_status", "unknown"),
+        "last_updated": timestamp,
     }
     socketio.emit("dashboard_update", dashboard_update)
 
@@ -361,14 +419,17 @@ def update_service_status() -> None:
     service_overview_update = {
         "status_counts": status_counts,
         "uptime_percentage": uptime_percentage,
-        "total_checks": total_checks,
+        "total_checks": total_relevant_checks,
         "latest_status": latest_status,
         "db_status": db_status,
         "blue_agent_logs_count": len(blue_entries),
         "red_agent_logs_count": len(red_entries),
-        "last_updated": update_timestamp,
+        "last_updated": timestamp,
     }
     socketio.emit("service_overview_update", service_overview_update)
+
+    # Emit the newly added history entry for live graph updates
+    socketio.emit("history_append", entry)
 
     # Save history to file
     try:
@@ -444,15 +505,255 @@ def find_sandbox_container() -> str:
         return "chaos-monkey-control-plane"
 
 
-def get_cluster_status() -> dict[str, Any]:
-    """Get the current status of the Kubernetes cluster."""
+# Helper to parse quantity strings (e.g., "500m", "4Gi")
+def parse_quantity(quantity_str: str) -> float:
+    if not isinstance(quantity_str, str):
+        return 0.0
+    quantity_str = quantity_str.lower()
+    if quantity_str.endswith("m"):  # Milli-CPUs
+        return float(quantity_str[:-1]) / 1000.0
+    if quantity_str.endswith("gi"):  # GiB Memory
+        return float(quantity_str[:-2]) * (1024**3)
+    if quantity_str.endswith("mi"):  # MiB Memory
+        return float(quantity_str[:-2]) * (1024**2)
+    if quantity_str.endswith("ki"):  # KiB Memory
+        return float(quantity_str[:-2]) * 1024
     try:
-        # Initialize result dictionary with simplified fields
+        return float(quantity_str)  # Treat as plain number (CPUs or Bytes)
+    except ValueError:
+        return 0.0
+
+
+# Add back the helper function to parse tabular output
+def parse_kubectl_top_output(output: str) -> list[dict[str, Any]]:
+    """Parse the tabular output of kubectl top nodes/pods."""
+    logger.debug(f"Parsing kubectl top output:\n{output}")  # DEBUG
+    lines = output.strip().split("\n")
+    if len(lines) < 2:  # Header + data
+        logger.warning(
+            f"parse_kubectl_top_output: Not enough lines ({len(lines)}) to parse."
+        )  # DEBUG
+        return []
+
+    headers_raw = lines[0].lower().split()
+    headers = [h.strip() for h in headers_raw if h.strip()]
+    data = []
+    logger.debug(f"parse_kubectl_top_output: Headers found: {headers}")  # DEBUG
+
+    # Find column indices
+    header_indices = {header: lines[0].lower().find(header) for header in headers}
+    sorted_headers = sorted(header_indices.items(), key=lambda item: item[1])
+    logger.debug(
+        f"parse_kubectl_top_output: Sorted Header Indices: {sorted_headers}"
+    )  # DEBUG
+
+    for line_num, line in enumerate(lines[1:]):
+        if not line.strip():
+            continue
+        entry = {}
+        logger.debug(
+            f"parse_kubectl_top_output: Processing line {line_num + 1}: {line}"
+        )  # DEBUG
+        for i, (_, start_index) in enumerate(sorted_headers):
+            if i + 1 < len(sorted_headers):
+                end_index = sorted_headers[i + 1][1]
+            else:
+                end_index = len(line)
+
+            value = line[start_index:end_index].strip()
+            original_header = lines[0][start_index:end_index].strip()
+            entry[original_header] = value
+            logger.debug(
+                f"parse_kubectl_top_output:   Parsed [{original_header}] = '{value}'"
+            )  # DEBUG
+        data.append(entry)
+
+    logger.debug(f"parse_kubectl_top_output: Returning parsed data: {data}")  # DEBUG
+    return data
+
+
+def get_resource_data(container_name: str) -> ResourceInfoType:
+    """Get resource usage data (quotas, node metrics, pod metrics) from the cluster."""
+    resource_info: ResourceInfoType = {
+        "quotas": {},
+        "node_usage": {
+            "cpu": {"usage": 0.0, "capacity": 0.0},  # Added capacity field
+            "memory": {"usage": 0.0, "capacity": 0.0},  # Added capacity field
+        },
+        "pod_usage": {},
+    }
+
+    # 1. Get Resource Quotas
+    command = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",
+        "get",
+        "resourcequotas",
+        "--all-namespaces",
+        "-o",
+        "json",
+    ]
+    returncode, output, stderr = run_command(command, timeout=10)
+    if returncode == 0:
+        try:
+            quota_data = json.loads(output)
+            for item in quota_data.get("items", []):
+                namespace = item.get("metadata", {}).get("namespace", "unknown")
+                quota_name = item.get("metadata", {}).get("name", "unknown")
+                hard_limits = item.get("spec", {}).get("hard", {})
+                used = item.get("status", {}).get("used", {})
+                resource_info["quotas"][namespace] = {
+                    "name": quota_name,
+                    "cpu_limit": parse_quantity(hard_limits.get("limits.cpu", "0")),
+                    "cpu_request": parse_quantity(hard_limits.get("requests.cpu", "0")),
+                    "memory_limit": parse_quantity(
+                        hard_limits.get("limits.memory", "0")
+                    ),
+                    "memory_request": parse_quantity(
+                        hard_limits.get("requests.memory", "0")
+                    ),
+                    "cpu_used": parse_quantity(
+                        used.get("limits.cpu", used.get("requests.cpu", "0"))
+                    ),
+                    "memory_used": parse_quantity(
+                        used.get("limits.memory", used.get("requests.memory", "0"))
+                    ),
+                }
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing resource quota data: {e}")
+    else:
+        logger.warning(f"Could not get resource quotas: {stderr}")
+
+    # === NEW: Fetch Node Allocatable Resources ===
+    command_nodes = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",
+        "get",
+        "nodes",
+        "-o",
+        "json",
+    ]
+    time.sleep(1)  # Add delay before next command
+    returncode_nodes, output_nodes, stderr_nodes = run_command(
+        command_nodes, timeout=10
+    )
+    total_allocatable_cpu = 0.0
+    total_allocatable_memory = 0.0
+    if returncode_nodes == 0:
+        try:
+            node_data = json.loads(output_nodes)
+            for node in node_data.get("items", []):
+                allocatable = node.get("status", {}).get("allocatable", {})
+                total_allocatable_cpu += parse_quantity(allocatable.get("cpu", "0"))
+                total_allocatable_memory += parse_quantity(
+                    allocatable.get("memory", "0")
+                )
+            resource_info["node_usage"]["cpu"]["capacity"] = total_allocatable_cpu
+            resource_info["node_usage"]["memory"]["capacity"] = total_allocatable_memory
+            logger.debug(
+                f"Total Allocatable Node Resources - CPU: {total_allocatable_cpu}, "
+                f"Memory: {total_allocatable_memory}"
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing node allocatable data: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error processing node allocatable data: {e}")
+    else:
+        logger.warning(f"Could not get node allocatable data: {stderr_nodes}")
+    # === END NEW SECTION ===
+
+    # 2. Get Node Metrics (kubectl top nodes - default output)
+    command_top_nodes = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",  # Removed --kubeconfig
+        "top",
+        "nodes",
+    ]
+    time.sleep(1)  # Add delay
+    returncode_top, output_top, stderr_top = run_command(command_top_nodes, timeout=10)
+    if returncode_top == 0:
+        try:
+            # Use the tabular parser instead of json.loads
+            node_metrics = parse_kubectl_top_output(output_top)
+            total_cpu_usage = 0.0
+            total_mem_usage = 0.0
+            for item in node_metrics:
+                # Use expected tabular headers (case-sensitive from parser)
+                total_cpu_usage += parse_quantity(item.get("CPU(CORES)", "0m"))
+                total_mem_usage += parse_quantity(item.get("MEMORY(BYTES)", "0Mi"))
+            resource_info["node_usage"]["cpu"]["usage"] = total_cpu_usage
+            resource_info["node_usage"]["memory"]["usage"] = total_mem_usage
+            logger.debug(
+                f"Total Node Usage - CPU: {total_cpu_usage}, Memory: {total_mem_usage}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error parsing node metrics table: {e}")
+    else:
+        logger.warning(
+            f"Could not get node metrics (is metrics-server running?): {stderr_top}"
+        )
+
+    # 3. Get Pod Metrics (kubectl top pods - default output)
+    command_top_pods = [
+        "docker",
+        "exec",
+        container_name,
+        "kubectl",  # Removed --kubeconfig
+        "top",
+        "pods",
+        "--all-namespaces",
+    ]
+    time.sleep(1)  # Add delay
+    returncode_pods, output_pods, stderr_pods = run_command(
+        command_top_pods, timeout=15
+    )
+    if returncode_pods == 0:
+        try:
+            # Use the tabular parser instead of json.loads
+            pod_metrics = parse_kubectl_top_output(output_pods)
+            resource_info["pod_usage"] = {}  # Reset pod usage for fresh calculation
+            for item in pod_metrics:
+                # Use expected tabular headers (case-sensitive from parser)
+                namespace = item.get("NAMESPACE", "unknown")
+                if namespace not in resource_info["pod_usage"]:
+                    resource_info["pod_usage"][namespace] = {"cpu": 0.0, "memory": 0.0}
+                pod_cpu = parse_quantity(item.get("CPU(CORES)", "0m"))
+                pod_mem = parse_quantity(item.get("MEMORY(BYTES)", "0Mi"))
+                resource_info["pod_usage"][namespace]["cpu"] += pod_cpu
+                resource_info["pod_usage"][namespace]["memory"] += pod_mem
+            logger.debug(f"Total Pod Usage by Namespace: {resource_info['pod_usage']}")
+
+        except Exception as e:
+            logger.error(f"Error parsing pod metrics table: {e}")
+    else:
+        logger.warning(
+            f"Could not get pod metrics (is metrics-server running?): {stderr_pods}"
+        )
+
+    # Log the final structure before returning
+    logger.debug(f"Final resource_info structure: {resource_info}")
+    return resource_info
+
+
+def get_cluster_status() -> dict[str, Any]:
+    """Get the current status of the Kubernetes cluster, including resource data."""
+    try:
+        # Initialize result dictionary
         cluster_data: dict[str, Any] = {
             "nodes": [],
             "pods": [],
-            "timestamp": datetime.now().isoformat(),
+            "resources": {},  # Add placeholder for resource data
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        # Kubeconfig path is removed, relying on default context inside container
+        # kubeconfig_path = "/root/.kube/config"
 
         # Find the sandbox container
         container_name = find_sandbox_container()
@@ -462,9 +763,7 @@ def get_cluster_status() -> dict[str, Any]:
             "docker",
             "exec",
             container_name,
-            "kubectl",
-            "--kubeconfig",
-            "/etc/kubernetes/admin.conf",
+            "kubectl",  # Removed --kubeconfig
             "get",
             "nodes",
             "-o",
@@ -477,7 +776,7 @@ def get_cluster_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": "Failed to get node status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         try:
@@ -511,9 +810,7 @@ def get_cluster_status() -> dict[str, Any]:
             "docker",
             "exec",
             container_name,
-            "kubectl",
-            "--kubeconfig",
-            "/etc/kubernetes/admin.conf",
+            "kubectl",  # Removed --kubeconfig
             "get",
             "pods",
             "--all-namespaces",
@@ -527,7 +824,7 @@ def get_cluster_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": "Failed to get pod status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "nodes": cluster_data["nodes"],
             }
 
@@ -539,10 +836,15 @@ def get_cluster_status() -> dict[str, Any]:
             total_pods = 0
             ready_pods = 0
 
+            # Get current time for age calculation
+            now = datetime.now(timezone.utc)
+
             for item in pod_data.get("items", []):
                 total_pods += 1
-                pod_name = item.get("metadata", {}).get("name", "unknown")
-                namespace = item.get("metadata", {}).get("namespace", "unknown")
+                metadata = item.get("metadata", {})
+                pod_name = metadata.get("name", "unknown")
+                namespace = metadata.get("namespace", "unknown")
+                creation_timestamp_str = metadata.get("creationTimestamp")
 
                 # Get pod status - simplified
                 pod_status = item.get("status", {})
@@ -559,21 +861,50 @@ def get_cluster_status() -> dict[str, Any]:
                         ready_pods += 1
                         break
 
-                # Container readiness count
+                # Container readiness count and restarts
                 container_statuses = pod_status.get("containerStatuses", [])
                 ready_containers = 0
                 total_containers = len(container_statuses)
+                total_restarts = 0
 
                 for container in container_statuses:
                     if container.get("ready", False):
                         ready_containers += 1
+                    # Sum restarts from all containers in the pod
+                    total_restarts += container.get("restartCount", 0)
 
-                # Simplified pod info
+                # Calculate age
+                age_str = "N/A"
+                if creation_timestamp_str:
+                    try:
+                        creation_time = datetime.fromisoformat(
+                            creation_timestamp_str.replace("Z", "+00:00")
+                        )
+                        delta = now - creation_time
+                        # Simple age formatting (e.g., 2d3h, 5m, 10s)
+                        seconds = int(delta.total_seconds())
+                        days, remainder = divmod(seconds, 86400)
+                        hours, remainder = divmod(remainder, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        if days > 0:
+                            age_str = f"{days}d{hours}h"
+                        elif hours > 0:
+                            age_str = f"{hours}h{minutes}m"
+                        elif minutes > 0:
+                            age_str = f"{minutes}m{seconds}s"
+                        else:
+                            age_str = f"{seconds}s"
+                    except ValueError:
+                        age_str = "Invalid date"
+
+                # Updated pod info with restarts and age
                 pod_info = {
                     "name": pod_name,
                     "phase": phase,
                     "ready": f"{ready_containers}/{total_containers}",
                     "status": "Ready" if is_ready else phase,
+                    "restarts": total_restarts,  # Added restarts
+                    "age": age_str,  # Added calculated age
                 }
 
                 # Add to namespace grouping
@@ -589,6 +920,10 @@ def get_cluster_status() -> dict[str, Any]:
                     (ready_pods / total_pods * 100) if total_pods > 0 else 0
                 ),
             }
+
+            # --- Get Resource Data ---
+            cluster_data["resources"] = get_resource_data(container_name)
+            # --- End Resource Data ---
 
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing pod data: {e}")
@@ -614,124 +949,141 @@ def get_cluster_status() -> dict[str, Any]:
         return {
             "status": "ERROR",
             "message": f"Error: {e!s}",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
 def update_cluster_status() -> None:
-    """Update the cluster status."""
-    global cluster_status
+    """Fetch latest cluster status and emit updates."""
+    global cluster_status, last_data_update_time
+    logger.info("Updating cluster status")
+    try:
+        sandbox_container_name = find_sandbox_container()
+        if not sandbox_container_name:
+            logger.warning(
+                "Sandbox container not found, skipping cluster status update"
+            )
+            # Do not update last_data_update_time if container not found
+            return
 
-    new_status = get_cluster_status()
-    if not new_status:
-        logger.warning("Failed to get cluster status")
-        return
+        new_cluster_status = get_cluster_status()
 
-    # Add last_updated timestamp if not present
-    if "last_updated" not in new_status:
-        new_status["last_updated"] = datetime.now().isoformat()
+        if new_cluster_status and new_cluster_status != cluster_status:
+            cluster_status = new_cluster_status
+            socketio.emit("cluster_update", cluster_status)
+            logger.info("Cluster status updated and emitted")
+            # Update timestamp on successful cluster status retrieval and processing
+            last_data_update_time = time.monotonic()
+        elif not new_cluster_status:
+            logger.warning("Received empty cluster status, not updating")
+            # Do not update timestamp if status is empty/invalid
 
-    # Update the cluster status
-    cluster_status = new_status
+    except Exception as e:
+        logger.error(f"Error updating cluster status: {e}", exc_info=True)
+        # Do not update timestamp on error
 
-    # Find pods related to chaos-monkey specifically
-    chaos_pod_count = 0
-    chaos_ready_count = 0
-    chaos_pods = []
 
-    for ns_data in cluster_status.get("pods", []):
-        for pod in ns_data.get("pods", []):
-            if "chaos-monkey" in pod.get("name", ""):
-                chaos_pod_count += 1
-                if pod.get("status") == "Ready":
-                    chaos_ready_count += 1
-                chaos_pods.append(pod)
+def refresh_service_overview() -> None:
+    """Calculate and emit the service overview."""
+    global service_history, latest_status
+    # Calculate service overview information for dashboard
+    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0, "PENDING": 0}
 
-    # Determine an overall readiness status based on chaos-monkey pods
-    chaos_status = "Not Ready"
-    if chaos_pod_count > 0 and chaos_ready_count == chaos_pod_count:
-        chaos_status = "Ready"
-    elif chaos_pod_count > 0 and chaos_ready_count > 0:
-        chaos_status = f"Partially Ready ({chaos_ready_count}/{chaos_pod_count})"
-    elif chaos_pod_count == 0:
-        chaos_status = "Not Found"
+    # Count statuses in history
+    for entry in service_history:
+        status = entry.get("status", "ERROR")
+        if status in status_counts:
+            status_counts[status] += 1
 
-    # Create a chaos-monkey status update for the frontend
-    chaos_update = {
-        "status": chaos_status,
-        "total_pods": chaos_pod_count,
-        "ready_pods": chaos_ready_count,
-        "last_updated": datetime.now().isoformat(),
+    # Calculate uptime percentage
+    # Denominator should exclude PENDING states
+    total_relevant_checks = (
+        status_counts["HEALTHY"]
+        + status_counts["DEGRADED"]
+        + status_counts["DOWN"]
+        + status_counts["ERROR"]
+    )
+    uptime_percentage = 0
+    if total_relevant_checks > 0:
+        healthy_count = status_counts["HEALTHY"]
+        degraded_count = status_counts["DEGRADED"]
+        # Include ERROR states in uptime calculation
+        error_count = status_counts["ERROR"]
+        uptime_calc = (
+            (healthy_count + degraded_count + error_count) * 100
+        ) // total_relevant_checks  # Use relevant checks for denominator
+        uptime_percentage = int(uptime_calc)
+
+    # Get entries counts safely
+    blue_entries = agent_logs["blue"]["entries"]
+    red_entries = agent_logs["red"]["entries"]
+
+    # Add database status if available
+    db_status = latest_status.get("db_status", "unknown")
+
+    # Add last_updated timestamp
+    update_timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Emit a service overview update
+    service_overview_update = {
+        "status_counts": status_counts,
+        "uptime_percentage": uptime_percentage,
+        "total_checks": total_relevant_checks,
+        "latest_status": latest_status,
+        "db_status": db_status,
+        "blue_agent_logs_count": len(blue_entries),
+        "red_agent_logs_count": len(red_entries),
+        "last_updated": update_timestamp,
     }
+    socketio.emit("service_overview_update", service_overview_update)
 
-    # Emit updates via WebSocket
-    socketio.emit("cluster_update", cluster_status)
-    socketio.emit("chaos_status_update", chaos_update)
+
+# Add function to check staleness
+def check_staleness() -> None:
+    """Check if data is stale and emit updates if status changes."""
+    global is_stale, last_data_update_time
+    now = time.monotonic()
+    time_diff = now - last_data_update_time
+    new_is_stale = time_diff > STALE_THRESHOLD_SECONDS
+
+    if new_is_stale != is_stale:
+        is_stale = new_is_stale
+        logger.info(f"Staleness state changed to: {is_stale}")
+        socketio.emit("staleness_update", {"isStale": is_stale})
 
 
 def start_monitoring() -> None:
-    """Start background monitoring tasks."""
-    scheduler.add_job(update_service_status, "interval", seconds=METRICS_INTERVAL)
-    scheduler.add_job(update_agent_logs, "interval", seconds=5)
-
-    # Set shorter interval for cluster status to keep chaos-monkey status more current
-    scheduler.add_job(update_cluster_status, "interval", seconds=3)
-
-    # Add dedicated service overview update task to ensure it refreshes
-    # even if no new data from poller
-    def refresh_service_overview() -> None:
-        """Force a service overview refresh even without new data."""
-        # Calculate service overview information for dashboard
-        status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0}
-
-        # Count statuses in history
-        for entry in service_history:
-            status = entry.get("status", "ERROR")
-            if status in status_counts:
-                status_counts[status] += 1
-
-        # Calculate uptime percentage
-        total_checks = sum(status_counts.values())
-        uptime_percentage = 0
-        if total_checks > 0:
-            healthy_count = status_counts["HEALTHY"]
-            degraded_count = status_counts["DEGRADED"]
-            # Include ERROR states in uptime calculation
-            error_count = status_counts["ERROR"]
-            uptime_calc = (
-                (healthy_count + degraded_count + error_count) * 100
-            ) // total_checks
-            uptime_percentage = int(uptime_calc)
-
-        # Get entries counts safely
-        blue_entries = agent_logs["blue"]["entries"]
-        red_entries = agent_logs["red"]["entries"]
-
-        # Add database status if available
-        db_status = latest_status.get("db_status", "unknown")
-
-        # Add last_updated timestamp
-        update_timestamp = datetime.now().isoformat()
-
-        # Emit a service overview update
-        service_overview_update = {
-            "status_counts": status_counts,
-            "uptime_percentage": uptime_percentage,
-            "total_checks": total_checks,
-            "latest_status": latest_status,
-            "db_status": db_status,
-            "blue_agent_logs_count": len(blue_entries),
-            "red_agent_logs_count": len(red_entries),
-            "last_updated": update_timestamp,
-        }
-        socketio.emit("service_overview_update", service_overview_update)
-
-    # Schedule service overview refresh at a faster interval than other updates
-    # to ensure the UI stays up-to-date
-    scheduler.add_job(refresh_service_overview, "interval", seconds=2)
+    """Initialize and start the monitoring scheduler."""
+    logger.info(
+        f"Starting monitoring: Service Status={METRICS_INTERVAL}s, "
+        f"Agent Logs={AGENT_LOG_INTERVAL}s (max 1 instance), "
+        f"Cluster Status={CLUSTER_STATUS_INTERVAL}s (max 1 instance), "
+        f"Overview Refresh={OVERVIEW_REFRESH_INTERVAL}s"
+    )
+    # Use defined intervals and add max_instances where appropriate
+    scheduler.add_job(
+        update_service_status, "interval", seconds=METRICS_INTERVAL, max_instances=1
+    )
+    scheduler.add_job(
+        update_agent_logs, "interval", seconds=AGENT_LOG_INTERVAL, max_instances=1
+    )
+    scheduler.add_job(
+        update_cluster_status,
+        "interval",
+        seconds=CLUSTER_STATUS_INTERVAL,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        refresh_service_overview,
+        "interval",
+        seconds=OVERVIEW_REFRESH_INTERVAL,
+        max_instances=1,
+    )
+    # Add job to check staleness
+    scheduler.add_job(check_staleness, "interval", seconds=5)  # Check every 5 seconds
 
     scheduler.start()
-    logger.info(f"Monitoring started with fixed {METRICS_INTERVAL}s interval")
+    logger.info("Monitoring scheduler started.")
 
 
 @app.route("/", defaults={"path": ""})
@@ -794,7 +1146,7 @@ def api_status() -> Any:
     # Ensure status has a last_updated timestamp
     status_data = latest_status.copy()
     if "last_updated" not in status_data:
-        status_data["last_updated"] = datetime.now().isoformat()
+        status_data["last_updated"] = datetime.now(timezone.utc).isoformat()
     return jsonify(status_data)
 
 
@@ -816,10 +1168,7 @@ def api_logs(agent_role: str) -> Any:
 @app.route("/api/overview")
 def api_overview() -> Any:
     """API endpoint for an overview of the system status."""
-    # Force a fresh status update before returning data
-    update_service_status()
-
-    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0}
+    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0, "PENDING": 0}
 
     # Count statuses in history
     for entry in service_history:
@@ -828,16 +1177,22 @@ def api_overview() -> Any:
             status_counts[status] += 1
 
     # Calculate uptime percentage
-    total_checks = sum(status_counts.values())
+    # Denominator should exclude PENDING states
+    total_relevant_checks = (
+        status_counts["HEALTHY"]
+        + status_counts["DEGRADED"]
+        + status_counts["DOWN"]
+        + status_counts["ERROR"]
+    )
     uptime_percentage = 0
-    if total_checks > 0:
+    if total_relevant_checks > 0:
         healthy_count = status_counts["HEALTHY"]
         degraded_count = status_counts["DEGRADED"]
         # Include ERROR states in uptime calculation
         error_count = status_counts["ERROR"]
         uptime_calc = (
             (healthy_count + degraded_count + error_count) * 100
-        ) // total_checks
+        ) // total_relevant_checks  # Use relevant checks for denominator
         uptime_percentage = int(uptime_calc)
 
     # Get entries counts safely
@@ -847,18 +1202,20 @@ def api_overview() -> Any:
     # Add database status if available
     db_status = latest_status.get("db_status", "unknown")
 
-    # Add a last updated timestamp
-    last_updated = datetime.now().isoformat()
+    # Add a last updated timestamp from latest status if available
+    last_updated = latest_status.get(
+        "last_updated", datetime.now(timezone.utc).isoformat()
+    )
 
     overview = {
         "status_counts": status_counts,
         "uptime_percentage": uptime_percentage,
-        "total_checks": total_checks,
-        "latest_status": latest_status,
+        "total_checks": total_relevant_checks,
+        "latest_status": latest_status,  # Return current latest_status
         "db_status": db_status,
         "blue_agent_logs_count": len(blue_entries),
         "red_agent_logs_count": len(red_entries),
-        "last_updated": last_updated,
+        "last_updated": last_updated,  # Use timestamp from data if possible
     }
 
     return jsonify(overview)
@@ -867,15 +1224,15 @@ def api_overview() -> Any:
 @app.route("/api/cluster")
 def api_cluster() -> Any:
     """API endpoint for the cluster status."""
-    # Force a fresh cluster status update
-    update_cluster_status()
-
     # Find pods related to chaos-monkey specifically
     chaos_pod_count = 0
     chaos_ready_count = 0
     chaos_pods = []
 
-    for ns_data in cluster_status.get("pods", []):
+    # Use the globally updated cluster_status
+    current_cluster_status = cluster_status.copy()
+
+    for ns_data in current_cluster_status.get("pods", []):
         for pod in ns_data.get("pods", []):
             if "chaos-monkey" in pod.get("name", ""):
                 chaos_pod_count += 1
@@ -888,7 +1245,7 @@ def api_cluster() -> Any:
     ready_pods = 0
     namespace_counts = {}
 
-    for ns_data in cluster_status.get("pods", []):
+    for ns_data in current_cluster_status.get("pods", []):
         pods = ns_data.get("pods", [])
         namespace = ns_data.get("namespace", "unknown")
         pod_count = len(pods)
@@ -911,7 +1268,7 @@ def api_cluster() -> Any:
         chaos_status = "Not Found"
 
     # Add debug info to response for troubleshooting
-    response_data = cluster_status.copy()
+    response_data = current_cluster_status
     response_data["debug"] = {
         "total_pods": total_pods,
         "ready_pods": ready_pods,
@@ -919,7 +1276,7 @@ def api_cluster() -> Any:
             (ready_pods / total_pods * 100) if total_pods > 0 else 0
         ),
         "namespace_counts": namespace_counts,
-        "last_fetch_time": datetime.now().isoformat(),
+        "last_fetch_time": datetime.now(timezone.utc).isoformat(),  # API call time
     }
 
     # Add chaos-monkey specific status
@@ -930,18 +1287,9 @@ def api_cluster() -> Any:
         "pods": chaos_pods,
     }
 
-    # Ensure there's a last_updated timestamp
-    response_data["last_updated"] = datetime.now().isoformat()
-
-    # Log summary for debugging
-    # Log summary for debugging
-    logger.info(
-        f"Cluster status: {total_pods} pods ({ready_pods} ready) "
-        f"across {len(namespace_counts)} namespaces"
-    )
-    logger.info(
-        f"Chaos-Monkey status: {chaos_status} "
-        f"({chaos_ready_count}/{chaos_pod_count} pods ready)"
+    # Ensure there's a last_updated timestamp from the actual data fetch
+    response_data["last_updated"] = current_cluster_status.get(
+        "last_updated", datetime.now(timezone.utc).isoformat()
     )
 
     return jsonify(response_data)
@@ -949,68 +1297,69 @@ def api_cluster() -> Any:
 
 @socketio.on("connect")
 def handle_connect() -> None:
-    """Handle client connection."""
+    """Handle new client connections by sending current state."""
+    global latest_status, agent_logs, cluster_status, service_history, is_stale
     logger.info("Client connected")
 
-    # Force a fresh status update for all data
-    update_service_status()
-    update_cluster_status()
-
-    # Prepare status data with last_updated timestamp
-    status_data = latest_status.copy()
-    if "last_updated" not in status_data:
-        status_data["last_updated"] = datetime.now().isoformat()
-
-    # Create dashboard update data
-    dashboard_update = {
-        "status": status_data.get("status", "UNKNOWN"),
-        "message": status_data.get("message", ""),
-        "db_status": status_data.get("db_status", "unknown"),
-        "last_updated": status_data.get("last_updated"),
-    }
-
-    # Create service overview update data
-    status_counts = {"HEALTHY": 0, "DEGRADED": 0, "DOWN": 0, "ERROR": 0}
-    for entry in service_history:
-        status = entry.get("status", "ERROR")
-        if status in status_counts:
-            status_counts[status] += 1
-
-    total_checks = sum(status_counts.values())
-    uptime_percentage = 0
-    if total_checks > 0:
-        healthy_count = status_counts["HEALTHY"]
-        degraded_count = status_counts["DEGRADED"]
-        error_count = status_counts["ERROR"]
-        uptime_calc = (
-            (healthy_count + degraded_count + error_count) * 100
-        ) // total_checks
-        uptime_percentage = int(uptime_calc)
-
-    blue_entries = agent_logs["blue"]["entries"]
-    red_entries = agent_logs["red"]["entries"]
-
-    service_overview_update = {
-        "status_counts": status_counts,
-        "uptime_percentage": uptime_percentage,
-        "total_checks": total_checks,
-        "latest_status": latest_status,
-        "db_status": latest_status.get("db_status", "unknown"),
-        "blue_agent_logs_count": len(blue_entries),
-        "red_agent_logs_count": len(red_entries),
-        "last_updated": status_data.get("last_updated"),
-    }
-
-    # Send initial data to the client
-    socketio.emit("status_update", status_data)
-    socketio.emit("dashboard_update", dashboard_update)
-    socketio.emit("service_overview_update", service_overview_update)
-    socketio.emit("history_update", service_history)
+    # Send current state immediately
+    socketio.emit("status_update", latest_status)
+    socketio.emit("blue_log_update", agent_logs["blue"]["entries"])
+    socketio.emit("red_log_update", agent_logs["red"]["entries"])
     socketio.emit("cluster_update", cluster_status)
+    # Prepare overview data to send
+    overview_data = {
+        "status": latest_status.get("status", "UNKNOWN"),
+        "message": latest_status.get("message", "No status yet"),
+        "services": latest_status.get("services", {}),
+        "service_stats": {
+            "total": len(latest_status.get("services", {})),
+            "healthy": sum(
+                1
+                for s in latest_status.get("services", {}).values()
+                if s["status"] == "HEALTHY"
+            ),
+            "unhealthy": sum(
+                1
+                for s in latest_status.get("services", {}).values()
+                if s["status"] == "UNHEALTHY"
+            ),
+        },
+    }
+    socketio.emit("service_overview_update", overview_data)
+    socketio.emit("history_update", service_history)  # Send initial history too
+    # Send initial staleness state
+    socketio.emit("staleness_update", {"isStale": is_stale})
+    logger.info("Initial state sent to client")
 
-    # Send the latest 50 log entries to the client
-    socketio.emit("blue_log_update", blue_entries[-50:] if blue_entries else [])
-    socketio.emit("red_log_update", red_entries[-50:] if red_entries else [])
+
+# --- Debug Endpoints --- #
+
+
+@app.route("/api/debug/force-stale", methods=["POST"])
+def debug_force_stale() -> Any:
+    """Debug endpoint to force the staleness state to true."""
+    global last_data_update_time, STALE_THRESHOLD_SECONDS
+    logger.warning("DEBUG: Forcing stale state")
+    # Set last update time far enough in the past to trigger staleness
+    last_data_update_time = time.monotonic() - (STALE_THRESHOLD_SECONDS + 5)
+    # Run the check immediately to update and emit
+    check_staleness()
+    return jsonify({"status": "success", "message": "Forced stale state"})
+
+
+@app.route("/api/debug/force-fresh", methods=["POST"])
+def debug_force_fresh() -> Any:
+    """Debug endpoint to force the staleness state to false."""
+    global last_data_update_time
+    logger.warning("DEBUG: Forcing fresh state")
+    # Set last update time to now
+    last_data_update_time = time.monotonic()
+    # Run the check immediately to update and emit
+    check_staleness()
+    return jsonify({"status": "success", "message": "Forced fresh state"})
+
+
+# --- End Debug Endpoints --- #
 
 
 def main() -> None:

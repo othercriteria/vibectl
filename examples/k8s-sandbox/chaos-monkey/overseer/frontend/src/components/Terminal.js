@@ -115,7 +115,7 @@ const Terminal = ({ logs = [], title = 'Terminal', autoScroll = true, agentType 
       xtermRef.current = new XTerm({
         cursorBlink: false,
         convertEol: true,
-        fontSize: 14,
+        fontSize: 12,
         lineHeight: 1.2,
         fontFamily: '"DejaVu Sans Mono", "Cascadia Mono", "Consolas", "Courier New", monospace',
         letterSpacing: 0,

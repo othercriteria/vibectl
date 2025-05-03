@@ -26,18 +26,24 @@ USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
 # Set color for agent output
 if [ "$AGENT_ROLE" = "blue" ]; then
     COLOR_CODE="\033[34m" # Blue color
+    AGENT_ROLE_DISPLAY="Blue"
 elif [ "$AGENT_ROLE" = "red" ]; then
     COLOR_CODE="\033[31m" # Red color
+    AGENT_ROLE_DISPLAY="Red"
 else
     COLOR_CODE="\033[0m" # Default color
+    AGENT_ROLE_DISPLAY=$(echo "$AGENT_ROLE" | awk '{print toupper(substr($0,1,1))tolower(substr($0,2))}') # Capitalize first letter
 fi
 NO_COLOR="\033[0m"
 
-echo -e "${COLOR_CODE}Starting ${AGENT_NAME^} Agent${NO_COLOR}"
+echo -e "${COLOR_CODE}Starting ${AGENT_ROLE_DISPLAY} agent (${AGENT_NAME})...${NO_COLOR}"
 echo -e "${COLOR_CODE}Role: ${AGENT_ROLE}${NO_COLOR}"
-echo -e "${COLOR_CODE}Session duration: ${SESSION_DURATION} minutes${NO_COLOR}"
-echo -e "${COLOR_CODE}Memory max chars: ${MEMORY_MAX_CHARS}${NO_COLOR}"
-echo -e "${COLOR_CODE}Action pause time: ${ACTION_PAUSE_TIME} seconds${NO_COLOR}"
+echo -e "${COLOR_CODE}Model: ${VIBECTL_MODEL}${NO_COLOR}"
+echo -e "${COLOR_CODE}Memory Max Chars: ${MEMORY_MAX_CHARS}${NO_COLOR}"
+echo -e "${COLOR_CODE}Action Pause Time: ${ACTION_PAUSE_TIME}s${NO_COLOR}"
+echo -e "${COLOR_CODE}Passive Duration: ${PASSIVE_DURATION} minutes${NO_COLOR}"
+echo -e "${COLOR_CODE}Active Duration: ${ACTIVE_DURATION} minutes${NO_COLOR}"
+echo -e "${COLOR_CODE}Verbose: ${VERBOSE}${NO_COLOR}"
 
 # Enhanced logging for verbose mode
 function log() {
@@ -247,83 +253,56 @@ check_k8s_health() {
   fi
 }
 
-# --- Agent Initialization ---
+# --- Agent Initialization & Memory Setup ---
 
-# Initialize vibectl memory with the content of memory-init.txt
-log "Initializing vibectl memory..."
+# Initialize vibectl memory with the base instructions
+log "Initializing vibectl memory with base instructions..."
 if [ -f "${MEMORY_INIT_FILE}" ]; then
     vibectl memory clear
-    # Inject initial memory directly
     if ! vibectl memory update "$(cat "${MEMORY_INIT_FILE}")"; then
         echo -e "${COLOR_CODE}ERROR: Failed to initialize memory from ${MEMORY_INIT_FILE}${NO_COLOR}"
         exit 1
     fi
-    log "Memory initialized from file: ${MEMORY_INIT_FILE}"
+    log "Base memory initialized from file: ${MEMORY_INIT_FILE}"
 else
-    echo -e "${COLOR_CODE}ERROR: Memory initialization file not found at ${MEMORY_INIT_FILE}${NO_COLOR}"
+    echo -e "${COLOR_CODE}ERROR: Base memory initialization file not found at ${MEMORY_INIT_FILE}${NO_COLOR}"
     exit 1
 fi
 
-# --- Initial Exploration Phase ---
-check_k8s_health
-log "Setting temporary custom instructions for exploration phase."
-EXPLORATION_INSTRUCTIONS="${ORIGINAL_CUSTOM_INSTRUCTIONS}
-
-IMPORTANT: You are currently in an initial exploration phase (first 10 interactions).
-
-Look but DO NOT TOUCH anything.
-
-Use read-only/non-mutating/non-destructive commands (get, describe, logs, auth can-i)."
-
-# Temporarily set exploration instructions using vibectl config
-vibectl config set custom_instructions "${EXPLORATION_INSTRUCTIONS}"
-
-echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Starting initial exploration phase (10 interactions, read-only)...${NO_COLOR}"
-# Run exploration loop directly using vibectl auto
-# This will use the temporarily set instructions via config
-if ! vibectl auto --limit 10 --interval ${ACTION_PAUSE_TIME}; then
-    echo -e "${COLOR_CODE}WARNING: Exploration phase encountered errors.${NO_COLOR}"
-    # Decide if we should exit or continue? For now, continue.
-fi
-log "Initial exploration phase complete."
-
-# --- Main Operation Phase ---
-# Restore original custom instructions using vibectl config
-log "Restoring original custom instructions for main operation phase."
-vibectl config set custom_instructions "${ORIGINAL_CUSTOM_INSTRUCTIONS}"
-
-# Add the playbook to memory if it exists
+# Add the playbook content to memory if it exists
 if [ -f "${PLAYBOOK_FILE}" ]; then
     log "Injecting playbook from ${PLAYBOOK_FILE}"
-    playbook_prompt="You have completed your initial exploration. You may now make changes according to your role. Use this playbook as a guide for next steps: $(cat "${PLAYBOOK_FILE}")"
-    # Inject playbook memory directly
+    playbook_content="$(cat "${PLAYBOOK_FILE}")"
+    # Use a clear prompt indicating this is a playbook
+    playbook_prompt="Here is your strategic playbook to consult:\n${playbook_content}"
     if ! vibectl memory update "${playbook_prompt}"; then
         echo -e "${COLOR_CODE}WARNING: Failed to inject playbook into memory.${NO_COLOR}"
     fi
+    log "Playbook content injected into memory."
 else
-    log "Playbook file not found at ${PLAYBOOK_FILE}. Proceeding without playbook."
-    # Add a simpler memory update if no playbook
-    # Inject fallback memory directly
-    if ! vibectl memory update "You have completed your initial exploration. You may now proceed with your main objectives according to your role."; then
-         echo -e "${COLOR_CODE}WARNING: Failed to inject post-exploration message into memory.${NO_COLOR}"
-    fi
+    log "Playbook file not found at ${PLAYBOOK_FILE}. Proceeding without playbook guidance."
 fi
+
+# Add the notification about the phased RBAC
+# Get PASSIVE_DURATION from env, default to 5 if not set (should be set by compose)
+PASSIVE_DURATION=${PASSIVE_DURATION:-5}
+log "Injecting notification about phased RBAC (Passive phase: ${PASSIVE_DURATION} minutes)..."
+PHASE_NOTIFICATION="IMPORTANT OPERATIONAL NOTE: You will operate in two phases. For the first ${PASSIVE_DURATION} minutes, you are in a passive, read-only observation phase with restricted Kubernetes RBAC permissions (get, list, watch only). Use this time to explore and understand the environment WITHOUT making changes. After ${PASSIVE_DURATION} minutes, your RBAC permissions will automatically expand to allow active operations according to your role. Plan your actions accordingly."
+
+if ! vibectl memory update "${PHASE_NOTIFICATION}"; then
+     echo -e "${COLOR_CODE}WARNING: Failed to inject phased RBAC notification into memory.${NO_COLOR}"
+fi
+log "Phased RBAC notification injected."
 
 check_k8s_health
 
-# Calculate total runtime in seconds for logging purposes
-TOTAL_RUNTIME_SECONDS=$(( SESSION_DURATION * 60 ))
-log "Session configured to run for ${SESSION_DURATION} minutes (${TOTAL_RUNTIME_SECONDS} seconds)."
-
-echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Starting main autonomous operation with interval ${ACTION_PAUSE_TIME}s...${NO_COLOR}"
+echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Starting continuous autonomous operation with interval ${ACTION_PAUSE_TIME}s...${NO_COLOR}"
 
 # Run vibectl auto indefinitely with the specified interval
-# Let Docker Compose or manual intervention handle stopping the container.
-# The --timeout flag could be added if vibectl supports it for automatic termination.
+# Let Docker Compose or the k8s-entrypoint.sh script handle stopping the container.
 if ! vibectl auto --interval ${ACTION_PAUSE_TIME}; then
     echo -e "${COLOR_CODE}ERROR: vibectl auto command exited unexpectedly.${NO_COLOR}"
-    # Optionally add exit code handling if needed
 fi
 
-# This part might not be reached if docker-compose stops the container first
+# This part might not be reached
 echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Agent process finished or was interrupted. Exiting.${NO_COLOR}"

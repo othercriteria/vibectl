@@ -26,11 +26,6 @@ const ServiceStatus = ({ status }) => {
           <h3 className="me-2">{getStatusBadge(status.status)}</h3>
         </div>
         <p>{status.message}</p>
-        {status.timestamp && (
-          <small className="text-muted">
-            <i className="fas fa-clock me-1"></i>Last updated: {new Date(status.timestamp).toLocaleString()}
-          </small>
-        )}
       </Card.Body>
     </Card>
   );

@@ -53,15 +53,16 @@ The poller performs the following key functions:
 
 The poller can be configured via environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `POLL_INTERVAL_SECONDS` | Time between service checks | 15 |
-| `DELAY_SECONDS` | Initial delay before starting checks | 15 |
-| `SESSION_DURATION` | Total duration in minutes | 30 |
-| `KUBECONFIG` | Path to Kubernetes config file | /config/kube/config |
-| `STATUS_DIR` | Directory for status reporting | /tmp/status |
-| `KIND_CONTAINER` | Name prefix for the KIND container | chaos-monkey-control-plane |
-| `VERBOSE` | Enable verbose logging | false |
+| Environment Variable | Description                         | Default Value |
+| ------------------ | ----------------------------------- | ------------- |
+| `KUBECONFIG`       | Path to the kubeconfig file         | (None)        |
+| `PASSIVE_DURATION` | Passive phase duration in minutes | 5             |
+| `ACTIVE_DURATION`  | Active phase duration in minutes    | 25            |
+| `POLLER_INTERVAL`  | Check interval in seconds           | 1             |
+| `POLLER_HISTORY`   | Max health checks to store        | 1000          |
+| `STATUS_DIR`       | Directory for status reporting      | /tmp/status   |
+| `KIND_CONTAINER`   | Name prefix for the KIND container  | chaos-monkey-control-plane |
+| `VERBOSE`          | Enable verbose logging             | false         |
 
 ## Status Reporting
 

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: blue-agent
-  namespace: default
+  namespace: services
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -10,7 +10,7 @@ metadata:
   name: blue-agent-role
 rules:
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "secrets", "namespaces"]
+  resources: ["pods", "services", "configmaps", "secrets", "namespaces", "resourcequotas"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets", "statefulsets"]
@@ -36,10 +36,35 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: blue-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: ClusterRole
   name: blue-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Role to manage resource quotas specifically in the services namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blue-agent-manage-quotas
+  namespace: services
+rules:
+- apiGroups: [""]
+  resources: ["resourcequotas"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-agent-manage-quotas-binding
+  namespace: services
+subjects:
+- kind: ServiceAccount
+  name: blue-agent
+  namespace: services
+roleRef:
+  kind: Role
+  name: blue-agent-manage-quotas
   apiGroup: rbac.authorization.k8s.io
 ---
 # No access to system-monitoring namespace resources
@@ -59,7 +84,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: blue-agent
-  namespace: default
+  namespace: services
 roleRef:
   kind: Role
   name: blue-agent-no-access

@@ -11,7 +11,7 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
   annotations:
     description: "Intentionally vulnerable code for chaos testing"
@@ -43,7 +43,7 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
   annotations:
     description: "Intentionally weak secret for chaos testing"
@@ -59,7 +59,7 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
   annotations:
     description: "Intentionally vulnerable application for testing attacks"
@@ -112,7 +112,7 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
   annotations:
     description: "Service fronting vulnerable application"
@@ -133,9 +133,8 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
-    attack-priority: "high"
   annotations:
     description: "Critically vulnerable database - primary attack target"
     chaos-vulnerabilities: "no-auth, no-persistence, no-ha, single-point-of-failure"
@@ -168,9 +167,8 @@ metadata:
   namespace: services
   labels:
     role: test-target
-    chaos-monkey-target: "true"
+    chaos-target: "true"
     purpose: "vulnerable-by-design"
-    attack-priority: "high"
   annotations:
     description: "Service for vulnerable database - critical attack target"
 spec:

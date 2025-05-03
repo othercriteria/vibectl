@@ -1,45 +1,48 @@
-.PHONY: run clean build logs help status restart stop
+.PHONY: run build up down logs blue-logs red-logs poller-logs overseer-logs sandbox-logs clean help
 
 # Default values for environment variables
-export SESSION_DURATION ?= 30
-export METRICS_INTERVAL ?= 15
+export PASSIVE_DURATION ?= 5
+export ACTIVE_DURATION ?= 25
 export VERBOSE ?= false
+export USE_STABLE_VERSIONS ?= false
 
 # Help command
 help:
-	@echo "Chaos Monkey Demo - Make Commands:"
+	@echo "Usage: make [target] [VARIABLE=value]..."
 	@echo ""
-	@echo "Usage:"
-	@echo "  make [command]"
+	@echo "Targets:"
+	@echo "  run                   Run the full demo (builds if necessary)"
+	@echo "  build                 Build all Docker images"
+	@echo "  up                    Start services without building (requires prior build)"
+	@echo "  down                  Stop and remove containers"
+	@echo "  logs                  Tail logs for all services"
+	@echo "  blue-logs             Tail logs for the blue agent"
+	@echo "  red-logs              Tail logs for the red agent"
+	@echo "  poller-logs           Tail logs for the poller"
+	@echo "  overseer-logs         Tail logs for the overseer"
+	@echo "  sandbox-logs          Tail logs for the k8s-sandbox setup"
+	@echo "  clean                 Remove containers, volumes, and Kind cluster"
+	@echo "  help                  Show this help message"
 	@echo ""
-	@echo "Commands:"
-	@echo "  run           Run the demo (default)"
-	@echo "  build         Build all containers without starting"
-	@echo "  clean         Stop and remove all containers"
-	@echo "  logs          View logs from all containers"
-	@echo "  status        Check status of containers"
-	@echo "  restart       Restart all containers"
-	@echo "  stop          Stop all containers"
-	@echo "  blue-logs     View logs from blue agent"
-	@echo "  red-logs      View logs from red agent"
-	@echo "  overseer-logs View logs from overseer"
-	@echo "  poller-logs   View logs from poller"
-	@echo "  services-logs View logs from services"
-	@echo ""
-	@echo "Environment Variables:"
-	@echo "  SESSION_DURATION     Session duration in minutes (default: 30 min)"
-	@echo "  METRICS_INTERVAL     Metrics collection interval in seconds (default: 15 sec)"
-	@echo "  VERBOSE              Enable verbose logging (default: false)"
+	@echo "Variables:"
+	@echo "  PASSIVE_DURATION     Passive phase duration in minutes (default: 5)"
+	@echo "  ACTIVE_DURATION      Active phase duration in minutes (default: 25)"
+	@echo "  VERBOSE              Enable verbose logging (true/false, default: false)"
+	@echo "  USE_STABLE_VERSIONS  Use stable PyPI packages (true/false, default: false)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run SESSION_DURATION=60 VERBOSE=true"
+	@echo "  make run PASSIVE_DURATION=10 ACTIVE_DURATION=50 VERBOSE=true"
 	@echo "  make logs"
-	@echo "  make blue-logs"
+	@echo "  make clean"
 
 # Default target
 run:
-	./run.sh $(if $(filter true,$(VERBOSE)),--verbose) \
-             --session-duration $(SESSION_DURATION)
+	@echo "Running Chaos Monkey Demo..."
+	./run.sh \
+		--passive-duration $(PASSIVE_DURATION) \
+		--active-duration $(ACTIVE_DURATION) \
+		$$( [ "$(VERBOSE)" = "true" ] && echo "--verbose" ) \
+		$$( [ "$(USE_STABLE_VERSIONS)" = "true" ] && echo "--use-stable-versions" )
 
 # Build containers
 build:

@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refined `_handle_command_confirmation` to restore full option handling (`a`, `e`) and improve prompt clarity.
 - Simplified `port-forward` handler tests for improved stability and clarity.
 - **[Demo]** Update `examples/k8s-sandbox/ctf` demo to install `vibectl` from local source via `pip install -e .`.
+- **[Demo]** Major enhancements to Chaos Monkey demo:
+  - Improved overseer dashboard with real-time cluster resource data (nodes, pods, namespaces, resource quotas), pod age/restarts, and better formatting.
+  - Enhanced poller with more robust Kubernetes checks, deployment readiness waits, and `PENDING` status.
+  - Refined monitoring intervals and background task handling in overseer.
+  - Added UI staleness detection and warning banner.
+  - Updated README with detailed component descriptions, configuration, and troubleshooting.
+  - Switched demo phases from session duration to distinct passive/active phases.
+  - Updated `run.sh` script with new duration parameters and stable version definitions.
 
 ### Fixed
 - Fix test failures related to `schema=` parameter change in `model_adapter`.

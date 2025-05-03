@@ -1,17 +1,29 @@
 #!/bin/bash
 set -euo pipefail
+set -x # Enable debug tracing
+
+# Configuration Variables
+export KUBECONFIG="$HOME/.kube/config"
+PASSIVE_DURATION=${PASSIVE_DURATION:-5} # Duration of passive phase in minutes (default 5)
+ACTIVE_DURATION=${ACTIVE_DURATION:-25} # Duration of active phase in minutes (default 25)
+# New: Increased timeouts for better resilience
+COMPONENT_WAIT_TIMEOUT=${COMPONENT_WAIT_TIMEOUT:-300s} # Wait timeout for critical components (5 mins)
+MAX_RETRIES=${MAX_RETRIES:-30} # Maximum retries for operations
+RETRY_INTERVAL=${RETRY_INTERVAL:-5} # Seconds between retries
+
+echo "Chaos Monkey Demo - Kubernetes Sandbox Entrypoint"
+echo "-------------------------------------------------"
+echo "Configuration:"
+echo "- Passive RBAC Duration: ${PASSIVE_DURATION} minutes"
+echo "- Active RBAC Duration: ${ACTIVE_DURATION} minutes"
+echo "- Component Wait Timeout: ${COMPONENT_WAIT_TIMEOUT}"
+echo "-------------------------------------------------"
 
 # Default values for environment variables
-SESSION_DURATION=${SESSION_DURATION:-30}
 VERBOSE=${VERBOSE:-false}
-# Use hardcoded values for internal ports
-NODE_PORT_1=30001
-NODE_PORT_2=30002
-NODE_PORT_3=30003
 API_SERVER_PORT=6443
 
 echo "Starting Chaos Monkey Kubernetes sandbox..."
-echo "Session duration: ${SESSION_DURATION} minutes"
 
 # Enhanced logging for verbose mode
 function log() {
@@ -26,6 +38,60 @@ function cleanup() {
     # Ensure kind cluster deletion even on script errors
     kind delete cluster --name chaos-monkey 2>/dev/null || true
     log "Cleanup complete"
+}
+
+# Wait for API server
+function wait_for_api_server() {
+    log "Waiting for API server to be ready..."
+    local retry_count=0
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        if kubectl cluster-info 2>/dev/null | grep -q 'Kubernetes'; then
+            log "API server is ready"
+            return 0
+        fi
+        retry_count=$((retry_count + 1))
+        log "API server not ready yet, waiting (attempt $retry_count/$MAX_RETRIES)..."
+        sleep $RETRY_INTERVAL
+    done
+    echo "ERROR: API server did not become ready in time"
+    return 1
+}
+
+# Wait for daemonset to be ready
+function wait_for_daemonset_ready() {
+    local daemonset_name=$1
+    local namespace=$2
+    local min_seconds=${3:-5}
+    local max_attempts=${4:-10}
+    local attempt=0
+
+    echo "Waiting for daemonset ${daemonset_name} in namespace ${namespace} to be ready..."
+
+    # Wait at least min_seconds to give it time to initialize
+    sleep $min_seconds
+
+    while [ $attempt -lt $max_attempts ]; do
+        # Get the number of desired, current, ready, up-to-date pods
+        local desired=$(kubectl get daemonset ${daemonset_name} -n ${namespace} -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+        local current=$(kubectl get daemonset ${daemonset_name} -n ${namespace} -o jsonpath='{.status.currentNumberScheduled}' 2>/dev/null || echo "0")
+        local ready=$(kubectl get daemonset ${daemonset_name} -n ${namespace} -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+        local updated=$(kubectl get daemonset ${daemonset_name} -n ${namespace} -o jsonpath='{.status.updatedNumberScheduled}' 2>/dev/null || echo "0")
+
+        echo "Daemonset ${daemonset_name}: desired=${desired}, current=${current}, ready=${ready}, updated=${updated}"
+
+        # Check if daemonset is ready (all pods running and ready)
+        if [ "$desired" != "0" ] && [ "$desired" = "$current" ] && [ "$desired" = "$ready" ] && [ "$desired" = "$updated" ]; then
+            echo "✅ Daemonset ${daemonset_name} is fully ready"
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        echo "Daemonset not fully ready yet (attempt $attempt/$max_attempts), waiting..."
+        sleep 5
+    done
+
+    echo "⚠️ Daemonset ${daemonset_name} did not become fully ready within timeout"
+    return 1
 }
 
 # Function to check service accessibility in the Kind container
@@ -64,6 +130,10 @@ function check_service() {
 # Register the cleanup function to be called on EXIT
 trap cleanup EXIT
 
+# Explicitly delete any pre-existing cluster to ensure clean state
+log "Ensuring no previous 'chaos-monkey' cluster exists..."
+kind delete cluster --name chaos-monkey 2>/dev/null || true
+
 # Create kind cluster with proper API server binding
 log "Creating Kubernetes cluster with Kind..."
 # Process and use the kind-config.yaml file
@@ -99,11 +169,12 @@ export KUBECONFIG=/root/.kube/config
 log "Updating kubeconfig to use control plane IP directly"
 kubectl config set-cluster kind-chaos-monkey --server="https://${CONTROL_PLANE_IP}:${API_SERVER_PORT}"
 
+# Wait for the API server to become available before proceeding
+wait_for_api_server
+
 # Check if we can connect to the cluster
 log "Checking Kubernetes connection..."
-MAX_RETRIES=15
 RETRY_COUNT=0
-RETRY_INTERVAL=2
 
 while ! kubectl cluster-info > /dev/null 2>&1; do
     echo -n "."
@@ -123,9 +194,8 @@ done
 
 echo " API server is reachable!"
 
-# Wait for the cluster to be ready
-log "Waiting for Kubernetes cluster to be ready..."
-MAX_RETRIES=15
+# Wait for the cluster node to be definitively Ready
+log "Waiting for Kubernetes cluster node to be ready..."
 RETRY_COUNT=0
 
 while ! kubectl get nodes | grep -q "Ready"; do
@@ -145,21 +215,164 @@ done
 
 echo " Kubernetes cluster is ready!"
 
-# Create namespaces
-log "Creating namespaces..."
+# Function to wait for CoreDNS to be ready
+function wait_for_coredns() {
+    log "Waiting for CoreDNS to be ready..."
+    local retry_count=0
+    local max_retries=10
+
+    while [ $retry_count -lt $max_retries ]; do
+        # Check if CoreDNS pods exist and are running
+        local pods_running=$(kubectl get pods -n kube-system -l k8s-app=kube-dns --field-selector=status.phase=Running -o name 2>/dev/null | wc -l)
+
+        if [ "$pods_running" -gt 0 ]; then
+            # Check for DNS endpoints
+            if kubectl get endpoints kube-dns -n kube-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null | grep -q .; then
+                log "CoreDNS is ready with endpoints"
+                return 0
+            fi
+        fi
+
+        retry_count=$((retry_count + 1))
+        log "CoreDNS not ready yet, waiting (attempt $retry_count/$max_retries)..."
+
+        # On first attempt, show status
+        if [ $retry_count -eq 1 ]; then
+            echo "Current CoreDNS status:"
+            kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide || true
+        fi
+
+        # On third attempt, try restarting CoreDNS if needed
+        if [ $retry_count -eq 3 ]; then
+            echo "Trying to restart CoreDNS if needed..."
+            kubectl rollout restart deployment coredns -n kube-system || true
+        fi
+
+        sleep 5
+    done
+
+    echo "WARNING: CoreDNS might not be fully ready. Proceeding anyway."
+    return 0
+}
+
+# Function to install Kubernetes State Metrics (KSM)
+function install_kubernetes_state_metrics() {
+    log "Installing Kubernetes State Metrics (KSM)..."
+
+    # Use latest stable version based on repo info and apply manifests from examples/standard
+    KSM_VERSION="v2.15.0"
+    KSM_BASE_URL="https://raw.githubusercontent.com/kubernetes/kube-state-metrics/${KSM_VERSION}/examples/standard"
+    KSM_MANIFESTS=(
+        "service-account.yaml"
+        "cluster-role.yaml"
+        "cluster-role-binding.yaml"
+        "deployment.yaml"
+        "service.yaml"
+    )
+    KSM_TEMP_DIR="/tmp/ksm-manifests-${KSM_VERSION}"
+    mkdir -p "${KSM_TEMP_DIR}"
+
+    log "Downloading KSM manifests for version ${KSM_VERSION} from ${KSM_BASE_URL}..."
+    for manifest in "${KSM_MANIFESTS[@]}"; do
+        local url="${KSM_BASE_URL}/${manifest}"
+        local file="${KSM_TEMP_DIR}/${manifest}"
+        log "Downloading ${url} to ${file}..."
+        if ! curl -sSLf "${url}" -o "${file}"; then
+            echo "ERROR: Failed to download KSM manifest ${manifest} from ${url}. curl exit code: $?"
+            rm -rf "${KSM_TEMP_DIR}" # Clean up partial downloads
+            return 1
+        fi
+        if [ ! -s "${file}" ]; then
+            echo "ERROR: Downloaded KSM manifest file ${file} is empty."
+            rm -rf "${KSM_TEMP_DIR}" # Clean up partial downloads
+            return 1
+        fi
+        log "Successfully downloaded ${manifest}."
+    done
+    log "All KSM manifests downloaded successfully to ${KSM_TEMP_DIR}."
+
+    # Optional: Validate manifests client-side before applying (optional)
+    # log "Performing client-side validation of KSM manifests..."
+    # if ! kubectl apply -f "${KSM_TEMP_DIR}" --validate=true --dry-run=client > /dev/null; then
+    #     echo "WARNING: Client-side validation of KSM manifests failed."
+    # fi
+
+    log "Applying KSM manifests from ${KSM_TEMP_DIR}..."
+    if ! kubectl apply -f "${KSM_TEMP_DIR}"; then
+        echo "ERROR: Failed to apply KSM manifests from ${KSM_TEMP_DIR}."
+        # Attempt to show logs from failed apply if possible, or list files applied
+        ls -l "${KSM_TEMP_DIR}"
+        return 1
+    fi
+    log "KSM manifests applied successfully."
+    rm -rf "${KSM_TEMP_DIR}" # Clean up downloaded manifests
+
+    # Wait for the KSM deployment object to exist before patching
+    log "Waiting for KSM deployment object (kube-state-metrics in kube-system) to be created..."
+    RETRY_COUNT=0
+    # Note: The deployment name might vary based on the manifest, confirm it's 'kube-state-metrics'
+    KSM_DEPLOYMENT_NAME="kube-state-metrics"
+    while ! kubectl get deployment ${KSM_DEPLOYMENT_NAME} -n kube-system &>/dev/null; do
+        echo -n "."
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -ge 10 ]; then
+            echo ""
+            echo "WARNING: KSM deployment object '${KSM_DEPLOYMENT_NAME}' did not get created in time. Skipping patch."
+            return 1 # Return error as we couldn't ensure tolerations
+        fi
+        sleep 3
+    done
+    echo " KSM deployment object created."
+
+    # Add tolerations using kubectl patch
+    log "Adding tolerations to KSM deployment '${KSM_DEPLOYMENT_NAME}' using kubectl patch..."
+    KSM_PATCH='{"spec":{"template":{"spec":{"tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'
+    if ! kubectl patch deployment ${KSM_DEPLOYMENT_NAME} -n kube-system --type=strategic --patch="${KSM_PATCH}"; then
+        echo "WARNING: Failed to patch KSM deployment '${KSM_DEPLOYMENT_NAME}' with tolerations. It might not run on the control plane node."
+        # Continue, but log the warning.
+    else
+        log "Successfully patched KSM deployment '${KSM_DEPLOYMENT_NAME}' with tolerations."
+    fi
+
+    # Wait for KSM to become available (best effort)
+    log "Waiting for KSM deployment '${KSM_DEPLOYMENT_NAME}' to become available (best effort)..."
+    if ! kubectl wait --for=condition=available --timeout=60s deployment/${KSM_DEPLOYMENT_NAME} -n kube-system; then
+        echo "WARNING: KSM deployment '${KSM_DEPLOYMENT_NAME}' did not become available in 60 seconds."
+        echo "Will continue without waiting further for KSM."
+        # Not returning error, we'll proceed anyway
+    else
+        echo "✅ KSM deployment '${KSM_DEPLOYMENT_NAME}' is ready!"
+
+        # Verify KSM service is working
+        log "Verifying KSM service..."
+        # Note: Service name might also vary, assuming 'kube-state-metrics' based on standard practice
+        KSM_SERVICE_NAME="kube-state-metrics"
+        KSM_POD=$(kubectl get pods -n kube-system -l app.kubernetes.io/name=${KSM_DEPLOYMENT_NAME} -o name | head -1)
+        if [ -n "$KSM_POD" ]; then
+            echo "KSM pod found: ${KSM_POD}"
+
+            # Check KSM logs
+            kubectl logs ${KSM_POD} -n kube-system --tail=5 || true
+
+            # Report service information
+            echo "KSM service information (${KSM_SERVICE_NAME}):"
+            kubectl get service ${KSM_SERVICE_NAME} -n kube-system -o wide || echo "Could not get service info for ${KSM_SERVICE_NAME}"
+        else
+            echo "WARNING: KSM pod not found for deployment ${KSM_DEPLOYMENT_NAME}, but deployment was applied."
+        fi
+    fi
+
+    return 0
+}
+
+# Apply Namespaces, Quotas, and initial PASSIVE RBAC
+log "Applying initial Kubernetes configurations (Namespaces, initial RBAC)..."
 kubectl apply -f /kubernetes/namespaces.yaml
+kubectl apply -f /kubernetes/blue-agent-passive-rbac.yaml
+kubectl apply -f /kubernetes/red-agent-passive-rbac.yaml
 
-# Create roles and role bindings for the blue agent
-log "Setting up RBAC for blue agent..."
-kubectl apply -f /kubernetes/blue-agent-rbac.yaml
-
-# Create roles and role bindings for the red agent (more limited)
-log "Setting up RBAC for red agent..."
-kubectl apply -f /kubernetes/red-agent-rbac.yaml
-
-# Set up system monitoring namespace isolation
-log "Setting up system monitoring namespace isolation..."
-kubectl apply -f /kubernetes/system-monitoring-isolation.yaml
+# Install Kubernetes State Metrics for resource monitoring
+install_kubernetes_state_metrics
 
 # Create services
 log "Deploying target services..."
@@ -231,7 +444,6 @@ DEPLOYMENT_RETRY=0
 while [ $DEPLOYMENT_RETRY -lt $MAX_DEPLOYMENT_RETRIES ]; do
     if kubectl wait --for=condition=available --timeout=60s deployment --all -n services 2>/dev/null; then
         echo "✅ All deployments in services namespace are ready"
-        DEPLOYMENT_SUCCESS=true
         break
     else
         DEPLOYMENT_RETRY=$((DEPLOYMENT_RETRY + 1))
@@ -258,6 +470,13 @@ while [ $DEPLOYMENT_RETRY -lt $MAX_DEPLOYMENT_RETRIES ]; do
         fi
     fi
 done
+
+# Apply Resource Quotas and Network Isolation AFTER services are ready
+log "Applying Resource Quotas..."
+kubectl apply -f /kubernetes/resource-quotas.yaml
+
+log "Applying System Monitoring Namespace Isolation..."
+kubectl apply -f /kubernetes/system-monitoring-isolation.yaml
 
 # Create a shared kubeconfig for agent containers
 log "Creating shared kubeconfig for agent containers..."
@@ -288,31 +507,33 @@ else
     echo "No app pods found"
 fi
 
-# Keep container running
-echo "All services deployed. Container will keep running for the duration of the session."
+echo "-------------------------------------------------"
+echo "Kubernetes Sandbox Setup Complete."
+echo "Passive RBAC rules are active."
+echo "Target services are deployed and ready."
+echo "-------------------------------------------------"
 
-# Create a counter to track remaining time
-DURATION_SECONDS=$((SESSION_DURATION * 60))
-START_TIME=$(date +%s)
-END_TIME=$((START_TIME + DURATION_SECONDS))
+# --- Passive Phase Wait ---
+echo "Waiting for PASSIVE phase duration (${PASSIVE_DURATION} minutes)..."
+sleep ${PASSIVE_DURATION}m
 
-while true; do
-    CURRENT_TIME=$(date +%s)
-    REMAINING_SECONDS=$((END_TIME - CURRENT_TIME))
+# --- Switch to Active RBAC ---
+echo "Passive phase complete. Switching to ACTIVE RBAC rules..."
+kubectl delete -f /kubernetes/blue-agent-passive-rbac.yaml --ignore-not-found=true
+kubectl delete -f /kubernetes/red-agent-passive-rbac.yaml --ignore-not-found=true
 
-    # Exit if time is up
-    if [ $REMAINING_SECONDS -le 0 ]; then
-        echo "Session duration completed. Exiting..."
-        break
-    fi
+kubectl apply -f /kubernetes/blue-agent-active-rbac.yaml
+kubectl apply -f /kubernetes/red-agent-active-rbac.yaml
+echo "Active RBAC rules applied."
 
-    # Keep alive with time remaining display every minute
-    if [ $((REMAINING_SECONDS % 60)) -eq 0 ]; then
-        REMAINING_MINUTES=$((REMAINING_SECONDS / 60))
-        echo "Services running. $REMAINING_MINUTES minutes remaining."
-    fi
+# --- Active Phase Wait ---
+echo "Waiting for ACTIVE phase duration (${ACTIVE_DURATION} minutes)..."
+sleep ${ACTIVE_DURATION}m
 
-    sleep 1
-done
+# --- Session End ---
+echo "Active phase duration complete."
+echo "-------------------------------------------------"
+echo "Chaos Monkey Demo Session Finished."
+echo "-------------------------------------------------"
 
-# Cleanup handled by EXIT trap
+# Cleanup will be handled by the trap EXIT
