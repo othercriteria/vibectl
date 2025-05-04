@@ -83,8 +83,6 @@ def simple_port_forward_handler(
         stats.traffic_monitoring_enabled = True
         stats.bytes_received = 1024
         stats.bytes_sent = 2048
-        stats.connections_attempted = 1
-        stats.successful_connections = 1
         stats.elapsed_connected_time = 100.0
 
     # Create command for memory
@@ -99,8 +97,6 @@ def simple_port_forward_handler(
         "remote_port": remote_port,
         "total_duration": 100.0,
         "final_status": stats.current_status,
-        "connections_attempted": stats.connections_attempted,
-        "successful_connections": stats.successful_connections,
         "connection_duration": stats.elapsed_connected_time,
         "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
         "using_proxy": stats.using_proxy,

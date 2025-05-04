@@ -556,9 +556,6 @@ def vibe(
         # Otherwise, print the standard exception string representation if non-empty
         elif str(e):
             console_manager.print_error(str(e))
-        # As a last resort if str(e) is empty
-        else:
-            console_manager.print_error("An unexpected error occurred.")
 
         # Use Click's abort mechanism to exit with non-zero status
         raise click.Abort() from e
@@ -1260,8 +1257,8 @@ def handle_result(result: Result) -> None:
         elif str(result):
             console_manager.print_error(str(result))
 
-        # Use Click's abort mechanism to exit with non-zero status
-        raise click.Abort()
+        # Revert: Exit with 1 for any Error, as cancellation is now Success
+        sys.exit(1)
 
 
 def main() -> None:

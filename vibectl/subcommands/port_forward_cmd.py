@@ -7,7 +7,7 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.prompt import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, Result
 
 
 def run_port_forward_command(
@@ -49,78 +49,49 @@ def run_port_forward_command(
             logger.info("Planning how to: port-forward %s", request)
 
             # Use the Result returned from handle_vibe_request
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="port-forward",
-                    plan_prompt=PLAN_PORT_FORWARD_PROMPT,
-                    summary_prompt_func=port_forward_prompt,
-                    output_flags=output_flags,
-                    live_display=live_display,
-                    memory_context=get_memory() or "",
-                )
-            except Exception as e:
-                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
-                return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'port-forward' subcommand for vibe request.")
-            return Success(
-                message="Completed 'port-forward' subcommand for vibe request."
+            result = handle_vibe_request(
+                request=request,
+                command="port-forward",
+                plan_prompt=PLAN_PORT_FORWARD_PROMPT,
+                summary_prompt_func=port_forward_prompt,
+                output_flags=output_flags,
+                live_display=live_display,
+                memory_context=get_memory() or "",
             )
+            logger.info("Completed 'port-forward' subcommand for vibe request.")
+            return result
 
         # Handle command with live display
         if live_display:
             logger.info(
                 f"Handling port-forward with live display for resource: {resource}"
             )
-            try:
-                handle_port_forward_with_live_display(
-                    resource=resource,
-                    args=args,
-                    output_flags=output_flags,
-                    summary_prompt_func=port_forward_prompt,
-                )
-            except Exception as e:
-                logger.error(
-                    "Error in handle_port_forward_with_live_display: %s",
-                    e,
-                    exc_info=True,
-                )
-                return Error(
-                    error="Exception in handle_port_forward_with_live_display",
-                    exception=e,
-                )
+            result = handle_port_forward_with_live_display(
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=port_forward_prompt,
+            )
             logger.info(
                 f"Completed port-forward with live display for resource: {resource}"
             )
-            return Success(
-                message=(
-                    f"Completed port-forward with live display for resource: {resource}"
-                )
-            )
+            return result
         else:
             # Standard command without live display
             logger.info(
                 f"Handling standard port-forward command for resource: {resource}"
             )
-            try:
-                handle_standard_command(
-                    command="port-forward",
-                    resource=resource,
-                    args=args,
-                    output_flags=output_flags,
-                    summary_prompt_func=port_forward_prompt,
-                )
-            except Exception as e:
-                logger.error("Error in handle_standard_command: %s", e, exc_info=True)
-                return Error(error="Exception in handle_standard_command", exception=e)
+            result = handle_standard_command(
+                command="port-forward",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=port_forward_prompt,
+            )
             logger.info(
                 f"Completed standard port-forward command for resource: {resource}"
             )
-            return Success(
-                message=(
-                    f"Completed standard port-forward command for resource: {resource}"
-                )
-            )
+            return result
     except Exception as e:
         logger.error("Error in 'port-forward' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'port-forward' subcommand", exception=e)

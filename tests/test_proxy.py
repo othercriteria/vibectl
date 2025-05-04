@@ -230,7 +230,7 @@ def test_handle_client_connection_error(
         local_port=8080, target_host="127.0.0.1", target_port=9090, stats=stats
     )
 
-    # Call handle_client
+    # Call handle_client (it should now handle the error internally and return)
     asyncio.run(
         proxy._handle_client(
             mock_asyncio_components["client_reader"],
@@ -238,10 +238,9 @@ def test_handle_client_connection_error(
         )
     )
 
-    # Verify error was logged
+    # Assert logger.error was called
     mock_log_error.assert_called_once()
-
-    # Verify client connection was closed
+    # Assert client_writer.close was called
     mock_asyncio_components["client_writer"].close.assert_called_once()
 
 

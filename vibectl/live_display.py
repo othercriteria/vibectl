@@ -241,9 +241,8 @@ class ConnectionStats(StatsProtocol):
 
     def __init__(self) -> None:
         """Initialize connection statistics."""
+        self.start_time = time.time()
         self.current_status = "Connecting"  # Current connection status
-        self.connections_attempted = 0  # Number of connection attempts
-        self.successful_connections = 0  # Number of successful connections
         self.bytes_sent = 0  # Bytes sent through connection
         self.bytes_received = 0  # Bytes received through connection
         self.elapsed_connected_time = 0.0  # Time in seconds connection was active
@@ -397,8 +396,12 @@ def _execute_port_forward_with_live_display(
             stderr=asyncio.subprocess.PIPE,
         )
 
-        # Increment connection attempts counter
-        stats.connections_attempted += 1
+        # Wait briefly before checking process exit or starting proxy
+        await asyncio.sleep(0.1)
+
+        # Check if the process has already exited (e.g., due to immediate error)
+        if process.returncode is not None:
+            return process
 
         # Return reference to the process
         return process
@@ -426,7 +429,6 @@ def _execute_port_forward_with_live_display(
                         if "Forwarding from" in line_str:
                             connected = True
                             stats.current_status = "Connected"
-                            stats.successful_connections += 1
                             if connection_start_time is None:
                                 connection_start_time = time.time()
 
@@ -574,6 +576,7 @@ def _execute_port_forward_with_live_display(
         # Set up event loop and run the async code
         created_new_loop = False
         loop = None
+        process: asyncio.subprocess.Process | None = None
 
         try:
             # Get or create an event loop
@@ -595,34 +598,90 @@ def _execute_port_forward_with_live_display(
             # Handle Ctrl+C gracefully
             stats.current_status = "Cancelled (User)"
             console_manager.print_note("\nPort-forward cancelled by user")
-            return Error(error="Port-forward cancelled by user")
+            # Let finally block handle process termination
 
         except asyncio.CancelledError:
-            # Handle cancellation
-            stats.current_status = "Cancelled"
-            console_manager.print_note("\nPort-forward cancelled")
-            return Error(error="Port-forward cancelled")
+            # Handle internal cancellation - *don't* set final status here
+            # This might happen if the process exits while progress task runs
+            logger.info("Port-forward progress task cancelled internally.")
+            # Let finally block handle process termination
 
         except Exception as e:
-            # Handle other errors
-            stats.current_status = "Error"
+            # Handle other unexpected errors during setup/main execution
+            stats.current_status = "Error (Setup)"
             stats.error_messages.append(str(e))
-            console_manager.print_error(f"\nPort-forward error: {e!s}")
-            return Error(error=f"Port-forward error: {e}", exception=e)
+            console_manager.print_error(f"\nPort-forward setup error: {e!s}")
+            # We might not have a process object here, so we return Error directly
+            return Error(error=f"Port-forward setup error: {e}", exception=e)
 
         finally:
-            # Clean up
+            # Clean up process and loop
+            if (
+                process and process.returncode is None
+            ):  # Ensure process exists before term
+                try:
+                    process.terminate()
+
+                    # Add short wait for termination
+                    async def wait_terminate() -> None:
+                        await process.wait()
+
+                    current_loop = asyncio.get_event_loop()
+                    if not current_loop.is_closed():
+                        current_loop.run_until_complete(
+                            asyncio.wait_for(wait_terminate(), timeout=1.0)
+                        )
+                except (ProcessLookupError, asyncio.TimeoutError, Exception) as term_e:
+                    logger.warning(f"Error terminating port-forward process: {term_e}")
+
             if created_new_loop and loop is not None:
                 loop.close()
+
+    # --- Post-execution processing ---
+
+    final_status = "Unknown"  # Default status
+    has_error = False
+    # Determine final status based on exit code and captured errors/interrupt
+    if stats.current_status == "Cancelled (User)":
+        final_status = "Cancelled (User)"
+        # User cancellation is not treated as an error for the return type
+    elif process and process.returncode is not None and process.returncode != 0:
+        final_status = "Error (kubectl)"
+        has_error = True
+        if not stats.error_messages:  # Add return code if no stderr message captured
+            stats.error_messages.append(
+                f"kubectl process exited with code {process.returncode}"
+            )
+    elif stats.error_messages:  # Check if update_progress captured stderr errors
+        final_status = "Error (stderr)"  # Or use a more specific status if needed
+        has_error = True
+    elif stats.current_status == "Error (Setup)":  # Check for setup errors
+        final_status = stats.current_status
+        has_error = True
+    elif process and process.returncode == 0:
+        final_status = "Completed"
+    else:
+        # Fallback if process is None or returncode is None without cancellation/error
+        final_status = (
+            stats.current_status
+            if stats.current_status != "Connecting"
+            else "Unknown Exit"
+        )
+        if "Cancelled" not in final_status:
+            has_error = True  # Treat unknown exits as errors unless cancelled
+
+    # Update stats object with the final determined status
+    stats.current_status = final_status
 
     # Calculate elapsed time
     elapsed_time = time.time() - start_time
 
-    # Show final message with elapsed time
-    console_manager.print_note(
-        f"\n[bold]Port-forward session ended after "
+    # Show final status message (uses updated stats.current_status)
+    final_status_message = (
+        f"[bold]Port-forward session ended ({stats.current_status}) after "
         f"[italic]{elapsed_time:.1f}s[/italic][/bold]"
     )
+    console_manager.print_note(f"\n{final_status_message}")
 
     # Create and display a table with connection statistics
     table = Table(title=f"Port-forward {resource} Connection Summary")
@@ -637,8 +696,6 @@ def _execute_port_forward_with_live_display(
     table.add_row("Port Mapping", f"localhost:{local_port} → {remote_port}")
     table.add_row("Duration", f"{elapsed_time:.1f}s")
     table.add_row("Connected Time", f"{stats.elapsed_connected_time:.1f}s")
-    table.add_row("Connection Attempts", str(stats.connections_attempted))
-    table.add_row("Successful Connections", str(stats.successful_connections))
 
     # Add proxy information if enabled
     if stats.using_proxy:
@@ -658,33 +715,26 @@ def _execute_port_forward_with_live_display(
     console_manager.console.print(table)
 
     # Prepare forward info for memory
-    forward_info = f"Port-forward {resource} {port_mapping} ran for {elapsed_time:.1f}s"
+    forward_info = (
+        f"Port-forward {resource} {port_mapping} ran for "
+        f"{elapsed_time:.1f}s ({stats.current_status})"
+    )
 
     # Create command string for memory
     command_str = f"port-forward {resource} {' '.join(args)}"
 
-    # If vibe output is enabled, generate a summary using the LLM
+    # Generate Vibe summary (only if no actual error)
     vibe_output = ""
-    has_error = bool(stats.error_messages)
-
-    if output_flags.show_vibe:
+    if output_flags.show_vibe and not has_error:
         try:
-            # Get LLM summary of the port-forward session
             model_adapter = get_model_adapter()
             model = model_adapter.get_model(output_flags.model_name)
 
-            # Create detailed info for the prompt
-            detailed_info = {
-                "resource": resource,
-                "port_mapping": port_mapping,
-                "local_port": local_port,
-                "remote_port": remote_port,
-                "duration": f"{elapsed_time:.1f}s",
+            # Prepare context for the prompt
+            watch_context = {
                 "command": command_str,
+                "duration": f"{elapsed_time:.1f}s",
                 "status": stats.current_status,
-                "connected_time": f"{stats.elapsed_connected_time:.1f}s",
-                "connection_attempts": stats.connections_attempted,
-                "successful_connections": stats.successful_connections,
                 "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
                 "using_proxy": stats.using_proxy,
                 "bytes_sent": stats.bytes_sent,
@@ -692,26 +742,26 @@ def _execute_port_forward_with_live_display(
                 "errors": stats.error_messages,
             }
 
-            # Format stats as YAML for the prompt content
-            detailed_yaml = yaml.safe_dump(detailed_info, default_flow_style=False)
-
-            # Get the prompt template and format it with the YAML content
-            summary_prompt_template = summary_prompt_func()
-            # Assuming the prompt template uses {output} for the main content
-            # and {command} for the command string.
-            prompt = summary_prompt_template.format(
-                output=detailed_yaml, command=command_str
+            # Format context as YAML for the prompt
+            context_yaml = yaml.safe_dump(
+                watch_context, default_flow_style=False, sort_keys=False
             )
 
-            # Execute the prompt to get a summary
+            # Get and format the prompt
+            summary_prompt_template = summary_prompt_func()
+            prompt = summary_prompt_template.format(
+                output=context_yaml, command=command_str
+            )
+
+            logger.debug(f"Vibe Watch Summary Prompt:\n{prompt}")
             vibe_output = model_adapter.execute(model, prompt)
 
-            # Display the vibe output
             if vibe_output:
                 console_manager.print_vibe(vibe_output)
+            else:
+                logger.warning("Received empty summary from Vibe.")
 
         except Exception as e:
-            # Don't let errors in vibe generation break the command
             console_manager.print_error(f"Error generating summary: {e}")
             logger.error(f"Error generating port-forward summary: {e}", exc_info=True)
 
@@ -719,22 +769,28 @@ def _execute_port_forward_with_live_display(
     update_memory(
         command_str,
         forward_info,
-        vibe_output,  # Now using the generated vibe output
+        vibe_output,
         output_flags.model_name,
     )
 
-    # Return appropriate result
+    # Return appropriate result based on whether an error occurred
     if has_error:
+        # Return Error if kubectl exited non-zero or other errors occurred
+        error_detail = "\n".join(stats.error_messages)
         return Error(
-            error="\n".join(stats.error_messages)
-            or "Port-forward completed with errors",
+            error=error_detail
+            or f"Port-forward failed (status: {stats.current_status})",
         )
     else:
+        # Return Success for normal completion or user cancellation
+        header = f"Port-forward {resource} {port_mapping}"
+        success_message = (
+            f"{header} {stats.current_status.lower()} ({elapsed_time:.1f}s)"
+            if "Cancelled" in stats.current_status
+            else f"{header} completed successfully ({elapsed_time:.1f}s)"
+        )
         return Success(
-            message=(
-                f"Port-forward {resource} {port_mapping} completed "
-                f"successfully ({elapsed_time:.1f}s)"
-            ),
+            message=success_message,
             data=vibe_output,
         )
 

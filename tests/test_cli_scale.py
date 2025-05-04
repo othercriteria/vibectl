@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli, scale
 from vibectl.prompt import PLAN_SCALE_PROMPT
+from vibectl.types import Error
 
 
 def test_scale_vibe_request(cli_runner: CliRunner) -> None:
@@ -155,18 +156,26 @@ def test_scale_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in scale command."""
     with (
         patch("vibectl.subcommands.scale_cmd.run_kubectl") as mock_run_kubectl,
-        patch("sys.exit") as mock_exit,  # Keep sys.exit mock for error path
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
         # Setup an exception
-        mock_run_kubectl.side_effect = Exception("Test error")
+        test_exception = Exception("Test error")
+        mock_run_kubectl.side_effect = test_exception
 
         # Execute
-        result = cli_runner.invoke(scale, ["deployment/nginx", "--replicas=3"])
+        _ = cli_runner.invoke(cli, ["scale", "deployment/nginx", "--replicas=3"])
 
-        # Assert error handling
-        assert result.exit_code == 0  # CliRunner catches SystemExit and makes it 0
-        mock_exit.assert_called_once_with(1)  # Verify sys.exit(1) was called
-        assert "Test error" in result.output
+        # Assert error handling: check that handle_result was called once
+        mock_handle_result.assert_called_once()
+
+        # Assert that handle_result was called with an Error object
+        args, _ = mock_handle_result.call_args
+        assert len(args) == 1
+        result_arg = args[0]
+        assert isinstance(result_arg, Error)
+        # Check the content of the Error object matches the generic message
+        assert result_arg.error == "Exception running kubectl"
+        assert result_arg.exception is test_exception
 
 
 def test_scale_with_kubectl_flags(cli_runner: CliRunner) -> None:
