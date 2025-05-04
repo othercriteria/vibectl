@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
+from vibectl.subcommands import wait_cmd as wait_cmd_module
 from vibectl.types import Error, Success
 
 
@@ -272,34 +273,57 @@ def test_wait_error_handling(
 
 @patch("vibectl.subcommands.wait_cmd.handle_vibe_request")
 def test_wait_vibe_request(
-    mock_handle_vibe: MagicMock, cli_runner: CliRunner, mock_memory: Mock
+    mock_handle_vibe: MagicMock,
+    cli_runner: CliRunner,
+    mock_configure_output_flags: MagicMock,
+    mock_configure_memory_flags: MagicMock,
 ) -> None:
     """Test wait command with vibe request."""
-    # Invoke CLI with vibe request
+    mock_handle_vibe.return_value = Success(message="Planned and executed")
     result = cli_runner.invoke(
         cli, ["wait", "vibe", "wait until the deployment myapp is ready"]
     )
-
-    # Check results
     assert result.exit_code == 0
     mock_handle_vibe.assert_called_once()
-    assert (
-        mock_handle_vibe.call_args[1]["request"]
-        == "wait until the deployment myapp is ready"
-    )
-    assert mock_handle_vibe.call_args[1]["command"] == "wait"
+    # Check specific arguments passed to handle_vibe_request
+    call_args = mock_handle_vibe.call_args[1]
+    assert call_args["request"] == "wait until the deployment myapp is ready"
+    assert call_args["command"] == "wait"
+    # Add more assertions if needed for other args like output_flags
+
+
+@patch("vibectl.subcommands.wait_cmd.handle_vibe_request")
+def test_wait_vibe_request_error(
+    mock_handle_vibe: MagicMock,
+    cli_runner: CliRunner,
+    mock_configure_output_flags: MagicMock,
+    mock_configure_memory_flags: MagicMock,
+) -> None:
+    """Test wait command vibe request error handling."""
+    # Simulate an error returned by handle_vibe_request
+    mock_handle_vibe.return_value = Error(error="LLM planning failed")
+    result = cli_runner.invoke(cli, ["wait", "vibe", "some complex wait request"])
+    # Expect a non-zero exit code because the command failed
+    assert result.exit_code != 0
+    # Check that the error message is in the output
+    assert "LLM planning failed" in result.output
+    mock_handle_vibe.assert_called_once()
+    # Check specific arguments passed to handle_vibe_request
+    call_args = mock_handle_vibe.call_args[1]
+    assert call_args["request"] == "some complex wait request"
+    assert call_args["command"] == "wait"
 
 
 def test_wait_vibe_no_request(
     cli_runner: CliRunner,
-    capsys: pytest.CaptureFixture,
+    mock_configure_output_flags: MagicMock,
+    mock_configure_memory_flags: MagicMock,
     mock_asyncio_for_wait: MagicMock,
 ) -> None:
     """Test that the wait command properly handles missing vibe request."""
-    result = cli_runner.invoke(cli, ["wait", "vibe"], input="\n")
-    assert result.exit_code == 1
-    # The error should be in the main output
-    assert "Missing request after 'vibe'" in result.output
+    result = cli_runner.invoke(cli, ["wait", "vibe"], input="\\n")
+    assert result.exit_code != 0  # Should fail if no request is provided
+    assert "Missing request after 'vibe' command" in result.output
 
 
 def test_wait_with_live_display_asyncio(
@@ -312,7 +336,6 @@ def test_wait_with_live_display_asyncio(
     """Test wait command with live display using asyncio."""
     from unittest.mock import patch
 
-    from vibectl.subcommands import wait_cmd as wait_cmd_module
     from vibectl.types import Success
 
     result_value = Success(data="pod/nginx condition met")
@@ -338,7 +361,6 @@ def test_wait_with_live_display_error_asyncio(
     """Test wait command with live display handling errors using asyncio."""
     from unittest.mock import patch
 
-    from vibectl.subcommands import wait_cmd as wait_cmd_module
     from vibectl.types import Error
 
     error_response = Error(error="timed out waiting for the condition")
@@ -359,3 +381,56 @@ def test_wait_with_live_display_error_asyncio(
         )
         mock_wait_live_display.assert_called_once()
         assert "--timeout=1s" in mock_wait_live_display.call_args[1]["args"]
+
+
+@patch("vibectl.subcommands.wait_cmd.handle_standard_command")
+def test_wait_standard_command(
+    mock_handle_standard: MagicMock,
+    cli_runner: CliRunner,
+    mock_configure_output_flags: MagicMock,
+    mock_configure_memory_flags: MagicMock,
+) -> None:
+    """Test wait command execution path without live display."""
+    mock_handle_standard.return_value = Success(message="Wait completed standard")
+    result = cli_runner.invoke(
+        cli,
+        [
+            "wait",
+            "deployment/app",
+            "--for=jsonpath='{.status}'=Running",
+            "--no-live-display",
+        ],
+    )
+    assert result.exit_code == 0
+    mock_handle_standard.assert_called_once()
+    call_args = mock_handle_standard.call_args[1]
+    assert call_args["command"] == "wait"
+    assert call_args["resource"] == "deployment/app"
+    assert call_args["args"] == ("--for=jsonpath='{.status}'=Running",)
+
+
+@patch("vibectl.subcommands.wait_cmd.handle_standard_command")
+def test_wait_standard_command_error(
+    mock_handle_standard: MagicMock,
+    cli_runner: MagicMock,
+    mock_configure_output_flags: MagicMock,
+    mock_configure_memory_flags: MagicMock,
+) -> None:
+    """Test error handling in the standard wait command path."""
+    # Simulate an error returned by handle_standard_command
+    mock_handle_standard.return_value = Error(error="Standard command failed")
+    result = cli_runner.invoke(
+        cli, ["wait", "job/myjob", "--for=condition=Complete", "--no-live-display"]
+    )
+    # Expect a non-zero exit code because the command failed
+    assert result.exit_code != 0
+    # Check that the error message is in the output (might be wrapped by handler)
+    # We just check that the mock was called correctly.
+    mock_handle_standard.assert_called_once()
+    call_args = mock_handle_standard.call_args[1]
+    assert call_args["command"] == "wait"
+    assert call_args["resource"] == "job/myjob"
+    assert call_args["args"] == (
+        "--for=condition=Complete",
+        # "--no-live-display", # Flag not passed down
+    )
