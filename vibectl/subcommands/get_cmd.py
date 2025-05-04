@@ -2,6 +2,7 @@ from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
     handle_vibe_request,
+    handle_watch_with_live_display,
 )
 from vibectl.logutil import logger
 from vibectl.memory import (
@@ -73,18 +74,34 @@ def run_get_command(
                 else None,
             )
 
-        # Use the Result returned from handle_standard_command
-        result = handle_standard_command(
-            command="get",
-            resource=resource,
-            args=args,
-            output_flags=output_flags,
-            summary_prompt_func=get_resource_prompt,
-        )
+        # Check for --watch flag
+        watch_flag_present = "--watch" in args or "-w" in args
 
-        # Forward the Result from handle_standard_command
+        if watch_flag_present:
+            logger.info("Handling 'get' command with --watch flag using live display.")
+            # Call the new handler for watch with live display
+            result = handle_watch_with_live_display(
+                command="get",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=get_resource_prompt,
+            )
+
+        else:
+            # Use the Result returned from handle_standard_command
+            logger.info("Handling standard 'get' command.")
+            result = handle_standard_command(
+                command="get",
+                resource=resource,
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=get_resource_prompt,
+            )
+
+        # Forward the Result from the chosen handler
         if isinstance(result, Error):
-            logger.error(f"Error from handle_standard_command: {result.error}")
+            logger.error(f"Error from command handler: {result.error}")
             return result
 
         logger.info(f"Completed 'get' subcommand for resource: {resource}")

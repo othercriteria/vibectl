@@ -30,6 +30,7 @@ from .k8s_utils import (
 from .live_display import (
     _execute_port_forward_with_live_display,
     _execute_wait_with_live_display,
+    _execute_watch_with_live_display,
 )
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
@@ -1289,6 +1290,52 @@ def handle_port_forward_with_live_display(
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
     )
+
+
+# Wrapper for watch command live display
+def handle_watch_with_live_display(
+    command: str,  # e.g., 'get'
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+    summary_prompt_func: Callable[[], str],
+) -> Result:
+    """Handles commands with `--watch` by invoking the live display worker.
+
+    Args:
+        command: The kubectl command verb (e.g., 'get', 'describe').
+        resource: The resource type (e.g., pod, deployment).
+        args: Command arguments including resource name and conditions.
+        output_flags: Flags controlling output format.
+
+    Returns:
+        Result from the live display worker function.
+    """
+    logger.info(
+        f"Handling '{command} {resource} --watch' with live display. Args: {args}"
+    )
+
+    # Create the command description for the display
+    display_args = [arg for arg in args if arg not in ("--watch", "-w")]
+    display_text = (
+        f"Watching [bold]{command} {resource} " f"{''.join(display_args)}[/bold]..."
+    )
+
+    # Call the worker function in live_display.py
+    # This worker will run `kubectl get <resource> <args> --watch`
+    # and handle the streaming output and summarization.
+    watch_result = _execute_watch_with_live_display(
+        command=command,
+        resource=resource,
+        args=args,  # Pass original args including --watch/-w
+        output_flags=output_flags,
+        display_text=display_text,
+        summary_prompt_func=summary_prompt_func,
+    )
+
+    # The worker function should return the final Result (including vibe summary)
+    # so we just return it directly.
+    return watch_result
 
 
 # Helper function for Vibe planning

@@ -7,6 +7,8 @@ from collections.abc import Callable
 from contextlib import suppress
 
 import yaml
+from rich.live import Live
+from rich.panel import Panel
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -15,6 +17,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.text import Text
 
 from .config import Config
 
@@ -732,5 +735,355 @@ def _execute_port_forward_with_live_display(
                 f"Port-forward {resource} {port_mapping} completed "
                 f"successfully ({elapsed_time:.1f}s)"
             ),
+            data=vibe_output,
+        )
+
+
+# Worker function for handle_watch_with_live_display
+def _execute_watch_with_live_display(
+    command: str,  # e.g., 'get'
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+    display_text: str,  # Pre-formatted text for the display header
+    summary_prompt_func: Callable[[], str],
+) -> Result:
+    """Executes the core logic for commands with `--watch` using a live display.
+
+    Runs `kubectl <command> <resource> <args...>` (which includes --watch),
+    streams the output to a rich.live display, and provides a summary via Vibe
+    after the user cancels (Ctrl+C).
+
+    Args:
+        command: The kubectl command verb (e.g., 'get').
+        resource: The resource type (e.g., pod, deployment).
+        args: Command arguments including resource name and --watch flag.
+        output_flags: Flags controlling output format and Vibe interaction.
+        display_text: Header text for the live display.
+        summary_prompt_func: Function to get the Vibe summary prompt template.
+
+    Returns:
+        Result object indicating success or failure, usually containing Vibe summary.
+    """
+    start_time = time.time()
+    accumulated_output_lines: list[str] = []
+    error_message: str | None = None
+    cfg = Config()
+
+    # Use rich.live for displaying streaming output
+    live_display_content = Text("")
+
+    async def run_watch_command() -> asyncio.subprocess.Process:
+        """Run the kubectl watch command and capture output."""
+        # Build command list
+        cmd_list = [command, resource]
+        cmd_list.extend(args)
+
+        # Full kubectl command
+        kubectl_cmd = ["kubectl"]
+        kubeconfig = cfg.get("kubeconfig")
+        if kubeconfig:
+            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+        kubectl_cmd.extend(cmd_list)
+
+        logger.debug(f"Executing watch command: {' '.join(kubectl_cmd)}")
+        process = await asyncio.create_subprocess_exec(
+            *kubectl_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return process
+
+    async def stream_output(process: asyncio.subprocess.Process, live: Live) -> None:
+        """Read stdout/stderr and update the live display."""
+        nonlocal error_message
+        stdout_task = None
+        stderr_task = None
+        pending_tasks = set()
+
+        if process.stdout:
+
+            async def read_stdout() -> bytes:
+                if process.stdout is None:
+                    return b""
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    return line
+                return b""
+
+            stdout_task = asyncio.create_task(read_stdout(), name="stdout_reader")
+            pending_tasks.add(stdout_task)
+
+        if process.stderr:
+
+            async def read_stderr() -> bytes:
+                if process.stderr is None:
+                    return b""
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        break
+                    return line
+                return b""
+
+            stderr_task = asyncio.create_task(read_stderr(), name="stderr_reader")
+            pending_tasks.add(stderr_task)
+
+        if not pending_tasks:
+            logger.warning("Watch command has no stdout or stderr stream.")
+            return
+
+        try:
+            while pending_tasks:
+                done, pending_tasks = await asyncio.wait(
+                    pending_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for task in done:
+                    task_name = task.get_name()
+                    try:
+                        line_bytes = task.result()
+                        if not line_bytes:
+                            continue
+
+                        line_str = line_bytes.decode("utf-8", errors="replace").strip()
+                        accumulated_output_lines.append(line_str)
+
+                        if task is stderr_task:
+                            logger.warning(f"Watch STDERR: {line_str}")
+                            if error_message is None:
+                                error_message = line_str
+                        elif task is stdout_task:
+                            # Update live display only for stdout
+                            current_text = live_display_content.plain
+                            lines_to_show = 50
+                            # Use list unpacking as suggested by RUF005
+                            all_lines = [*current_text.splitlines(), line_str]
+                            new_text = "\n".join(all_lines[-lines_to_show:])
+                            live_display_content.plain = new_text
+                            live.update(Panel(live_display_content, title=display_text))
+
+                        # Re-submit the reader task to read the next line
+                        if task is stdout_task and process.stdout:
+                            new_stdout_task = asyncio.create_task(
+                                read_stdout(), name="stdout_reader"
+                            )
+                            pending_tasks.add(new_stdout_task)
+                            stdout_task = new_stdout_task
+                        elif task is stderr_task and process.stderr:
+                            new_stderr_task = asyncio.create_task(
+                                read_stderr(), name="stderr_reader"
+                            )
+                            pending_tasks.add(new_stderr_task)
+                            stderr_task = new_stderr_task
+
+                    except Exception as e:
+                        # Handle exceptions during reading or processing a line
+                        logger.error(
+                            f"Error processing stream {task_name}: {e}", exc_info=True
+                        )
+                        error_message = error_message or f"Error reading stream: {e}"
+                        # Attempt to cancel remaining tasks and exit loop
+                        for t in pending_tasks:
+                            t.cancel()
+                        pending_tasks.clear()
+                        break
+
+        except asyncio.CancelledError:
+            logger.info("Output streaming task cancelled.")
+            # Ensure all child tasks are cancelled
+            if stdout_task and not stdout_task.done():
+                stdout_task.cancel()
+            if stderr_task and not stderr_task.done():
+                stderr_task.cancel()
+        finally:
+            # Ensure cancellation propagates if necessary
+            if stdout_task and not stdout_task.done():
+                stdout_task.cancel()
+            if stderr_task and not stderr_task.done():
+                stderr_task.cancel()
+            pass
+
+    # Main execution block
+    live_panel = Panel(live_display_content, title=display_text)
+    with Live(
+        live_panel,  # Use variable to shorten line
+        console=console_manager.console,
+        refresh_per_second=10,
+        transient=False,
+        vertical_overflow="visible",
+    ) as live:
+        created_new_loop = False
+        loop = None
+        process = None
+        stream_task = None
+        final_status = "Completed"
+
+        try:
+            # Get or create event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    created_new_loop = True
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                created_new_loop = True
+
+            async def main_watch_task() -> None:
+                nonlocal process, stream_task, error_message
+                process = await run_watch_command()
+                stream_task = asyncio.create_task(stream_output(process, live))
+                await process.wait()
+                if stream_task and not stream_task.done():
+                    await asyncio.wait_for(stream_task, timeout=5.0)
+
+                if process.returncode != 0 and error_message is None:
+                    stderr_bytes = (
+                        await process.stderr.read() if process.stderr else b""
+                    )
+                    error_message = stderr_bytes.decode(
+                        "utf-8", errors="replace"
+                    ).strip()
+                    error_message = (
+                        error_message
+                        or f"kubectl exited with code {process.returncode}"
+                    )
+                    logger.error(f"Watch command error: {error_message}")
+
+            # Run the main task
+            loop.run_until_complete(main_watch_task())
+            final_status = (
+                "Completed" if error_message is None else "Completed with errors"
+            )
+
+        except KeyboardInterrupt:
+            final_status = "Cancelled by user"
+            console_manager.print_note("\nWatch cancelled by user.")
+        except asyncio.CancelledError:
+            final_status = "Cancelled"
+            console_manager.print_note("\nWatch cancelled.")
+        except Exception as e:
+            final_status = "Error"
+            error_message = error_message or f"Watch execution error: {e}"
+            logger.error(f"Watch execution error: {e}", exc_info=True)
+            console_manager.print_error(f"\nWatch error: {e!s}")
+        finally:
+            # Ensure subprocess is terminated on any exit path
+            if process and process.returncode is None:
+                try:
+                    process.terminate()
+                    current_loop = asyncio.get_event_loop()
+                    if not current_loop.is_closed():
+                        current_loop.run_until_complete(
+                            asyncio.wait_for(process.wait(), timeout=1.0)
+                        )
+                except (ProcessLookupError, asyncio.TimeoutError, Exception) as term_e:
+                    logger.warning(
+                        f"Failed to terminate kubectl watch process: {term_e}"
+                    )
+
+            # Ensure stream task is cancelled
+            if stream_task and not stream_task.done():
+                stream_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    current_loop = asyncio.get_event_loop()
+                    if not current_loop.is_closed():
+                        current_loop.run_until_complete(
+                            asyncio.wait_for(stream_task, timeout=0.5)
+                        )
+
+            # Stop the live display explicitly
+            live.stop()
+
+            # Close loop if we created it
+            if created_new_loop and loop is not None:
+                loop.close()
+
+    # --- Post-Watch Processing ---
+    elapsed_time = time.time() - start_time
+    accumulated_output_str = "\n".join(accumulated_output_lines)
+    command_str = f"{command} {resource} {' '.join(args)}"
+
+    # Display summary table (optional, can be enhanced)
+    summary_table = Table(title=f"Watch Summary: {command} {resource}")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+    summary_table.add_row("Status", final_status)
+    summary_table.add_row("Duration", f"{elapsed_time:.1f}s")
+    summary_table.add_row("Lines Received", str(len(accumulated_output_lines)))
+    if error_message:
+        summary_table.add_row("Error", error_message, style="red")
+    console_manager.console.print(summary_table)
+
+    # Prepare Vibe summary
+    vibe_output = ""
+    if output_flags.show_vibe and final_status != "Error":
+        try:
+            model_adapter = get_model_adapter()
+            model = model_adapter.get_model(output_flags.model_name)
+
+            # Prepare context for the prompt
+            watch_context = {
+                "command": command_str,
+                "duration": f"{elapsed_time:.1f}s",
+                "status": final_status,
+                "lines_received": len(accumulated_output_lines),
+                "output_preview": "\n".join(accumulated_output_lines[:10]),
+                "full_output": accumulated_output_str,
+            }
+            if error_message and final_status != "Error":
+                watch_context["error_info"] = error_message
+
+            # Format context as YAML for the prompt
+            context_yaml = yaml.safe_dump(
+                watch_context, default_flow_style=False, sort_keys=False
+            )
+
+            # Get and format the prompt
+            summary_prompt_template = summary_prompt_func()
+            prompt = summary_prompt_template.format(
+                output=context_yaml, command=command_str
+            )
+
+            logger.debug(f"Vibe Watch Summary Prompt:\n{prompt}")
+            vibe_output = model_adapter.execute(model, prompt)
+
+            if vibe_output:
+                console_manager.print_vibe(vibe_output)
+            else:
+                logger.warning("Received empty summary from Vibe.")
+
+        except Exception as e:
+            console_manager.print_error(f"Error generating summary: {e}")
+            logger.error(f"Error generating watch summary: {e}", exc_info=True)
+
+    # Update memory
+    try:
+        update_memory(
+            command=command_str,
+            command_output=accumulated_output_str,
+            vibe_output=vibe_output,
+            model_name=output_flags.model_name,
+        )
+        logger.info("Memory updated after watch session.")
+    except Exception as mem_e:
+        logger.error(f"Failed to update memory after watch session: {mem_e}")
+
+    # Return final result
+    if final_status == "Error" or (
+        final_status == "Completed with errors" and not vibe_output
+    ):
+        return Error(error=error_message or "Watch command failed.")
+    else:
+        # Return success, including Vibe summary if generated
+        success_msg = f"Watch session '{command_str}' {final_status.lower()} "
+        success_msg += f"after {elapsed_time:.1f}s."
+        return Success(
+            message=success_msg,
             data=vibe_output,
         )
