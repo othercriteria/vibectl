@@ -105,10 +105,23 @@ def run_get_command(
             return result
 
         logger.info(f"Completed 'get' subcommand for resource: {resource}")
-        return Success(
-            message=f"Completed 'get' subcommand for resource: {resource}",
-            data=result.data if isinstance(result, Success) and result.data else None,
-        )
+
+        # Determine final result based on handler's output
+        if isinstance(result, Error):
+            return result
+        result_data = result.data if result.data else None
+        if args and args[0] == "vibe":  # vibe request handled
+            return Success(
+                message="Completed 'get' subcommand for vibe request.",
+                data=result_data,
+            )
+        else:  # Standard get command (including --watch)
+            # Use 'resource' parameter directly, args contains only extra flags/params
+            return Success(
+                message=f"Completed 'get' subcommand for resource: {resource}",
+                data=result_data,
+            )
+
     except Exception as e:
         logger.error("Error in 'get' subcommand: %s", e, exc_info=True)
         return Error(

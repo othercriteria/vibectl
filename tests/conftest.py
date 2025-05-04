@@ -168,6 +168,14 @@ def mock_configure_output_flags() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
+def mock_configure_memory_flags() -> Generator[Mock, None, None]:
+    """Mock the configure_memory_flags function."""
+    # The function is defined in vibectl.memory
+    with patch("vibectl.memory.configure_memory_flags") as mock:
+        yield mock
+
+
+@pytest.fixture
 def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
     """Provide common mocks required for CLI tests to prevent unmocked calls."""
     with (
