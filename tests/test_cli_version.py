@@ -11,11 +11,9 @@ from vibectl.types import Error, Success
 def test_version_error_handling(
     mock_run_kubectl_version_cmd: Mock,
     mock_handle_command_output_version_cmd: Mock,
-    mock_configure_output_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test error handling in version command."""
-    mock_configure_output_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl_version_cmd.side_effect = Exception("Test error")
 
     result = cli_runner.invoke(cli, ["version"])
@@ -31,11 +29,9 @@ def test_version_error_handling(
 def test_version_output_processing(
     mock_run_kubectl_version_cmd: Mock,
     mock_handle_command_output_version_cmd: Mock,
-    mock_configure_output_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test version command output processing."""
-    mock_configure_output_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl_version_cmd.return_value = (
         "Client Version: v1.28.1\nServer Version: v1.28.2"
     )

@@ -8,12 +8,13 @@ IFS=$'\n\t'
 # set -x
 
 # Default values
-export SESSION_DURATION=${SESSION_DURATION:-30}
+export PASSIVE_DURATION=${PASSIVE_DURATION:-5} # Default 5 minutes
+export ACTIVE_DURATION=${ACTIVE_DURATION:-25} # Default 25 minutes
 export VERBOSE=${VERBOSE:-false}
 export USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
 
 # Define package versions (should match those in docker-compose.yaml)
-export VIBECTL_VERSION="0.4.1"
+export VIBECTL_VERSION="0.5.3"
 export LLM_VERSION="0.24.2"
 export LLM_ANTHROPIC_VERSION="0.15.1"
 export ANTHROPIC_SDK_VERSION="0.49.0"
@@ -39,8 +40,12 @@ export DOCKER_GID
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --session-duration)
-      export SESSION_DURATION="$2"
+    --passive-duration)
+      export PASSIVE_DURATION="$2"
+      shift 2
+      ;;
+    --active-duration)
+      export ACTIVE_DURATION="$2"
       shift 2
       ;;
     --verbose)
@@ -54,7 +59,8 @@ while [[ $# -gt 0 ]]; do
     --help)
       echo "Usage: $0 [options]"
       echo "Options:"
-      echo "  --session-duration MINUTES  Set the session duration in minutes (default: 30 min)"
+      echo "  --passive-duration MINUTES  Set passive phase duration (default: 5 min)"
+      echo "  --active-duration MINUTES   Set active phase duration (default: 25 min)"
       echo "  --verbose                   Enable verbose logging"
       echo "  --use-stable-versions       Use stable, known good versions of packages from PyPI"
       echo "  --help                      Show this help message"
@@ -95,7 +101,8 @@ else
 fi
 
 echo "Starting Chaos Monkey demo with the following configuration:"
-echo "  Session duration: ${SESSION_DURATION} minutes"
+echo "  Passive phase duration: ${PASSIVE_DURATION} minutes"
+echo "  Active phase duration: ${ACTIVE_DURATION} minutes"
 echo "  Verbose mode: ${VERBOSE}"
 
 if [ "${USE_STABLE_VERSIONS}" = "true" ]; then

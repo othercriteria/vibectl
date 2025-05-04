@@ -9,16 +9,18 @@ This document provides an overview of the project's structure and organization.
 - `prompt.py` - Prompt templates and LLM interaction logic
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns
+- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils`
+- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
-- `utils.py` - Utility functions and helpers
-- `__init__.py` - Package initialization and version information
-- `types.py` - Custom type definitions
-- `logutil.py` - Logging setup and configuration
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
+- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning)
+- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema)
+- `utils.py` - Utility functions and helpers
+- `__init__.py` - Package initialization and version information
+- `logutil.py` - Logging setup and configuration
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation
@@ -124,10 +126,13 @@ This document provides an overview of the project's structure and organization.
 ### Common Command Patterns
 1. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
-   - Execute kubectl commands safely
+   - Dispatches kubectl execution to `k8s_utils.py`
    - Process command output for user feedback
    - Port-forwarding functionality
    - Memory integration
+2. `k8s_utils.py` - Core Kubernetes utilities
+   - Executes kubectl commands safely (standard, complex args, YAML input)
+   - Handles errors specific to kubectl
 
 ### Memory System
 1. `memory.py` - Core memory management with functions for:
@@ -210,9 +215,14 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Updates memory context based on command execution
    - Uses model adapter instead of direct LLM calls
 4. `prompt.py` - Defines prompt templates used by model adapters
-   - Command-specific prompt templates
+   - Command-specific prompt templates (e.g., `create_planning_prompt`)
+   - Includes instructions for generating JSON output matching defined schemas
    - Formatting instructions
    - Consistent prompt structure for all LLM interactions
+5. Schema Integration (`schema.py`, `types.py`, `command_handler.py`)
+   - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure.
+   - `model_adapter.py` passes the generated schema dictionary to the LLM.
+   - `command_handler.py` parses the JSON response, validates it against the Pydantic model, and handles actions based on `ActionType`.
 
 ### Proxy Support
 1. `proxy.py` - Proxy handling for model requests

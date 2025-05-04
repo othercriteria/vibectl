@@ -54,23 +54,22 @@ def mock_asyncio_for_port_forward() -> Generator[MagicMock, None, None]:
 
     # Use a patch context manager to replace all asyncio functions we use
     with (
-        # Mock asyncio functions
-        patch("vibectl.command_handler.asyncio.get_event_loop", return_value=mock_loop),
-        patch("vibectl.command_handler.asyncio.new_event_loop", return_value=mock_loop),
-        patch("vibectl.command_handler.asyncio.set_event_loop"),
+        # Mock asyncio functions - Patch asyncio directly
+        patch("asyncio.get_event_loop", return_value=mock_loop),
+        patch("asyncio.new_event_loop", return_value=mock_loop),
+        patch("asyncio.set_event_loop"),
         # Replace all async functions with synchronous versions
-        patch("vibectl.command_handler.asyncio.sleep", mock_sleep),
-        patch("vibectl.command_handler.asyncio.wait_for", mock_wait_for),
+        patch("asyncio.sleep", mock_sleep),
+        patch("asyncio.wait_for", mock_wait_for),
         patch(
-            "vibectl.command_handler.asyncio.create_subprocess_exec",
+            "asyncio.create_subprocess_exec",  # Patch asyncio directly
             mock_create_subprocess_exec,
         ),
-        patch("vibectl.command_handler.asyncio.create_task", mock_create_task),
-        # Replace asyncio exceptions with regular Exception to avoid awaiting issues
-        patch("vibectl.command_handler.asyncio.CancelledError", Exception),
-        patch("vibectl.command_handler.asyncio.TimeoutError", Exception),
-        # Also mock any direct asyncio imports in the test module
         patch("asyncio.create_task", mock_create_task),
+        # Replace asyncio exceptions with regular Exception
+        patch("asyncio.CancelledError", Exception),
+        patch("asyncio.TimeoutError", Exception),
+        # Future should still be mocked directly
         patch("asyncio.Future", MagicMock),
     ):
         yield mock_process

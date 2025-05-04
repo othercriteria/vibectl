@@ -85,6 +85,10 @@ While full [Model Context Protocol](https://github.com/modelcontextprotocol/pyth
 2. Migrate existing adapter pattern to MCP compatibility layer
 3. Leverage MCP's built-in key management features
 
+## Command Execution Safety & Confirmation
+- **LLM-Assessed Danger:** Explore having the LLM planner assess if a planned command is potentially dangerous (beyond the current hardcoded list in `_needs_confirmation`). This could involve prompting the LLM for a safety rating or flag. Implement with strong guardrails and default to requiring confirmation if unsure.
+- **Refine Confirmation UI:** Ensure the confirmation prompt clearly presents the command and its potential impact.
+
 ## Technical Debt
 - Add additional validation for key formats across all providers
 - Implement comprehensive logging for key operations to aid debugging
@@ -232,3 +236,7 @@ Implementation should prioritize commands that provide the most value to users w
 ## Test Structure Cleanup
 - Flattened `tests/coverage/` into `tests/` for now.
 - Revisit test organization and structure comprehensively later.
+
+## Prompt Templating
+- Consider using a dedicated templating library (e.g., Jinja2) for prompt
+  construction to avoid manual string formatting issues like brace escaping.

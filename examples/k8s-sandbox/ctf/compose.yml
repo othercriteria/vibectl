@@ -64,6 +64,7 @@ services:
       - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
       # Mount a named volume for LLM keys to persist between restarts
       - llm-keys-volume:/home/sandbox/.local/share/llm:rw
+      - ../../../:/home/sandbox/vibectl-src:ro # Mount project root read-only
     networks:
       - ctf-network
     healthcheck:

@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from vibectl.command_handler import _execute_yaml_command
+from vibectl.k8s_utils import run_kubectl_with_yaml
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def test_yaml_command_cleanup_on_success() -> None:
 
         with patch("tempfile.NamedTemporaryFile", side_effect=mock_named_temp_file):
             # Execute YAML command
-            _execute_yaml_command(["apply"], "apiVersion: v1\nkind: Pod")
+            run_kubectl_with_yaml(["apply"], "apiVersion: v1\nkind: Pod")
 
             # Verify unlink was called for each temp file
             assert len(temp_file_paths) > 0
@@ -92,7 +92,7 @@ def test_yaml_command_cleanup_on_error() -> None:
         with patch("tempfile.NamedTemporaryFile", side_effect=mock_named_temp_file):
             # Execute YAML command expecting it to fail
             with suppress(Exception):
-                _execute_yaml_command(["apply"], "invalid YAML")
+                run_kubectl_with_yaml(["apply"], "invalid YAML")
 
             # Verify unlink was called for cleanup despite error
             assert len(temp_file_paths) > 0
@@ -124,7 +124,7 @@ def test_yaml_command_cleanup_on_exception() -> None:
         with patch("tempfile.NamedTemporaryFile", side_effect=mock_named_temp_file):
             # Execute YAML command expecting it to raise exception
             with suppress(RuntimeError):
-                _execute_yaml_command(["apply"], "apiVersion: v1\nkind: Pod")
+                run_kubectl_with_yaml(["apply"], "apiVersion: v1\nkind: Pod")
 
             # Verify unlink was called for cleanup despite exception
             assert len(temp_file_paths) > 0
@@ -145,7 +145,7 @@ def test_stdin_pipe_resource_handling() -> None:
         mock_popen.return_value = mock_process
 
         # Execute command with stdin pipe
-        _execute_yaml_command(["apply", "-f", "-"], "apiVersion: v1\nkind: Pod")
+        run_kubectl_with_yaml(["apply", "-f", "-"], "apiVersion: v1\nkind: Pod")
 
         # Verify communicate was called exactly once to ensure proper stdin handling
         mock_process.communicate.assert_called_once()
@@ -168,7 +168,7 @@ def test_file_descriptor_leak_prevention() -> None:
         mock_run.return_value = mock_process
 
         # Execute YAML command with real file operations
-        _execute_yaml_command(["apply"], "apiVersion: v1\nkind: Pod")
+        run_kubectl_with_yaml(["apply"], "apiVersion: v1\nkind: Pod")
 
     # Count open file descriptors after the test
     end_fds = count_open_fds()

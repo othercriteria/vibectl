@@ -39,15 +39,18 @@ The main Python application responsible for:
    - Collecting agent logs from container stdout/stderr
    - Calculating uptime metrics and service availability statistics
    - Cleaning log content by stripping ANSI color codes and timestamps
+   - Detecting data staleness based on the last successful poller/cluster update time.
 
 2. **Web Server**:
    - Flask application serving the React frontend
    - API endpoints for JSON data access
    - WebSocket support via Socket.IO for real-time updates
+   - Emits `staleness_update` event when data freshness changes.
    - Static file serving for React build artifacts
 
 3. **Background Processes**:
    - Scheduled tasks for periodic data updates
+   - Includes a task to periodically check for data staleness.
    - Event handling for client connections
    - Error handling and recovery
 
@@ -153,10 +156,14 @@ Planned enhancements to the overseer component:
 1. Overseer starts up and initializes Flask server at the beginning of the demo
 2. Immediately begins monitoring Kubernetes cluster status
 3. Background scheduler runs data collection jobs at specified intervals
+   - Updates last successful data fetch timestamp.
+   - Periodically checks if data is stale based on the timestamp.
 4. Data is stored in memory and written to persistent volume
 5. Web clients load the React application via Flask routes
 6. React application connects to backend API and WebSockets
 7. Updates are pushed to clients in real-time as data changes
+   - Backend pushes `staleness_update` events when freshness status changes.
+   - Frontend displays warning banner based on `staleness_update` events.
 8. API endpoints provide JSON access to current and historical data
 
 ---

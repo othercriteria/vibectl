@@ -47,9 +47,8 @@ def test_just_no_args(cli_runner: CliRunner, caplog: pytest.LogCaptureFixture) -
 
 
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
-@patch("vibectl.subcommands.just_cmd.Config")
 def test_just_kubectl_not_found(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
+    mock_subprocess_run: Mock, cli_runner: CliRunner
 ) -> None:
     """Test just command when kubectl is not found."""
     mock_subprocess_run.side_effect = FileNotFoundError()
@@ -59,9 +58,8 @@ def test_just_kubectl_not_found(
 
 
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
-@patch("vibectl.subcommands.just_cmd.Config")
 def test_just_called_process_error_with_stderr(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
+    mock_subprocess_run: Mock, cli_runner: CliRunner
 ) -> None:
     """Test just command with CalledProcessError and stderr."""
     error = subprocess.CalledProcessError(1, ["kubectl"], stderr="test error")
@@ -72,9 +70,8 @@ def test_just_called_process_error_with_stderr(
 
 
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
-@patch("vibectl.subcommands.just_cmd.Config")
 def test_just_called_process_error_no_stderr(
-    mock_config: Mock, mock_subprocess_run: Mock, cli_runner: CliRunner
+    mock_subprocess_run: Mock, cli_runner: CliRunner
 ) -> None:
     """Test just command with CalledProcessError but no stderr."""
     error = subprocess.CalledProcessError(1, ["kubectl"], stderr="")

@@ -29,10 +29,6 @@ COPY poller.py /poller.py
 RUN chmod +x /poller.py
 
 # Set up environment variables with defaults
-ENV POLL_INTERVAL_SECONDS=15
-ENV DELAY_SECONDS=15
-ENV SESSION_DURATION=30
-ENV KUBECONFIG=/config/kube/config
 ENV STATUS_DIR=/tmp/status
 
 # Set the default command

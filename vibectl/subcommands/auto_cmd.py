@@ -60,27 +60,29 @@ def run_auto_command(
         f"request: {request!r}, limit: {limit}"
     )
 
-    # Get config
-    cfg = Config()
-    show_memory = cfg.get("show_memory", False)
-    show_iterations = cfg.get("show_iterations", False)
-
-    # Display a header for the auto session
-    mode_name = "semiauto" if semiauto else "auto"
-    console_manager.print_note(f"Starting vibectl {mode_name} session")
-
-    if semiauto:
-        console_manager.print_note("Commands will require confirmation.")
-    else:
-        console_manager.print_note(
-            "Commands will execute automatically (no confirmation needed)."
-        )
-
-    # Show limit information if applicable
-    if limit is not None and show_iterations:
-        console_manager.print_note(f"Will run for {limit} iterations")
-
     try:
+        # Get config first, as it might raise an error handled by the outer except
+        cfg = Config()
+        show_memory = cfg.get("show_memory", False)
+        show_iterations = cfg.get("show_iterations", False)
+
+        # Display a header for the auto session
+        mode_name = "semiauto" if semiauto else "auto"
+        console_manager.print_note(f"Starting vibectl {mode_name} session")
+
+        if semiauto:
+            console_manager.print_note(
+                "Dangerous commands (e.g., delete, apply) will require confirmation."
+            )
+        else:
+            console_manager.print_note(
+                "Commands will execute automatically (no confirmation needed)."
+            )
+
+        # Show limit information if applicable
+        if limit is not None and show_iterations:
+            console_manager.print_note(f"Will run for {limit} iterations")
+
         # Configure output flags and memory
         configure_output_flags(
             show_raw_output=show_raw_output,
@@ -127,6 +129,7 @@ def run_auto_command(
                         "Memory is empty. Use 'vibectl memory set' to add content."
                     )
 
+            # Inner try-except for the vibe command execution within the loop
             try:
                 # Run the vibe command with semiauto-specific settings
                 result = run_vibe_command(
@@ -166,10 +169,12 @@ def run_auto_command(
                     if not result.halt_auto_loop:
                         logger.info("Continuing auto loop despite non-halting error")
                         console_manager.print_note("Continuing to next step...")
-                    # Exit on error unless in semiauto mode or error is non-halting
+                    # Raise error to be caught by outer handler if loop should halt
                     elif exit_on_error and not semiauto:
+                        # We raise ValueError specifically, as caught by existing tests
                         raise ValueError(f"Error in vibe command: {result.error}")
 
+            # Catch KeyboardInterrupt within the loop to allow graceful exit
             except KeyboardInterrupt:
                 logger.info("Keyboard interrupt detected in auto loop")
                 console_manager.print_warning("Auto session interrupted by user")
@@ -190,12 +195,14 @@ def run_auto_command(
 
             iteration += 1
 
+    # Outer try-except catches setup errors and KeyboardInterrupt during setup
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt detected in auto command")
+        logger.info("Keyboard interrupt detected during auto command setup")
         console_manager.print_warning("Auto session interrupted by user")
         return Success(message="Auto session stopped by user")
 
     except Exception as e:
+        # Catch any other unexpected exception during setup or loop exit logic
         logger.error(f"Error in auto command: {e}")
         if exit_on_error:  # pragma: no cover - difficult to trigger in tests,
             # covered by integration tests

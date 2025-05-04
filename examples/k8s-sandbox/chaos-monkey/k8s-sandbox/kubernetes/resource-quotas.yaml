@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: kube-system-compute-quota
+  namespace: kube-system
+spec:
+  hard:
+    requests.cpu: "1"
+    limits.cpu: "2"
+    requests.memory: 2Gi
+    limits.memory: 4Gi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: services-compute-quota
+  namespace: services
+spec:
+  hard:
+    requests.cpu: "1"
+    limits.cpu: "1"
+    requests.memory: 2Gi
+    limits.memory: 2Gi

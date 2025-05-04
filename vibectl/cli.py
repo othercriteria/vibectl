@@ -43,9 +43,7 @@ from .config import Config
 from .console import console_manager
 from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
-from .prompt import (
-    memory_fuzzy_update_prompt,
-)
+from .prompt import memory_fuzzy_update_prompt
 from .types import Error, Result, Success
 from .utils import handle_exception
 
@@ -555,6 +553,12 @@ def vibe(
         # Always print the error message to console if available
         if hasattr(e, "error") and e.error:
             console_manager.print_error(e.error)
+        # Otherwise, print the standard exception string representation if non-empty
+        elif str(e):
+            console_manager.print_error(str(e))
+        # As a last resort if str(e) is empty
+        else:
+            console_manager.print_error("An unexpected error occurred.")
 
         # Use Click's abort mechanism to exit with non-zero status
         raise click.Abort() from e
@@ -600,6 +604,9 @@ def auto(
         # Always print the error message to console if available
         if hasattr(e, "error") and e.error:
             console_manager.print_error(e.error)
+        # Otherwise, print the standard exception string representation
+        elif str(e):
+            console_manager.print_error(str(e))
 
         # Use Click's abort mechanism to exit with non-zero status
         raise click.Abort() from e
@@ -1249,6 +1256,9 @@ def handle_result(result: Result) -> None:
         # Always print the error message to console if available
         if hasattr(result, "error") and result.error:
             console_manager.print_error(result.error)
+        # Otherwise, print the standard exception string representation
+        elif str(result):
+            console_manager.print_error(str(result))
 
         # Use Click's abort mechanism to exit with non-zero status
         raise click.Abort()

@@ -81,6 +81,7 @@ def run_wait_command(
                 resource=resource,
                 args=args,
                 output_flags=output_flags,
+                summary_prompt_func=wait_resource_prompt,
             )
 
             # Forward any errors from handle_wait_with_live_display

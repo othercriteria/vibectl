@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: red-agent
+  namespace: chaos-monkey-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: red-agent-passive-view
+rules:
+# Core resources - Read-only cluster-wide (including quotas)
+- apiGroups: [""]
+  resources: ["pods", "services", "namespaces", "nodes", "configmaps", "secrets", "resourcequotas"]
+  verbs: ["get", "list", "watch"]
+# Workload resources - Read-only cluster-wide
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+# Network resources - Read-only cluster-wide
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "watch"]
+# Monitoring capabilities - Read-only nodes
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: red-agent-passive-view-binding
+subjects:
+- kind: ServiceAccount
+  name: red-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: ClusterRole
+  name: red-agent-passive-view
+  apiGroup: rbac.authorization.k8s.io
+---
+# Prevent access within protected namespace during passive phase
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: red-agent-restricted
+  namespace: protected
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: red-agent-restricted-binding
+  namespace: protected
+subjects:
+- kind: ServiceAccount
+  name: red-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: red-agent-restricted
+  apiGroup: rbac.authorization.k8s.io
+---
+# Deny access to system-monitoring
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: red-agent-no-access
+  namespace: system-monitoring
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: red-agent-no-access-binding
+  namespace: system-monitoring
+subjects:
+- kind: ServiceAccount
+  name: red-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: red-agent-no-access
+  apiGroup: rbac.authorization.k8s.io

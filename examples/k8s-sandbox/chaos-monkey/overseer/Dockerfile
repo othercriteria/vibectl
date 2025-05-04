@@ -2,11 +2,15 @@ FROM node:18-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Copy frontend files
-COPY frontend/ ./
+# Copy dependency definition files
+COPY frontend/package.json frontend/package-lock.json* ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies based only on package files
+# Use npm ci for faster, cleaner installs if package-lock.json exists
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+# Copy the rest of the frontend source code
+COPY frontend/ ./
 
 # Build the frontend
 RUN npm run build
@@ -46,11 +50,7 @@ RUN cp /app/frontend_build/index.html /app/static/ && \
 EXPOSE 8080
 
 # Environment variables with defaults
-ENV SESSION_DURATION=30 \
-    VERBOSE=false \
-    PORT=8080 \
-    HOST=0.0.0.0 \
-    DATA_DIR=/app/data
+ENV DATA_DIR=/app/data
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \

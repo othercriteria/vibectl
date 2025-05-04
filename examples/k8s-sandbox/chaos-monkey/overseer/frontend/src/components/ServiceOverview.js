@@ -28,9 +28,6 @@ const ServiceOverview = ({ overview }) => {
             <div className="text-muted"><i className="fas fa-clock me-1"></i>Uptime</div>
           </div>
         </div>
-        <div className="text-muted small text-end">
-          Last updated: {overview.last_updated ? new Date(overview.last_updated).toLocaleTimeString() : 'Never'}
-        </div>
       </Card.Body>
     </Card>
   );

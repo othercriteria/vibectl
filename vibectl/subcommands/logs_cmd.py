@@ -10,9 +10,6 @@ from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_LOGS_PROMPT, logs_prompt
 from vibectl.types import Error, Result, Success
 
-MAX_TOKEN_LIMIT = 10000
-LOGS_TRUNCATION_RATIO = 3
-
 
 def run_logs_command(
     resource: str,
@@ -90,8 +87,6 @@ def run_logs_command(
             output=output,
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,
-            max_token_limit=MAX_TOKEN_LIMIT,
-            truncation_ratio=LOGS_TRUNCATION_RATIO,
         )
         logger.info("Completed 'logs' subcommand for resource: %s", resource)
         return Success(message=f"Completed 'logs' subcommand for resource: {resource}")

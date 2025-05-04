@@ -90,17 +90,17 @@ def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
     # Use a patch context manager to replace all asyncio functions we use
     with (
         # Mock asyncio functions
-        patch("vibectl.command_handler.asyncio.get_event_loop", return_value=mock_loop),
-        patch("vibectl.command_handler.asyncio.new_event_loop", return_value=mock_loop),
-        patch("vibectl.command_handler.asyncio.set_event_loop"),
+        patch("asyncio.get_event_loop", return_value=mock_loop),
+        patch("asyncio.new_event_loop", return_value=mock_loop),
+        patch("asyncio.set_event_loop"),
         # Replace all async functions with synchronous versions
-        patch("vibectl.command_handler.asyncio.sleep", mock_sleep),
-        patch("vibectl.command_handler.asyncio.wait_for", mock_wait_for),
-        patch("vibectl.command_handler.asyncio.to_thread", mock_to_thread),
-        patch("vibectl.command_handler.asyncio.create_task", mock_create_task),
+        patch("asyncio.sleep", mock_sleep),
+        patch("asyncio.wait_for", mock_wait_for),
+        patch("asyncio.to_thread", mock_to_thread),
+        patch("asyncio.create_task", mock_create_task),
         # Replace asyncio exceptions with regular Exception to avoid awaiting issues
-        patch("vibectl.command_handler.asyncio.CancelledError", Exception),
-        patch("vibectl.command_handler.asyncio.TimeoutError", Exception),
+        patch("asyncio.CancelledError", Exception),
+        patch("asyncio.TimeoutError", Exception),
         # Also mock any direct asyncio imports in the test module
         patch("asyncio.create_task", mock_create_task),
         patch("asyncio.Future", MagicMock),

@@ -173,8 +173,7 @@ def main() -> None:
             time.sleep(delay)
         except Exception as e:
             logging.error(
-                "An unexpected error occurred during KafkaProducer initialization: "
-                f"{e}"
+                f"An unexpected error occurred during KafkaProducer initialization: {e}"
             )
             exit(1)
 

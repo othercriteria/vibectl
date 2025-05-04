@@ -60,7 +60,7 @@ def test_vibe_command_without_request(
     assert "output_flags" in kwargs
     assert kwargs["output_flags"] == standard_output_flags
     assert kwargs["request"] == ""
-    assert kwargs["autonomous_mode"] is True
+    assert kwargs["autonomous_mode"] is False
 
 
 def test_vibe_command_with_yes_flag(
@@ -95,12 +95,11 @@ def test_vibe_command_with_no_arguments_plan_prompt(
     call_args = mock_handle_vibe.call_args[1]
     assert call_args["request"] == ""
     assert call_args["command"] == "vibe"
-    assert call_args["autonomous_mode"] is True
+    assert call_args["autonomous_mode"] is False
     assert (
-        "Recall the syntax requirements above and follow them strictly in responding to"
+        "Your response MUST be a valid JSON object conforming to this schema"
         in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]
     )
-    assert "Request: " in mock_handle_vibe.call_args_list[0][1]["plan_prompt"]
 
 
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request")
@@ -117,7 +116,7 @@ def test_vibe_command_with_existing_memory_plan_prompt(
     call_args = mock_handle_vibe.call_args[1]
     assert call_args["request"] == ""
     assert call_args["command"] == "vibe"
-    assert call_args["autonomous_mode"] is True
+    assert call_args["autonomous_mode"] is False
     assert call_args["memory_context"] == memory_value
 
 
@@ -149,7 +148,7 @@ def test_vibe_command_with_explicit_request_plan_prompt(
     call_args = mock_handle_vibe.call_args[1]
     assert call_args["request"] == "scale deployment app to 3 replicas"
     assert call_args["command"] == "vibe"
-    assert call_args["autonomous_mode"] is True
+    assert call_args["autonomous_mode"] is False
     assert call_args["memory_context"] == "Working in namespace 'test'"
 
 
@@ -169,9 +168,9 @@ def test_vibe_command_handle_vibe_request_exception() -> None:
             "do something", None, None, None, None, exit_on_error=False
         )
         assert isinstance(result, Error)
-        assert "Exception in handle_vibe_request" in result.error
+        assert result.error == "Unexpected error in handle_vibe_request: fail!"
         mock_logger.error.assert_any_call(
-            "Error in handle_vibe_request: %s", ANY, exc_info=True
+            "Unexpected error in handle_vibe_request: %s", ANY, exc_info=True
         )
 
 
@@ -190,7 +189,7 @@ def test_vibe_command_outer_exception() -> None:
             "do something", None, None, None, None, exit_on_error=False
         )
         assert isinstance(result, Error)
-        assert "Exception in 'vibe' subcommand" in result.error
+        assert result.error == "Error in vibe command: outer fail"
         mock_logger.error.assert_any_call(
             "Error in 'vibe' subcommand: %s", ANY, exc_info=True
         )
@@ -252,7 +251,7 @@ def test_vibe_command_handle_vibe_request_exception_exit_on_error_true() -> None
             run_vibe_command("do something", None, None, None, None, exit_on_error=True)
         assert "fail!" in str(excinfo.value)
         mock_logger.error.assert_any_call(
-            "Error in handle_vibe_request: %s", ANY, exc_info=True
+            "Unexpected error in handle_vibe_request: %s", ANY, exc_info=True
         )
 
 

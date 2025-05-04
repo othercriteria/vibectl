@@ -7,17 +7,14 @@ from click.testing import CliRunner
 from vibectl.cli import cli
 
 
-@patch("vibectl.subcommands.events_cmd.configure_output_flags")
 @patch("vibectl.subcommands.events_cmd.run_kubectl")
 @patch("vibectl.subcommands.events_cmd.handle_command_output")
 def test_events_error_handling(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test error handling in events command."""
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.side_effect = Exception("Test error")
 
     result = cli_runner.invoke(cli, ["events"])
@@ -27,17 +24,14 @@ def test_events_error_handling(
     mock_handle_output.assert_not_called()
 
 
-@patch("vibectl.subcommands.events_cmd.configure_output_flags")
 @patch("vibectl.subcommands.events_cmd.run_kubectl")
 @patch("vibectl.subcommands.events_cmd.handle_command_output")
 def test_events_output_processing(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test events command output processing."""
-    mock_configure_flags.return_value = (True, True, False, "test-model")
     mock_run_kubectl.return_value = "Event data"
 
     result = cli_runner.invoke(cli, ["events"])

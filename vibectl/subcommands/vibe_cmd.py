@@ -52,6 +52,11 @@ def run_vibe_command(
             logger.info(f"Planning how to: {request}")
 
         try:
+            # Determine if the mode is truly autonomous (no confirmations needed)
+            # Semiauto is never autonomous. Base vibe is autonomous only
+            # if --yes is passed.
+            is_autonomous = not semiauto and yes
+
             result = handle_vibe_request(
                 request=request,
                 command="vibe",
@@ -61,7 +66,7 @@ def run_vibe_command(
                 yes=yes,
                 semiauto=semiauto,
                 memory_context=memory_context,
-                autonomous_mode=True,
+                autonomous_mode=is_autonomous,
             )
 
             # Log if it's a normal exit request
@@ -71,11 +76,31 @@ def run_vibe_command(
             # Return all results (Success/Error) directly
             return result
 
+        except ValueError as e:
+            # Treat ValueErrors from handle_vibe_request (likely LLM planning/parsing
+            # issues) as recoverable for auto mode.
+            logger.warning(
+                f"Recoverable ValueError in handle_vibe_request: {e}", exc_info=True
+            )
+            if exit_on_error:
+                raise  # Still raise if not called from auto/semiauto
+            return Error(
+                error=f"LLM planning/parsing error: {e!s}",
+                exception=e,
+                halt_auto_loop=False,  # Mark as recoverable
+            )
         except Exception as e:
-            logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
+            # Catch other unexpected errors from handle_vibe_request
+            logger.error(
+                "Unexpected error in handle_vibe_request: %s", e, exc_info=True
+            )
             if exit_on_error:
                 raise
-            return Error(error="Exception in handle_vibe_request", exception=e)
+            # Use the message from the original exception for the Error object
+            # These are likely halting errors by default
+            return Error(
+                error=f"Unexpected error in handle_vibe_request: {e!s}", exception=e
+            )
 
         logger.info("Completed 'vibe' subcommand.")
         return Success(message="Completed 'vibe' subcommand.")
@@ -83,4 +108,5 @@ def run_vibe_command(
         logger.error("Error in 'vibe' subcommand: %s", e, exc_info=True)
         if exit_on_error:
             raise
-        return Error(error="Exception in 'vibe' subcommand", exception=e)
+        # Use the message from the original exception for the Error object
+        return Error(error=f"Error in vibe command: {e!s}", exception=e)

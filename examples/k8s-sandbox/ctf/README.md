@@ -2,6 +2,8 @@
 
 This directory contains a Capture The Flag (CTF) style sandbox environment for testing vibectl's autonomous mode capabilities using an isolated Kubernetes environment. The sandbox supports multiple difficulty levels to gradually test and improve vibectl's capabilities.
 
+**Note:** This demo installs `vibectl` directly from your local source code (`pip install -e .`). This allows you to test local changes within the sandbox.
+
 ## Requirements
 
 - Docker and Docker Compose
@@ -17,9 +19,10 @@ The simplest way to run the sandbox is with the provided script:
 
 This script will:
 1. Check for a required Anthropic API key (prompting you if not set)
-2. Set up a Docker-based sandbox environment with Kind Kubernetes
-3. Deploy vibectl in autonomous mode to solve CTF challenges
-4. Monitor progress via a poller container that checks endpoints
+2. Set up a Docker-based sandbox environment with Kind Kubernetes, including an `overseer` container to manage the challenge.
+3. Deploy vibectl in autonomous mode within a `sandbox` container to solve CTF challenges.
+4. Monitor progress via a `poller` container that checks endpoints.
+5. Automatically shut down all containers when the `overseer` determines the challenge is complete or the time limit is reached, thanks to the `--abort-on-container-exit` flag used with Docker Compose.
 
 You can also provide your API key as an environment variable:
 
@@ -68,29 +71,26 @@ You can select the difficulty level when running the sandbox:
 
 ## Monitoring Progress
 
-The sandbox runs two containers:
-- **sandbox**: Contains Kind K8s cluster and runs vibectl
-- **poller**: Monitors solution progress on the active ports based on difficulty level
+The sandbox runs multiple containers, primarily:
+- **overseer**: Manages challenge state, configuration, and timing.
+- **sandbox**: Contains Kind K8s cluster and runs vibectl.
+- **poller**: Monitors solution progress on the active ports based on difficulty level.
 
-The poller will check if the flags are accessible at the expected ports and only monitor the ports relevant to the selected difficulty level.
+The poller will check if the flags are accessible at the expected ports and only monitor the ports relevant to the selected difficulty level. The overseer monitors the poller's status and the time limit.
 
 When running with the `--verbose` flag, vibectl will show the raw output and kubectl commands being executed, making it easier to debug and understand what's happening.
 
 ## Cleaning Up
 
-To clean up all resources, press Ctrl+C in the terminal where you started ./run.sh, or run:
+The sandbox is designed to shut down automatically when the challenge is completed successfully or the time limit is reached. This is triggered by the `overseer` container exiting, which causes `docker compose up --abort-on-container-exit` (run by `run.sh`) to stop all other containers.
+
+The `run.sh` script also includes a `trap` that ensures a thorough cleanup process (running `docker compose down --volumes --remove-orphans`) happens when the script exits, either normally after the challenge ends or if you interrupt it with Ctrl+C.
+
+If needed, you can manually clean up all resources by running:
 
 ```zsh
 docker compose -f compose.yml down --volumes --remove-orphans
 ```
-
-The `run.sh` script includes a thorough cleanup process that:
-- Stops and removes all containers
-- Deletes the Kind cluster
-- Removes any straggling containers
-- Cleans up Docker networks
-
-This cleanup happens automatically when you exit the script with Ctrl+C.
 
 ## Troubleshooting
 

@@ -6,7 +6,8 @@ const ClusterStatus = ({ clusterStatus }) => {
     return <Alert variant="info"><i className="fas fa-spinner fa-spin me-2"></i>Loading cluster status...</Alert>;
   }
 
-  const { nodes = [], pods = [] } = clusterStatus;
+  const { nodes = [], pods = [], resources = {} } = clusterStatus;
+  const { quotas = {}, node_usage = {}, pod_usage = {} } = resources;
 
   // Calculate control plane health stats
   const controlPlanePods = [];
@@ -46,6 +47,21 @@ const ClusterStatus = ({ clusterStatus }) => {
       controlPlaneStatus = 'Unhealthy';
     }
   }
+
+  // Helper function to format bytes
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  // Helper function to format CPU (cores to milliCPUs)
+  const formatCpu = (cores) => {
+    if (cores === 0) return '0m';
+    return `${Math.round(cores * 1000)}m`;
+  };
 
   // Helper function to get status badge styling
   const getStatusBadge = (status) => {

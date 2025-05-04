@@ -434,7 +434,7 @@ kind: Pod
 metadata:
   name: test-pod
 spec:
-  long_section: \n{textwrap.indent(large_section_content, '    ')}
+  long_section: \n{textwrap.indent(large_section_content, "    ")}
 status:
   phase: Running
 """

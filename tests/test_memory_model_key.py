@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from vibectl.config import Config
 from vibectl.memory import update_memory
@@ -69,7 +70,12 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             mock_model = Mock()
             return mock_model
 
-        def execute(self, model: Mock, prompt_text: str) -> str:
+        def execute(
+            self,
+            model: Mock,
+            prompt_text: str,
+            response_model: type[BaseModel] | None = None,
+        ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -82,6 +88,10 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
 
         def validate_model_key(self, model_name: str) -> str | None:
             """Mock implementation of validate_model_key."""
+            return None
+
+        def validate_model_name(self, model_name: str) -> str | None:
+            """Mock implementation for the new abstract method."""
             return None
 
     # Create our adapter instance
@@ -141,7 +151,12 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             mock_model = Mock()
             return mock_model
 
-        def execute(self, model: Mock, prompt_text: str) -> str:
+        def execute(
+            self,
+            model: Mock,
+            prompt_text: str,
+            response_model: type[BaseModel] | None = None,
+        ) -> str:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")
@@ -154,6 +169,10 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
 
         def validate_model_key(self, model_name: str) -> str | None:
             """Mock implementation of validate_model_key."""
+            return None
+
+        def validate_model_name(self, model_name: str) -> str | None:
+            """Mock implementation for the new abstract method."""
             return None
 
     # Create our adapter instance

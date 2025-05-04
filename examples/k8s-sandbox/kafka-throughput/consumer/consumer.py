@@ -175,8 +175,7 @@ def main() -> None:
             time.sleep(delay)
         except Exception as e:
             logging.error(
-                "An unexpected error occurred during KafkaConsumer initialization: "
-                f"{e}"
+                f"An unexpected error occurred during KafkaConsumer initialization: {e}"
             )
             exit(1)
 

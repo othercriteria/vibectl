@@ -10,19 +10,16 @@ from click.testing import CliRunner
 from vibectl.cli import cli
 
 
-@patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
 def test_logs_basic(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test basic logs command functionality."""
     from vibectl.types import Success
 
-    mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
     mock_run_kubectl.return_value = Success(data="test output")
 
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
@@ -32,19 +29,16 @@ def test_logs_basic(
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
 def test_logs_with_args(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with additional arguments."""
     from vibectl.types import Success
 
-    mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
     mock_run_kubectl.return_value = Success(data="test output")
 
     # Use -- to separate options from arguments
@@ -69,7 +63,7 @@ def test_logs_with_flags(
     """Test logs command with output flags."""
     from vibectl.types import Success
 
-    mock_configure_flags.return_value = (True, False, False, "test-model")
+    mock_configure_flags.model_name = "test-model-bar"
     mock_run_kubectl.return_value = Success(data="test output")
 
     result = cli_runner.invoke(
@@ -81,7 +75,7 @@ def test_logs_with_flags(
             "--show-raw-output",
             "--no-show-vibe",
             "--model",
-            "test-model",
+            "test-model-foo",
         ],
     )
 
@@ -89,20 +83,20 @@ def test_logs_with_flags(
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
     mock_handle_output.assert_called_once()
 
+    # Verify the configured model name is not modified
+    assert mock_configure_flags.model_name == "test-model-bar"
 
-@patch("vibectl.subcommands.logs_cmd.configure_output_flags")
+
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
 def test_logs_no_output(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command when kubectl returns no output."""
     from vibectl.types import Success
 
-    mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
     mock_run_kubectl.return_value = Success(data="")
 
     result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
@@ -112,19 +106,16 @@ def test_logs_no_output(
     mock_handle_output.assert_not_called()
 
 
-@patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
 def test_logs_truncation_warning(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with output that might need truncation."""
     from vibectl.types import Success
 
-    mock_configure_flags.return_value = (False, True, False, "model-xyz-1.2.3")
     # Create a large output that exceeds MAX_TOKEN_LIMIT * LOGS_TRUNCATION_RATIO
     large_output = "x" * (10000 * 3 + 1)  # Just over the limit
     mock_run_kubectl.return_value = Success(data=large_output)

@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blue-agent
+  namespace: chaos-monkey-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: blue-agent-passive-view
+rules:
+- apiGroups: [""]
+  resources:
+    - pods
+    - services
+    - deployments
+    - namespaces
+    - nodes
+    - configmaps
+    - secrets
+    - resourcequotas
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+    - deployments
+    - statefulsets
+    - daemonsets
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - networkpolicies
+    - ingresses
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources:
+    - pods
+    - nodes
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: blue-agent-passive-view-binding
+subjects:
+- kind: ServiceAccount
+  name: blue-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: ClusterRole
+  name: blue-agent-passive-view
+  apiGroup: rbac.authorization.k8s.io
+---
+# No access to system-monitoring namespace resources
+# Explicitly deny all permissions through an empty role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blue-agent-no-access
+  namespace: protected
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-agent-no-access-binding
+  namespace: protected
+subjects:
+- kind: ServiceAccount
+  name: blue-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: blue-agent-no-access
+  apiGroup: rbac.authorization.k8s.io

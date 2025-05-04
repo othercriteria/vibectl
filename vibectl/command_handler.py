@@ -8,159 +8,57 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import asyncio
-import random
-import re
-import subprocess
 import time
 from collections.abc import Callable
-from contextlib import suppress
+from json import JSONDecodeError
 
 import click
-import yaml
+from pydantic import ValidationError
 from rich.panel import Panel
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TextColumn,
-    TimeElapsedColumn,
-)
 from rich.table import Table
 
 from .config import (
     DEFAULT_CONFIG,
     Config,
 )
-from .console import console_manager
+from .k8s_utils import (
+    create_kubectl_error,
+    run_kubectl,
+    run_kubectl_with_complex_args,
+    run_kubectl_with_yaml,
+)
+from .live_display import (
+    _execute_port_forward_with_live_display,
+    _execute_wait_with_live_display,
+)
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
-from .model_adapter import get_model_adapter
+from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
     memory_fuzzy_update_prompt,
-    port_forward_prompt,
     recovery_prompt,
-    wait_resource_prompt,
 )
-from .proxy import (
-    StatsProtocol,
-    TcpProxy,
-    start_proxy_server,
-    stop_proxy_server,
+from .schema import ActionType, LLMCommandResponse
+from .types import (
+    Error,
+    OutputFlags,
+    Result,
+    Success,
 )
-from .types import Error, OutputFlags, Result, Success
+from .utils import console_manager
+
+# Remove unused direct import of tl if it's no longer needed elsewhere
+# from . import truncation_logic as tl
 
 logger = _logger
 
 # Export Table for testing
 __all__ = ["Table"]
 
-# Constants for output flags
-# (DEFAULT_MODEL, DEFAULT_SHOW_RAW_OUTPUT, DEFAULT_SHOW_VIBE,
-#  DEFAULT_WARN_NO_OUTPUT, DEFAULT_SHOW_KUBECTL)
-# Use values from config.py's DEFAULT_CONFIG instead
 
 # Initialize output processor
 output_processor = OutputProcessor(max_chars=2000, llm_max_chars=2000)
-
-
-def run_kubectl(
-    cmd: list[str], capture: bool = False, config: Config | None = None
-) -> Result:
-    """Run kubectl command and capture output.
-
-    Args:
-        cmd: List of command arguments
-        capture: Whether to capture and return output
-        config: Optional Config instance to use
-
-    Returns:
-        Success with command output if capture=True, or None otherwise
-        Error with error message on failure
-    """
-    try:
-        # Get a Config instance if not provided
-        cfg = config or Config()
-
-        # Get the kubeconfig path from config
-        kubeconfig = cfg.get("kubeconfig")
-
-        # Build the full command
-        kubectl_cmd = ["kubectl"]
-
-        # Add the command arguments first, to ensure kubeconfig is AFTER the main
-        # command
-        kubectl_cmd.extend(cmd)
-
-        # Add kubeconfig AFTER the main command to avoid errors
-        if kubeconfig:
-            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
-
-        logger.info(f"Running kubectl command: {' '.join(kubectl_cmd)}")
-
-        # Execute the command
-        result = subprocess.run(
-            kubectl_cmd,
-            capture_output=capture,
-            check=False,
-            text=True,
-            encoding="utf-8",
-        )
-
-        # Check for errors
-        if result.returncode != 0:
-            error_message = result.stderr.strip() if capture else "Command failed"
-            if not error_message:
-                error_message = f"Command failed with exit code {result.returncode}"
-            logger.debug(f"kubectl command failed: {error_message}")
-
-            # Create error result, marking kubectl server errors as non-halting
-            # for auto loops
-            return create_kubectl_error(error_message)
-
-        # Return output if capturing
-        if capture:
-            output = result.stdout.strip()
-            logger.debug(f"kubectl command output: {output}")
-            return Success(data=output)
-        return Success()
-    except FileNotFoundError:
-        error_msg = "kubectl not found. Please install it and try again."
-        logger.debug(error_msg)
-        return Error(error=error_msg)
-    except Exception as e:
-        logger.debug(f"Exception running kubectl: {e}", exc_info=True)
-        return Error(error=str(e), exception=e)
-
-
-def create_kubectl_error(
-    error_message: str, exception: Exception | None = None
-) -> Error:
-    """
-    Create an Error object for kubectl failures, marking certain errors as
-    non-halting for auto loops.
-
-    Args:
-        error_message: The error message
-        exception: Optional exception that caused the error
-
-    Returns:
-        Error object with appropriate halt_auto_loop flag set
-    """
-    # For kubectl server errors (like NotFound, Forbidden, etc.),
-    # set halt_auto_loop=False so auto loops can continue
-    if "Error from server" in error_message:
-        return Error(error=error_message, exception=exception, halt_auto_loop=False)
-
-    # For unknown command errors (usually from malformed LLM output),
-    # set halt_auto_loop=False so the auto loop can continue and the LLM can
-    # correct itself
-    if "unknown command" in error_message.lower():
-        return Error(error=error_message, exception=exception, halt_auto_loop=False)
-
-    # For other errors, use the default (halt_auto_loop=True)
-    return Error(error=error_message, exception=exception)
 
 
 def handle_standard_command(
@@ -170,41 +68,62 @@ def handle_standard_command(
     output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
 ) -> Result:
-    """Handle a standard kubectl command with both raw and vibe output.
+    """Handle standard kubectl commands like get, describe, logs.
 
     Args:
-        command: The kubectl command to run
-        resource: The resource to act on
-        args: Additional command arguments
-        output_flags: Output configuration flags
-        summary_prompt_func: Function to generate summary prompt
+        command: The kubectl command (get, describe, logs, etc.)
+        resource: The resource type (e.g., pods, deployments)
+        args: Additional arguments for the command
+        output_flags: Flags controlling output format
 
     Returns:
-        Result with Success or Error information
+        Result object containing output or error
     """
+    result = _run_standard_kubectl_command(command, resource, args)
+
+    if isinstance(result, Error):
+        # Handle API errors specifically if needed
+        # API errors are now handled by the RecoverableApiError exception type
+        # if they originate from the model adapter. Other kubectl errors
+        # are generally treated as halting.
+        # Ensure exception exists before passing
+        if result.exception:
+            return _handle_standard_command_error(
+                command,
+                resource,
+                args,
+                result.exception,
+            )
+        else:
+            # Handle case where Error has no exception (should not happen often)
+            logger.error(
+                f"Command {command} {resource} failed with error but "
+                f"no exception: {result.error}"
+            )
+            return result  # Return the original error
+
+    output = result.data
+
+    # Handle empty output
+    # Ensure output is not None before checking/stripping
+    if output is None or not output.strip():
+        return _handle_empty_output(command, resource, args)
+
+    # Process and display output based on flags
+    # Pass command type to handle_command_output
+    # Output is guaranteed to be a string here
     try:
-        logger.info(f"Handling standard command: {command} {resource} {' '.join(args)}")
-
-        # Run kubectl and process the result
-        result = _run_standard_kubectl_command(command, resource, args)
-        if isinstance(result, Error):
-            return result
-
-        # Extract output from success result
-        output = result.data
-
-        # Handle empty output case
-        if not output:
-            return _handle_empty_output(command, resource, args)
-
-        # Handle the output display based on the configured flags
-        return _handle_standard_command_output(
-            output=output,
-            output_flags=output_flags,
-            summary_prompt_func=summary_prompt_func,
-            command=f"{command} {resource} {' '.join(args)}",
+        return handle_command_output(
+            output,
+            output_flags,
+            summary_prompt_func,
+            command=command,
         )
     except Exception as e:
+        # If handle_command_output raises an unexpected error, handle it
+        # logger.error(
+        #     f"Unexpected error during command output processing: {e}", exc_info=True
+        # ) # Removed redundant log, _handle_standard_command_error logs it.
         return _handle_standard_command_error(command, resource, args, e)
 
 
@@ -257,37 +176,6 @@ def _handle_empty_output(command: str, resource: str, args: tuple) -> Result:
     return Success(message="Command returned no output")
 
 
-def _handle_standard_command_output(
-    output: str,
-    output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
-    command: str,
-) -> Result:
-    """Process output from a standard command.
-
-    A wrapper around handle_command_output that handles logging.
-
-    Args:
-        output: Command output to process
-        output_flags: Output configuration flags
-        summary_prompt_func: Function to generate summary prompt
-        command: The full command string for logging
-
-    Returns:
-        Result of output processing
-    """
-    output_result = handle_command_output(
-        output=output,
-        output_flags=output_flags,
-        summary_prompt_func=summary_prompt_func,
-        command=command,
-    )
-
-    logger.info(f"Completed standard command: {command}")
-
-    return output_result
-
-
 def _handle_standard_command_error(
     command: str, resource: str, args: tuple, exception: Exception
 ) -> Error:
@@ -327,124 +215,174 @@ def create_api_error(error_message: str, exception: Exception | None = None) -> 
     return Error(error=error_message, exception=exception, halt_auto_loop=False)
 
 
-def is_api_error(error_message: str) -> bool:
-    """
-    Check if an error message looks like an API error.
-
-    Args:
-        error_message: The error message to check
-
-    Returns:
-        True if the error appears to be an API error, False otherwise
-    """
-    # Check for API error formats
-    api_error_patterns = [
-        "Error executing prompt",
-        "overloaded_error",
-        "rate_limit",
-        "capacity",
-        "busy",
-        "throttle",
-        "anthropic.API",
-        "openai.API",
-        "llm error",
-        "model unavailable",
-    ]
-
-    error_message_lower = error_message.lower()
-    return any(pattern.lower() in error_message_lower for pattern in api_error_patterns)
-
-
 def handle_command_output(
     output: Result | str,
     output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
-    max_token_limit: int = 10000,
-    truncation_ratio: int = 3,
     command: str | None = None,
 ) -> Result:
-    """Handle displaying command output in both raw and vibe formats.
+    """Processes and displays command output based on flags.
 
     Args:
-        output: The command output to display (can be a string or a Result object)
-        output_flags: Configuration for output display
-        summary_prompt_func: Function returning the prompt template for summarizing
-        max_token_limit: Maximum number of tokens for the prompt
-        truncation_ratio: Ratio for truncating the output
-        command: Optional command string that generated the output
+        output: The command output string or a Result object.
+        output_flags: Flags controlling the output format.
+        max_token_limit: Max token limit for LLM input.
+        truncation_ratio: Ratio for truncating long output.
+        command: The original kubectl command type (e.g., get, describe).
 
     Returns:
-        Result with Success containing vibe output or Error with error information
+        Result object containing the processed output or original error.
     """
-    logger.debug(f"Handling command output for: {command}")
+    _check_output_visibility(output_flags)
 
-    try:
-        # Extract data from Result objects if needed
-        if isinstance(output, Success):
-            output_data = output.data
-        elif isinstance(output, Error):
-            return output  # Pass through error results
+    original_error_object: Error | None = None
+    output_str: str | None = None
+
+    if isinstance(output, Error):
+        original_error_object = output
+        console_manager.print_error(original_error_object.error)
+        # Even if it's an error, we might get recovery suggestions if show_vibe is true
+        # Extract the error string for potential Vibe processing
+        output_str = original_error_object.error
+    elif isinstance(output, Success):
+        output_str = output.data
+    else:  # Plain string input
+        output_str = output
+
+    _display_kubectl_command(output_flags, command)
+
+    # Display raw output (if available and requested)
+    # For errors, display the error string itself if raw is requested.
+    if output_str is not None:
+        _display_raw_output(output_flags, output_str)
+
+    # Determine if Vibe processing (summary or recovery) is needed
+    if output_flags.show_vibe:
+        if output_str is not None:
+            try:
+                if original_error_object:
+                    # If we started with an error, generate a recovery prompt
+                    prompt_str = recovery_prompt(
+                        failed_command=command or "Unknown Command",
+                        error_output=output_str,
+                        original_explanation=None,
+                    )
+                    logger.info(f"Generated recovery prompt: {prompt_str}")
+
+                    # Call LLM adapter directly for recovery, bypassing _get_llm_summary
+                    try:
+                        model_adapter = get_model_adapter()
+                        model = model_adapter.get_model(output_flags.model_name)
+                        vibe_output = model_adapter.execute(model, prompt_str)
+                        suggestions_generated = True
+                    except Exception as llm_exc:
+                        # Handle LLM execution errors during recovery appropriately
+                        logger.error(
+                            f"Error getting recovery suggestions from LLM: {llm_exc}",
+                            exc_info=True,
+                        )
+                        # Re-raise to be caught by the outer exception handler
+                        # If suggestions fail, we don't mark as recoverable
+                        suggestions_generated = False
+                        vibe_output = f"Failed to get recovery suggestions: {llm_exc}"
+                        # Don't raise here, let the function return the original error
+                        # possibly annotated with the failure message.
+                        # raise llm_exc
+
+                    logger.info(f"LLM recovery suggestion: {vibe_output}")
+                    console_manager.print_vibe(vibe_output)
+                    # Update the original error object with suggestion/failure message
+                    original_error_object.recovery_suggestions = vibe_output
+
+                    # If suggestions were generated, mark as non-halting for auto mode
+                    if suggestions_generated:
+                        logger.info(
+                            "Marking error as non-halting due to successful "
+                            "recovery suggestion."
+                        )
+                        original_error_object.halt_auto_loop = False
+
+                    # Update memory with error and recovery suggestion (or
+                    # failure message)
+                    # Wrap memory update in try-except as it's non-critical path
+                    try:
+                        update_memory(
+                            command=command or "Unknown",
+                            command_output=original_error_object.error,
+                            vibe_output=vibe_output,
+                            model_name=output_flags.model_name,
+                        )
+                    except Exception as mem_err:
+                        logger.error(
+                            f"Failed to update memory during error recovery: {mem_err}"
+                        )
+
+                    return original_error_object  # Return the modified error
+                else:
+                    # If we started with success, generate a summary prompt
+                    summary_prompt_str = summary_prompt_func()
+                    vibe_result = _process_vibe_output(
+                        output_str,
+                        output_flags,
+                        summary_prompt_str=summary_prompt_str,
+                        command=command,
+                        original_error_object=original_error_object,
+                    )
+                    return vibe_result
+            except RecoverableApiError as api_err:
+                # Catch specific recoverable errors from _get_llm_summary
+                logger.warning(
+                    f"Recoverable API error during Vibe processing: {api_err}",
+                    exc_info=True,
+                )
+                console_manager.print_error(f"API Error: {api_err}")
+                # Create a non-halting error with the formatted message
+                return create_api_error(f"API Error: {api_err}", api_err)
+            except Exception as e:
+                logger.error(f"Error during Vibe processing: {e}", exc_info=True)
+                error_str = str(e)
+                formatted_error_msg = f"Error getting Vibe summary: {error_str}"
+                console_manager.print_error(formatted_error_msg)
+                # Create a standard halting error for Vibe summary failures
+                # using the formatted message
+                vibe_error = Error(error=formatted_error_msg, exception=e)
+
+                if original_error_object:
+                    # Combine the original error with the Vibe failure
+                    # Use the formatted vibe_error message here too
+                    combined_error_msg = (
+                        f"Original Error: {original_error_object.error}\n"
+                        f"Vibe Failure: {vibe_error.error}"
+                    )
+                    exc = original_error_object.exception or vibe_error.exception
+                    # Return combined error, keeping original exception if possible
+                    return Error(error=combined_error_msg, exception=exc)
+                else:
+                    # If there was no original error, just return the Vibe error
+                    return vibe_error
         else:
-            output_data = output  # Already a string
+            # Handle case where output was None but Vibe was requested
+            logger.warning("Cannot process Vibe output because input was None.")
+            # If we started with an Error object that had no .error string, return that
+            if original_error_object:
+                original_error_object.error = (
+                    original_error_object.error or "Input error was None"
+                )
+                original_error_object.recovery_suggestions = (
+                    "Could not process None error for suggestions."
+                )
+                return original_error_object
+            else:
+                return Error(
+                    error="Input command output was None, cannot generate Vibe summary."
+                )
 
-        # Ensure we have string data to work with
-        if not isinstance(output_data, str):
-            logger.warning(
-                f"Expected string output but got {type(output_data).__name__}"
-            )
-            # Convert to string if possible
-            output_data = "" if output_data is None else str(output_data)
-
-        # Display command if needed
-        _display_kubectl_command(output_flags, command)
-
-        # Check and warn if no output will be displayed
-        _check_output_visibility(output_flags)
-
-        # Show raw output if needed
-        _display_raw_output(output_flags, output_data)
-
-        # Process vibe output if needed
-        if output_flags.show_vibe:
-            vibe_result = _process_vibe_output(
-                output_data,
-                output_flags,
-                summary_prompt_func,
-                max_token_limit,
-                truncation_ratio,
-                command,
-            )
-
-            # If we got an error from vibe processing, return that
-            if isinstance(vibe_result, Error):
-                return vibe_result
-
-            # Otherwise, extract the vibe output
-            vibe_output = vibe_result.data
-
-            # Display the output if there was any
-            if vibe_output and output_flags.show_raw:
-                console_manager.console.print()
-
-            if vibe_output:
-                _display_vibe_output(vibe_output)
-        else:
-            vibe_output = ""
-
-        # Return success with whatever vibe output we got
-        return Success(message="Command completed successfully", data=vibe_output)
-
-    except Exception as e:
-        logger.error(f"Error in vibe output processing: {e}", exc_info=True)
-        error_message = f"Error processing output: {e}"
-
-        # Check if this is an API error, which shouldn't halt auto loops
-        if is_api_error(str(e)):
-            logger.info("API error detected, marking as non-halting for auto loops")
-            return create_api_error(error_message, e)
-
-        # For non-API errors, use the default behavior (halt_auto_loop=True)
-        return Error(error=error_message, exception=e)
+    else:  # No Vibe processing requested
+        # If we started with an error, return it directly
+        if original_error_object:
+            return original_error_object
+        # Otherwise, return Success with the output string
+        return Success(message=output_str if output_str is not None else "")
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -504,108 +442,106 @@ def _display_raw_output(output_flags: OutputFlags, output: str) -> None:
 def _process_vibe_output(
     output: str,
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
-    max_token_limit: int = 10000,
-    truncation_ratio: int = 3,
+    summary_prompt_str: str,
     command: str | None = None,
+    original_error_object: Error | None = None,
 ) -> Result:
-    """Process command output to generate a vibe summary.
+    """Processes output using Vibe LLM for summary.
 
     Args:
-        output: The command output to process
-        output_flags: Output configuration flags
-        summary_prompt_func: Function to generate summary prompt
-        max_token_limit: Maximum number of tokens for the prompt
-        truncation_ratio: Ratio for truncating the output
-        command: Optional command string that generated the output
+        output: The raw command output string.
+        output_flags: Flags controlling output format.
+        summary_prompt_str: The formatted prompt string for the LLM.
+        command: The original kubectl command type.
+        original_error_object: The original error object if available
 
     Returns:
-        Result with Success containing vibe output or Error with error information
+        Result object with Vibe summary or an Error.
     """
-    logger.debug("Processing output for vibe summary.")
+    # Truncate output if necessary
+    processed_output = output_processor.process_auto(output).truncated
 
-    # Process output to avoid token limits
-    truncation_result = output_processor.process_auto(output)
-    processed_output = truncation_result.truncated
-
-    # Show truncation warning if needed
-    # Simplification: Check if truncated content is different from original
-    if truncation_result.original != truncation_result.truncated:
-        logger.warning("Output was truncated for processing.")
-        console_manager.print_truncation_warning()
-
+    # Get LLM summary
     try:
-        # Get summary from LLM
         vibe_output = _get_llm_summary(
-            processed_output, output_flags.model_name, summary_prompt_func(), command
+            processed_output,
+            output_flags.model_name,
+            summary_prompt_str,
         )
 
-        # Update memory if we have a command, regardless of vibe output
-        if command:
-            update_memory(command, output, vibe_output, output_flags.model_name)
-
-        # Check for empty response
-        if not vibe_output:
-            logger.info("Vibe output is empty.")
-            console_manager.print_empty_output_message()
-            return Success(
-                message="Command completed successfully, but vibe output is empty.",
-                data="",
-            )
-
-        # Check for error response
+        # Check if the LLM returned an error string
         if vibe_output.startswith("ERROR:"):
-            error_message = vibe_output[7:].strip()  # Remove "ERROR: " prefix
-            logger.error(f"Vibe model returned error: {error_message}")
-            console_manager.print_error(error_message)
-            return Error(error=error_message)
+            error_message = vibe_output[7:].strip()
+            logger.error(f"LLM summary error: {error_message}")
+            console_manager.print_error(vibe_output)  # Display the full ERROR: string
+            # Treat LLM-reported errors as potentially recoverable API errors
+            # Pass the error message without the ERROR: prefix
+            return create_api_error(error_message)
 
-        # Return the vibe output
-        return Success(message="Vibe output processed successfully", data=vibe_output)
+        _display_vibe_output(vibe_output)
 
+        # Update memory only if Vibe summary succeeded (and wasn't an error string)
+        update_memory(
+            command=command or "Unknown",
+            command_output=output,  # Store original full output in memory
+            vibe_output=vibe_output,
+            model_name=output_flags.model_name,
+        )
+        return Success(message=vibe_output)
+    except RecoverableApiError as api_err:
+        # Catch specific recoverable errors from _get_llm_summary
+        logger.warning(
+            f"Recoverable API error during Vibe processing: {api_err}",
+            exc_info=True,
+        )
+        console_manager.print_error(f"API Error: {api_err}")
+        # Create a non-halting error with the formatted message
+        return create_api_error(f"API Error: {api_err}", api_err)
     except Exception as e:
-        error_message = f"Error getting LLM summary: {e}"
+        logger.error(f"Error getting Vibe summary: {e}", exc_info=True)
+        error_str = str(e)
+        formatted_error_msg = f"Error getting Vibe summary: {error_str}"
+        console_manager.print_error(formatted_error_msg)
+        # Create a standard halting error for Vibe summary failures
+        # using the formatted message
+        vibe_error = Error(error=formatted_error_msg, exception=e)
 
-        # Check if this is an API error, which shouldn't halt auto loops
-        if is_api_error(str(e)):
-            logger.info(
-                "API error in LLM summary, marking as non-halting for auto loops"
+        if original_error_object:
+            # Combine the original error with the Vibe failure
+            # Use the formatted vibe_error message here too
+            combined_error_msg = (
+                f"Original Error: {original_error_object.error}\n"
+                f"Vibe Failure: {vibe_error.error}"
             )
-            return create_api_error(error_message, e)
-
-        # For other errors, use the default behavior
-        return Error(error=error_message, exception=e)
+            exc = original_error_object.exception or vibe_error.exception
+            # Return combined error, keeping original exception if possible
+            return Error(error=combined_error_msg, exception=exc)
+        else:
+            # If there was no original error, just return the Vibe error
+            return vibe_error
 
 
 def _get_llm_summary(
     processed_output: str,
     model_name: str,
-    summary_prompt: str,
-    command: str | None = None,
+    summary_prompt_str: str,
 ) -> str:
-    """Get a summary from the LLM.
+    """Gets the LLM summary for the processed output.
 
     Args:
-        processed_output: Processed command output
-        model_name: Name of the model to use
-        summary_prompt: Prompt template for summarizing
-        command: Optional command string to include in the prompt
+        processed_output: The processed (potentially truncated) output.
+        model_name: Name of the LLM model to use.
+        summary_prompt_str: The formatted prompt string for the LLM.
+        command: The original kubectl command type.
 
     Returns:
-        Summary text from the LLM
+        The summary generated by the LLM.
     """
     model_adapter = get_model_adapter()
     model = model_adapter.get_model(model_name)
-
-    # Format the prompt correctly based on available parameters
-    prompt = (
-        summary_prompt.format(output=processed_output, command=command)
-        if command
-        else summary_prompt.format(output=processed_output)
-    )
-
-    logger.debug(f"Sending prompt to model: {prompt[:100]}...")
-    return model_adapter.execute(model, prompt)
+    # Format the prompt string with the output
+    final_prompt = summary_prompt_str.format(output=processed_output)
+    return model_adapter.execute(model, final_prompt)
 
 
 def _display_vibe_output(vibe_output: str) -> None:
@@ -630,387 +566,317 @@ def handle_vibe_request(
     memory_context: str = "",  # Add parameter for memory context
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
 ) -> Result:
-    """Handle a request to execute a kubectl command based on a natural language query.
+    """Handle a request that requires LLM interaction for command planning.
 
     Args:
-        request: Natural language request from the user
-        command: Command type (get, describe, etc.)
-        plan_prompt: LLM prompt template for planning the kubectl command
-        summary_prompt_func: Function that returns the LLM prompt for summarizing
-        output_flags: Output configuration flags
-        yes: Whether to bypass confirmation prompts
-        semiauto: Whether this is operating in semiauto mode
-        live_display: Whether to use live display for commands like port-forward
-        memory_context: Memory context to include in the prompt (for vibe mode)
-        autonomous_mode: Whether this is operating in autonomous mode
+        request: The user's natural language request.
+        command: The base kubectl command (e.g., 'get', 'describe').
+        plan_prompt: The prompt template used for planning the command.
+        summary_prompt_func: Function to generate the summary prompt.
+        output_flags: Flags controlling output format and verbosity.
+        yes: Bypass confirmation prompts.
+        semiauto: Enable semi-autonomous mode (confirm once).
+        live_display: Show live output for background tasks.
+        memory_context: Context from fuzzy memory.
+        autonomous_mode: Enable fully autonomous mode (no confirmations).
 
     Returns:
-        Result with Success or Error information
+        Result object with the outcome of the operation.
     """
-    try:
-        logger.info(
-            f"Planning kubectl command for request: '{request}' (command: {command})"
-        )
-        model_adapter = get_model_adapter()
-        model = model_adapter.get_model(output_flags.model_name)
+    model_name = output_flags.model_name
 
-        # Format the prompt for the LLM
-        formatted_prompt = _format_vibe_prompt(
-            plan_prompt, request, command, memory_context
-        )
-
-        # Get the kubectl command from the LLM
-        kubectl_cmd = model_adapter.execute(model, formatted_prompt)
-
-        # Check if we got a valid command
-        if not kubectl_cmd:
-            logger.error(
-                "No kubectl command could be generated for request: '%s'", request
-            )
-            console_manager.print_error("No kubectl command could be generated.")
-            return Error(error="No kubectl command could be generated")
-
-        # Handle error output from LLM
-        if kubectl_cmd.startswith("ERROR:"):
-            return _handle_planning_error(
-                kubectl_cmd, command, request, output_flags.model_name
-            )
-
-        # Process the command string generated by the LLM
-        result = _process_and_execute_kubectl_command(
-            kubectl_cmd=kubectl_cmd,
-            command=command,
-            request=request,
-            output_flags=output_flags,
-            summary_prompt_func=summary_prompt_func,
-            yes=yes,
-            semiauto=semiauto,
-            live_display=live_display,
-            autonomous_mode=autonomous_mode,
-        )
-
-        # If there was an error, query the model for recovery suggestions
-        if isinstance(result, Error):
-            logger.info("Command execution failed, getting recovery suggestions")
-            # Get recovery suggestions from model
-            try:
-                # Format the recovery prompt
-                recovery_prompt_text = recovery_prompt(
-                    command=f"{command} {kubectl_cmd}",
-                    error=result.error,
-                )
-
-                # Make a second call to the model for recovery suggestions
-                recovery_suggestions = model_adapter.execute(
-                    model, recovery_prompt_text
-                )
-                if recovery_suggestions:
-                    console_manager.print_processing("Recovery suggestions:")
-                    console_manager.print_note(recovery_suggestions)
-                    # Set recovery_suggestions directly on the result
-                    result.recovery_suggestions = recovery_suggestions
-
-                    # Update memory with recovery suggestions
-                    update_memory(
-                        command=f"{command} {kubectl_cmd}",
-                        command_output=result.error,
-                        vibe_output=f"Recovery suggestions: {recovery_suggestions}",
-                        model_name=output_flags.model_name,
-                    )
-
-                    # Log that recovery suggestions were added to memory
-                    logger.info("Recovery suggestions added to memory context")
-            except Exception as recovery_err:
-                logger.error(f"Error getting recovery suggestions: {recovery_err}")
-
-        return result
-    except Exception as e:
-        logger.error(f"Error in vibe request processing: {e}", exc_info=True)
-        return Error(error=f"Error processing vibe request: {e}", exception=e)
-
-
-def _format_vibe_prompt(
-    plan_prompt: str, request: str, command: str, memory_context: str = ""
-) -> str:
-    """Format the plan prompt for vibe requests, handling different format styles.
-
-    Args:
-        plan_prompt: The prompt template
-        request: The user's natural language request
-        command: The command type (get, describe, etc.)
-        memory_context: Optional memory context to include
-
-    Returns:
-        Formatted prompt ready to send to the LLM
-    """
-    # Prepare the format parameters
-    format_params = {"request": request, "command": command}
-
-    # Always provide memory_context in format_params, even if empty
-    # This prevents KeyError when the prompt contains {memory_context}
-    format_params["memory_context"] = memory_context or ""
-
-    try:
-        # First, check if there are any positional format specifiers in the prompt
-        import re
-
-        positional_formats = re.findall(r"{(\d+)}", plan_prompt)
-
-        if positional_formats:
-            # If positional formats exist, use string replacement for all parameters
-            logger.info(
-                "Detected positional format specifiers in prompt, "
-                "using string replacement"
-            )
-            formatted_prompt = plan_prompt
-
-            # Replace all named parameters
-            formatted_prompt = formatted_prompt.replace(
-                "{memory_context}", memory_context or ""
-            )
-            formatted_prompt = formatted_prompt.replace("{request}", request)
-            formatted_prompt = formatted_prompt.replace("{command}", command)
-
-            # Then handle any remaining positional parameters by replacing
-            # them with empty strings
-            for pos in positional_formats:
-                formatted_prompt = formatted_prompt.replace(f"{{{pos}}}", "")
-        else:
-            # No positional formats, use normal keyword formatting
-            formatted_prompt = plan_prompt.format(**format_params)
-
-    except (KeyError, IndexError) as e:
-        # Fallback to string replacement as a last resort
-        logger.warning(
-            f"Format error ({e}) in prompt. Using fallback formatting method."
-        )
-        # Use string replacement as a fallback to avoid format conflicts
-        formatted_prompt = plan_prompt
-        formatted_prompt = formatted_prompt.replace(
-            "{memory_context}", memory_context or ""
-        )
-        formatted_prompt = formatted_prompt.replace("{request}", request).replace(
-            "{command}", command
-        )
-
-        # Replace any remaining format specifiers with empty strings
-        import re
-
-        formatted_prompt = re.sub(r"{(\d+)}", "", formatted_prompt)
-        # Also replace any remaining {name} format specifiers
-        formatted_prompt = re.sub(r"{[a-zA-Z0-9_]+}", "", formatted_prompt)
-
-    return formatted_prompt
-
-
-def _handle_planning_error(
-    kubectl_cmd: str, command: str, request: str, model_name: str
-) -> Result:
-    """Handle error responses from the LLM during planning.
-
-    Args:
-        kubectl_cmd: The error response from the LLM
-        command: The command type
-        request: The user's request
-        model_name: The model name used
-
-    Returns:
-        Error result with the error message
-    """
-    error_message = kubectl_cmd[7:].strip()  # Remove "ERROR: " prefix
-    logger.error("LLM planning error: %s", error_message)
-
-    # Update memory with the error for context
-    command_for_output = f"{command} vibe {request}"
-    error_output = f"Error: {error_message}"
-    update_memory(
-        command=command_for_output,
-        command_output=error_output,
-        vibe_output=kubectl_cmd,
-        model_name=model_name,
+    # Get and validate the LLM plan
+    # Replace placeholders in the prompt template
+    final_plan_prompt = plan_prompt.replace(
+        "__MEMORY_CONTEXT_PLACEHOLDER__", memory_context or ""
+    )
+    final_plan_prompt = final_plan_prompt.replace(
+        "__REQUEST_PLACEHOLDER__", request or ""
     )
 
-    console_manager.print_processing("Planning error added to memory context")
-    console_manager.print_error(kubectl_cmd)
-    return Error(error=error_message)
+    plan_result = _get_llm_plan(
+        model_name,
+        final_plan_prompt,
+        LLMCommandResponse,
+    )
+
+    if isinstance(plan_result, Error):
+        # Error handling (logging, console printing) is now done within _get_llm_plan
+        # or handled by the caller based on halt_auto_loop.
+        # Simply return the Error object.
+        return plan_result
+
+    # Plan succeeded, get the validated response object
+    response = plan_result.data
+    # Add check to satisfy linter and handle potential (though unlikely) None case
+    if response is None:
+        logger.error("Internal Error: _get_llm_plan returned Success with None data.")
+        return Error("Internal error: Failed to get valid plan data from LLM.")
+
+    # Dispatch based on the validated plan's ActionType
+    match response.action_type:
+        case ActionType.ERROR:
+            if not response.error:
+                logger.error("ActionType is ERROR but no error message provided.")
+                return Error(
+                    error="Internal error: LLM sent ERROR action without message."
+                )
+            # Handle planning errors (updates memory)
+            error_message = response.error
+            logger.info(f"LLM returned planning error: {error_message}")
+            # Display explanation first if provided
+            console_manager.print_note(f"AI Explanation: {response.explanation}")
+            update_memory(
+                command=command,
+                command_output=error_message,  # Store raw error from LLM
+                vibe_output=f"LLM Planning Error: {request} -> {error_message}",
+                model_name=output_flags.model_name,
+            )
+            logger.info("Planning error added to memory context")
+            console_manager.print_error(f"LLM Planning Error: {error_message}")
+            return Error(
+                error=f"LLM planning error: {error_message}",
+                recovery_suggestions=response.explanation
+                or "Check the request or try rephrasing.",
+            )
+
+        case ActionType.WAIT:
+            if response.wait_duration_seconds is None:
+                logger.error("ActionType is WAIT but no duration provided.")
+                return Error(
+                    error="Internal error: LLM sent WAIT action without duration."
+                )
+            duration = response.wait_duration_seconds
+            logger.info(f"LLM requested WAIT for {duration} seconds.")
+            # Display explanation first if provided
+            console_manager.print_note(f"AI Explanation: {response.explanation}")
+            console_manager.print_processing(
+                f"Waiting for {duration} seconds as requested by AI..."
+            )
+            time.sleep(duration)
+            return Success(message=f"Waited for {duration} seconds.")
+
+        case ActionType.FEEDBACK:
+            logger.info("LLM issued FEEDBACK without command.")
+            if response.explanation:
+                console_manager.print_note(f"AI Explanation: {response.explanation}")
+            else:
+                # If no explanation, provide a default message
+                console_manager.print_note("Received feedback from AI.")
+            return Success(message="Received feedback from AI.")
+
+        case ActionType.COMMAND:
+            if not response.commands and not response.yaml_manifest:
+                logger.error(
+                    "LLM returned COMMAND action but no commands or YAML provided."
+                )
+                update_memory(
+                    command=command or "system",
+                    command_output="LLM Error: COMMAND action with no args.",
+                    vibe_output="LLM Error: COMMAND action with no args.",
+                    model_name=output_flags.model_name,
+                )
+                return Error(
+                    error="Internal error: LLM sent COMMAND action with no args."
+                )
+
+            # Extract verb and args using helper
+            raw_llm_commands = response.commands or []
+            kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
+
+            # Handle error from extraction helper
+            if kubectl_verb is None:
+                return Error(
+                    error="LLM planning failed: Could not determine command verb."
+                )
+
+            # Confirm and execute the plan using a helper function
+            return _confirm_and_execute_plan(
+                kubectl_verb,
+                kubectl_args,
+                response.yaml_manifest,
+                response.explanation,
+                semiauto,
+                yes,
+                autonomous_mode,
+                live_display,
+                output_flags,
+                summary_prompt_func,
+            )
+
+        case _:
+            logger.error(f"Internal error: Unknown ActionType: {response.action_type}")
+            return Error(
+                error=f"Internal error: Unknown ActionType received from "
+                f"LLM: {response.action_type}"
+            )
 
 
-def _process_and_execute_kubectl_command(
-    kubectl_cmd: str,
-    command: str,
-    request: str,
+def _confirm_and_execute_plan(
+    kubectl_verb: str,
+    kubectl_args: list[str],
+    yaml_content: str | None,
+    explanation: str | None,
+    semiauto: bool,
+    yes: bool,
+    autonomous_mode: bool,
+    live_display: bool,
     output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
-    yes: bool = False,
-    semiauto: bool = False,
-    live_display: bool = True,
-    autonomous_mode: bool = False,
 ) -> Result:
-    """Process and execute the kubectl command generated by the LLM.
+    """Handles confirmation, execution, and output processing for a planned command."""
+    cmd_for_display = _create_display_command(kubectl_args)
+    display_cmd = (f"kubectl {kubectl_verb} {cmd_for_display}").strip()
 
-    Args:
-        kubectl_cmd: The kubectl command string generated by the LLM
-        command: The command type
-        request: The user's request
-        output_flags: Output configuration flags
-        summary_prompt_func: Function to generate summary prompt
-        yes: Whether to bypass confirmation prompts
-        semiauto: Whether this is operating in semiauto mode
-        live_display: Whether to use live display for commands like port-forward
-        autonomous_mode: Whether this is operating in autonomous mode
+    if output_flags.show_kubectl:
+        console_manager.print_processing(f"Running: {display_cmd}")
 
-    Returns:
-        Result of command execution
-    """
-    logger.debug(f"Processing planned command string: {kubectl_cmd}")
+    # Confirmation logic
+    confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
+    should_confirm = confirmation_needed and not (yes or autonomous_mode)
+    logger.debug(
+        f"Confirmation check: verb='{kubectl_verb}', "
+        f"needed={confirmation_needed}, should_confirm={should_confirm}, "
+        f"yes={yes}, auto={autonomous_mode}"
+    )
 
-    # Parse the command string
-    try:
-        cmd_args, yaml_content = _process_command_string(kubectl_cmd)
-        args = _parse_command_args(cmd_args)
-        display_cmd = _create_display_command(args, yaml_content)
-    except ValueError as ve:
-        logger.error("Command parsing error: %s", ve, exc_info=True)
-        console_manager.print_error(f"Command parsing error: {ve}")
-        return Error(error=f"Command parsing error: {ve}", exception=ve)
+    if should_confirm:
+        logger.debug("Calling _handle_command_confirmation")
+        confirmation_result = _handle_command_confirmation(
+            display_cmd,
+            cmd_for_display,
+            semiauto,
+            output_flags.model_name,
+            explanation,
+        )
+        if confirmation_result is not None:
+            if (
+                isinstance(confirmation_result, Success)
+                and not confirmation_result.continue_execution
+            ):
+                logger.info("Exiting due to user choice in confirmation.")
+            return confirmation_result
+        logger.debug("Proceeding with command execution after confirmation")
 
-    # Determine if confirmation is needed
-    needs_confirm = _needs_confirmation(command, semiauto) and not yes
-
-    # Set a flag to prevent duplicate command display in output handling
-    show_command_now = output_flags.show_kubectl or needs_confirm
-    # Always set show_kubectl to False in the modified flags to avoid
-    # duplicate command displays
-    modified_output_flags = output_flags.replace(show_kubectl=False)
-
-    # Display the command if needed
-    if show_command_now:
-        logger.info(f"Planned kubectl command: {display_cmd}")
-
-        # Determine how to display the command
-        if command == "vibe" and (autonomous_mode or semiauto):
-            # When in autonomous/semiauto mode with vibe command,
-            # just show the kubectl part
-            # Show the actual kubectl command that will be executed
-            cmd_str = f"kubectl {display_cmd}"
-            console_manager.print_processing(f"Running: {cmd_str}")
-        else:
-            # For other cmds: include vibe in cmd string if there is a request
-            display_command = (
-                f"{command} vibe {request}" if request else f"{command} vibe"
+    # Handle live display for specific commands
+    if live_display:
+        if kubectl_verb == "wait":
+            logger.info("'wait' command dispatched to live display handler.")
+            return handle_wait_with_live_display(
+                resource=kubectl_args[0] if kubectl_args else "",
+                args=tuple(kubectl_args[1:]),
+                output_flags=output_flags,
+                summary_prompt_func=summary_prompt_func,
             )
-            cmd_str = f"kubectl {display_command}"
-            console_manager.print_processing(f"Running: {cmd_str}")
-
-    # Handle confirmation if needed
-    if needs_confirm:
-        confirm_result = _handle_command_confirmation(
-            display_cmd, command, semiauto, output_flags.model_name
-        )
-        # If the user didn't confirm, return the result from confirmation
-        # If they did confirm, confirm_result will be None and we continue
-        if confirm_result is not None:
-            return confirm_result
-
-    # Execute the command based on its type
-    logger.info(f"Executing command: {command} {display_cmd}")
-
-    # Handle live display for specific command types
-    if command == "wait" and live_display and len(args) > 0 and args[0] == "wait":
-        # Get the resource and args from the parsed command
-        resource = args[1] if len(args) > 1 else ""
-        wait_args = tuple(args[2:]) if len(args) > 2 else ()
-        return handle_wait_with_live_display(resource, wait_args, modified_output_flags)
-
-    # Handle port-forward with live display
-    if (
-        command == "port-forward"
-        and live_display
-        and len(args) > 0
-        and args[0] == "port-forward"
-    ):
-        resource = args[1] if len(args) > 1 else ""
-        port_args = tuple(args[2:]) if len(args) > 2 else ()
-        return handle_port_forward_with_live_display(
-            resource, port_args, modified_output_flags
-        )
-
-    # Execute the standard kubectl command
-    try:
-        if yaml_content:
-            logger.debug("Executing command with YAML content")
-            # Use a consistent logging format
-            logger.info(f"Executing kubectl command: {args} (yaml: True)")
-            result = _execute_yaml_command(args, yaml_content)
-        else:
-            logger.debug("Executing standard command")
-            logger.info(f"Executing kubectl command: {args} (yaml: False)")
-            result = _execute_command(args, None)
-
-        # Log the result
-        if isinstance(result, Error):
-            logger.error(f"Error executing command: {result.error}")
-            console_manager.print_error(result.error)
-            return result
-
-        # Process the output
-        # Create command string for output processing that appropriately represents
-        # what's being executed without duplication
-        if command == "vibe":
-            # For vibe commands, use "vibe <request>" or just "vibe"
-            display_command = f"{command} {request}" if request else command
-        else:
-            # For other cmds: include vibe in cmd string if there is a request
-            display_command = (
-                f"{command} vibe {request}" if request else f"{command} vibe"
+        elif kubectl_verb == "port-forward":
+            logger.info("'port-forward' command dispatched to live display handler.")
+            return handle_port_forward_with_live_display(
+                resource=kubectl_args[0] if kubectl_args else "",
+                args=tuple(kubectl_args[1:]),
+                output_flags=output_flags,
+                summary_prompt_func=summary_prompt_func,
             )
 
+    # Execute the command
+    logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
+    result = _execute_command(kubectl_verb, kubectl_args, yaml_content)
+
+    logger.debug(
+        f"Result type={type(result)}, result.data='{getattr(result, 'data', None)}'"
+    )
+
+    # Extract output/error for memory update
+    if isinstance(result, Success):
+        command_output_str = str(result.data) if result.data is not None else ""
+    elif isinstance(result, Error):
+        command_output_str = str(result.error) if result.error is not None else ""
+    else:
+        command_output_str = ""
+
+    vibe_output_str = explanation or f"Executed: {display_cmd}"
+
+    # Update memory
+    try:
+        update_memory(
+            command=display_cmd,
+            command_output=command_output_str,
+            vibe_output=vibe_output_str,
+            model_name=output_flags.model_name,
+        )
+        logger.info("Memory updated after command execution.")
+    except Exception as mem_e:
+        logger.error(f"Failed to update memory after command execution: {mem_e}")
+
+    # Handle output display
+    try:
         return handle_command_output(
-            output=result,
-            output_flags=modified_output_flags,
-            summary_prompt_func=summary_prompt_func,
-            command=display_command,
+            result,
+            output_flags,
+            summary_prompt_func,
+            command=kubectl_verb,
         )
+    except RecoverableApiError as api_err:
+        logger.warning(
+            f"Recoverable API error during command handling: {api_err}", exc_info=True
+        )
+        console_manager.print_error(f"API Error: {api_err}")
+        return create_api_error(f"API Error: {api_err}", api_err)
     except Exception as e:
-        logger.error(f"Error executing planned command: {e}", exc_info=True)
-        console_manager.print_error(f"Error executing command: {e}")
-        return Error(error=f"Error executing command: {e}", exception=e)
+        logger.error(f"Error handling command output: {e}", exc_info=True)
+        return Error(error=f"Error handling command output: {e}", exception=e)
 
 
 def _handle_command_confirmation(
-    display_cmd: str, cmd_for_display: str, semiauto: bool, model_name: str
+    display_cmd: str,
+    cmd_for_display: str,
+    semiauto: bool,
+    model_name: str,
+    explanation: str | None = None,
 ) -> Result | None:
     """Handle command confirmation with enhanced options.
 
     Args:
-        display_cmd: The command to display
-        cmd_for_display: The command prefix to display
-        semiauto: Whether this is operating in semiauto mode
-        model_name: The model name used
+        display_cmd: The command string (used for logging/memory).
+        cmd_for_display: The command arguments part for display.
+        semiauto: Whether this is operating in semiauto mode.
+        model_name: The model name used.
+        explanation: Optional explanation from the AI.
 
     Returns:
-        Result if the command was cancelled, None if it should proceed
+        Result if the command was cancelled or memory update failed,
+        None if the command should proceed.
     """
-    # Enhanced confirmation dialog with new options: yes, no, and, but, exit, memory
-    if semiauto:
-        console_manager.print_note(
-            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, [M]emory, or [E]xit? (y/n/a/b/m/e)"
-        )
-    else:
-        console_manager.print_note(
-            "\n[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory? (y/n/a/b/m)"
-        )
+    # Enhanced confirmation dialog with options: yes, no, and, but, memory, [exit]
+    options_base = "[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory?"
+    options_exit = " or [E]xit?"
+    prompt_options = f"{options_base}{options_exit if semiauto else ''}"
+    choice_list = ["y", "n", "a", "b", "m"] + (["e"] if semiauto else [])
+    prompt_suffix = f" ({'/'.join(choice_list)})"
+
+    if explanation:
+        console_manager.print_note(f"AI Explanation: {explanation}")
+
+    # Print the available options clearly, using print with info style
+    # console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
 
     while True:
+        # Use lowercased prompt for consistency
+        # Print the prompt using console_manager which handles Rich markup
+        # Print the command line first
+        prompt_command_line = f"Execute: [bold]{display_cmd}[/bold]?"
+        console_manager.print(prompt_command_line, style="info")
+        # Print the options on a new line
+        prompt_options_line = f"{prompt_options}{prompt_suffix}"
+        console_manager.print(prompt_options_line, style="info")
+
+        # Use click.prompt just to get the input character
         choice = click.prompt(
-            "",
-            type=click.Choice(
-                ["y", "n", "a", "b", "m", "e"]
-                if semiauto
-                else ["y", "n", "a", "b", "m"],
-                case_sensitive=False,
-            ),
+            ">",  # Minimal prompt marker
+            type=click.Choice(choice_list, case_sensitive=False),
             default="n",
+            show_choices=False,  # Options are printed above
+            show_default=False,  # Default not shown explicitly
+            prompt_suffix="",  # Avoid adding extra colon
         ).lower()
 
         # Process the choice
@@ -1033,7 +899,8 @@ def _handle_command_confirmation(
                 console_manager.print_warning(
                     "Memory is empty. Use 'vibectl memory set' to add content."
                 )
-            # Don't return, continue the loop to show the confirmation dialog again
+            # Re-print options before looping
+            console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
             continue
 
         if choice in ["n", "b"]:
@@ -1046,15 +913,16 @@ def _handle_command_confirmation(
 
             # If "but" is chosen, do a fuzzy memory update
             if choice == "b":
-                return _handle_fuzzy_memory_update("no but", model_name)
+                memory_result = _handle_fuzzy_memory_update("no but", model_name)
+                if isinstance(memory_result, Error):
+                    return memory_result  # Propagate memory update error
             return Success(message="Command execution cancelled by user")
 
         # Handle the Exit option if in semiauto mode
         elif choice == "e" and semiauto:
             logger.info("User chose to exit the semiauto loop")
             console_manager.print_note("Exiting semiauto session")
-            # Instead of raising an exception or returning an Exit type,
-            # return a Success with continue_execution=False
+            # Return a Success with continue_execution=False to signal exit
             return Success(
                 message="User requested exit from semiauto loop",
                 continue_execution=False,
@@ -1064,14 +932,14 @@ def _handle_command_confirmation(
             # Yes or Yes And - execute the command
             logger.info("User approved execution of planned command")
 
-            # If "and" is chosen, do a fuzzy memory update
+            # If "and" is chosen, do a fuzzy memory update *before* proceeding
             if choice == "a":
                 memory_result = _handle_fuzzy_memory_update("yes and", model_name)
                 if isinstance(memory_result, Error):
-                    return memory_result
+                    return memory_result  # Propagate memory update error
 
             # Proceed with command execution
-            return None
+            return None  # Indicates proceed
 
 
 def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
@@ -1089,19 +957,22 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
     update_text = click.prompt("Memory update")
 
     # Update memory with the provided text
-    from vibectl.config import Config
-
     try:
         # Get the model name from config if not specified
         cfg = Config()
-        current_memory = get_memory()
+        current_memory = get_memory(cfg)  # Pass cfg
 
         # Get the model
-        model_adapter = get_model_adapter()
+        model_adapter = get_model_adapter(cfg)  # Pass cfg
         model = model_adapter.get_model(model_name)
 
         # Create a prompt for the fuzzy memory update
-        prompt = memory_fuzzy_update_prompt(current_memory, update_text, cfg)
+        # Pass context arguments explicitly to memory_fuzzy_update_prompt if required
+        # Assuming memory_fuzzy_update_prompt handles context internally via config
+        prompt = memory_fuzzy_update_prompt(
+            current_memory=current_memory,
+            update_text=update_text,
+        )
 
         # Get the response
         console_manager.print_processing("Updating memory...")
@@ -1129,120 +1000,56 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         return Error(error=f"Error updating memory: {e}", exception=e)
 
 
-def _process_command_string(kubectl_cmd: str) -> tuple[str, str | None]:
-    """Process the command string to extract YAML content and command arguments.
-
-    Args:
-        kubectl_cmd: The command string from the model
-
-    Returns:
-        Tuple of (command arguments, YAML content or None)
-    """
-    # Check for heredoc syntax (create -f - << EOF)
-    if " << EOF" in kubectl_cmd or " <<EOF" in kubectl_cmd:
-        # Find the start of the heredoc
-        if " << EOF" in kubectl_cmd:
-            cmd_parts = kubectl_cmd.split(" << EOF", 1)
-        else:
-            cmd_parts = kubectl_cmd.split(" <<EOF", 1)
-
-        cmd_args = cmd_parts[0].strip()
-        yaml_content = None
-
-        # If there's content after the heredoc marker, treat it as YAML
-        if len(cmd_parts) > 1:
-            yaml_content = cmd_parts[1].strip()
-            # Remove trailing EOF if present
-            if yaml_content.endswith("EOF"):
-                yaml_content = yaml_content[:-3].strip()
-
-        return cmd_args, yaml_content
-
-    # Check for YAML content separated by --- (common in kubectl manifests)
-    cmd_parts = kubectl_cmd.split("---", 1)
-    cmd_args = cmd_parts[0].strip()
-    yaml_content = None
-    if len(cmd_parts) > 1:
-        yaml_content = "---" + cmd_parts[1]
-
-    return cmd_args, yaml_content
-
-
-def _parse_command_args(cmd_args: str) -> list[str]:
-    """Parse command arguments into a list.
-
-    Args:
-        cmd_args: The command arguments string
-
-    Returns:
-        List of command arguments
-    """
-    import shlex
-
-    # Use shlex to properly handle quoted arguments
-    try:
-        # This preserves quotes and handles spaces in arguments properly
-        args = shlex.split(cmd_args)
-    except ValueError:
-        # Fall back to simple splitting if shlex fails (e.g., unbalanced quotes)
-        args = cmd_args.split()
-
-    return args
-
-
-def _filter_kubeconfig_flags(args: list[str]) -> list[str]:
-    """Filter out kubeconfig flags from the command arguments.
-
-    This is a stub function left for backward compatibility.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        The same list of arguments unchanged
-    """
-    return args
-
-
-def _create_display_command(args: list[str], yaml_content: str | None) -> str:
+def _create_display_command(args: list[str]) -> str:
     """Create a display-friendly command string.
 
     Args:
         args: List of command arguments
-        yaml_content: YAML content if present
 
     Returns:
         Display-friendly command string
     """
-    import shlex
+    # Check if YAML content is likely present in the arguments
+    # (e.g., 'apply -f -' followed by a string starting with 'apiVersion:')
+    has_yaml = False
+    processed_args = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+
+        if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
+            if i + 2 < len(args) and args[i + 2].strip().startswith(
+                ("apiVersion:", "kind:")
+            ):
+                has_yaml = True
+                processed_args.extend(["-f", "-"])  # Keep -f -
+                skip_next = True  # Skip the actual YAML content in the next iteration
+                break  # Assume YAML is the last part for display purposes
+            else:
+                processed_args.append(arg)  # Keep -f if not followed by -
+        else:
+            processed_args.append(arg)
 
     # Reconstruct the command for display
-    if yaml_content:
+    if has_yaml:
         # For commands with YAML, show a simplified version
-        if args and args[0] == "create":
-            # For create, we show that it's using a YAML file
-            return f"{' '.join(args)} (with YAML content)"
-        else:
-            # For other commands, standard format with YAML note
-            return f"{' '.join(args)} -f (YAML content)"
+        cmd_prefix = " ".join(processed_args)
+        return f"{cmd_prefix} (with YAML content)"
     else:
-        # For standard commands without YAML, quote arguments with spaces/chars
+        # For standard commands, quote arguments with spaces/chars
         display_args = []
         for arg in args:
-            # Check if the argument needs quoting
-            chars = "\"'<>|&;()"
-            has_space = " " in arg
-            has_special = any(c in arg for c in chars)
-            if has_space or has_special:
-                # Use shlex.quote to properly quote the argument
-                display_args.append(shlex.quote(arg))
+            if " " in arg or "<" in arg or ">" in arg or "|" in arg:
+                display_args.append(f'"{arg}"')  # Quote complex args
             else:
                 display_args.append(arg)
         return " ".join(display_args)
 
 
 def _needs_confirmation(command: str, semiauto: bool) -> bool:
-    """Check if a command needs confirmation.
+    """Check if a command needs confirmation based on its type.
 
     Args:
         command: Command type
@@ -1252,15 +1059,15 @@ def _needs_confirmation(command: str, semiauto: bool) -> bool:
     Returns:
         Whether the command needs confirmation
     """
-    # Always confirm in semiauto mode
-    if semiauto:
-        return True
+    # Remove the automatic True return for semiauto mode.
+    # Confirmation is now controlled by the `yes` flag passed to handle_vibe_request
+    # combined with whether the command is considered dangerous.
 
     # These commands need confirmation due to their potentially dangerous nature
     dangerous_commands = [
         "delete",
         "scale",
-        "rollout",
+        "rollout",  # Includes undo, restart, pause, resume
         "patch",
         "apply",
         "replace",
@@ -1269,199 +1076,49 @@ def _needs_confirmation(command: str, semiauto: bool) -> bool:
     return command in dangerous_commands
 
 
-def _execute_command(args: list[str], yaml_content: str | None) -> Result:
-    """Execute the kubectl command with the given arguments.
+def _execute_command(command: str, args: list[str], yaml_content: str | None) -> Result:
+    """Execute the kubectl command by dispatching to the appropriate utility function.
 
     Args:
-        args: List of command arguments
+        command: The kubectl command verb (e.g., 'get', 'delete')
+        args: List of command arguments (e.g., ['pods', '-n', 'default'])
         yaml_content: YAML content if present
 
     Returns:
         Result with Success containing command output or Error with error information
     """
     try:
+        # Prepend the command verb to the arguments list for execution
+        # Ensure command is not empty before prepending
+        full_args = [command, *args] if command else args
+
         if yaml_content:
-            return _execute_yaml_command(args, yaml_content)
+            # Dispatch to the YAML handling function in k8s_utils
+            # Pass the combined args (command + original args)
+            return run_kubectl_with_yaml(full_args, yaml_content)
         else:
             # Check if any arguments contain spaces or special characters
+            # Note: Check the original args, not the combined full_args
             has_complex_args = any(
                 " " in arg or "<" in arg or ">" in arg for arg in args
             )
 
             if has_complex_args:
-                # Use direct subprocess execution with preserved argument structure
-                return _execute_command_with_complex_args(args)
+                # Dispatch to the complex args handling function in k8s_utils
+                # Pass the combined args (command + original args)
+                return run_kubectl_with_complex_args(full_args)
             else:
-                # Regular command without complex arguments
-                # Ensure we directly call run_kubectl - this is important for tests
-                return run_kubectl(args, capture=True)
+                # Regular command without complex arguments, use standard run_kubectl
+                # Pass the combined args (command + original args)
+                return run_kubectl(full_args, capture=True)
     except Exception as e:
-        logger.error("Error executing command: %s", e, exc_info=True)
+        logger.error("Error dispatching command execution: %s", e, exc_info=True)
+        # Use create_kubectl_error for consistency if possible, otherwise generic Error
         return create_kubectl_error(f"Error executing command: {e}", exception=e)
-
-
-def _execute_command_with_complex_args(args: list[str]) -> Result:
-    """Execute a kubectl command with complex arguments that need special handling.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        Result with Success containing command output or Error with error information
-    """
-    import subprocess
-
-    try:
-        # Build the full command to preserve argument structure
-        cmd = ["kubectl"]
-
-        # Add each argument, preserving structure that might have
-        # spaces or special chars
-        for arg in args:
-            cmd.append(arg)
-
-        # Run the command, preserving the argument structure
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return Success(data=result.stdout)
-    except subprocess.CalledProcessError as e:
-        if e.stderr:
-            console_manager.print_error(e.stderr)
-            # Use create_kubectl_error to properly set halt_auto_loop
-            return create_kubectl_error(f"Command failed: {e.stderr}", exception=e)
-        # Use create_kubectl_error for exit code errors too
-        return create_kubectl_error(
-            f"Command failed with exit code {e.returncode}", exception=e
-        )
-    except Exception as e:
-        logger.error("Error executing command with complex args: %s", e, exc_info=True)
-        return Error(error=f"Error executing command: {e}", exception=e)
-
-
-def _execute_yaml_command(args: list[str], yaml_content: str) -> Result:
-    """Execute a kubectl command with YAML content.
-
-    Args:
-        args: List of command arguments
-        yaml_content: YAML content to use
-
-    Returns:
-        Result with Success containing command output or Error with error information
-    """
-    import re
-    import subprocess
-    import tempfile
-    from subprocess import TimeoutExpired
-
-    try:
-        # Fix multi-document YAML formatting issues
-        # Ensure document separators are at the beginning of lines with no indentation
-        # This addresses "mapping values are not allowed in this context" errors
-        yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
-
-        # Ensure each document starts with --- including the first
-        # one if it doesn't already
-        if not yaml_content.lstrip().startswith("---"):
-            yaml_content = "---\n" + yaml_content
-
-        # Check if this is a stdin pipe command (kubectl ... -f -)
-        is_stdin_command = False
-        for i, arg in enumerate(args):
-            if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
-                is_stdin_command = True
-                break
-
-        if is_stdin_command:
-            # For commands like kubectl create -f -, use Popen with stdin
-            cmd = ["kubectl", *args]
-
-            # Use bytes mode for Popen to avoid encoding issues
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,  # Use bytes mode
-            )
-
-            # Encode the YAML content to bytes
-            yaml_bytes = yaml_content.encode("utf-8")
-            try:
-                stdout_bytes, stderr_bytes = process.communicate(
-                    input=yaml_bytes, timeout=30
-                )  # Add 30-second timeout
-            except TimeoutExpired:
-                # Try to terminate the process if it's still running
-                process.kill()
-                # Attempt to collect any output that might be available
-                stdout_bytes, stderr_bytes = process.communicate()
-                # Return an error with a clear message
-                return Error(
-                    error="Command timed out after 30 seconds",
-                    exception=Exception("Subprocess timeout"),
-                )
-
-            # Decode the output back to strings
-            stdout = stdout_bytes.decode("utf-8")
-            stderr = stderr_bytes.decode("utf-8")
-
-            if process.returncode != 0:
-                error_msg = (
-                    stderr or f"Command failed with exit code {process.returncode}"
-                )
-                return create_kubectl_error(error_msg)
-
-            return Success(data=stdout)
-        else:
-            # For the command, use a temporary file
-            temp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".yaml", delete=False
-                ) as temp:
-                    temp.write(yaml_content)
-                    temp_path = temp.name
-
-                # For create commands that might be using --from-literal
-                # or similar flags
-                # just pass the arguments as is and add the -f flag
-                cmd = ["kubectl", *args]
-
-                # Only add -f if we have YAML content and it's not already in the args
-                if yaml_content and not any(
-                    arg == "-f" or arg.startswith("-f=") for arg in args
-                ):
-                    cmd.extend(["-f", temp_path])
-
-                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-                if proc.returncode != 0:
-                    error_msg = (
-                        proc.stderr
-                        or f"Command failed with exit code {proc.returncode}"
-                    )
-                    return create_kubectl_error(error_msg)
-
-                return Success(data=proc.stdout)
-            finally:
-                # Clean up the temporary file
-                if temp_path:
-                    import os
-
-                    try:
-                        os.unlink(temp_path)
-                    except Exception as cleanup_error:
-                        logger.warning(
-                            f"Failed to clean up temporary file: {cleanup_error}"
-                        )
-    except Exception as e:
-        logger.error("Error executing YAML command: %s", e, exc_info=True)
-        return Error(error=f"Error executing YAML command: {e}", exception=e)
 
 
 def configure_output_flags(
     show_raw_output: bool | None = None,
-    yaml: bool | None = None,
-    json: bool | None = None,
     vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
@@ -1525,20 +1182,35 @@ def configure_output_flags(
     )
 
 
+def parse_kubectl_command(command_string: str) -> tuple[str, list[str]]:
+    """Parses a kubectl command string into command and arguments."""
+    # Split the command string into command and arguments
+    parts = command_string.split(maxsplit=1)
+    if len(parts) > 1:
+        command = parts[0]
+        args = parts[1].split()
+    else:
+        command = parts[0]
+        args = []
+    return command, args
+
+
+# Wrapper for wait command live display
 def handle_wait_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
+    summary_prompt_func: Callable[[], str],
 ) -> Result:
-    """Handle wait command with a live spinner and elapsed time display.
+    """Handles `kubectl wait` by preparing args and calling the live display worker.
 
     Args:
-        resource: Resource to wait for
-        args: Command line arguments
-        output_flags: Output configuration flags
+        resource: The resource type (e.g., pod, deployment).
+        args: Command arguments including resource name and conditions.
+        output_flags: Flags controlling output format.
 
     Returns:
-        Result with Success containing wait output or Error with error information
+        Result from the live display worker function.
     """
     # Extract the condition from args for display
     condition = "condition"
@@ -1550,248 +1222,47 @@ def handle_wait_with_live_display(
     # Create the command for display
     display_text = f"Waiting for {resource} to meet {condition}"
 
-    # Track start time to calculate total duration
-    start_time = time.time()
+    # Call the worker function in live_display.py
+    wait_result = _execute_wait_with_live_display(
+        resource=resource,
+        args=args,
+        output_flags=output_flags,
+        condition=condition,
+        display_text=display_text,
+    )
 
-    # This is our async function to run the kubectl wait command
-    async def async_run_wait_command() -> Result:
-        """Run kubectl wait command asynchronously."""
-        # Build command list
-        cmd_args = ["wait", resource]
-        if args:
-            cmd_args.extend(args)
-
-        # Execute the command in a separate thread to avoid blocking the event loop
-        # We use asyncio.to_thread to run the blocking kubectl call in a thread pool
-        return await asyncio.to_thread(run_kubectl, cmd_args, capture=True)
-
-    # Create a coroutine to update the progress display continuously
-    async def update_progress(task_id: TaskID, progress: Progress) -> None:
-        """Update the progress display regularly."""
-        try:
-            # Keep updating at a frequent interval until cancelled
-            while True:
-                progress.update(task_id)
-                # Very small sleep interval for smoother animation
-                # (20-30 updates per second)
-                await asyncio.sleep(0.03)
-        except asyncio.CancelledError:
-            # Handle cancellation gracefully by doing a final update
-            progress.update(task_id)
-            return
-
-    # Create a more visually appealing progress display
-    with Progress(
-        SpinnerColumn(),
-        TimeElapsedColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        console=console_manager.console,
-        transient=True,
-        refresh_per_second=30,  # Higher refresh rate for smoother animation
-    ) as progress:
-        # Add a wait task
-        task_id = progress.add_task(description=display_text, total=None)
-
-        # Define the async main routine that coordinates the wait operation
-        async def main() -> Result:
-            """Main async routine that runs the wait command and updates progress."""
-            # Start updating the progress display in a separate task
-            progress_task = asyncio.create_task(update_progress(task_id, progress))
-
-            # Force at least one update to ensure spinner visibility
-            await asyncio.sleep(0.1)
-
-            try:
-                # Run the wait command
-                result = await async_run_wait_command()
-
-                # Give the progress display time to show completion
-                # (avoids abrupt disappearance)
-                await asyncio.sleep(0.5)
-
-                # Cancel the progress update task
-                if not progress_task.done():
-                    progress_task.cancel()
-                    # Wait for the task to actually cancel
-                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
-                        await asyncio.wait_for(progress_task, timeout=0.5)
-
-                return result
-            except Exception as e:
-                # Ensure we cancel the progress task on errors
-                if not progress_task.done():
-                    progress_task.cancel()
-                    with suppress(asyncio.TimeoutError, asyncio.CancelledError):
-                        await asyncio.wait_for(progress_task, timeout=0.5)
-
-                # Return an error result
-                return Error(error=str(e), exception=e)
-
-        # Set up loop and run the async code
-        result = None
-        created_new_loop = False
-        loop = None
-        wait_success = False  # Track if wait completed successfully
-
-        try:
-            # Get or create an event loop in a resilient way
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If we're in a running loop context, create a new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    created_new_loop = True
-            except RuntimeError:
-                # If we can't get a loop, create a new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                created_new_loop = True
-
-            # Run our main coroutine in the event loop
-            result = loop.run_until_complete(main())
-            wait_success = isinstance(
-                result, Success
-            )  # Success if we got a Success result
-
-        except asyncio.CancelledError:
-            # Handle user interrupts (like Ctrl+C)
-            console_manager.print_note("Wait operation cancelled")
-            return Error(error="Wait operation cancelled by user")
-
-        finally:
-            # Clean up the progress display
-            progress.stop()
-
-            # If we created a new loop, close it to prevent asyncio warnings
-            if created_new_loop and loop is not None:
-                loop.close()
-
-    # Calculate elapsed time regardless of output
-    elapsed_time = time.time() - start_time
-
-    # Handle the command output if any
-    if wait_success and isinstance(result, Success):
-        # Display success message with duration
-        console_manager.console.print(
-            f"[bold green]✓[/] Wait completed in [bold]{elapsed_time:.2f}s[/]"
-        )
-
-        # Add a small visual separator before the output
-        if output_flags.show_raw or output_flags.show_vibe:
-            console_manager.console.print()
-
-        output_result = handle_command_output(
-            output=result.data or "",
-            output_flags=output_flags,
-            summary_prompt_func=wait_resource_prompt,
-            command=f"wait {resource} {' '.join(args)}",
-        )
-        return output_result
-    elif wait_success:
-        # If wait completed successfully but there's no output to display
-        success_message = (
-            f"[bold green]✓[/] {resource} now meets condition '[bold]{condition}[/]' "
-            f"(completed in [bold]{elapsed_time:.2f}s[/])"
-        )
-        console_manager.safe_print(console_manager.console, success_message)
-
-        # Add a small note if no output will be shown
-        if not output_flags.show_raw and not output_flags.show_vibe:
-            message = (
-                "\nNo output display enabled. Use --show-raw-output or "
-                "--show-vibe to see details."
-            )
-            console_manager.console.print(message)
-
-        return Success(
-            message=(
-                f"{resource} now meets condition '{condition}' "
-                f"(completed in {elapsed_time:.2f}s)"
-            ),
-        )
-    else:
-        # If there was an issue but we didn't raise an exception
-        if isinstance(result, Error):
-            message = (
-                f"[bold red]✗[/] Wait operation failed after "
-                f"[bold]{elapsed_time:.2f}s[/]: {result.error}"
-            )
-            console_manager.safe_print(console_manager.console, message)
-            return result
-        else:
-            message = (
-                f"[bold yellow]![/] Wait operation completed with no result "
-                f"after [bold]{elapsed_time:.2f}s[/]"
-            )
-            console_manager.console.print(message)
-            return Error(
-                error=(
-                    f"Wait operation completed with no result after {elapsed_time:.2f}s"
-                )
-            )
-
-
-class ConnectionStats(StatsProtocol):
-    """Track connection statistics for port-forward sessions."""
-
-    def __init__(self) -> None:
-        """Initialize connection statistics."""
-        self.current_status = "Connecting"  # Current connection status
-        self.connections_attempted = 0  # Number of connection attempts
-        self.successful_connections = 0  # Number of successful connections
-        self.bytes_sent = 0  # Bytes sent through connection
-        self.bytes_received = 0  # Bytes received through connection
-        self.elapsed_connected_time = 0.0  # Time in seconds connection was active
-        self.traffic_monitoring_enabled = False  # Whether traffic stats are available
-        self.using_proxy = False  # Whether connection is going through proxy
-        self.error_messages: list[str] = []  # List of error messages encountered
-        self._last_activity_time = time.time()  # Timestamp of last activity
-
-    @property
-    def last_activity(self) -> float:
-        """Get the timestamp of the last activity."""
-        return self._last_activity_time
-
-    @last_activity.setter
-    def last_activity(self, value: float) -> None:
-        """Set the timestamp of the last activity."""
-        self._last_activity_time = value
-
-
-def has_port_mapping(port_mapping: str) -> bool:
-    """Check if a valid port mapping is provided.
-
-    Args:
-        port_mapping: The port mapping string to check
-
-    Returns:
-        True if a valid port mapping with format "local:remote" is provided
-    """
-    return ":" in port_mapping and all(
-        part.isdigit() for part in port_mapping.split(":")
+    # Process the result from the worker using handle_command_output
+    # Create the command string for context
+    command_str = f"wait {resource} {' '.join(args)}"
+    return handle_command_output(
+        output=wait_result,  # Pass the Result object directly
+        output_flags=output_flags,
+        summary_prompt_func=summary_prompt_func,
+        command=command_str,
     )
 
 
+# Wrapper for port-forward command live display
 def handle_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
+    summary_prompt_func: Callable[[], str],
 ) -> Result:
-    """Handle port-forward command with a live display showing connection status
-    and ports.
+    """Handles `kubectl port-forward` by preparing args and invoking live display.
 
     Args:
-        resource: Resource to forward ports for
-        args: Command line arguments including port specifications
-        output_flags: Output configuration flags
+        resource: The resource type (e.g., pod, service).
+        args: Command arguments including resource name and port mappings.
+        output_flags: Flags controlling output format.
 
     Returns:
-        Result with Success containing port-forward information or Error on failure
+        Result from the live display worker function.
     """
     # Extract port mapping from args for display
     port_mapping = "port"
     for arg in args:
+        # Simple check for port mapping format (e.g., 8080:80)
         if ":" in arg and all(part.isdigit() for part in arg.split(":")):
             port_mapping = arg
             break
@@ -1807,436 +1278,126 @@ def handle_port_forward_with_live_display(
         f"to localhost:[bold]{local_port}[/]"
     )
 
-    # Track start time for elapsed time display
-    start_time = time.time()
-
-    # Create a stats object to track connection information
-    stats = ConnectionStats()
-
-    # Check if traffic monitoring is enabled via intermediate port range
-    cfg = Config()
-    intermediate_port_range = cfg.get("intermediate_port_range")
-    use_proxy = False
-    proxy_port = None
-
-    # Check if a port mapping was provided (required for proxy)
-    has_valid_port_mapping = has_port_mapping(port_mapping)
-
-    if intermediate_port_range and has_valid_port_mapping:
-        try:
-            # Parse the port range
-            min_port, max_port = map(int, intermediate_port_range.split("-"))
-
-            # Get a random port in the range
-            proxy_port = random.randint(min_port, max_port)
-
-            # Enable proxy mode
-            use_proxy = True
-            stats.using_proxy = True
-            stats.traffic_monitoring_enabled = True
-
-            console_manager.print_note(
-                f"Traffic monitoring enabled via proxy on port {proxy_port}"
-            )
-        except (ValueError, AttributeError) as e:
-            console_manager.print_error(
-                f"Invalid intermediate_port_range format: {intermediate_port_range}. "
-                f"Expected format: 'min-max'. Error: {e}"
-            )
-            use_proxy = False
-            return Error(
-                error=(
-                    f"Invalid intermediate_port_range format: "
-                    f"{intermediate_port_range}. Expected format: 'min-max'."
-                ),
-                exception=e,
-            )
-    elif (
-        not intermediate_port_range
-        and has_valid_port_mapping
-        and output_flags.warn_no_proxy
-    ):
-        # Show warning about missing proxy configuration when port mapping is provided
-        console_manager.print_no_proxy_warning()
-
-    # Create a subprocess to run kubectl port-forward
-    # We'll use asyncio to manage this process and update the display
-    async def run_port_forward() -> asyncio.subprocess.Process:
-        """Run the port-forward command and capture output."""
-        # Build command list
-        cmd_args = ["port-forward", resource]
-
-        # Make sure we have valid args - check for resource pattern first
-        args_list = list(args)
-
-        # If using proxy, modify the port mapping argument to use proxy_port
-        if use_proxy and proxy_port is not None:
-            # Find and replace the port mapping argument
-            for i, arg in enumerate(args_list):
-                if ":" in arg and all(part.isdigit() for part in arg.split(":")):
-                    # Replace with proxy port:remote port
-                    args_list[i] = f"{proxy_port}:{remote_port}"
-                    break
-
-        # Add remaining arguments
-        if args_list:
-            cmd_args.extend(args_list)
-
-        # Full kubectl command
-        kubectl_cmd = ["kubectl"]
-
-        # Add kubeconfig if set
-        kubeconfig = cfg.get("kubeconfig")
-        if kubeconfig:
-            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
-
-        # Add the port-forward command args
-        kubectl_cmd.extend(cmd_args)
-
-        # Create a process to run kubectl port-forward
-        # This process will keep running until cancelled
-        process = await asyncio.create_subprocess_exec(
-            *kubectl_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        # Increment connection attempts counter
-        stats.connections_attempted += 1
-
-        # Return reference to the process
-        return process
-
-    # Update the progress display with connection status
-    async def update_progress(
-        task_id: TaskID,
-        progress: Progress,
-        process: asyncio.subprocess.Process,
-        proxy: TcpProxy | None = None,
-    ) -> None:
-        """Update the progress display with connection status and data."""
-        connected = False
-        connection_start_time = None
-
-        try:
-            # Keep updating until cancelled
-            while True:
-                # Check if process has output ready
-                if process.stdout:
-                    line = await process.stdout.readline()
-                    if line:
-                        # Got output, update connection status
-                        line_str = line.decode("utf-8").strip()
-                        if "Forwarding from" in line_str:
-                            connected = True
-                            stats.current_status = "Connected"
-                            stats.successful_connections += 1
-                            if connection_start_time is None:
-                                connection_start_time = time.time()
-
-                            # Attempt to parse traffic information if available
-                            if "traffic" in line_str.lower():
-                                stats.traffic_monitoring_enabled = True
-                                # Extract bytes sent/received if available
-                                # Parsing depends on the output format
-                                if "sent" in line_str.lower():
-                                    sent_match = re.search(
-                                        r"sent (\d+)", line_str.lower()
-                                    )
-                                    if sent_match:
-                                        stats.bytes_sent += int(sent_match.group(1))
-                                if "received" in line_str.lower():
-                                    received_match = re.search(
-                                        r"received (\d+)", line_str.lower()
-                                    )
-                                    if received_match:
-                                        stats.bytes_received += int(
-                                            received_match.group(1)
-                                        )
-
-                # Update stats from proxy if enabled
-                if proxy and connected:
-                    # Update stats from the proxy server
-                    stats.bytes_sent = proxy.stats.bytes_sent
-                    stats.bytes_received = proxy.stats.bytes_received
-                    stats.traffic_monitoring_enabled = True
-
-                # Update connection time if connected
-                if connected and connection_start_time is not None:
-                    stats.elapsed_connected_time = time.time() - connection_start_time
-
-                # Update the description based on connection status
-                if connected:
-                    if proxy:
-                        # Show traffic stats in the description when using proxy
-                        bytes_sent = stats.bytes_sent
-                        bytes_received = stats.bytes_received
-                        progress.update(
-                            task_id,
-                            description=(
-                                f"{display_text} - [green]Connected[/green] "
-                                f"([cyan]↑{bytes_sent}B[/] "
-                                f"[magenta]↓{bytes_received}B[/])"
-                            ),
-                        )
-                    else:
-                        progress.update(
-                            task_id,
-                            description=f"{display_text} - [green]Connected[/green]",
-                        )
-                else:
-                    # Check if the process is still running
-                    if process.returncode is not None:
-                        stats.current_status = "Disconnected"
-                        progress.update(
-                            task_id,
-                            description=f"{display_text} - [red]Disconnected[/red]",
-                        )
-                        break
-
-                    # Still establishing connection
-                    progress.update(
-                        task_id,
-                        description=f"{display_text} - Connecting...",
-                    )
-
-                # Small sleep for smooth updates
-                await asyncio.sleep(0.1)
-
-        except asyncio.CancelledError:
-            # Final update before cancellation
-            stats.current_status = "Cancelled"
-            progress.update(
-                task_id,
-                description=f"{display_text} - [yellow]Cancelled[/yellow]",
-            )
-
-    # Create progress display
-    with Progress(
-        SpinnerColumn(),
-        TimeElapsedColumn(),
-        TextColumn("{task.description}"),
-        console=console_manager.console,
-        transient=False,  # We want to keep this visible
-        refresh_per_second=10,
-    ) as progress:
-        # Add port-forward task
-        task_id = progress.add_task(
-            description=f"{display_text} - Starting...", total=None
-        )
-
-        # Define the main async routine
-        async def main() -> None:
-            """Main async routine that runs port-forward and updates progress."""
-            proxy = None
-
-            try:
-                # Start proxy server if traffic monitoring is enabled
-                if use_proxy and proxy_port is not None:
-                    proxy = await start_proxy_server(
-                        local_port=int(local_port), target_port=proxy_port, stats=stats
-                    )
-
-                # Start the port-forward process
-                process = await run_port_forward()
-
-                # Start updating the progress display
-                progress_task = asyncio.create_task(
-                    update_progress(task_id, progress, process, proxy)
-                )
-
-                try:
-                    # Keep running until user interrupts with Ctrl+C
-                    await process.wait()
-
-                    # If we get here, the process completed or errored
-                    if process.returncode != 0:
-                        # Read error output
-                        stderr = await process.stderr.read() if process.stderr else b""
-                        error_msg = stderr.decode("utf-8").strip()
-                        stats.error_messages.append(error_msg)
-                        console_manager.print_error(f"Port-forward error: {error_msg}")
-
-                except asyncio.CancelledError:
-                    # User cancelled, terminate the process
-                    process.terminate()
-                    await process.wait()
-                    raise
-
-                finally:
-                    # Cancel the progress task
-                    if not progress_task.done():
-                        progress_task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await asyncio.wait_for(progress_task, timeout=0.5)
-
-            finally:
-                # Clean up proxy server if it was started
-                if proxy:
-                    await stop_proxy_server(proxy)
-
-        # Set up event loop and run the async code
-        created_new_loop = False
-        loop = None
-
-        try:
-            # Get or create an event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    created_new_loop = True
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                created_new_loop = True
-
-            # Run the main coroutine
-            loop.run_until_complete(main())
-
-        except KeyboardInterrupt:
-            # Handle Ctrl+C gracefully
-            stats.current_status = "Cancelled (User)"
-            console_manager.print_note("\nPort-forward cancelled by user")
-            return Error(error="Port-forward cancelled by user")
-
-        except asyncio.CancelledError:
-            # Handle cancellation
-            stats.current_status = "Cancelled"
-            console_manager.print_note("\nPort-forward cancelled")
-            return Error(error="Port-forward cancelled")
-
-        except Exception as e:
-            # Handle other errors
-            stats.current_status = "Error"
-            stats.error_messages.append(str(e))
-            console_manager.print_error(f"\nPort-forward error: {e!s}")
-            return Error(error=f"Port-forward error: {e}", exception=e)
-
-        finally:
-            # Clean up
-            if created_new_loop and loop is not None:
-                loop.close()
-
-    # Calculate elapsed time
-    elapsed_time = time.time() - start_time
-
-    # Show final message with elapsed time
-    console_manager.print_note(
-        f"\n[bold]Port-forward session ended after "
-        f"[italic]{elapsed_time:.1f}s[/italic][/bold]"
+    # Call the worker function in live_display.py
+    return _execute_port_forward_with_live_display(
+        resource=resource,
+        args=args,
+        output_flags=output_flags,
+        port_mapping=port_mapping,
+        local_port=local_port,
+        remote_port=remote_port,
+        display_text=display_text,
+        summary_prompt_func=summary_prompt_func,
     )
 
-    # Create and display a table with connection statistics
-    table = Table(title=f"Port-forward {resource} Connection Summary")
 
-    # Add columns
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", style="green")
+# Helper function for Vibe planning
+def _get_llm_plan(
+    model_name: str,
+    final_plan_prompt: str,
+    response_model_type: type[LLMCommandResponse],
+) -> Result:
+    """Calls the LLM to get a command plan and validates the response."""
+    model_adapter = get_model_adapter()
 
-    # Add rows with connection statistics
-    table.add_row("Status", stats.current_status)
-    table.add_row("Resource", resource)
-    table.add_row("Port Mapping", f"localhost:{local_port} → {remote_port}")
-    table.add_row("Duration", f"{elapsed_time:.1f}s")
-    table.add_row("Connected Time", f"{stats.elapsed_connected_time:.1f}s")
-    table.add_row("Connection Attempts", str(stats.connections_attempted))
-    table.add_row("Successful Connections", str(stats.successful_connections))
-
-    # Add proxy information if enabled
-    if stats.using_proxy:
-        table.add_row("Traffic Monitoring", "Enabled")
-        table.add_row("Proxy Mode", "Active")
-
-    # Add traffic information if available
-    if stats.traffic_monitoring_enabled:
-        table.add_row("Data Sent", f"{stats.bytes_sent} bytes")
-        table.add_row("Data Received", f"{stats.bytes_received} bytes")
-
-    # Add any error messages
-    if stats.error_messages:
-        table.add_row("Errors", "\n".join(stats.error_messages))
-
-    # Display the table
-    console_manager.console.print(table)
-
-    # Prepare forward info for memory
-    forward_info = f"Port-forward {resource} {port_mapping} ran for {elapsed_time:.1f}s"
-
-    # Create command string for memory
-    command_str = f"port-forward {resource} {' '.join(args)}"
-
-    # If vibe output is enabled, generate a summary using the LLM
-    vibe_output = ""
-    has_error = bool(stats.error_messages)
-
-    if output_flags.show_vibe:
-        try:
-            # Get the prompt function
-            summary_prompt_func = port_forward_prompt
-
-            # Get LLM summary of the port-forward session
-            model_adapter = get_model_adapter()
-            model = model_adapter.get_model(output_flags.model_name)
-
-            # Create detailed info for the prompt
-            detailed_info = {
-                "resource": resource,
-                "port_mapping": port_mapping,
-                "local_port": local_port,
-                "remote_port": remote_port,
-                "duration": f"{elapsed_time:.1f}s",
-                "command": command_str,
-                "status": stats.current_status,
-                "connected_time": f"{stats.elapsed_connected_time:.1f}s",
-                "connection_attempts": stats.connections_attempted,
-                "successful_connections": stats.successful_connections,
-                "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
-                "using_proxy": stats.using_proxy,
-                "bytes_sent": stats.bytes_sent,
-                "bytes_received": stats.bytes_received,
-                "errors": stats.error_messages,
-            }
-
-            # Format as YAML for the prompt
-            detailed_yaml = yaml.safe_dump(detailed_info, default_flow_style=False)
-
-            # Get the prompt template and format it
-            summary_prompt = summary_prompt_func()
-            prompt = summary_prompt.format(output=detailed_yaml, command=command_str)
-
-            # Execute the prompt to get a summary
-            vibe_output = model_adapter.execute(model, prompt)
-
-            # Display the vibe output
-            if vibe_output:
-                console_manager.print_vibe(vibe_output)
-
-        except Exception as e:
-            # Don't let errors in vibe generation break the command
-            console_manager.print_error(f"Error generating summary: {e}")
-            logger.error(f"Error generating port-forward summary: {e}", exc_info=True)
-
-    # Update memory with the port-forward information
-    update_memory(
-        command_str,
-        forward_info,
-        vibe_output,  # Now using the generated vibe output
-        output_flags.model_name,
-    )
-
-    # Return appropriate result
-    if has_error:
-        return Error(
-            error="\n".join(stats.error_messages)
-            or "Port-forward completed with errors",
+    try:
+        model = model_adapter.get_model(model_name)
+    except Exception as e:
+        error_msg = f"Failed to get model '{model_name}': {e}"
+        logger.error(error_msg, exc_info=True)
+        update_memory(
+            command="system",
+            command_output=error_msg,
+            vibe_output=f"System Error: Failed to get model '{model_name}'.",
+            model_name=model_name,
         )
-    else:
-        return Success(
-            message=(
-                f"Port-forward {resource} {port_mapping} completed "
-                f"successfully ({elapsed_time:.1f}s)"
+        # Use create_api_error to allow potential recovery if config changes
+        return create_api_error(error_msg, e)
+
+    console_manager.print_processing(f"Consulting {model_name} for a plan...")
+    logger.debug(f"Final planning prompt:\n{final_plan_prompt}")
+
+    try:
+        llm_response_text = model_adapter.execute(
+            model=model,
+            prompt_text=final_plan_prompt,
+            response_model=response_model_type,
+        )
+        logger.info(f"Raw LLM response text:\n{llm_response_text}")
+
+        if not llm_response_text or llm_response_text.strip() == "":
+            logger.error("LLM returned an empty response.")
+            update_memory(
+                command="system",
+                command_output="LLM Error: Empty response.",
+                vibe_output="LLM Error: Empty response.",
+                model_name=model_name,
+            )
+            return Error("LLM returned an empty response.")
+
+        response = LLMCommandResponse.model_validate_json(llm_response_text)
+        logger.debug(f"Parsed LLM response object: {response}")
+        if isinstance(response.action_type, str):
+            response.action_type = ActionType(response.action_type)
+        logger.info(f"Validated ActionType: {response.action_type}")
+        return Success(data=response)  # Return validated response object
+
+    except (JSONDecodeError, ValidationError) as e:
+        logger.warning(
+            f"Failed to parse LLM response as JSON ({type(e).__name__}). "
+            f"Response Text: {llm_response_text[:500]}..."
+        )
+        error_msg = f"Failed to parse LLM response as expected JSON: {e}"
+        truncated_llm_response = output_processor.process_auto(
+            llm_response_text, budget=100
+        ).truncated
+        update_memory(
+            command="system",
+            command_output=error_msg,
+            vibe_output=(
+                f"System Error: Failed to parse LLM response: "
+                f"{truncated_llm_response}... Check model or prompt."
             ),
-            data=vibe_output,
+            model_name=model_name,
         )
+        return create_api_error(error_msg, e)
+    except (
+        RecoverableApiError
+    ) as api_err:  # Catch recoverable API errors during execute
+        logger.warning(
+            f"Recoverable API error during Vibe planning: {api_err}", exc_info=True
+        )
+        # Print API error before returning
+        console_manager.print_error(f"API Error: {api_err}")
+        return create_api_error(str(api_err), exception=api_err)
+    except Exception as e:  # Catch other errors during execute
+        logger.error(f"Error during LLM planning interaction: {e}", exc_info=True)
+        error_str = str(e)
+        # Print generic error before returning
+        console_manager.print_error(f"Error executing vibe request: {error_str}")
+        return Error(error=error_str, exception=e)
+
+
+def _extract_verb_args(
+    original_command: str, raw_llm_commands: list[str]
+) -> tuple[str | None, list[str]]:
+    """Determines the kubectl verb and arguments based on context."""
+    if original_command != "vibe":
+        # If original command wasn't 'vibe', the LLM was only asked for args.
+        kubectl_verb = original_command
+        kubectl_args = raw_llm_commands
+    elif raw_llm_commands:
+        # If the original command was 'vibe', the LLM determined the verb.
+        kubectl_verb = raw_llm_commands[0]
+        kubectl_args = raw_llm_commands[1:]
+    else:
+        # COMMAND action type but empty commands list - LLM error.
+        logger.error("LLM failed to provide command verb for 'vibe' request.")
+        return None, []  # Indicate error by returning None for verb
+
+    # Safety check: Ensure determined verb is not empty
+    if not kubectl_verb:
+        logger.error("Internal error: Could not determine kubectl verb.")
+        return None, []  # Indicate error
+
+    return kubectl_verb, kubectl_args

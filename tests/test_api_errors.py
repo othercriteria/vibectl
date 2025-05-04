@@ -2,7 +2,9 @@
 
 from unittest.mock import Mock, patch
 
-from vibectl.types import Error, Success
+from vibectl.cli import DEFAULT_MODEL
+from vibectl.command_handler import handle_command_output
+from vibectl.types import Error, OutputFlags, RecoverableApiError, Success
 
 
 def create_api_error(error_type: str, error_message: str) -> Exception:
@@ -71,14 +73,12 @@ def test_auto_command_continues_on_api_error(
 
 
 @patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler._process_vibe_output")
 def test_handle_command_output_api_error_marked_non_halting(
+    mock_process_vibe: Mock,
     mock_console: Mock,
 ) -> None:
     """Test that handle_command_output marks API errors as non-halting for auto loop."""
-    from vibectl.cli import DEFAULT_MODEL
-    from vibectl.command_handler import handle_command_output
-    from vibectl.types import OutputFlags
-
     # Create output flags
     output_flags = OutputFlags(
         show_raw=False,
@@ -87,23 +87,21 @@ def test_handle_command_output_api_error_marked_non_halting(
         model_name=DEFAULT_MODEL,
     )
 
-    # Create a ValueError with API error pattern
-    api_exception = ValueError(
+    # Create a RecoverableApiError
+    api_exception = RecoverableApiError(
         "Error executing prompt: {'type': 'error', 'error': {'details': None, "
         "'type': 'overloaded_error', 'message': 'Overloaded'}}"
     )
 
-    # Test with a mocked _process_vibe_output that raises an API error
-    with patch("vibectl.command_handler._process_vibe_output") as mock_process_vibe:
-        # Set up the mock to raise the API exception
-        mock_process_vibe.side_effect = api_exception
+    # Set up the mock to raise the API exception
+    mock_process_vibe.side_effect = api_exception
 
-        # Call the function
-        result = handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=lambda: "Test prompt {output}",
-        )
+    # Call the function (now imported at top level)
+    result = handle_command_output(
+        output="test output",
+        output_flags=output_flags,
+        summary_prompt_func=lambda: "Test prompt {output}",
+    )
 
     # Verify result is as expected
     assert isinstance(result, Error)

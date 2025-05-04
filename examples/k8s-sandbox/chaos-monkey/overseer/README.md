@@ -65,13 +65,16 @@ http://localhost:8080/cluster-status
 
 Configuration is handled via environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `METRICS_INTERVAL` | 5  | Interval in seconds between metrics updates |
-| `SESSION_DURATION` | 30 | Duration in minutes for the demo session |
-| `VERBOSE` | false | Enable verbose logging |
-| `PORT` | 8080 | Web server port |
-| `HOST` | 0.0.0.0 | Web server host |
+| Environment Variable    | Description                           | Default Value              |
+| ----------------------- | ------------------------------------- | -------------------------- |
+| `PASSIVE_DURATION`    | Passive phase duration (minutes)    | 5                          |
+| `ACTIVE_DURATION`     | Active phase duration (minutes)     | 25                         |
+| `POLLER_INTERVAL`     | Frontend poll interval (seconds)    | 1                          |
+| `FLASK_ENV`           | Flask environment                     | production                 |
+| `VERBOSE`             | Enable verbose logging                | false                      |
+| `PORT`                | Port to run the web server on         | 8080                       |
+| `BLUE_AGENT_CONTAINER`| Name of the blue agent container    | chaos-monkey-blue-agent  |
+| `RED_AGENT_CONTAINER` | Name of the red agent container     | chaos-monkey-red-agent   |
 
 ## API Endpoints
 
