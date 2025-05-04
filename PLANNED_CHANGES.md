@@ -1,26 +1,44 @@
-# Planned Changes - JSON Schema for LLM Command Generation
+# Planned Changes
 
-**Goal:** Improve reliability and structure of LLM responses for command planning by using JSON schemas.
+## Enhanced Watch/Follow Functionality
 
-**Status:** Core implementation complete. Integrated into most planning prompts (`create_planning_prompt`). Basic testing and fixes applied.
+- **Goal:** Provide richer, interactive watch/follow capabilities for `vibectl` commands, extending beyond basic `kubectl --watch` or `--follow`.
 
-**Decisions & Compromises During Implementation:**
+- **Core Behavior & Supported Commands:**
+    - The core idea is to run the underlying `kubectl` command (`--watch` or `--follow`) and pipe its output through a new live display handler based on the `asyncio` and `rich` components from `port-forward`/`wait`.
+    - **Commands using `--watch`:**
+        - `get`: Intercepts `--watch`. Runs `kubectl get <resource> --watch` and pipes to live display.
+        - `events`: Intercepts `--watch`. Runs `kubectl events --watch` and pipes to live display.
+        - `delete`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for deletion) and pipes status updates to live display.
+        - `create`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
+        - `apply`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
+        - `patch`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
+    - **Commands using `--follow`:**
+        - `logs`: Intercepts `--follow` (or `-f`). Runs `kubectl logs --follow` and pipes output stream to live display.
 
-- **MVP First:** Focused implementation on `vibectl get vibe` initially, then expanded.
-- **Happy Path Focus:** Primarily tested successful schema generation/parsing, with some error handling tests.
-- **Schema Tooling:** Leveraged `llm` library's schema support.
-- **Command Joining:** Derives `kubectl` arguments from `commands: List[str]`. Confirmed robust handling via `subprocess` list argument passing; no issues found.
+- **Live Display Handler:**
+    - Reuses/adapts `asyncio` and `rich` components.
+    - Clearly displays streaming output/status updates.
+    - Handles termination gracefully (Ctrl+C). Clarify that this exits the *display* only, not the underlying K8s operation/stream if applicable.
 
-**Outstanding Work / Next Steps:**
+- **Interaction (Initial):**
+    - Implement basic graceful exit (Ctrl+C).
+    - *Future:* Explore filtering live output (TODO).
+    - *Future:* Explore writing live output to a file (TODO).
+    - *Future:* Explore pausing/resuming the *display* (TODO).
 
-1.  **`PLAN_VIBE_PROMPT` Refactoring:**
-    - Apply the schema pattern to the general `PLAN_VIBE_PROMPT` used by `vibectl vibe`.
-2.  **Refine Argument Handling (If Needed):**
-    - Re-evaluate the `commands` list joining based on testing with more complex command types.
-4.  **Testing & Coverage:**
-    - Add specific unit/integration tests for `vibectl/schema.py`.
-    - Expand test coverage for `handle_vibe_request` (more scenarios for all `ActionType`s).
-    - Increase test coverage towards 100% for `vibectl/memory.py`.
-5.  **Robustness & Refinement:**
-    - Test planning prompts with more complex/varied requests.
-    - Monitor LLM schema adherence and adjust prompts if necessary.
+- **`vibe` Integration (Post-Termination):**
+    - For `--watch` commands, the `vibe` summarization runs *after* the user terminates the watch (Ctrl+C).
+    - For `logs --follow`, `vibe` summarization likely runs post-termination as well, summarizing the streamed logs.
+    - *Future:* Explore triggering `vibe` on-demand during the watch/follow (TODO).
+
+- **Output Format Handling (`get --watch`):**
+    - Initially, `vibectl get --watch` will ignore conflicting `--output` flags for the live display, using the default `kubectl watch` stream format.
+    - *Future:* Investigate supporting other `--output` formats (TODO).
+
+- **Scope:**
+    - Exclude `vibectl just` from enhanced `--watch` behavior initially.
+    - Consider future verb expansion (e.g., `cordon`, `top`) as per TODO.
+
+- **Error Handling:**
+    - Clearly display errors from the underlying `kubectl` command or the custom watch/poll logic.

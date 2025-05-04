@@ -240,3 +240,19 @@ Implementation should prioritize commands that provide the most value to users w
 ## Prompt Templating
 - Consider using a dedicated templating library (e.g., Jinja2) for prompt
   construction to avoid manual string formatting issues like brace escaping.
+
+## Enhanced --watch Future Work
+
+- **Richer Interaction:**
+    - Investigate filtering live watch output.
+    - Investigate saving live watch output stream to a local file.
+    - Investigate pause/resume functionality for the *display* of watch output (ensure clear language differentiating from pausing the underlying operation).
+- **`vibe` Integration:**
+    - Investigate triggering `vibe` summary on-demand during an active watch session.
+- **Custom Watch Logic:**
+    - Explore using direct Kubernetes API watches (instead of polling `kubectl get`) for custom implementations like `delete --watch`.
+- **Output Format:**
+    - Investigate supporting alternative `--output` formats (e.g., JSON events) alongside `--watch` and integrate with the live display.
+- **Verb Expansion:**
+    - Evaluate adding enhanced `--watch` to other verbs like `apply`, `patch`, `cordon`, `uncordon`, `drain`, `top`.
+    - Revisit adding enhanced `--watch` to `vibectl just` once the core feature is stable.
