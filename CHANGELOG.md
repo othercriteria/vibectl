@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Live display feature for `vibectl get --watch` using Rich Live.
 - Planned: Enhanced watch/follow functionality for relevant vibectl commands (WIP)
+
+### Changed
+- Refactored tests for `get` subcommand into `tests/subcommands/test_get_cmd.py`.
+- Improved test coverage for `vibectl/subcommands/get_cmd.py`.
 
 ## [0.6.0] - 2025-05-04
 
