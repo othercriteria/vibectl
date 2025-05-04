@@ -9,11 +9,11 @@ set -euo pipefail
 # CUSTOM_INSTRUCTIONS_FILE - Path to custom instructions file
 
 # Default values if not set in environment
-SESSION_DURATION=${SESSION_DURATION:-30}
 MEMORY_MAX_CHARS=${MEMORY_MAX_CHARS:-2000}
 ACTION_PAUSE_TIME=${ACTION_PAUSE_TIME:-30}
 VERBOSE=${VERBOSE:-false}
-KUBE_CONFIG=${KUBE_CONFIG:-/config/kube/config}
+# Use AGENT_KUBECONFIG_PATH if provided, otherwise default (though default won't work correctly now)
+KUBE_CONFIG=${AGENT_KUBECONFIG_PATH:-/config/kube/agent-config} # Default path changed
 AGENT_ROLE=${AGENT_ROLE:-blue}
 AGENT_NAME=${AGENT_NAME:-defender}
 MEMORY_INIT_FILE=${MEMORY_INIT_FILE:-/memory-init.txt}
@@ -192,25 +192,29 @@ echo -e "[$(date +%H:%M:%S)] ${COLOR_CODE}${AGENT_ROLE^^}:${NO_COLOR} Setting up
 MAX_RETRIES=30
 RETRY_COUNT=0
 RETRY_INTERVAL=5
-log "Waiting for kubeconfig file at ${KUBE_CONFIG}..."
+log "Waiting for agent-specific kubeconfig file at ${KUBE_CONFIG}..."
 while [ ! -f "${KUBE_CONFIG}" ]; do
     echo -n "."
     RETRY_COUNT=$((RETRY_COUNT + 1))
     if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
         echo ""
-        echo -e "${COLOR_CODE}ERROR: Shared kubeconfig not found at ${KUBE_CONFIG} after ${MAX_RETRIES} retries.${NO_COLOR}"
+        echo -e "${COLOR_CODE}ERROR: Agent kubeconfig not found at ${KUBE_CONFIG} after ${MAX_RETRIES} retries.${NO_COLOR}"
+        # Check if the default shared config exists as a fallback hint
+        if [ -f "/config/kube/config" ]; then
+            echo -e "${COLOR_CODE}Hint: The old shared config (/config/kube/config) was found. Ensure docker-compose passes the correct AGENT_KUBECONFIG_PATH variable.${NO_COLOR}"
+        fi
         exit 1
     fi
     sleep $RETRY_INTERVAL
 done
 echo "" # New line after waiting dots
-log "Kubeconfig found at ${KUBE_CONFIG}"
+log "Agent kubeconfig found at ${KUBE_CONFIG}"
 
-# Use the shared config
+# Use the specific agent config
 export KUBECONFIG="${KUBE_CONFIG}"
 mkdir -p /root/.kube
-cp "${KUBE_CONFIG}" /root/.kube/config
-log "Kubeconfig set and copied to /root/.kube/config."
+cp "${KUBE_CONFIG}" /root/.kube/config # Copy to default location for tools that expect it there
+log "Agent kubeconfig set and copied to /root/.kube/config."
 
 # Wait for Kubernetes API to be available
 log "Waiting for Kubernetes API server to be available..."

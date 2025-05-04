@@ -116,7 +116,6 @@ def run_command(
     command: list[str], capture_output: bool = True, timeout: int = 30
 ) -> tuple[int, str, str]:
     """Run a shell command with timeout and capture output."""
-    # Reverted: Removed retry logic as the underlying kubeconfig issue is fixed.
     try:
         logger.debug(f"Running command: {' '.join(command)}")
         process = subprocess.run(
@@ -537,7 +536,7 @@ def parse_kubectl_top_output(output: str) -> list[dict[str, Any]]:
     if len(lines) < 2:  # Header + data
         logger.warning(
             f"parse_kubectl_top_output: Not enough lines ({len(lines)}) to parse."
-        )  # DEBUG
+        )
         return []
 
     headers_raw = lines[0].lower().split()
@@ -548,9 +547,7 @@ def parse_kubectl_top_output(output: str) -> list[dict[str, Any]]:
     # Find column indices
     header_indices = {header: lines[0].lower().find(header) for header in headers}
     sorted_headers = sorted(header_indices.items(), key=lambda item: item[1])
-    logger.debug(
-        f"parse_kubectl_top_output: Sorted Header Indices: {sorted_headers}"
-    )  # DEBUG
+    logger.debug(f"parse_kubectl_top_output: Sorted Header Indices: {sorted_headers}")
 
     for line_num, line in enumerate(lines[1:]):
         if not line.strip():
@@ -558,7 +555,7 @@ def parse_kubectl_top_output(output: str) -> list[dict[str, Any]]:
         entry = {}
         logger.debug(
             f"parse_kubectl_top_output: Processing line {line_num + 1}: {line}"
-        )  # DEBUG
+        )
         for i, (_, start_index) in enumerate(sorted_headers):
             if i + 1 < len(sorted_headers):
                 end_index = sorted_headers[i + 1][1]
@@ -631,7 +628,6 @@ def get_resource_data(container_name: str) -> ResourceInfoType:
     else:
         logger.warning(f"Could not get resource quotas: {stderr}")
 
-    # === NEW: Fetch Node Allocatable Resources ===
     command_nodes = [
         "docker",
         "exec",
@@ -669,14 +665,13 @@ def get_resource_data(container_name: str) -> ResourceInfoType:
             logger.error(f"Unexpected error processing node allocatable data: {e}")
     else:
         logger.warning(f"Could not get node allocatable data: {stderr_nodes}")
-    # === END NEW SECTION ===
 
     # 2. Get Node Metrics (kubectl top nodes - default output)
     command_top_nodes = [
         "docker",
         "exec",
         container_name,
-        "kubectl",  # Removed --kubeconfig
+        "kubectl",
         "top",
         "nodes",
     ]
@@ -710,7 +705,7 @@ def get_resource_data(container_name: str) -> ResourceInfoType:
         "docker",
         "exec",
         container_name,
-        "kubectl",  # Removed --kubeconfig
+        "kubectl",
         "top",
         "pods",
         "--all-namespaces",
@@ -757,8 +752,6 @@ def get_cluster_status() -> dict[str, Any]:
             "resources": {},  # Add placeholder for resource data
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        # Kubeconfig path is removed, relying on default context inside container
-        # kubeconfig_path = "/root/.kube/config"
 
         # Find the sandbox container
         container_name = find_sandbox_container()
@@ -768,7 +761,7 @@ def get_cluster_status() -> dict[str, Any]:
             "docker",
             "exec",
             container_name,
-            "kubectl",  # Removed --kubeconfig
+            "kubectl",
             "get",
             "nodes",
             "-o",
@@ -815,7 +808,7 @@ def get_cluster_status() -> dict[str, Any]:
             "docker",
             "exec",
             container_name,
-            "kubectl",  # Removed --kubeconfig
+            "kubectl",
             "get",
             "pods",
             "--all-namespaces",

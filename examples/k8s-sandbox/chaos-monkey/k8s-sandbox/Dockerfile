@@ -11,7 +11,8 @@ RUN apt-get update && \
     gpg \
     curl \
     gettext-base \
-    netcat-openbsd && \
+    netcat-openbsd \
+    jq && \
     # --- Add Docker GPG key & Repo ---
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
@@ -31,7 +32,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Kind binary
-ARG KIND_VERSION=v0.23.0
+ARG KIND_VERSION=v0.27.0
 RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64 && \
     chmod +x ./kind && \
     mv ./kind /usr/local/bin/kind

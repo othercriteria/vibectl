@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: poller-sa
+  namespace: chaos-monkey-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: poller-view-services
+  namespace: services
+rules:
+- apiGroups: [""] # Core API group
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"] # For getting deployment info if needed later
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: poller-view-services-binding
+  namespace: services
+subjects:
+- kind: ServiceAccount
+  name: poller-sa
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: poller-view-services
+  apiGroup: rbac.authorization.k8s.io

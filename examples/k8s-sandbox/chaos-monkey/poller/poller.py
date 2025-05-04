@@ -23,12 +23,8 @@ from rich.table import Table
 KUBECONFIG = os.environ.get("KUBECONFIG", None)
 POLLER_INTERVAL = float(os.environ.get("POLLER_INTERVAL", "1"))
 POLLER_HISTORY = int(os.environ.get("POLLER_HISTORY", "1000"))
-PASSIVE_DURATION = int(os.environ.get("PASSIVE_DURATION", "5"))
-ACTIVE_DURATION = int(os.environ.get("ACTIVE_DURATION", "25"))
-TOTAL_DURATION_MINUTES = PASSIVE_DURATION + ACTIVE_DURATION
 VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 KIND_CONTAINER = os.environ.get("KIND_CONTAINER", "chaos-monkey-control-plane")
-OVERSEER_HOST = os.environ.get("OVERSEER_HOST", "overseer")
 STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
 
 # Status codes

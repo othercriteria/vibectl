@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: red-agent
-  namespace: services
+  namespace: chaos-monkey-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -37,7 +37,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: services
+  namespace: chaos-monkey-system
 roleRef:
   kind: ClusterRole
   name: red-agent-role
@@ -75,7 +75,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: services
+  namespace: chaos-monkey-system
 roleRef:
   kind: Role
   name: red-agent-attack-services

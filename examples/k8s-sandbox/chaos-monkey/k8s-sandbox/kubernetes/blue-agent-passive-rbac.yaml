@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: blue-agent
-  namespace: default
+  namespace: chaos-monkey-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -13,6 +13,7 @@ rules:
   resources:
     - pods
     - services
+    - deployments
     - namespaces
     - nodes
     - configmaps
@@ -43,7 +44,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: blue-agent
-  namespace: default
+  namespace: chaos-monkey-system
 roleRef:
   kind: ClusterRole
   name: blue-agent-passive-view
@@ -55,18 +56,18 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: blue-agent-no-access
-  namespace: system-monitoring
+  namespace: protected
 rules: []
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: blue-agent-no-access-binding
-  namespace: system-monitoring
+  namespace: protected
 subjects:
 - kind: ServiceAccount
   name: blue-agent
-  namespace: default
+  namespace: chaos-monkey-system
 roleRef:
   kind: Role
   name: blue-agent-no-access

@@ -50,11 +50,7 @@ RUN cp /app/frontend_build/index.html /app/static/ && \
 EXPOSE 8080
 
 # Environment variables with defaults
-ENV SESSION_DURATION=30 \
-    VERBOSE=false \
-    PORT=8080 \
-    HOST=0.0.0.0 \
-    DATA_DIR=/app/data
+ENV DATA_DIR=/app/data
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \

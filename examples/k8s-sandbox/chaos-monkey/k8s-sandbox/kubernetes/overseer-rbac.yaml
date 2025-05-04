@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: overseer-sa
+  namespace: chaos-monkey-system # CHANGED
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: overseer-view-cluster
+rules:
+- apiGroups: [""] # Core API group
+  resources: ["pods", "nodes", "namespaces", "resourcequotas"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+# Add any other resources the overseer dashboard might need to view
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: overseer-view-cluster-binding
+subjects:
+- kind: ServiceAccount
+  name: overseer-sa
+  namespace: chaos-monkey-system # CHANGED
+roleRef:
+  kind: ClusterRole
+  name: overseer-view-cluster
+  apiGroup: rbac.authorization.k8s.io

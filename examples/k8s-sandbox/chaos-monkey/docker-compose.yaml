@@ -8,13 +8,16 @@ services:
     environment:
       - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
       - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
-      - POLLER_INTERVAL=${POLLER_INTERVAL:-1}
       - FLASK_ENV=production
       - VERBOSE=${VERBOSE:-false}
       - PORT=8080
       - HOST=0.0.0.0
-      # Access to docker for monitoring
-      - KIND_CONTAINER=chaos-monkey-control-plane
+      # Configuration for overseer polling intervals and thresholds
+      - METRICS_INTERVAL=${METRICS_INTERVAL:-1}
+      - AGENT_LOG_INTERVAL=${AGENT_LOG_INTERVAL:-2}
+      - CLUSTER_STATUS_INTERVAL=${CLUSTER_STATUS_INTERVAL:-2}
+      - OVERVIEW_REFRESH_INTERVAL=${OVERVIEW_REFRESH_INTERVAL:-1}
+      - STALE_THRESHOLD_SECONDS=${STALE_THRESHOLD_SECONDS:-30}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - overseer-data:/app/data
@@ -51,15 +54,13 @@ services:
       - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
-      - OVERSEER_HOST=overseer
-      - OVERSEER_PORT=8080
     healthcheck:
-      # Check only for node readiness, as entrypoint waits for deployments
-      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready"]
+      # Check not just for node readiness, but also for agent kubeconfig files
+      test: ["CMD", "bash", "-c", "kubectl get nodes 2>/dev/null | grep -q Ready && test -f /config/kube/blue-agent-config && test -f /config/kube/red-agent-config"]
       interval: 10s
       timeout: 10s
       retries: 30
-      start_period: 90s
+      start_period: 90s # Keep start period relatively long to allow for setup
     networks:
       - chaos-monkey-network
     hostname: k8s-sandbox
@@ -80,15 +81,11 @@ services:
       overseer:
         condition: service_healthy
     environment:
-      - KUBECONFIG=/config/kube/config
-      - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
-      - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
+      - KUBECONFIG=/config/kube/poller-config
       - POLLER_INTERVAL=${POLLER_INTERVAL:-1}
       - POLLER_HISTORY=${POLLER_HISTORY:-1000}
       - VERBOSE=${VERBOSE:-false}
       - KIND_CONTAINER=chaos-monkey-control-plane
-      - OVERSEER_HOST=overseer
-      - OVERSEER_PORT=8080
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - kube-config:/config/kube:ro
@@ -112,20 +109,19 @@ services:
         condition: service_started
     environment:
       - AGENT_ROLE=blue
+      - AGENT_KUBECONFIG_PATH=/config/kube/blue-agent-config
       - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
       - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
-      - BLUE_MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-2500}
+      - MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-2500}
       - ACTION_PAUSE_TIME=${BLUE_ACTION_PAUSE_TIME:-2}
       - VERBOSE=${VERBOSE:-false}
       - AGENT_NAME=defender
       - MEMORY_INIT_FILE=/config/memory-init.txt
       - PLAYBOOK_FILE=/playbooks/defense-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
-      - OVERSEER_HOST=overseer
-      - OVERSEER_PORT=8080
       - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network
@@ -154,20 +150,19 @@ services:
         condition: service_started
     environment:
       - AGENT_ROLE=red
+      - AGENT_KUBECONFIG_PATH=/config/kube/red-agent-config
       - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
       - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
-      - RED_MEMORY_MAX_CHARS=${RED_MEMORY_MAX_CHARS:-2500}
+      - MEMORY_MAX_CHARS=${RED_MEMORY_MAX_CHARS:-2500}
       - ACTION_PAUSE_TIME=${RED_ACTION_PAUSE_TIME:-2}
       - VERBOSE=${VERBOSE:-false}
       - AGENT_NAME=chaos-monkey
       - MEMORY_INIT_FILE=/config/memory-init.txt
       - PLAYBOOK_FILE=/playbooks/attack-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
-      - OVERSEER_HOST=overseer
-      - OVERSEER_PORT=8080
       - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
     networks:
       - chaos-monkey-network

@@ -67,14 +67,12 @@ Configuration is handled via environment variables:
 
 | Environment Variable    | Description                           | Default Value              |
 | ----------------------- | ------------------------------------- | -------------------------- |
-| `KUBECONFIG`          | Path to kubeconfig file               | (None)                     |
 | `PASSIVE_DURATION`    | Passive phase duration (minutes)    | 5                          |
 | `ACTIVE_DURATION`     | Active phase duration (minutes)     | 25                         |
 | `POLLER_INTERVAL`     | Frontend poll interval (seconds)    | 1                          |
 | `FLASK_ENV`           | Flask environment                     | production                 |
 | `VERBOSE`             | Enable verbose logging                | false                      |
 | `PORT`                | Port to run the web server on         | 8080                       |
-| `KIND_CONTAINER`      | Name of the Kind control plane cont.  | chaos-monkey-control-plane |
 | `BLUE_AGENT_CONTAINER`| Name of the blue agent container    | chaos-monkey-blue-agent  |
 | `RED_AGENT_CONTAINER` | Name of the red agent container     | chaos-monkey-red-agent   |
 

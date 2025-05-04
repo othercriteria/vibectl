@@ -370,6 +370,143 @@ log "Applying initial Kubernetes configurations (Namespaces, initial RBAC)..."
 kubectl apply -f /kubernetes/namespaces.yaml
 kubectl apply -f /kubernetes/blue-agent-passive-rbac.yaml
 kubectl apply -f /kubernetes/red-agent-passive-rbac.yaml
+# Apply Poller RBAC early so the SA exists for token generation later
+log "Applying Poller RBAC..."
+kubectl apply -f /kubernetes/poller-rbac.yaml
+# Apply Overseer RBAC
+log "Applying Overseer RBAC..."
+kubectl apply -f /kubernetes/overseer-rbac.yaml
+
+# Create Agent Kubeconfigs
+log "Creating dedicated kubeconfigs for services..."
+mkdir -p /config/kube
+
+# Get cluster CA data and server URL using jq for reliability
+CLUSTER_CONFIG_JSON=$(kubectl config view -o json --raw)
+if [ -z "$CLUSTER_CONFIG_JSON" ]; then
+    echo "ERROR: Failed to get cluster config as JSON."
+    exit 1
+fi
+
+SERVER_URL=$(echo "$CLUSTER_CONFIG_JSON" | jq -r '.clusters[] | select(.name=="kind-chaos-monkey") | .cluster.server')
+CA_DATA=$(echo "$CLUSTER_CONFIG_JSON" | jq -r '.clusters[] | select(.name=="kind-chaos-monkey") | .cluster."certificate-authority-data"') # Note: key needs quoting for jq
+
+if [ -z "$SERVER_URL" ] || [ -z "$CA_DATA" ]; then
+    echo "ERROR: Failed to retrieve server URL or CA data using jq."
+    exit 1
+fi
+
+# Function to create agent kubeconfig (Moved from later in the script)
+create_agent_kubeconfig() {
+    local agent_sa_name=$1
+    local agent_namespace=$2 # Now expects namespace as arg
+    local config_path=$3
+    # Use a consistent context name format
+    local context_name=\"${agent_namespace}/${agent_sa_name}\"
+
+    log "Generating token for ServiceAccount ${agent_namespace}/${agent_sa_name}..."
+    # Use a reasonably long duration, e.g., 8 hours. Adjust if needed.
+    AGENT_TOKEN=$(kubectl create token "${agent_sa_name}" -n "${agent_namespace}" --duration=8h)
+    if [ -z "$AGENT_TOKEN" ]; then
+        echo "ERROR: Failed to generate token for ServiceAccount ${agent_namespace}/${agent_sa_name}"
+        exit 1
+    fi
+    log "Token generated successfully for ${agent_namespace}/${agent_sa_name}."
+
+    log "Creating kubeconfig file at ${config_path} for ${agent_namespace}/${agent_sa_name}"
+    # Create dedicated config file
+
+    # Decode CA data to a temporary file
+    local temp_ca_file=$(mktemp)
+    echo "${CA_DATA}" | base64 --decode > "${temp_ca_file}"
+
+    kubectl config set-cluster kind-chaos-monkey \
+      --server="${SERVER_URL}" \
+      --certificate-authority="${temp_ca_file}" \
+      --embed-certs=true \
+      --kubeconfig="${config_path}"
+
+    # Clean up temporary CA file
+    rm -f "${temp_ca_file}"
+
+    kubectl config set-credentials "${agent_sa_name}" --token="${AGENT_TOKEN}" --kubeconfig="${config_path}"
+    kubectl config set-context "${context_name}" --cluster=kind-chaos-monkey --user="${agent_sa_name}" --namespace="${agent_namespace}" --kubeconfig="${config_path}"
+    kubectl config use-context "${context_name}" --kubeconfig="${config_path}"
+    chmod 644 "${config_path}"
+    log "Kubeconfig created and configured at ${config_path}"
+}
+
+# Function to switch RBAC for an agent
+# Arguments:
+# $1: Agent Role (e.g., "Red", "Blue")
+# $2: Passive RBAC YAML file path
+# $3: Active RBAC YAML file path
+# $4: Service Account Name (e.g., "red-agent", "blue-agent")
+# $5: Service Account Namespace (e.g., "chaos-monkey-system")
+# $6: Target Kubeconfig Path (e.g., "/config/kube/red-agent-config")
+switch_agent_rbac() {
+    local agent_role="$1"
+    local passive_rbac_yaml="$2"
+    local active_rbac_yaml="$3"
+    local sa_name="$4"
+    local sa_namespace="$5"
+    local kubeconfig_path="$6"
+    local agent_name_lower
+    agent_name_lower=$(echo "$agent_role" | tr '[:upper:]' '[:lower:]') # red or blue
+
+    echo "[RBAC Switch][${agent_role}] Starting RBAC transition..."
+
+    # --- Delete Passive RBAC ---
+    echo "[RBAC Switch][${agent_role}] Deleting passive RBAC from ${passive_rbac_yaml}..."
+    # Use kubectl delete with --ignore-not-found and capture exit code
+    if ! kubectl delete -f "${passive_rbac_yaml}" --ignore-not-found=true; then
+        echo "[RBAC Switch][${agent_role}] WARNING: Problem occurred during passive RBAC deletion (kubectl delete exit code $?). Continuing..."
+        # Don't exit, maybe it was already gone or partially deleted
+    else
+        echo "[RBAC Switch][${agent_role}] Passive RBAC deletion command executed."
+    fi
+
+    # Optional: Add specific verification checks here if needed, e.g.:
+    # if kubectl get clusterrolebinding "${agent_name_lower}-agent-passive-view-binding" > /dev/null 2>&1; then
+    #    echo "[RBAC Switch][${agent_role}] WARNING: Passive ClusterRoleBinding still found after delete!"
+    # fi
+
+    echo "[RBAC Switch][${agent_role}] Waiting 2 seconds after passive RBAC deletion..."
+    sleep 2
+
+    # --- Apply Active RBAC ---
+    echo "[RBAC Switch][${agent_role}] Applying active RBAC from ${active_rbac_yaml}..."
+    if ! kubectl apply -f "${active_rbac_yaml}"; then
+        echo "[RBAC Switch][${agent_role}] ERROR: Failed to apply active RBAC from ${active_rbac_yaml}!"
+        # Optionally add more debug info here, e.g., show the YAML content or last few lines of kubectl output
+        exit 1 # Critical failure
+    fi
+    echo "[RBAC Switch][${agent_role}] Active RBAC applied successfully."
+
+    # Optional: Add specific verification checks here if needed, e.g.:
+    # if ! kubectl get clusterrolebinding "${agent_name_lower}-agent-binding" > /dev/null 2>&1; then
+    #     echo "[RBAC Switch][${agent_role}] ERROR: Active ClusterRoleBinding not found after apply!"
+    # fi
+
+    # --- Regenerate Kubeconfig ---
+    echo "[RBAC Switch][${agent_role}] Regenerating Kubeconfig (${kubeconfig_path}) with active token..."
+    # Call the existing function to handle regeneration
+    create_agent_kubeconfig "${sa_name}" "${sa_namespace}" "${kubeconfig_path}"
+    echo "[RBAC Switch][${agent_role}] Kubeconfig regenerated."
+
+    echo "[RBAC Switch][${agent_role}] Waiting 2 seconds after active RBAC application..."
+    sleep 2
+
+    echo "[RBAC Switch][${agent_role}] RBAC transition completed."
+}
+
+# Create kubeconfig using chaos-monkey-system namespace for all SAs
+create_agent_kubeconfig "blue-agent" "chaos-monkey-system" "/config/kube/blue-agent-config"
+create_agent_kubeconfig "red-agent" "chaos-monkey-system" "/config/kube/red-agent-config"
+create_agent_kubeconfig "poller-sa" "chaos-monkey-system" "/config/kube/poller-config"
+create_agent_kubeconfig "overseer-sa" "chaos-monkey-system" "/config/kube/overseer-config"
+
+log "Dedicated service kubeconfigs created."
 
 # Install Kubernetes State Metrics for resource monitoring
 install_kubernetes_state_metrics
@@ -408,64 +545,25 @@ for file in /kubernetes/demo-*.yaml; do
     fi
 done
 
-# Add more detailed verification of the deployment
-echo "Verifying deployments in services namespace..."
-kubectl get deployments -n services --no-headers || echo "No deployments found"
-
-# Add specific check for app service
-log "Checking for app service in services namespace..."
-if ! kubectl get deployment app -n services &>/dev/null; then
-    echo "WARNING: app deployment not found in services namespace"
-    echo "Available deployments in services namespace:"
-    kubectl get deployments -n services
-
-    # Look for deployment in other namespaces as a fallback
-    echo "Looking for app deployment in other namespaces:"
-    kubectl get deployments --all-namespaces | grep app || echo "No app deployment found in any namespace"
-else
-    echo "✅ app deployment found in services namespace"
-fi
-
-# Check for Redis DB service
-log "Checking for demo-db service in services namespace..."
-if ! kubectl get deployment demo-db -n services &>/dev/null; then
-    echo "WARNING: demo-db deployment not found in services namespace"
-    echo "Available deployments in services namespace:"
-    kubectl get deployments -n services
-else
-    echo "✅ demo-db deployment found in services namespace"
-fi
-
-# Wait for deployments to be ready with timeout and retries
-log "Waiting for deployments to be ready..."
+# Wait for deployments to be ready with a simplified loop
+log "Waiting for deployments in 'services' namespace to be ready..."
 MAX_DEPLOYMENT_RETRIES=3
 DEPLOYMENT_RETRY=0
 
 while [ $DEPLOYMENT_RETRY -lt $MAX_DEPLOYMENT_RETRIES ]; do
+    # Attempt to wait for all deployments in the namespace
     if kubectl wait --for=condition=available --timeout=60s deployment --all -n services 2>/dev/null; then
-        echo "✅ All deployments in services namespace are ready"
-        break
+        echo "✅ All deployments in services namespace are ready."
+        break # Exit loop on success
     else
         DEPLOYMENT_RETRY=$((DEPLOYMENT_RETRY + 1))
-        echo "WARNING: Deployments not ready yet, attempt $DEPLOYMENT_RETRY of $MAX_DEPLOYMENT_RETRIES"
-        echo "Current deployment status:"
-        kubectl get deployments -n services
-
-        # Check specific app deployment status with more details
-        echo "Detailed status of app deployment:"
-        kubectl describe deployment app -n services || echo "Cannot get details for app deployment"
-
-        # Check pod status if deployment exists
-        echo "Checking pod status for app deployment:"
-        kubectl get pods -n services -l app=app || echo "No pods found for app=app"
-
         if [ $DEPLOYMENT_RETRY -ge $MAX_DEPLOYMENT_RETRIES ]; then
-            echo "ERROR: Deployments did not become ready after $MAX_DEPLOYMENT_RETRIES attempts"
+            echo "ERROR: Deployments in 'services' namespace did not become ready after $MAX_DEPLOYMENT_RETRIES attempts."
             echo "Final deployment status:"
-            kubectl get deployments -n services
-            exit 1
+            kubectl get deployments -n services || echo "Failed to get final deployment status."
+            exit 1 # Exit script on final failure
         else
-            echo "Retrying in 20 seconds..."
+            echo "WARNING: Deployments not ready yet, attempt $DEPLOYMENT_RETRY of $MAX_DEPLOYMENT_RETRIES. Retrying in 20 seconds..."
             sleep 20
         fi
     fi
@@ -478,53 +576,33 @@ kubectl apply -f /kubernetes/resource-quotas.yaml
 log "Applying System Monitoring Namespace Isolation..."
 kubectl apply -f /kubernetes/system-monitoring-isolation.yaml
 
-# Create a shared kubeconfig for agent containers
-log "Creating shared kubeconfig for agent containers..."
-mkdir -p /config/kube
-
-# Copy the current kubeconfig and update it for agent use
-cp /root/.kube/config /config/kube/config
-
-# Important: for access from other containers, use the control plane IP directly
-kubectl config set-cluster kind-chaos-monkey --server="https://${CONTROL_PLANE_IP}:${API_SERVER_PORT}" --kubeconfig=/config/kube/config
-chmod 644 /config/kube/config
-log "Shared kubeconfig created at /config/kube/config with server URL: https://${CONTROL_PLANE_IP}:${API_SERVER_PORT}"
-
-# Final verification of the services
-echo "Final verification of resources in services namespace:"
-kubectl get all -n services
-
-# Check pod logs for app deployment
-echo "Checking logs for app pods:"
-APP_POD=$(kubectl get pods -n services -l app=app -o name | head -1)
-if [ -n "$APP_POD" ]; then
-    kubectl logs "${APP_POD}" -n services || echo "Cannot get logs for app pod"
-
-    # Check app pod status - fixed format
-    echo "App pod details:"
-    kubectl describe "${APP_POD}" -n services || echo "Cannot describe app pod"
-else
-    echo "No app pods found"
-fi
-
-echo "-------------------------------------------------"
-echo "Kubernetes Sandbox Setup Complete."
-echo "Passive RBAC rules are active."
-echo "Target services are deployed and ready."
-echo "-------------------------------------------------"
-
 # --- Passive Phase Wait ---
 echo "Waiting for PASSIVE phase duration (${PASSIVE_DURATION} minutes)..."
 sleep ${PASSIVE_DURATION}m
 
 # --- Switch to Active RBAC ---
 echo "Passive phase complete. Switching to ACTIVE RBAC rules..."
-kubectl delete -f /kubernetes/blue-agent-passive-rbac.yaml --ignore-not-found=true
-kubectl delete -f /kubernetes/red-agent-passive-rbac.yaml --ignore-not-found=true
 
-kubectl apply -f /kubernetes/blue-agent-active-rbac.yaml
-kubectl apply -f /kubernetes/red-agent-active-rbac.yaml
-echo "Active RBAC rules applied."
+# --- Red Agent RBAC Switch ---
+switch_agent_rbac "Red" \
+                  "/kubernetes/red-agent-passive-rbac.yaml" \
+                  "/kubernetes/red-agent-active-rbac.yaml" \
+                  "red-agent" \
+                  "chaos-monkey-system" \
+                  "/config/kube/red-agent-config"
+
+# --- Blue Agent RBAC Switch ---
+switch_agent_rbac "Blue" \
+                  "/kubernetes/blue-agent-passive-rbac.yaml" \
+                  "/kubernetes/blue-agent-active-rbac.yaml" \
+                  "blue-agent" \
+                  "chaos-monkey-system" \
+                  "/config/kube/blue-agent-config"
+
+echo "Active Phase RBAC configured for both agents."
+
+# Wait for the active duration
+log "Running active phase for ${ACTIVE_DURATION} minutes..."
 
 # --- Active Phase Wait ---
 echo "Waiting for ACTIVE phase duration (${ACTIVE_DURATION} minutes)..."
