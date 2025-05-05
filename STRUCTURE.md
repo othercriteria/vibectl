@@ -10,7 +10,7 @@ This document provides an overview of the project's structure and organization.
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
 - `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils`
-- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic
+- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
@@ -104,7 +104,7 @@ This document provides an overview of the project's structure and organization.
    - `scale_cmd.py` - Resource scaling
    - `rollout_cmd.py` - Deployment rollout management
    - `wait_cmd.py` - Waiting for resource conditions
-   - `port_forward_cmd.py` - Port forwarding
+   - `port_forward_cmd.py` - Port forwarding (partially delegated to live_display)
    - `logs_cmd.py` - Container logs retrieval
    - `events_cmd.py` - Event retrieval
    - `create_cmd.py` - Resource creation
@@ -128,10 +128,11 @@ This document provides an overview of the project's structure and organization.
    - Handle confirmation for destructive operations
    - Dispatches kubectl execution to `k8s_utils.py`
    - Process command output for user feedback
-   - Port-forwarding functionality
+   - Port-forwarding functionality (partially delegated to live_display)
    - Memory integration
 2. `k8s_utils.py` - Core Kubernetes utilities
-   - Executes kubectl commands safely (standard, complex args, YAML input)
+   - Executes kubectl commands safely (standard sync, YAML input)
+   - Creates async kubectl processes for live display commands.
    - Handles errors specific to kubectl
 
 ### Memory System

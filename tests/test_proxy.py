@@ -75,8 +75,6 @@ def test_proxy_stats_basic() -> None:
     # Test initial values
     assert stats.bytes_received == 0
     assert stats.bytes_sent == 0
-    assert stats.active_connections == 0
-    assert stats.connection_count == 0
     assert stats.last_activity >= 0  # Should be a timestamp
 
     # Test last_activity property
@@ -291,12 +289,6 @@ def test_handle_client(
     # Verify connections were closed
     mock_asyncio_components["target_writer"].close.assert_called_once()
     mock_asyncio_components["client_writer"].close.assert_called_once()
-
-    # Verify stats were updated correctly
-    assert proxy._proxy_stats.connection_count == 1
-    assert (
-        proxy._proxy_stats.active_connections == 0
-    )  # Should be decremented after completion
 
 
 def test_proxy_data() -> None:

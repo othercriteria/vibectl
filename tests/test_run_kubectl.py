@@ -10,7 +10,6 @@ import pytest
 from vibectl.command_handler import run_kubectl
 from vibectl.k8s_utils import (
     create_kubectl_error,
-    run_kubectl_with_complex_args,
     run_kubectl_with_yaml,
 )
 from vibectl.types import Error, Success
@@ -103,7 +102,8 @@ def test_run_kubectl_not_found(mock_subprocess: MagicMock) -> None:
 
     result = run_kubectl(["get", "pods"], capture=True)
     assert isinstance(result, Error)
-    assert "kubectl not found" in result.error
+    assert result.error == "kubectl not found. Please install it and try again."
+    assert isinstance(result.exception, FileNotFoundError)
 
 
 def test_run_kubectl_called_process_error(
@@ -220,58 +220,6 @@ def test_create_kubectl_error_halt_flag() -> None:
     assert isinstance(err_obj_none, Error)
     assert "Unexpected error message type: NoneType" in err_obj_none.error
     assert err_obj_none.halt_auto_loop is True  # Unexpected types halt
-
-
-# --- Tests for run_kubectl_with_complex_args ---
-
-
-@patch("subprocess.run")  # Patch directly instead of using fixture
-def test_run_kubectl_with_complex_args_success(mock_run: MagicMock) -> None:
-    """Test successful execution with complex args."""
-    mock_result = Mock()
-    mock_result.stdout = "Success output"
-    mock_result.stderr = ""
-    mock_result.returncode = 0
-    mock_run.return_value = mock_result
-
-    args = ["exec", "my-pod", "--", "ls", "-l", "/app data"]
-    result = run_kubectl_with_complex_args(args)
-
-    assert isinstance(result, Success)
-    assert result.data == "Success output"
-    mock_run.assert_called_once()
-    call_args = mock_run.call_args[0][0]
-    assert call_args == ["kubectl", "exec", "my-pod", "--", "ls", "-l", "/app data"]
-
-
-@patch("subprocess.run")  # Patch directly instead of using fixture
-def test_run_kubectl_with_complex_args_called_process_error(
-    mock_run: MagicMock,
-) -> None:
-    """Test CalledProcessError handling with complex args."""
-    error = subprocess.CalledProcessError(1, "cmd", stderr="Error stderr")
-    mock_run.side_effect = error
-
-    args = ["exec", "my-pod", "--", "bad-command"]
-    result = run_kubectl_with_complex_args(args)
-
-    assert isinstance(result, Error)
-    assert "Error stderr" in result.error
-    assert result.exception is error
-
-
-@patch("subprocess.run")  # Patch directly instead of using fixture
-def test_run_kubectl_with_complex_args_general_error(mock_run: MagicMock) -> None:
-    """Test general Exception handling with complex args."""
-    error = ValueError("General error")
-    mock_run.side_effect = error
-
-    args = ["exec", "my-pod", "--", "cmd"]
-    result = run_kubectl_with_complex_args(args)
-
-    assert isinstance(result, Error)
-    assert "Error executing command: General error" in result.error
-    assert result.exception is error
 
 
 # --- Tests for run_kubectl_with_yaml ---

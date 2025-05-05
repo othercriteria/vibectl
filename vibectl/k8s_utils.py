@@ -1,3 +1,4 @@
+import asyncio  # Added asyncio import
 import logging
 import os
 import re
@@ -135,47 +136,23 @@ def run_kubectl(
             logger.debug(f"kubectl command output: {output}")
             return Success(data=output)
         return Success()
-    except FileNotFoundError:
-        error_msg = "kubectl not found. Please install it and try again."
-        logger.debug(error_msg)
-        return Error(error=error_msg)
+    except FileNotFoundError as e:
+        # Directly create Error with the exception
+        logger.error("kubectl command failed: executable not found.", exc_info=False)
+        return Error(
+            error="kubectl not found. Please install it and try again.",
+            exception=e,  # Include the exception
+            halt_auto_loop=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            f"kubectl command failed with exit code {e.returncode}: {e.stderr}",
+            exc_info=True,
+        )
+        return create_kubectl_error(e.stderr)
     except Exception as e:
         logger.debug(f"Exception running kubectl: {e}", exc_info=True)
         return Error(error=str(e), exception=e)
-
-
-def run_kubectl_with_complex_args(args: list[str]) -> Result:
-    """Execute a kubectl command with complex arguments that need special handling.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        Result with Success containing command output or Error with error information
-    """
-    try:
-        # Build the full command to preserve argument structure
-        cmd = ["kubectl"]
-        # Add each argument, preserving structure with possible spaces or special chars
-        for arg in args:
-            cmd.append(arg)
-
-        logger.info(f"Running kubectl command with complex args: {' '.join(cmd)}")
-        # Run the command, preserving the argument structure
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return Success(data=result.stdout.strip())
-    except subprocess.CalledProcessError as e:
-        error_message = (
-            e.stderr.strip()
-            if e.stderr
-            else f"Command failed with exit code {e.returncode}"
-        )
-        # Use create_kubectl_error for consistent error handling
-        return create_kubectl_error(error_message, exception=e)
-    except Exception as e:
-        logger.error("Error executing command with complex args: %s", e, exc_info=True)
-        # General exception, return standard Error
-        return Error(error=f"Error executing command: {e}", exception=e)
 
 
 def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
@@ -271,3 +248,53 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
     except Exception as e:
         logger.error("Error executing YAML command: %s", e, exc_info=True)
         return Error(error=f"Error executing YAML command: {e}", exception=e)
+
+
+async def create_async_kubectl_process(
+    cmd_args: list[str],
+    capture_stdout: bool = True,
+    capture_stderr: bool = True,
+    config: Config | None = None,
+) -> asyncio.subprocess.Process:
+    """Creates an asyncio subprocess for a kubectl command.
+
+    Args:
+        cmd_args: List of kubectl command arguments (e.g., ['get', 'pods', '--watch']).
+        capture_stdout: Whether to capture stdout (defaults to True).
+        capture_stderr: Whether to capture stderr (defaults to True).
+        config: Optional Config instance to use.
+
+    Returns:
+        An asyncio.subprocess.Process instance.
+
+    Raises:
+        FileNotFoundError: If kubectl is not found.
+        Exception: For other errors during process creation.
+    """
+    cfg = config or Config()
+    kubeconfig = cfg.get("kubeconfig")
+
+    kubectl_cmd = ["kubectl"]
+    if kubeconfig:
+        # Prepend kubeconfig args if they exist, as they often need to come early
+        kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+
+    kubectl_cmd.extend(cmd_args)
+
+    logger.info(f"Creating async kubectl process: {' '.join(kubectl_cmd)}")
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *kubectl_cmd,
+            stdout=asyncio.subprocess.PIPE if capture_stdout else None,
+            stderr=asyncio.subprocess.PIPE if capture_stderr else None,
+        )
+        return process
+    except FileNotFoundError as e:
+        logger.error("kubectl command not found.")
+        # Re-raise specific error for clarity
+        raise FileNotFoundError("kubectl not found. Please install it.") from e
+    except Exception as e:
+        logger.error(f"Error creating async kubectl process: {e}", exc_info=True)
+        # Re-raise other exceptions
+        raise e

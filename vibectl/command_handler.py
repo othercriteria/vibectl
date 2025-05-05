@@ -24,7 +24,6 @@ from .config import (
 from .k8s_utils import (
     create_kubectl_error,
     run_kubectl,
-    run_kubectl_with_complex_args,
     run_kubectl_with_yaml,
 )
 from .live_display import (
@@ -48,9 +47,6 @@ from .types import (
     Success,
 )
 from .utils import console_manager
-
-# Remove unused direct import of tl if it's no longer needed elsewhere
-# from . import truncation_logic as tl
 
 logger = _logger
 
@@ -122,9 +118,6 @@ def handle_standard_command(
         )
     except Exception as e:
         # If handle_command_output raises an unexpected error, handle it
-        # logger.error(
-        #     f"Unexpected error during command output processing: {e}", exc_info=True
-        # ) # Removed redundant log, _handle_standard_command_error logs it.
         return _handle_standard_command_error(command, resource, args, e)
 
 
@@ -604,7 +597,6 @@ def handle_vibe_request(
     if isinstance(plan_result, Error):
         # Error handling (logging, console printing) is now done within _get_llm_plan
         # or handled by the caller based on halt_auto_loop.
-        # Simply return the Error object.
         return plan_result
 
     # Plan succeeded, get the validated response object
@@ -615,6 +607,11 @@ def handle_vibe_request(
         return Error("Internal error: Failed to get valid plan data from LLM.")
 
     # Dispatch based on the validated plan's ActionType
+    logger.debug(
+        f"Matching action_type: {response.action_type} "
+        f"(Type: {type(response.action_type)})"
+    )
+    # Revert back to match statement
     match response.action_type:
         case ActionType.ERROR:
             if not response.error:
@@ -1098,20 +1095,7 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
             # Pass the combined args (command + original args)
             return run_kubectl_with_yaml(full_args, yaml_content)
         else:
-            # Check if any arguments contain spaces or special characters
-            # Note: Check the original args, not the combined full_args
-            has_complex_args = any(
-                " " in arg or "<" in arg or ">" in arg for arg in args
-            )
-
-            if has_complex_args:
-                # Dispatch to the complex args handling function in k8s_utils
-                # Pass the combined args (command + original args)
-                return run_kubectl_with_complex_args(full_args)
-            else:
-                # Regular command without complex arguments, use standard run_kubectl
-                # Pass the combined args (command + original args)
-                return run_kubectl(full_args, capture=True)
+            return run_kubectl(full_args, capture=True)
     except Exception as e:
         logger.error("Error dispatching command execution: %s", e, exc_info=True)
         # Use create_kubectl_error for consistency if possible, otherwise generic Error
@@ -1318,7 +1302,7 @@ def handle_watch_with_live_display(
     # Create the command description for the display
     display_args = [arg for arg in args if arg not in ("--watch", "-w")]
     display_text = (
-        f"Watching [bold]{command} {resource} " f"{''.join(display_args)}[/bold]..."
+        f"Watching [bold]{command} {resource} {''.join(display_args)}[/bold]..."
     )
 
     # Call the worker function in live_display.py
@@ -1384,6 +1368,7 @@ def _get_llm_plan(
 
         response = LLMCommandResponse.model_validate_json(llm_response_text)
         logger.debug(f"Parsed LLM response object: {response}")
+        # Add back explicit type check/conversion
         if isinstance(response.action_type, str):
             response.action_type = ActionType(response.action_type)
         logger.info(f"Validated ActionType: {response.action_type}")
@@ -1437,6 +1422,18 @@ def _extract_verb_args(
         # If the original command was 'vibe', the LLM determined the verb.
         kubectl_verb = raw_llm_commands[0]
         kubectl_args = raw_llm_commands[1:]
+
+        # Check for heredoc separator '---' and adjust args
+        # The YAML content itself comes from response.yaml_manifest
+        if "---" in kubectl_args:
+            try:
+                separator_index = kubectl_args.index("---")
+                kubectl_args = kubectl_args[:separator_index]
+                logger.debug(f"Adjusted kubectl_args for heredoc: {kubectl_args}")
+            except ValueError:
+                # Should not happen if '---' is in the list, but handle defensively
+                logger.warning("'---' detected but index not found in kubectl_args.")
+
     else:
         # COMMAND action type but empty commands list - LLM error.
         logger.error("LLM failed to provide command verb for 'vibe' request.")

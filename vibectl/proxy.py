@@ -28,8 +28,6 @@ class ProxyStats:
 
     bytes_received: int = 0  # From target to client
     bytes_sent: int = 0  # From client to target
-    active_connections: int = 0
-    connection_count: int = 0
     last_activity_timestamp: float = 0
 
     @property
@@ -129,14 +127,6 @@ class TcpProxy:
             self._proxy_data(target_reader, client_writer, "target_to_client")
         )
 
-        # Update connection statistics
-        self._proxy_stats.connection_count += 1
-        self._proxy_stats.active_connections += 1
-
-        # Copy stats to the parent object for display
-        self.stats.bytes_received = self._proxy_stats.bytes_received
-        self.stats.bytes_sent = self._proxy_stats.bytes_sent
-
         # Update last activity timestamp
         current_time = time.time()
         self._proxy_stats.last_activity = current_time
@@ -158,9 +148,6 @@ class TcpProxy:
         # Close the writer streams
         target_writer.close()
         client_writer.close()
-
-        # Update connection count
-        self._proxy_stats.active_connections -= 1
 
     async def _proxy_data(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str

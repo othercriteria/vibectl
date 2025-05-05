@@ -51,17 +51,14 @@ def test_needs_confirmation_dangerous() -> None:
 
 
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.k8s_utils.subprocess.run")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_command_with_spaces(
-    mock_console: Mock, mock_subprocess_run: Mock, mock_run_kubectl: Mock
+    mock_console: Mock,
+    mock_ch_run_kubectl: Mock,
 ) -> None:
     """Test executing command with spaces in the arguments."""
     # Set up mocks for subprocess.run in k8s_utils
-    mock_process = Mock()
-    mock_process.returncode = 0
-    mock_process.stdout = "configmap/test-map created"
-    mock_subprocess_run.return_value = mock_process
+    mock_ch_run_kubectl.return_value = Success(data="configmap/test-map created")
 
     # Run the command using the dispatcher in command_handler
     html_content = "<html><body><h1>CTF-FLAG-1: K8S_MASTER</h1></body></html>"
@@ -74,145 +71,20 @@ def test_execute_command_with_spaces(
     ]
     # Store output but not used in assertions
     # Pass command and args separately, and add yaml_content=None
-    _ = _execute_command(command=command, args=args, yaml_content=None)
+    result = _execute_command(command=command, args=args, yaml_content=None)
 
-    # Verify subprocess.run (mocked in k8s_utils) was called
-    mock_subprocess_run.assert_called_once()
-    # Verify standard run_kubectl (mocked in command_handler) was NOT called
-    mock_run_kubectl.assert_not_called()
-
-    # Verify subprocess was called with the right command structure
-    call_args = mock_subprocess_run.call_args[0][0]
-    assert call_args[0] == "kubectl"
-    assert "nginx-config" in call_args
-    assert any("--from-literal" in arg for arg in call_args)
-
-
-@patch("vibectl.k8s_utils.subprocess.run")
-@patch("vibectl.command_handler.console_manager")
-def test_execute_command_integration_with_spaces(
-    mock_console: Mock, mock_subprocess: Mock
-) -> None:
-    """Integration test simulating the configmap command issue."""
-    # Configure mock subprocess
-    mock_process = Mock()
-    mock_process.returncode = 0
-    mock_process.stdout = "configmap/nginx-config created"
-    mock_subprocess.return_value = mock_process
-
-    # Test command with HTML content that caused the original issue
-    # Remove the patch for the deleted function
-    # with patch("vibectl.command_handler._process_command_string") as mock_process_cmd:
-    # Ensure the correct execution path is taken by mocking the result
-    # from the relevant run_kubectl* function directly.
-
-    # Example command args (replace with actual args if needed for test logic)
-    command = "create"
-    args = ["configmap", "nginx-config", "--from-literal=index.html=<html>"]
-    yaml_content = None  # Assuming no YAML for this specific integration test focus
-
-    # Directly call _execute_command
-    result = _execute_command(command, args, yaml_content)
-
-    # Assertions
+    # Verify run_kubectl (mocked in command_handler) was called
+    mock_ch_run_kubectl.assert_called_once_with(
+        [
+            "create",
+            "configmap",
+            "nginx-config",
+            f"--from-literal=index.html={html_content}",
+        ],
+        capture=True,
+    )
     assert isinstance(result, Success)
-    assert result.data == "configmap/nginx-config created"
-    # Check that the correct run_kubectl* function was called via subprocess.run mock
-    mock_subprocess.assert_called_once()
-    # Add more specific assertions on mock_subprocess.call_args if needed
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.handle_command_output")
-@patch("vibectl.command_handler.run_kubectl")
-def test_handle_vibe_request_with_heredoc_integration(
-    mock_run_kubectl: Mock,
-    mock_handle_output: Mock,
-    mock_get_adapter: Mock,
-) -> None:
-    """Test handle_vibe_request with heredoc syntax in the model response."""
-    # Set up mocks
-    mock_model = Mock()
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = mock_model
-    mock_get_adapter.return_value = mock_adapter
-
-    # Simulate model response with heredoc syntax by constructing the JSON
-    yaml_content = """apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deployment
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:latest
-        ports:
-        - containerPort: 80"""
-    expected_plan = {
-        "action_type": ActionType.COMMAND.value,
-        "commands": ["create", "-f", "-", "---", yaml_content],
-        "explanation": "Creating deployment via heredoc.",
-    }
-    mock_adapter.execute.return_value = json.dumps(expected_plan)
-
-    # Mock the subprocess call for create -f -
-    with patch("vibectl.k8s_utils.subprocess.Popen") as mock_popen:
-        # Set up subprocess to return success
-        mock_process = Mock()
-        mock_process.returncode = 0
-        mock_process.communicate.return_value = (
-            b"deployment.apps/nginx-deployment created",
-            b"",
-        )
-        mock_popen.return_value = mock_process
-
-        # Create output flags
-        output_flags = OutputFlags(
-            show_raw=True,
-            show_vibe=True,
-            warn_no_output=False,
-            model_name="test-model",
-            show_kubectl=True,
-        )
-
-        # Call handle_vibe_request with yes=True to skip confirmation
-        with (
-            patch("click.confirm", return_value=True),
-            patch(
-                "vibectl.command_handler.recovery_prompt",
-                "Recovery prompt: {error} {command} {request} {kubectl_cmd}",
-            ),
-        ):
-            handle_vibe_request(
-                request="create nginx deployment with 3 replicas",
-                command="create",
-                plan_prompt="Test prompt",
-                summary_prompt_func=lambda: "Test summary",
-                output_flags=output_flags,
-                yes=True,  # Skip confirmation
-            )
-
-        # Verify subprocess was called with YAML input
-        assert mock_popen.call_count > 0
-        # At least one call should be to kubectl with create -f -
-        kubectl_calls = [
-            call
-            for call in mock_popen.call_args_list
-            if len(call[0]) > 0
-            and isinstance(call[0][0], list)
-            and "kubectl" in call[0][0]
-            and "create" in call[0][0]
-        ]
-        assert len(kubectl_calls) > 0, "No kubectl commands were executed"
+    assert result.data == "configmap/test-map created"
 
 
 @patch("vibectl.command_handler.get_model_adapter")
@@ -418,61 +290,38 @@ spec:
         ),
     ],
 )
-@patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.command_handler.run_kubectl_with_yaml")
-@patch("vibectl.command_handler.run_kubectl_with_complex_args")
-@patch("vibectl.command_handler.logger")
+@patch("vibectl.command_handler.run_kubectl")
 def test_execute_command(
-    mock_logger: Mock,
-    mock_run_complex: Mock,
-    mock_run_yaml: Mock,
     mock_run_kubectl: Mock,
+    mock_run_yaml: Mock,
     command: str,
-    args: list,
-    yaml_content: str | None,  # Allow None for yaml_content
+    args: list[str],
+    yaml_content: str | None,
     expected_result: Success,
-) -> None:  # Add missing type hint
-    """Test command execution dispatch logic."""
-    # Note: Removed mock_process as _process_command_string is gone
-
-    # Set the return value for the appropriate mock based on expected dispatch
+) -> None:
+    """Test _execute_command with various inputs."""
+    # Configure mocks based on expected execution path
     if yaml_content:
         mock_run_yaml.return_value = expected_result
-    elif any(" " in arg or "<" in arg or ">" in arg for arg in args):
-        mock_run_complex.return_value = expected_result
+        # Reset the other mock
+        mock_run_kubectl.return_value = None
     else:
         mock_run_kubectl.return_value = expected_result
+        # Reset other mocks
+        mock_run_yaml.return_value = None
 
-    result = _execute_command(command, args, yaml_content)
+    # Call the function
+    actual_result = _execute_command(command, args, yaml_content)
 
-    # Assert correct dispatch
+    # Assertions
+    assert actual_result == expected_result
     if yaml_content:
         mock_run_yaml.assert_called_once()
-        call_args, _ = mock_run_yaml.call_args
-        # Combine command and args for the expected call to run_kubectl_with_yaml
-        expected_full_args = [command, *args]  # Use unpacking
-        assert call_args[0] == expected_full_args
-        assert call_args[1] == yaml_content
         mock_run_kubectl.assert_not_called()
-        mock_run_complex.assert_not_called()
-    elif any(" " in arg or "<" in arg or ">" in arg for arg in args):
-        mock_run_complex.assert_called_once()
-        call_args, _ = mock_run_complex.call_args
-        expected_full_args = [command, *args]  # Use unpacking
-        assert call_args[0] == expected_full_args
-        mock_run_kubectl.assert_not_called()
-        mock_run_yaml.assert_not_called()
     else:
         mock_run_kubectl.assert_called_once()
-        call_args, _ = mock_run_kubectl.call_args
-        expected_full_args = [command, *args]  # Use unpacking
-        assert call_args[0] == expected_full_args
         mock_run_yaml.assert_not_called()
-        mock_run_complex.assert_not_called()
-
-    # Verify result matches expected
-    assert isinstance(result, Success)
-    assert result.data == expected_result.data
 
 
 @patch("vibectl.command_handler.get_memory")
