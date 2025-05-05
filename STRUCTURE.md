@@ -189,7 +189,7 @@ Detailed documentation about model key configuration can be found in [Model API 
 ### Type Safety
 - Extensive type annotations throughout codebase (`types.py` and inline)
 - Generic type parameters and TypeVar for flexible interfaces
-- Requires Python 3.10+, uses Python 3.10 features like match statements and union operators
+- Requires Python 3.11+, uses modern features like `asyncio.TaskGroup`, `asyncio.timeout`, etc.
 - PEP 561 compliance with `py.typed` marker
 
 ### Configuration System
@@ -267,3 +267,12 @@ Dependencies are managed through:
 2. `flake.nix` for development environment
 3. Virtual environment in `.venv/`
 4. Distribution managed via PyPI (see `DISTRIBUTION.md`)
+
+#### Type Hinting and Language Features
+
+- Extensive type annotations throughout codebase (`types.py` and inline)
+- Generic type parameters and TypeVar for flexible interfaces
+- Requires Python 3.11+, uses modern features like `asyncio.TaskGroup`, `asyncio.timeout`, etc.
+- PEP 561 compliance with `py.typed` marker
+
+#### Key Dependencies

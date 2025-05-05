@@ -31,7 +31,7 @@ from .utils import console_manager
 logger = logging.getLogger(__name__)
 
 # Type variable for the return type of the async main function
-T = TypeVar("T")
+T = TypeVar("T", bound=Result)
 
 
 async def _run_async_main(
@@ -39,34 +39,11 @@ async def _run_async_main(
     cancel_message: str,
     error_message_prefix: str,
 ) -> T | Error:
-    """Runs the main async coroutine with standardized loop and exception handling.
-
-    Args:
-        main_coro: The main coroutine to execute.
-        cancel_message: Message to print if the operation is cancelled by the user.
-        error_message_prefix: Prefix for error messages during setup/execution.
-
-    Returns:
-        The result of the main coroutine or an Error object.
-    """
-    created_new_loop = False
-    loop = None
+    """Generic runner for async main functions with common error/cancel handling."""
     result: T | Error | None = None
 
     try:
-        # Get or create an event loop
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                created_new_loop = True
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            created_new_loop = True
-
-        # Run the main coroutine
+        # Run the main coroutine - asyncio.run() handles the loop
         result = await main_coro
 
     except KeyboardInterrupt:
@@ -86,10 +63,6 @@ async def _run_async_main(
         # Handle other unexpected errors during setup/main execution
         console_manager.print_error(f"\n{error_message_prefix} error: {e!s}")
         return Error(error=f"{error_message_prefix} error: {e}", exception=e)
-    finally:
-        # Close loop if we created it
-        if created_new_loop and loop is not None and not loop.is_closed():
-            loop.close()
 
     # Ensure we return something; if result is None after try/finally, it's an error
     if result is None:
@@ -182,18 +155,24 @@ def _execute_wait_with_live_display(
                 if not progress_task.done():
                     progress_task.cancel()
                     with suppress(asyncio.TimeoutError, asyncio.CancelledError):
-                        await asyncio.wait_for(progress_task, timeout=0.5)
+                        # Replace wait_for with timeout
+                        try:
+                            async with asyncio.timeout(0.5):
+                                await progress_task
+                        except TimeoutError:
+                            # Break long warning message
+                            logger.warning(
+                                "Timeout waiting for progress task to cancel."
+                            )
 
             # Return the result or an error if None
             return inner_result or Error(error="Wait command yielded no result.")
 
         # Use the new runner
-        loop_result = asyncio.run(
-            _run_async_main(
-                main(),
-                cancel_message="Wait operation cancelled by user",
-                error_message_prefix="Wait operation",
-            )
+        loop_result = _run_async_main(
+            main(),
+            cancel_message="Wait operation cancelled by user",
+            error_message_prefix="Wait operation",
         )
         # Check if _run_async_main returned an Error
         if isinstance(loop_result, Error):
@@ -556,13 +535,14 @@ def _execute_port_forward_with_live_display(
         )
 
         # Define the main async routine
-        async def main() -> tuple[asyncio.subprocess.Process | None, str]:
+        async def main() -> Result:
             """Main async routine that runs port-forward and updates progress.
-            Returns the process object and final status string.
+            Returns Success containing (process, final_status) or Error.
             """
             proxy = None
             process: asyncio.subprocess.Process | None = None
             final_status = "Unknown"
+            error_detail: str | None = None
 
             try:
                 # Start proxy server if traffic monitoring is enabled
@@ -589,12 +569,20 @@ def _execute_port_forward_with_live_display(
                         stderr = await process.stderr.read() if process.stderr else b""
                         error_msg = stderr.decode("utf-8").strip()
                         stats.error_messages.append(error_msg)
-                        console_manager.print_error(f"Port-forward error: {error_msg}")
+                        # Store error for returning Error result later
+                        error_detail = f"Port-forward error: {error_msg}"
+                        final_status = "Error (kubectl)"
+                        logger.error(error_detail)
+                    else:
+                        final_status = "Completed"
 
                 except asyncio.CancelledError:
                     # User cancelled, terminate the process
-                    process.terminate()
-                    await process.wait()
+                    if process:
+                        process.terminate()
+                        await process.wait()
+                    final_status = "Cancelled (Internal)"
+                    # Propagate cancellation to _run_async_main
                     raise
 
                 finally:
@@ -602,22 +590,48 @@ def _execute_port_forward_with_live_display(
                     if not progress_task.done():
                         progress_task.cancel()
                         with suppress(asyncio.CancelledError):
-                            await asyncio.wait_for(progress_task, timeout=0.5)
+                            # Replace wait_for with timeout
+                            async with asyncio.timeout(1.0):
+                                await progress_task
 
+            except FileNotFoundError as e:
+                # Handle kubectl not found during run_port_forward
+                final_status = "Error (Setup)"
+                error_detail = str(e)
+                # Return Error directly as process wasn't created
+                return Error(error=error_detail, exception=e)
+            except Exception as e:
+                # Handle other potential errors during setup or wait
+                logger.error(
+                    f"Unexpected error in port-forward main: {e}", exc_info=True
+                )
+                final_status = "Error (Internal)"
+                error_detail = f"Unexpected internal error: {e}"
+                # Ensure process is terminated if it exists
+                if process and process.returncode is None:
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except Exception as term_e:
+                        logger.warning(f"Error terminating process on error: {term_e}")
+                # Return Error directly
+                return Error(error=error_detail, exception=e)
             finally:
                 # Clean up proxy server if it was started
                 if proxy:
                     await stop_proxy_server(proxy)
 
-            return process, final_status
+            # Return Success or Error based on outcome
+            if error_detail:
+                return Error(error=error_detail)
+            else:
+                return Success(data=(process, final_status))
 
         # --- Use the new runner ---
-        loop_result = asyncio.run(
-            _run_async_main(
-                main(),
-                cancel_message="Port-forward cancelled by user",
-                error_message_prefix="Port-forward",
-            )
+        loop_result = _run_async_main(
+            main(),
+            cancel_message="Port-forward cancelled by user",
+            error_message_prefix="Port-forward",
         )
 
         # Process results
@@ -972,12 +986,13 @@ def _execute_watch_with_live_display(
         vertical_overflow="visible",
     ) as live:
         # --- Modified main async routine ---
-        async def main_watch_task() -> tuple[asyncio.subprocess.Process | None, str]:
-            """Runs watch command and streams output. Returns process, final status."""
+        async def main_watch_task() -> Result:
+            """Runs watch command and streams output. The returns Result object."""
             nonlocal error_message  # Allow modification
             process: asyncio.subprocess.Process | None = None
             stream_task = None
             final_status = "Unknown"
+            run_error: Error | None = None
 
             try:
                 # Create process using new helper
@@ -1007,51 +1022,84 @@ def _execute_watch_with_live_display(
                                 or f"kubectl exited code {process.returncode}"
                             )
                         logger.error(f"Watch command error: {error_message}")
+                        run_error = Error(
+                            error=error_message
+                            or f"kubectl exited code {process.returncode}"
+                        )
                     else:  # returncode 0 but error_message is set (from stderr stream)
                         final_status = "Completed with errors"
                         logger.warning(
                             f"Watch completed but stderr detected: {error_message}"
+                        )
+                        # Treat as non-halting error, but capture for return
+                        run_error = Error(
+                            error=f"Watch completed with stderr: {error_message}"
                         )
 
                 except asyncio.CancelledError:
                     # This is now handled by _run_async_main
                     final_status = "Cancelled (Internal)"
                     raise  # Re-raise for outer handler
+                except Exception as wait_err:
+                    logger.error(
+                        f"Unexpected error waiting for watch process: {wait_err}",
+                        exc_info=True,
+                    )
+                    final_status = "Error (Internal Wait)"
+                    run_error = Error(
+                        error=f"Error waiting for process: {wait_err}",
+                        exception=wait_err,
+                    )
 
                 finally:
                     # Ensure stream task is awaited/cancelled cleanly
                     if stream_task and not stream_task.done():
                         try:
                             stream_task.cancel()
-                            await asyncio.wait_for(stream_task, timeout=1.0)
-                        except (asyncio.CancelledError, asyncio.TimeoutError):
+                            # Replace wait_for with timeout
+                            async with asyncio.timeout(1.0):
+                                await stream_task
+                        except (TimeoutError, asyncio.CancelledError):
                             logger.warning("Stream output task did not finish cleanly.")
                             pass  # Suppress errors during cleanup
 
+            except FileNotFoundError as e:
+                # Handle kubectl not found during create_async_kubectl_process
+                final_status = "Error (Setup)"
+                run_error = Error(error=str(e), exception=e)
+            except Exception as setup_err:
+                # Handle other errors during setup
+                logger.error(
+                    f"Error setting up watch process: {setup_err}", exc_info=True
+                )
+                final_status = "Error (Setup)"
+                run_error = Error(
+                    error=f"Error during setup: {setup_err}", exception=setup_err
+                )
             finally:
                 # Ensure process is terminated if still running (e.g., setup error)
                 if process and process.returncode is None:
                     try:
                         process.terminate()
-                        await asyncio.wait_for(process.wait(), timeout=1.0)
-                    except (
-                        ProcessLookupError,
-                        asyncio.TimeoutError,
-                        Exception,
-                    ) as term_e:
+                        # Replace wait_for with timeout
+                        async with asyncio.timeout(1.0):
+                            await process.wait()
+                    except (TimeoutError, ProcessLookupError, Exception) as term_e:
                         logger.warning(
                             f"Error terminating watch process on cleanup: {term_e}"
                         )
 
-            return process, final_status
+            # Return Success containing the tuple, or the captured Error
+            if run_error:
+                return run_error
+            else:
+                return Success(data=(process, final_status))
 
         # --- Use the new runner ---
-        loop_result = asyncio.run(
-            _run_async_main(
-                main_watch_task(),
-                cancel_message="Watch cancelled by user",
-                error_message_prefix="Watch execution",
-            )
+        loop_result = _run_async_main(
+            main_watch_task(),
+            cancel_message="Watch cancelled by user",
+            error_message_prefix="Watch execution",
         )
 
         # Process results

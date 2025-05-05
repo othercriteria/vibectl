@@ -78,11 +78,10 @@ If you need to perform the process manually, follow these steps:
 
 ### Prerequisites
 
-You'll need the following tools:
-- Python 3.10+
-- pip
-- build
-- twine
+- Python 3.11+
+- `kubectl` configured for your target cluster
+- `virtualenv` for creating isolated environments
+- Access to an LLM API key (e.g., OpenAI)
 
 Install the required tools:
 

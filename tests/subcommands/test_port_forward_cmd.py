@@ -563,8 +563,7 @@ def test_handle_vibe_request_port_forward_with_flags(
     )
     handle_vibe_request(
         request=(
-            "port forward the nginx pod to my local port 8080"
-            " in the default namespace"
+            "port forward the nginx pod to my local port 8080 in the default namespace"
         ),
         command="port-forward",
         plan_prompt="Plan how to {command} {request}",

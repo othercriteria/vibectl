@@ -119,35 +119,44 @@ class TcpProxy:
             client_writer.close()
             return
 
-        # Create bidirectional proxy tasks
-        client_to_target_task = asyncio.create_task(
-            self._proxy_data(client_reader, target_writer, "client_to_target")
-        )
-        target_to_client_task = asyncio.create_task(
-            self._proxy_data(target_reader, client_writer, "target_to_client")
-        )
-
         # Update last activity timestamp
         current_time = time.time()
         self._proxy_stats.last_activity = current_time
         self.stats.last_activity = current_time
 
-        # Add tasks to connections set
-        self.connections.add(client_to_target_task)
-        self.connections.add(target_to_client_task)
+        # Wait for either task to complete using TaskGroup
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # Pass the coroutines directly to create_task
+                tg.create_task(
+                    self._proxy_data(client_reader, target_writer, "client_to_target")
+                )
+                tg.create_task(
+                    self._proxy_data(target_reader, client_writer, "target_to_client")
+                )
+        except* Exception as eg:
+            logger.error(f"Error in connection handler task group: {eg.exceptions}")
+            # Ensure connections are closed even if the task group fails
+            if not client_writer.is_closing():
+                client_writer.close()
+                await client_writer.wait_closed()
+            if not target_writer.is_closing():
+                target_writer.close()
+                await target_writer.wait_closed()
+        finally:
+            # Break long log message
+            logger.debug(
+                f"Closing connection for {self.target_host}:{self.target_port}"
+            )
+            # Ensure writers are closed in finally block for robustness
+            if not client_writer.is_closing():
+                client_writer.close()
+                await client_writer.wait_closed()
+            if not target_writer.is_closing():
+                target_writer.close()
+                await target_writer.wait_closed()
 
-        # Wait for either task to complete
-        await asyncio.gather(
-            client_to_target_task, target_to_client_task, return_exceptions=True
-        )
-
-        # Clean up connections
-        self.connections.discard(client_to_target_task)
-        self.connections.discard(target_to_client_task)
-
-        # Close the writer streams
-        target_writer.close()
-        client_writer.close()
+        # TaskGroup manages task lifecycle; manual cleanup of self.connections removed.
 
     async def _proxy_data(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str

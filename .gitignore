@@ -55,3 +55,6 @@ prof/
 
 # Ignore coverage annotated files
 *.cover
+
+# Coding assistant may create this file
+COMMIT_EDITMSG

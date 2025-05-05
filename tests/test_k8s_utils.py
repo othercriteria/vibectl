@@ -35,9 +35,9 @@ def test_create_kubectl_error_recoverable_patterns() -> None:
     for msg in recoverable_messages:
         err_obj = create_kubectl_error(msg)
         assert isinstance(err_obj, Error)
-        assert (
-            err_obj.halt_auto_loop is False
-        ), f"Expected halt_auto_loop=False for recoverable error: {msg!r}"
+        assert err_obj.halt_auto_loop is False, (
+            f"Expected halt_auto_loop=False for recoverable error: {msg!r}"
+        )
         # Conditional decoding for assertion
         expected_content = (
             msg.decode("utf-8", "ignore") if isinstance(msg, bytes) else msg
@@ -61,9 +61,9 @@ def test_create_kubectl_error_halting_patterns() -> None:
     for msg in halting_messages:
         err_obj = create_kubectl_error(msg)
         assert isinstance(err_obj, Error)
-        assert (
-            err_obj.halt_auto_loop is True
-        ), f"Expected halt_auto_loop=True for halting error: {msg!r}"
+        assert err_obj.halt_auto_loop is True, (
+            f"Expected halt_auto_loop=True for halting error: {msg!r}"
+        )
         # Conditional decoding for assertion
         expected_content = (
             msg.decode("utf-8", "ignore") if isinstance(msg, bytes) else msg
@@ -554,113 +554,123 @@ def test_run_kubectl_with_yaml_file_cleanup_error(
 # --- Tests for create_async_kubectl_process ---
 
 
+@pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec")
 async def test_create_async_kubectl_process_success(
     mock_create_subprocess: AsyncMock,
 ) -> None:
-    """Test successful creation of an async kubectl process."""
+    """Test successful process creation with capture."""
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_create_subprocess.return_value = mock_process
 
-    args = ["get", "pods", "--watch"]
-    process = await create_async_kubectl_process(args)
+    process = await create_async_kubectl_process(
+        ["get", "pods"], capture_stdout=True, capture_stderr=True
+    )
 
     assert process is mock_process
     mock_create_subprocess.assert_awaited_once_with(
-        "kubectl",  # First arg is the command itself
+        "kubectl",
         "get",
         "pods",
-        "--watch",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
 
 
+@pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec")
 async def test_create_async_kubectl_process_with_kubeconfig(
     mock_create_subprocess: AsyncMock, test_config: Config
 ) -> None:
-    """Test async process creation includes kubeconfig when set."""
-    test_config.set("kubeconfig", "/async/kube.config")
+    """Test command includes kubeconfig when provided."""
+    test_config.set("kubeconfig", "/path/to/async.kubeconfig")
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_create_subprocess.return_value = mock_process
 
-    args = ["logs", "my-pod", "-f"]
-    await create_async_kubectl_process(args, config=test_config)
+    await create_async_kubectl_process(
+        ["config", "view"], capture_stdout=True, capture_stderr=True, config=test_config
+    )
 
     mock_create_subprocess.assert_awaited_once_with(
         "kubectl",
-        "--kubeconfig",  # Kubeconfig should come before command args here
-        "/async/kube.config",
-        "logs",
-        "my-pod",
-        "-f",
+        "--kubeconfig",
+        "/path/to/async.kubeconfig",
+        "config",
+        "view",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
 
 
+@pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec")
 async def test_create_async_kubectl_process_without_kubeconfig(
     mock_create_subprocess: AsyncMock, test_config: Config
 ) -> None:
-    """Test async process creation without kubeconfig."""
+    """Test command does not include kubeconfig when not set."""
     test_config.set("kubeconfig", None)
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_create_subprocess.return_value = mock_process
 
-    args = ["port-forward", "svc/my-service", "8080:80"]
-    await create_async_kubectl_process(args, config=test_config)
+    await create_async_kubectl_process(
+        ["config", "view"], capture_stdout=True, capture_stderr=True, config=test_config
+    )
 
     mock_create_subprocess.assert_awaited_once_with(
-        "kubectl",  # No kubeconfig args
-        "port-forward",
-        "svc/my-service",
-        "8080:80",
+        "kubectl",
+        "config",
+        "view",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
 
 
+@pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec")
 async def test_create_async_kubectl_process_no_capture(
     mock_create_subprocess: AsyncMock,
 ) -> None:
-    """Test async process creation with stdout/stderr capture disabled."""
+    """Test process creation without capture."""
     mock_process = AsyncMock(spec=asyncio.subprocess.Process)
     mock_create_subprocess.return_value = mock_process
 
-    args = ["exec", "my-pod", "--", "bash"]
-    await create_async_kubectl_process(args, capture_stdout=False, capture_stderr=False)
+    process = await create_async_kubectl_process(
+        ["get", "pods"], capture_stdout=False, capture_stderr=False
+    )
 
+    assert process is mock_process
     mock_create_subprocess.assert_awaited_once_with(
         "kubectl",
-        "exec",
-        "my-pod",
-        "--",
-        "bash",
-        stdout=None,  # Check capture disabled
-        stderr=None,  # Check capture disabled
+        "get",
+        "pods",
+        stdout=None,  # No capture
+        stderr=None,  # No capture
     )
 
 
+@pytest.mark.asyncio
 @patch(
     "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("kubectl not found")
 )
 async def test_create_async_kubectl_process_file_not_found(
     mock_create_subprocess: AsyncMock,
 ) -> None:
-    """Test FileNotFoundError during async process creation."""
-    with pytest.raises(
-        FileNotFoundError, match="kubectl not found. Please install it."
-    ):
-        await create_async_kubectl_process(["get", "nodes"])
+    """Test FileNotFoundError handling during async process creation."""
+    with pytest.raises(FileNotFoundError, match="kubectl not found"):
+        await create_async_kubectl_process(
+            ["get", "pods"], capture_stdout=True, capture_stderr=True
+        )
+    mock_create_subprocess.assert_awaited_once()
 
 
+@pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec", side_effect=OSError("Permission denied"))
 async def test_create_async_kubectl_process_other_exception(
     mock_create_subprocess: AsyncMock,
 ) -> None:
-    """Test other exceptions during async process creation."""
+    """Test handling of other exceptions during async process creation."""
     with pytest.raises(OSError, match="Permission denied"):
-        await create_async_kubectl_process(["get", "secrets"])
+        await create_async_kubectl_process(
+            ["get", "pods"], capture_stdout=True, capture_stderr=True
+        )
+    mock_create_subprocess.assert_awaited_once()

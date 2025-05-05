@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -21,14 +21,14 @@ repos:
         types: [file, yaml]
 
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.3.3
+    rev: v0.11.8
     hooks:
       - id: ruff
         args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.9.0
+    rev: v1.15.0
     hooks:
       - id: mypy
         additional_dependencies:
@@ -37,6 +37,7 @@ repos:
           - types-setuptools
           # Add other specific type stubs as needed for your project
 
+# Re-add the local pytest hook
   - repo: local
     hooks:
       - id: pytest

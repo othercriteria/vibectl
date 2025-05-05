@@ -15,12 +15,17 @@ of tests, test coverage goals, and best practices.
 
 ### Python Versions
 
-Vibectl supports and is tested on:
-- Python 3.10
-- Python 3.11
-- Python 3.12
+`vibectl` aims to support recent, stable Python versions. We currently test against:
+
+- Python 3.11+
 
 These versions are tested in our CI/CD pipeline using GitHub Actions.
+
+### Additional Requirements
+
+- `kubectl`
+- Access to a Kubernetes cluster
+- An LLM API key
 
 ## Test Types
 

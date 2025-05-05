@@ -20,7 +20,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -152,7 +152,7 @@ def get_poller_status() -> dict[str, Any]:
             return {
                 "status": "PENDING",
                 "message": "Poller container not found - waiting for startup",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         # Get the status file contents
@@ -175,7 +175,7 @@ def get_poller_status() -> dict[str, Any]:
                 return {
                     "status": "ERROR",
                     "message": "Failed to read status file",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
         # Parse the JSON
@@ -187,7 +187,7 @@ def get_poller_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": f"Failed to parse status JSON: {e}",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     except Exception as e:
@@ -195,7 +195,7 @@ def get_poller_status() -> dict[str, Any]:
         return {
             "status": "ERROR",
             "message": f"Error: {e!s}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
 
@@ -283,7 +283,7 @@ def get_agent_logs(agent_role: str, max_lines: int = 100) -> list[dict[str, Any]
             if match:
                 timestamp, message = match.groups()
             else:
-                timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = datetime.now(UTC).isoformat()
                 message = line
 
             # Clean the message to remove problematic ANSI codes
@@ -350,7 +350,7 @@ def update_service_status() -> None:
     # If we got valid status, update the timestamp
     last_data_update_time = time.monotonic()
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
     entry = {
         "status": poller_status.get("status"),
         "message": poller_status.get("message"),
@@ -750,7 +750,7 @@ def get_cluster_status() -> dict[str, Any]:
             "nodes": [],
             "pods": [],
             "resources": {},  # Add placeholder for resource data
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         # Find the sandbox container
@@ -774,7 +774,7 @@ def get_cluster_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": "Failed to get node status",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         try:
@@ -822,7 +822,7 @@ def get_cluster_status() -> dict[str, Any]:
             return {
                 "status": "ERROR",
                 "message": "Failed to get pod status",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "nodes": cluster_data["nodes"],
             }
 
@@ -835,7 +835,7 @@ def get_cluster_status() -> dict[str, Any]:
             ready_pods = 0
 
             # Get current time for age calculation
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             for item in pod_data.get("items", []):
                 total_pods += 1
@@ -947,7 +947,7 @@ def get_cluster_status() -> dict[str, Any]:
         return {
             "status": "ERROR",
             "message": f"Error: {e!s}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
 
@@ -1020,7 +1020,7 @@ def refresh_service_overview() -> None:
     db_status = latest_status.get("db_status", "unknown")
 
     # Add last_updated timestamp
-    update_timestamp = datetime.now(timezone.utc).isoformat()
+    update_timestamp = datetime.now(UTC).isoformat()
 
     # Emit a service overview update
     service_overview_update = {
@@ -1144,7 +1144,7 @@ def api_status() -> Any:
     # Ensure status has a last_updated timestamp
     status_data = latest_status.copy()
     if "last_updated" not in status_data:
-        status_data["last_updated"] = datetime.now(timezone.utc).isoformat()
+        status_data["last_updated"] = datetime.now(UTC).isoformat()
     return jsonify(status_data)
 
 
@@ -1201,9 +1201,7 @@ def api_overview() -> Any:
     db_status = latest_status.get("db_status", "unknown")
 
     # Add a last updated timestamp from latest status if available
-    last_updated = latest_status.get(
-        "last_updated", datetime.now(timezone.utc).isoformat()
-    )
+    last_updated = latest_status.get("last_updated", datetime.now(UTC).isoformat())
 
     overview = {
         "status_counts": status_counts,
@@ -1274,7 +1272,7 @@ def api_cluster() -> Any:
             (ready_pods / total_pods * 100) if total_pods > 0 else 0
         ),
         "namespace_counts": namespace_counts,
-        "last_fetch_time": datetime.now(timezone.utc).isoformat(),  # API call time
+        "last_fetch_time": datetime.now(UTC).isoformat(),  # API call time
     }
 
     # Add chaos-monkey specific status
@@ -1287,7 +1285,7 @@ def api_cluster() -> Any:
 
     # Ensure there's a last_updated timestamp from the actual data fetch
     response_data["last_updated"] = current_cluster_status.get(
-        "last_updated", datetime.now(timezone.utc).isoformat()
+        "last_updated", datetime.now(UTC).isoformat()
     )
 
     return jsonify(response_data)

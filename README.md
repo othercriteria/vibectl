@@ -18,7 +18,7 @@ your cluster management more intuitive and fun!
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - kubectl command-line tool installed and in your PATH
 - API key for your chosen LLM provider:
   - Anthropic API key (for Claude models, default)
