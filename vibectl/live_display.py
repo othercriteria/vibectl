@@ -777,11 +777,11 @@ async def _execute_port_forward_with_live_display(
             model_adapter = get_model_adapter()
             model = model_adapter.get_model(output_flags.model_name)
 
-            # Prepare context for the prompt
-            watch_context = {
+            # Prepare context for prompt (for _execute_port_forward_with_live_display)
+            port_forward_context = {  # Renamed for clarity
                 "command": command_str,
                 "duration": f"{elapsed_time:.1f}s",
-                "status": stats.current_status,
+                "status": stats.current_status,  # Uses stats object
                 "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
                 "using_proxy": stats.using_proxy,
                 "bytes_sent": stats.bytes_sent,
@@ -791,7 +791,7 @@ async def _execute_port_forward_with_live_display(
 
             # Format context as YAML for the prompt
             context_yaml = yaml.safe_dump(
-                watch_context, default_flow_style=False, sort_keys=False
+                port_forward_context, default_flow_style=False, sort_keys=False
             )
 
             # Get and format the prompt
@@ -800,7 +800,7 @@ async def _execute_port_forward_with_live_display(
                 output=context_yaml, command=command_str
             )
 
-            logger.debug(f"Vibe Watch Summary Prompt:\n{prompt}")
+            logger.debug(f"Vibe Port-forward Summary Prompt:\n{prompt}")
             vibe_output = model_adapter.execute(model, prompt)
 
             if vibe_output:
@@ -879,6 +879,11 @@ async def _execute_watch_with_live_display(
         "live_display_wrap_text", True
     )  # Default to wrapping
 
+    # TODO: Explore sizing the panel by the number of *displayed* visual lines after
+    # wrapping, rather than by the number of logical lines from the stream. This is
+    # complex because panel height is content-driven. `live_display_max_lines` currently
+    # controls the number of logical lines buffered and potentially shown.
+
     # Initialize Text with a fixed number of lines (some blank initially)
     initial_text_lines = (
         [""] * live_display_max_lines if live_display_max_lines > 0 else [""]
@@ -888,14 +893,16 @@ async def _execute_watch_with_live_display(
         initial_text_for_display, no_wrap=not live_display_wrap_text
     )
 
-    # New: Define footer elements
+    # Footer elements
     footer_spinner_obj = Spinner("dots")
-    # Use Columns for horizontal layout of spinner and text
+    # This Text object will be updated by a helper function in main_watch_task
+    footer_controls_text_obj = Text("")
+
     footer_renderable = Columns(
-        [footer_spinner_obj, Text(" Watching... Press [E] to exit.")],
+        [footer_spinner_obj, footer_controls_text_obj],
         expand=False,
         equal=False,
-        padding=0,
+        padding=1,  # Add a little padding between footer elements
     )
 
     content_panel = Panel(live_display_content, title=display_text)
@@ -1046,8 +1053,15 @@ async def _execute_watch_with_live_display(
         async def main_watch_task() -> Result:
             """Runs watch command, streams output, and handles 'E' for exit."""
             nonlocal error_message
-            # accumulated_output_lines is also from outer scope
-            # stream_output will use it
+            nonlocal footer_controls_text_obj  # Capture Text object for footer updates
+            nonlocal live_display_content  # To update its no_wrap property
+
+            # Session-local wrap state, initialized directly from config value captured
+            # by closure
+            current_session_wrap_state = live_display_wrap_text
+            live_display_content.no_wrap = (
+                not current_session_wrap_state
+            )  # Apply initial wrap setting
 
             process: asyncio.subprocess.Process | None = None
             stream_handler_task: asyncio.Task[None] | None = None
@@ -1060,6 +1074,15 @@ async def _execute_watch_with_live_display(
             exit_requested_event = asyncio.Event()
             loop = asyncio.get_running_loop()
 
+            # Helper to update the footer controls text
+            def _refresh_footer_controls_text() -> None:
+                nonlocal current_session_wrap_state  # Access current wrap state
+                # Add more states here for future controls
+                wrap_text = f"[W]rap: {'on' if current_session_wrap_state else 'off'}"
+                # Add more control strings here, joined by " | "
+                controls_string = f"Press [E] to exit | {wrap_text}"
+                footer_controls_text_obj.plain = controls_string
+
             # Wrappers for asyncio.create_task to ensure None return type for linter
             async def _wrapped_process_wait(proc: asyncio.subprocess.Process) -> None:
                 if proc:
@@ -1070,10 +1093,15 @@ async def _execute_watch_with_live_display(
                     await event.wait()
 
             def _keypress_handler() -> None:
+                nonlocal current_session_wrap_state  # Need to modify this
                 try:
                     char = sys.stdin.read(1)
                     if char.lower() == "e":
                         loop.call_soon_threadsafe(exit_requested_event.set)
+                    elif char.lower() == "w":
+                        current_session_wrap_state = not current_session_wrap_state
+                        live_display_content.no_wrap = not current_session_wrap_state
+                        _refresh_footer_controls_text()  # Update footer via helper
                 except Exception as e_key_handler:
                     logger.debug(f"Error in keypress handler: {e_key_handler}")
 
@@ -1255,6 +1283,8 @@ async def _execute_watch_with_live_display(
 
             # ----- main_watch_task body -----
             try:
+                _refresh_footer_controls_text()  # Set initial footer text
+
                 if sys.stdin.isatty():
                     try:
                         original_termios_settings = termios.tcgetattr(
@@ -1562,17 +1592,24 @@ async def _execute_watch_with_live_display(
             # Keep final_status as "Unknown Exit" and has_error=True
 
     # --- Post-Watch Processing ---
-    elapsed_time = time.time() - start_time
+    end_time_capture = time.time()  # Capture end time for summary
+    elapsed_time = end_time_capture - start_time
     accumulated_output_str = "\n".join(accumulated_output_lines)
     command_str = f"{command} {resource} {' '.join(args)}"
+
+    # Format start and end times for display
+    start_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
+    end_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time_capture))
 
     # Display summary table (optional, can be enhanced)
     summary_table = Table(title=f"Watch Summary: {command} {resource}")
     summary_table.add_column("Metric", style="cyan")
     summary_table.add_column("Value", style="green")
     summary_table.add_row("Status", final_status)
+    summary_table.add_row("Start Time", start_time_str)
+    summary_table.add_row("End Time", end_time_str)
     summary_table.add_row("Duration", f"{elapsed_time:.1f}s")
-    summary_table.add_row("Lines Received", str(len(accumulated_output_lines)))
+    summary_table.add_row("Lines Streamed", str(len(accumulated_output_lines)))
     if error_message:
         if final_status == "Completed with errors":
             # This handles informational stderr when kubectl exits 0.
@@ -1598,16 +1635,25 @@ async def _execute_watch_with_live_display(
             model_adapter = get_model_adapter()
             model = model_adapter.get_model(output_flags.model_name)
 
-            # Prepare context for the prompt
+            # Prepare context for the prompt in _execute_watch_with_live_display
             watch_context = {
                 "command": command_str,
-                "duration": f"{elapsed_time:.1f}s",
-                "status": final_status,
-                "lines_received": len(accumulated_output_lines),
+                "duration_seconds": elapsed_time,  # Raw seconds
+                "duration_formatted": f"{elapsed_time:.1f}s",  # Formatted string
+                "status": final_status,  # Correct variable for watch display
+                "watch_start_time": start_time_str,
+                "watch_end_time": end_time_str,
+                "lines_streamed": len(accumulated_output_lines),
                 "output_preview": "\n".join(accumulated_output_lines[:10]),
-                "full_output": accumulated_output_str,
+                "full_output": accumulated_output_str,  # Consider truncating
             }
-            if error_message and final_status != "Error":
+            # Add error_info only if there was an error message and it wasn't a
+            # setup/cancel scenario
+            if (
+                error_message
+                and final_status != "Error (Setup)"
+                and "Cancelled" not in final_status
+            ):
                 watch_context["error_info"] = error_message
 
             # Format context as YAML for the prompt
