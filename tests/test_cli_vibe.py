@@ -5,6 +5,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
+from vibectl.model_adapter import LLMModelAdapter
 from vibectl.schema import ActionType, LLMCommandResponse
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.types import Error, Success
@@ -28,30 +29,46 @@ def mock_get_memory() -> Generator[Mock, None, None]:
 
 
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.model_adapter.LLMModelAdapter.execute")
+@patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_with_request(
     mock_configure_flags: Mock,
-    mock_get_memory: Mock,
-    mock_llm_execute: Mock,
+    mock_vibe_cmd_get_memory: Mock,
+    mock_ch_get_model_adapter: Mock,
+    mock_mem_get_model_adapter: Mock,
     mock_run_kubectl: Mock,
     standard_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with a request and OutputFlags."""
     mock_configure_flags.return_value = standard_output_flags
-    mock_get_memory.return_value = ""
-    mock_llm_execute.side_effect = [
+    mock_vibe_cmd_get_memory.return_value = ""
+
+    # 1. Mock get_model_adapter factory to return our mock adapter instance
+    mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_ch_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+
+    # 2. The adapter's get_model method will be called to get a model object.
+    #    This model object is passed to adapter.execute(), but our mocked execute
+    #    won't use it. We just need get_model() to not fail.
+    mock_adapter_instance.get_model.return_value = MagicMock()
+
+    # 3. The adapter's execute method is what _get_llm_plan and update_memory call.
+    #    This should directly return the sequence of strings.
+    mock_adapter_instance.execute.side_effect = [
         LLMCommandResponse(
             action_type=ActionType.COMMAND,
             commands=["create", "deployment", "nginx", "--image=nginx"],
             explanation="ok",
-        ).model_dump_json(),
-        "Memory updated after execution.",
-        "Deployment created successfully.",
-        "Memory updated after summary.",
+        ).model_dump_json(),  # For _get_llm_plan
+        "Memory updated after execution.",  # For first update_memory call
+        "Deployment created successfully.",  # For _get_llm_summary call
+        "Memory updated after summary.",  # For second update_memory call
     ]
+
     mock_run_kubectl.return_value = Success(data="deployment created")
 
     cmd_obj = cli.commands["vibe"]
@@ -60,8 +77,17 @@ async def test_vibe_command_with_request(
         await cmd_obj.main(["Create a deployment", "--show-raw-output", "--yes"])
 
     assert exc_info.value.code == 0
-    assert mock_llm_execute.call_count >= 1
     mock_run_kubectl.assert_called_once()
+    assert mock_ch_get_model_adapter.call_count >= 1
+    assert (
+        mock_mem_get_model_adapter.call_count >= 1
+    )  # Ensure memory module's adapter was also called if memory updates happened
+    assert (
+        mock_adapter_instance.get_model.call_count >= 1
+    )  # get_model is called by _get_llm_plan and update_memory
+    assert (
+        mock_adapter_instance.execute.call_count >= 2
+    )  # Plan + at least one memory/summary
 
 
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
@@ -98,34 +124,45 @@ async def test_vibe_command_without_request(
 
 
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.model_adapter.LLMModelAdapter.execute")
+@patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_with_yes_flag(
     mock_configure_flags: Mock,
-    mock_get_memory: Mock,
-    mock_llm_execute: Mock,
+    mock_vibe_cmd_get_memory: Mock,
+    mock_ch_get_model_adapter: Mock,
+    mock_mem_get_model_adapter: Mock,
     mock_run_kubectl: Mock,
     standard_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with the yes flag, mocking network calls."""
     mock_configure_flags.return_value = standard_output_flags
-    mock_get_memory.return_value = ""
+    mock_vibe_cmd_get_memory.return_value = ""
 
-    # 1. Mock initial LLM plan to return a command (ensure it's valid)
+    # 1. Mock get_model_adapter factory
+    mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_ch_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+
+    # 2. Mock adapter's get_model
+    mock_adapter_instance.get_model.return_value = MagicMock()
+
+    # 3. Mock adapter's execute method for sequential plan and feedback
     plan_json = LLMCommandResponse(
         action_type=ActionType.COMMAND,
         commands=["create", "deployment", "my-deploy", "--image=nginx"],
         explanation="Create deploy",
     ).model_dump_json()
-    # Mock LLM execute to return the plan first, then maybe feedback for recovery
-    mock_llm_execute.side_effect = [
-        plan_json,  # First call
-        '{"action_type": "FEEDBACK", "explanation": "kubectl failed"}',  # Second call
+    mock_adapter_instance.execute.side_effect = [
+        plan_json,  # For _get_llm_plan
+        '{"action_type": "FEEDBACK", "explanation": "kubectl failed"}',  # For recovery
+        "Memory updated after initial plan.",  # For first update_memory
+        "Memory updated after recovery feedback.",  # For second update_memory
     ]
 
-    # 2. Mock run_kubectl to simulate failure
+    # 4. Mock run_kubectl to simulate failure
     mock_run_kubectl.return_value = Error(error="kubectl create failed")
 
     # Let the actual handle_vibe_request run, relying on inner mocks
@@ -139,9 +176,11 @@ async def test_vibe_command_with_yes_flag(
     assert exc_info.value.code != 0
 
     # Verify mocks were called
-    assert mock_llm_execute.call_count >= 1  # At least the planning call
-    mock_run_kubectl.assert_called_once()  # Kubectl should have been attempted
-    # mock_handle_vibe_request.assert_called_once() # This outer mock is less useful now
+    assert mock_ch_get_model_adapter.call_count >= 1
+    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_adapter_instance.get_model.call_count >= 1
+    assert mock_adapter_instance.execute.call_count >= 2  # Plan + recovery feedback
+    mock_run_kubectl.assert_called_once()
 
 
 @patch("vibectl.subcommands.vibe_cmd.get_memory")
@@ -364,18 +403,30 @@ async def test_vibe_command_handle_vibe_request_value_error(
     mock_handle_vibe.assert_called_once()
 
 
+@patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @pytest.mark.asyncio
 async def test_handle_vibe_with_unknown_model(
-    mock_get_model_adapter: Mock,
+    mock_ch_get_model_adapter: Mock,
+    mock_mem_get_model_adapter: Mock,
 ) -> None:
     """Test that the vibe command properly reports errors for unknown model names."""
-    # Configure the mock adapter returned by the factory
-    mock_adapter_instance = MagicMock()
-    mock_get_model_adapter.return_value = mock_adapter_instance
-    # Configure the get_model method on the mock adapter instance
-    mock_adapter_instance.get_model.side_effect = ValueError(
+    # 1. Mock adapter instance for command_handler path
+    mock_ch_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_ch_get_model_adapter.return_value = mock_ch_adapter_instance
+    # Configure get_model on this instance to raise the error
+    mock_ch_adapter_instance.get_model.side_effect = ValueError(
         "Unknown model: invalid-model-name"
+    )
+
+    # 2. Mock adapter instance for memory.update_memory path
+    mock_mem_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_mem_get_model_adapter.return_value = mock_mem_adapter_instance
+    # update_memory calls get_model then execute. Mock them.
+    mock_mem_model_obj = MagicMock()
+    mock_mem_adapter_instance.get_model.return_value = mock_mem_model_obj
+    mock_mem_adapter_instance.execute.return_value = (
+        "Memory updated during error handling."
     )
 
     # Call the CLI command entry point directly
@@ -386,10 +437,151 @@ async def test_handle_vibe_with_unknown_model(
 
     # Verify exit code is 1
     assert exc_info.value.code == 1
-    # Verify get_model_adapter was called to get the adapter
-    mock_get_model_adapter.assert_called_once()
-    # Verify get_model was called on the adapter instance
-    mock_adapter_instance.get_model.assert_called_once_with("invalid-model-name")
+    # Verify get_model_adapter was called to get the adapter (for command_handler)
+    mock_ch_get_model_adapter.assert_called_once()
+    # Verify get_model was called on the adapter instance (for command_handler)
+    mock_ch_adapter_instance.get_model.assert_called_once_with("invalid-model-name")
+
+    # Verify that update_memory (via memory.get_model_adapter) was also called
+    mock_mem_get_model_adapter.assert_called_once()
+    mock_mem_adapter_instance.get_model.assert_called_once()  # Called by update_memory
+    mock_mem_adapter_instance.execute.assert_called_once()  # Called by update_memory
 
 
-# Removed redundant/similar tests to simplify
+@patch("vibectl.k8s_utils.subprocess.Popen")  # Mock Popen in k8s_utils
+@patch("vibectl.command_handler.Config")  # Mock Config in command_handler
+@patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.command_handler.configure_output_flags")
+@pytest.mark.asyncio
+async def test_vibe_command_with_yaml_input(
+    mock_configure_flags: Mock,
+    mock_vibe_cmd_get_memory: Mock,
+    mock_ch_get_model_adapter: Mock,
+    mock_mem_get_model_adapter: Mock,
+    mock_ch_config: Mock,  # New mock for command_handler.Config
+    mock_k8s_popen: Mock,  # New mock for k8s_utils.subprocess.Popen
+    standard_output_flags: OutputFlags,
+) -> None:
+    """Test vibe command when LLM plan includes YAML content and kubeconfig handling."""
+    mock_configure_flags.return_value = standard_output_flags
+    mock_vibe_cmd_get_memory.return_value = ""
+
+    # --- Mock LLM and Memory Adapters ---
+    mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_ch_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+    mock_adapter_instance.get_model.return_value = MagicMock()
+
+    yaml_content_str = "apiVersion: v1\\nkind: ConfigMap\\nmetadata:\\n  name: my-cm"
+    plan_json = LLMCommandResponse(
+        action_type=ActionType.COMMAND,
+        commands=["apply", "-f", "-"],
+        explanation="Apply this ConfigMap",
+        yaml_manifest=yaml_content_str,
+    ).model_dump_json()
+
+    mock_adapter_instance.execute.side_effect = [
+        plan_json,
+        "Memory updated after execution.",
+        "ConfigMap applied.",
+        "Memory updated after summary.",
+    ]
+
+    # --- Mock Config used by command_handler._execute_command ---
+    mock_config_instance_ch = mock_ch_config.return_value
+    mock_kubeconfig_path = "/tmp/fake_kubeconfig_for_test.yaml"
+    # Ensure this mock_get only returns the fake path for "kubeconfig" key
+    mock_config_instance_ch.get.side_effect = (
+        lambda key, default=None: mock_kubeconfig_path
+        if key == "kubeconfig"
+        else default
+    )
+
+    # --- Mock subprocess.Popen called by k8s_utils.run_kubectl_with_yaml ---
+    mock_process = mock_k8s_popen.return_value
+    mock_process.communicate.return_value = (b"configmap/my-cm created", b"")
+    mock_process.returncode = 0
+
+    # --- Execute Command ---
+    cmd_obj = cli.commands["vibe"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["Apply a configmap", "--yes"])
+
+    # --- Assertions ---
+    assert exc_info.value.code == 0  # Crucial: command should appear to succeed
+
+    # Assert Popen was called correctly by run_kubectl_with_yaml
+    mock_k8s_popen.assert_called_once()
+    popen_args, popen_kwargs = mock_k8s_popen.call_args
+    actual_popen_cmd_list = popen_args[0]  # This is the list of command and args
+
+    # Verify --kubeconfig flag is present in the command list passed to Popen
+    assert "--kubeconfig" in actual_popen_cmd_list
+    kubeconfig_flag_index = actual_popen_cmd_list.index("--kubeconfig")
+    assert kubeconfig_flag_index + 1 < len(actual_popen_cmd_list)
+    assert actual_popen_cmd_list[kubeconfig_flag_index + 1] == mock_kubeconfig_path
+
+    # Assert LLM/memory mocks
+    assert mock_ch_get_model_adapter.call_count >= 1
+    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_adapter_instance.get_model.call_count >= 1
+    assert mock_adapter_instance.execute.call_count >= 2
+    # Assert Config.get was called for "kubeconfig"
+    mock_config_instance_ch.get.assert_any_call("kubeconfig")
+
+
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.command_handler.configure_output_flags")
+@pytest.mark.asyncio
+async def test_vibe_command_kubectl_failure_no_recovery_plan(
+    mock_configure_flags: Mock,
+    mock_vibe_cmd_get_memory: Mock,
+    mock_ch_get_model_adapter: Mock,
+    mock_mem_get_model_adapter: Mock,
+    mock_run_kubectl: Mock,
+    standard_output_flags: OutputFlags,
+) -> None:
+    """Test vibe command when kubectl fails and LLM provides no recovery plan."""
+    mock_configure_flags.return_value = standard_output_flags
+    mock_vibe_cmd_get_memory.return_value = ""
+
+    mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
+    mock_ch_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+
+    mock_adapter_instance.get_model.return_value = MagicMock()
+
+    plan_json = LLMCommandResponse(
+        action_type=ActionType.COMMAND,
+        commands=["delete", "pod", "nonexistent-pod"],
+        explanation="Delete a pod",
+    ).model_dump_json()
+
+    mock_adapter_instance.execute.side_effect = [
+        plan_json,  # For _get_llm_plan
+        LLMCommandResponse(  # For recovery prompt in handle_command_output
+            action_type=ActionType.FEEDBACK,
+            explanation="The pod was not found, so deletion failed.",
+        ).model_dump_json(),
+        "Memory updated after initial plan.",  # For first update_memory
+        "Memory updated after recovery feedback.",  # For second update_memory
+    ]
+    mock_run_kubectl.return_value = Error(error="pods 'nonexistent-pod' not found")
+
+    cmd_obj = cli.commands["vibe"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["Delete a pod", "--yes"])
+
+    # Should exit with error because kubectl failed and no recovery command was given
+    assert exc_info.value.code != 0
+    mock_run_kubectl.assert_called_once()
+    # Should have called LLM for plan, then for feedback/recovery attempt
+    assert mock_ch_get_model_adapter.call_count >= 1
+    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_adapter_instance.get_model.call_count >= 1
+    assert mock_adapter_instance.execute.call_count >= 2  # Plan + recovery feedback

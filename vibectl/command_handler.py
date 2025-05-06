@@ -1101,7 +1101,9 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
         if yaml_content:
             # Dispatch to the YAML handling function in k8s_utils
             # Pass the combined args (command + original args)
-            return run_kubectl_with_yaml(full_args, yaml_content)
+            # Instantiate Config to pass to run_kubectl_with_yaml
+            cfg = Config()
+            return run_kubectl_with_yaml(full_args, yaml_content, config=cfg)
         else:
             return run_kubectl(full_args, capture=True)
     except Exception as e:

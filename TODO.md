@@ -256,3 +256,10 @@ Implementation should prioritize commands that provide the most value to users w
 - **Verb Expansion:**
     - Evaluate adding enhanced `--watch` to other verbs like `apply`, `patch`, `cordon`, `uncordon`, `drain`, `top`.
     - Revisit adding enhanced `--watch` to `vibectl just` once the core feature is stable.
+
+## LLM Interaction and Mocking
+
+- [ ] The current mocking for LLM interactions in `tests/test_cli_vibe.py` is complex due to the multiple layers of calls (`get_model_adapter` -> `adapter_instance.get_model` -> `model_instance.prompt` -> `response.text`). Simplify this if possible.
+- [ ] Investigate if `LLMModelAdapter` instances (or the underlying model objects) can be passed into functions like `update_memory` to avoid them re-fetching the adapter/model via `get_model_adapter`. This would simplify mocking by reducing the number of patch points.
+
+## Kubeconfig Handling

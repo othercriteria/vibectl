@@ -503,6 +503,43 @@ def test_run_kubectl_with_yaml_stdin_already_starts_with_dashes(
     assert written_bytes == yaml_with_dashes.encode("utf-8")
 
 
+@patch("vibectl.k8s_utils.subprocess.Popen")
+@patch("vibectl.k8s_utils.Config")
+def test_run_kubectl_with_yaml_uses_vibectl_config_kubeconfig(
+    mock_config: MagicMock, mock_popen: MagicMock
+) -> None:
+    """Test that run_kubectl_with_yaml uses kubeconfig from vibectl.config.Config."""
+    # Setup mock Config instance
+    mock_config_instance = mock_config.return_value
+    custom_kubeconfig_path = "/custom/path/kube.config"
+    mock_config_instance.get.return_value = custom_kubeconfig_path
+
+    # Mock Popen to simulate successful execution
+    mock_process = MagicMock()
+    mock_process.communicate.return_value = (b"output", b"")
+    mock_process.returncode = 0
+    mock_popen.return_value = mock_process
+
+    yaml_content = "apiVersion: v1\\nkind: ConfigMap\\nmetadata:\\n  name: test-cm"
+    args = ["apply", "-f", "-"]  # Args that don't include --kubeconfig
+
+    # Action: Call run_kubectl_with_yaml, passing the mock_config_instance
+    run_kubectl_with_yaml(args, yaml_content, config=mock_config_instance)
+
+    # Assertion: Check if Popen was called with --kubeconfig
+    called_args = mock_popen.call_args[0][0]
+    assert "--kubeconfig" in called_args
+    assert custom_kubeconfig_path in called_args
+    # Ensure it's added correctly after the main command and args
+    expected_cmd_prefix = ["kubectl", "apply", "-f", "-"]
+    assert called_args[: len(expected_cmd_prefix)] == expected_cmd_prefix
+    kubeconfig_index = called_args.index("--kubeconfig")
+    assert called_args[kubeconfig_index + 1] == custom_kubeconfig_path
+
+    # Verify that Config().get('kubeconfig') was called
+    mock_config_instance.get.assert_called_once_with("kubeconfig")
+
+
 # --- Tests for create_async_kubectl_process ---
 
 

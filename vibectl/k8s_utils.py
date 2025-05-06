@@ -155,17 +155,24 @@ def run_kubectl(
         return Error(error=str(e), exception=e)
 
 
-def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
+def run_kubectl_with_yaml(
+    args: list[str], yaml_content: str, config: Config | None = None
+) -> Result:
     """Execute a kubectl command with YAML content via stdin or temp file.
 
     Args:
         args: List of command arguments (e.g., ['apply', '-f', '-'])
         yaml_content: YAML content string
+        config: Optional Config instance to use
 
     Returns:
         Result with Success containing command output or Error with error information
     """
     try:
+        # Get a Config instance if not provided
+        cfg = config or Config()
+        kubeconfig_path = cfg.get("kubeconfig")
+
         # Fix multi-document YAML formatting issues for robustness
         yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
         if not yaml_content.lstrip().startswith("---"):
@@ -178,6 +185,12 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
         )
 
         full_cmd_list = ["kubectl", *args]  # Use splat operator
+        if kubeconfig_path:
+            # Insert after 'kubectl' but before other args if possible,
+            # or append if simpler and still correct.
+            # For consistency with run_kubectl, append it.
+            full_cmd_list.extend(["--kubeconfig", str(kubeconfig_path)])
+
         logger.info(f"Running kubectl command with YAML: {' '.join(full_cmd_list)}")
 
         if is_stdin_command:
@@ -232,6 +245,8 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
                 # sowe can always add -f <temp_path>
                 cmd_to_run = list(full_cmd_list)  # Create a copy
                 cmd_to_run.extend(["-f", temp_path])
+                # Note: if kubeconfig_path was added to full_cmd_list,
+                # it's already in cmd_to_run here.
 
                 proc = subprocess.run(
                     cmd_to_run, capture_output=True, text=True, check=False
