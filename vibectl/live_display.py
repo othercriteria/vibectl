@@ -1,12 +1,19 @@
 import asyncio
 import logging
 import random
+
+# Ensure all necessary imports are present
+import sys
+import termios
 import time
+import tty
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from typing import TypeVar
 
 import yaml
+from rich.columns import Columns
+from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
@@ -16,6 +23,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
@@ -864,9 +872,35 @@ async def _execute_watch_with_live_display(
     accumulated_output_lines: list[str] = []
     error_message: str | None = None
     cfg = Config()
+    live_display_max_lines = cfg.get(
+        "live_display_max_lines", 20
+    )  # Default to 20 lines
+    live_display_wrap_text = cfg.get(
+        "live_display_wrap_text", True
+    )  # Default to wrapping
 
-    # Use rich.live for displaying streaming output
-    live_display_content = Text("")
+    # Initialize Text with a fixed number of lines (some blank initially)
+    initial_text_lines = (
+        [""] * live_display_max_lines if live_display_max_lines > 0 else [""]
+    )
+    initial_text_for_display = "\n".join(initial_text_lines)
+    live_display_content = Text(
+        initial_text_for_display, no_wrap=not live_display_wrap_text
+    )
+
+    # New: Define footer elements
+    footer_spinner_obj = Spinner("dots")
+    # Use Columns for horizontal layout of spinner and text
+    footer_renderable = Columns(
+        [footer_spinner_obj, Text(" Watching... Press [E] to exit.")],
+        expand=False,
+        equal=False,
+        padding=0,
+    )
+
+    content_panel = Panel(live_display_content, title=display_text)
+    # Remove Panel from footer, overall_layout will use Columns directly
+    overall_layout = Group(content_panel, footer_renderable)
 
     async def run_watch_command() -> asyncio.subprocess.Process:
         """Run the kubectl watch command and capture output."""
@@ -953,10 +987,9 @@ async def _execute_watch_with_live_display(
                         elif task is stdout_task:
                             # Update live display only for stdout
                             current_text = live_display_content.plain
-                            lines_to_show = 50
-                            # Use list unpacking as suggested by RUF005
+                            # Use configured max lines instead of hardcoded value
                             all_lines = [*current_text.splitlines(), line_str]
-                            new_text = "\n".join(all_lines[-lines_to_show:])
+                            new_text = "\n".join(all_lines[-live_display_max_lines:])
                             live_display_content.plain = new_text
                             live.update(Panel(live_display_content, title=display_text))
 
@@ -1002,125 +1035,476 @@ async def _execute_watch_with_live_display(
             pass
 
     # Main execution block
-    live_panel = Panel(live_display_content, title=display_text)
     with Live(
-        live_panel,  # Use variable to shorten line
+        overall_layout,  # Use the new group layout
         console=console_manager.console,
         refresh_per_second=10,
-        transient=False,
+        transient=False,  # Keep display after exit to see summary table
         vertical_overflow="visible",
-    ) as live:
-        # --- Modified main async routine ---
+    ):
+        # Main async routine
         async def main_watch_task() -> Result:
-            """Runs watch command and streams output. The returns Result object."""
-            nonlocal error_message  # Allow modification
+            """Runs watch command, streams output, and handles 'E' for exit."""
+            nonlocal error_message
+            # accumulated_output_lines is also from outer scope
+            # stream_output will use it
+
             process: asyncio.subprocess.Process | None = None
-            stream_task = None
+            stream_handler_task: asyncio.Task[None] | None = None
+
             final_status = "Unknown"
             run_error: Error | None = None
 
-            try:
-                # Create process using new helper
-                cmd_list = [command, resource]
-                cmd_list.extend(args)
-                process = await create_async_kubectl_process(cmd_list, config=cfg)
+            original_termios_settings = None
+            input_reader_active = False
+            exit_requested_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
 
-                stream_task = asyncio.create_task(stream_output(process, live))
+            # Wrappers for asyncio.create_task to ensure None return type for linter
+            async def _wrapped_process_wait(proc: asyncio.subprocess.Process) -> None:
+                if proc:
+                    await proc.wait()
+
+            async def _wrapped_event_wait(event: asyncio.Event) -> None:
+                if event:
+                    await event.wait()
+
+            def _keypress_handler() -> None:
+                try:
+                    char = sys.stdin.read(1)
+                    if char.lower() == "e":
+                        loop.call_soon_threadsafe(exit_requested_event.set)
+                except Exception as e_key_handler:
+                    logger.debug(f"Error in keypress handler: {e_key_handler}")
+
+            async def nested_stream_output(
+                proc_to_stream: asyncio.subprocess.Process,
+                text_content_to_update: Text,
+                output_lines_list: list[str],
+                max_lines_for_disp: int,
+            ) -> None:
+                nonlocal error_message
+
+                pending_stream_tasks = set()
+
+                async def _read_stream_line(
+                    stream: asyncio.StreamReader | None, stream_name: str
+                ) -> bytes:
+                    if stream is None or stream.at_eof():
+                        logger.debug(f"{stream_name} is None or at EOF before read.")
+                        return b""
+                    try:
+                        line = await stream.readline()
+                        logger.debug(f"{stream_name} read: {line[:50]!r}...")
+                        return line
+                    except Exception as e_read:
+                        logger.error(f"Error reading from {stream_name}: {e_read}")
+                        return b""  # Treat read error similar to EOF for this attempt
+
+                if proc_to_stream.stdout:
+                    stdout_task = asyncio.create_task(
+                        _read_stream_line(proc_to_stream.stdout, "stdout"),
+                        name="stdout_reader_nested",
+                    )
+                    pending_stream_tasks.add(stdout_task)
+
+                if proc_to_stream.stderr:
+                    stderr_task = asyncio.create_task(
+                        _read_stream_line(proc_to_stream.stderr, "stderr"),
+                        name="stderr_reader_nested",
+                    )
+                    pending_stream_tasks.add(stderr_task)
+
+                if not pending_stream_tasks:
+                    logger.warning(
+                        "Watch command (nested_stream) has no stdout or "
+                        "stderr stream initially."
+                    )
+                    return
 
                 try:
-                    await process.wait()  # Wait for kubectl to finish
-                    # Determine status based on exit code and captured errors
-                    if process.returncode == 0 and error_message is None:
-                        final_status = "Completed"
-                    elif process.returncode != 0:
-                        final_status = "Error (kubectl)"
-                        # Read stderr if not already captured by stream_output
-                        if error_message is None:
-                            stderr_bytes = (
-                                await process.stderr.read() if process.stderr else b""
-                            )
-                            error_message = stderr_bytes.decode(
-                                "utf-8", errors="replace"
-                            ).strip()
-                            error_message = (
-                                error_message
-                                or f"kubectl exited code {process.returncode}"
-                            )
-                        logger.error(f"Watch command error: {error_message}")
-                        run_error = Error(
-                            error=error_message
-                            or f"kubectl exited code {process.returncode}"
+                    while pending_stream_tasks:
+                        (
+                            done_stream,
+                            pending_stream_tasks_after_wait,
+                        ) = await asyncio.wait(
+                            pending_stream_tasks, return_when=asyncio.FIRST_COMPLETED
                         )
-                    else:  # returncode 0 but error_message is set (from stderr stream)
-                        final_status = "Completed with errors"
-                        logger.warning(
-                            f"Watch completed but stderr detected: {error_message}"
+                        pending_stream_tasks = (
+                            pending_stream_tasks_after_wait  # Update pending set
                         )
-                        # Treat as non-halting error, but capture for return
-                        run_error = Error(
-                            error=f"Watch completed with stderr: {error_message}"
-                        )
+
+                        for task_done in done_stream:
+                            task_name = task_done.get_name() or "unknown_stream_task"
+                            try:
+                                # Get result, handles exceptions from _read_stream_line
+                                line_bytes = await task_done
+
+                                if (
+                                    not line_bytes
+                                ):  # EOF or read error for this stream from this task
+                                    logger.debug(
+                                        f"Stream {task_name} task returned no data "
+                                        "(EOF or read error)."
+                                    )
+                                    continue
+
+                                line_str = line_bytes.decode(
+                                    "utf-8", errors="replace"
+                                ).strip()
+                                output_lines_list.append(line_str)
+
+                                if "stderr_reader_nested" in task_name:
+                                    logger.warning(f"Watch STDERR (nested): {line_str}")
+                                    if error_message is None:
+                                        error_message = line_str
+                                elif "stdout_reader_nested" in task_name:
+                                    # Construct display text
+                                    actual_lines_for_disp = output_lines_list[
+                                        -max_lines_for_disp:
+                                    ]
+                                    num_padding = max(
+                                        0,
+                                        max_lines_for_disp - len(actual_lines_for_disp),
+                                    )
+                                    padded_display_lines = (
+                                        [""] * num_padding
+                                    ) + actual_lines_for_disp
+                                    new_text_plain = "\n".join(padded_display_lines)
+                                    text_content_to_update.plain = new_text_plain
+
+                                # Re-submit reader task for this stream type IF the
+                                # current read yielded data
+                                # AND the process is still running.
+                                if line_bytes and proc_to_stream.returncode is None:
+                                    if (
+                                        "stdout_reader_nested" in task_name
+                                        and proc_to_stream.stdout
+                                    ):
+                                        new_stdout_task = asyncio.create_task(
+                                            _read_stream_line(
+                                                proc_to_stream.stdout, "stdout"
+                                            ),
+                                            name="stdout_reader_nested",
+                                        )
+                                        pending_stream_tasks.add(new_stdout_task)
+                                    elif (
+                                        "stderr_reader_nested" in task_name
+                                        and proc_to_stream.stderr
+                                    ):
+                                        new_stderr_task = asyncio.create_task(
+                                            _read_stream_line(
+                                                proc_to_stream.stderr, "stderr"
+                                            ),
+                                            name="stderr_reader_nested",
+                                        )
+                                        pending_stream_tasks.add(new_stderr_task)
+                                elif not line_bytes:
+                                    logger.debug(
+                                        f"Stream {task_name} reached EOF, not "
+                                        "re-adding task."
+                                    )
+                                elif proc_to_stream.returncode is not None:
+                                    logger.debug(
+                                        f"Proc ended (rc={proc_to_stream.returncode}), "
+                                        f"not re-adding task for {task_name}."
+                                    )
+
+                            except Exception as e_proc_stream:
+                                logger.error(
+                                    f"Error processing result from {task_name} "
+                                    f"(nested): {e_proc_stream}",
+                                    exc_info=True,
+                                )
+                                if error_message is None:
+                                    error_message = (
+                                        f"Error in stream {task_name}: {e_proc_stream}"
+                                    )
+                                # Don't break loop, try to process other completed tasks
+
+                        if (
+                            not pending_stream_tasks
+                            and proc_to_stream.returncode is not None
+                        ):
+                            logger.debug("All stream tasks done and process ended.")
+                            break  # Exit while loop if process ended and no more tasks
 
                 except asyncio.CancelledError:
-                    # This is now handled by _run_async_main
-                    final_status = "Cancelled (Internal)"
-                    raise  # Re-raise for outer handler
-                except Exception as wait_err:
-                    logger.error(
-                        f"Unexpected error waiting for watch process: {wait_err}",
-                        exc_info=True,
-                    )
-                    final_status = "Error (Internal Wait)"
-                    run_error = Error(
-                        error=f"Error waiting for process: {wait_err}",
-                        exception=wait_err,
-                    )
-
+                    logger.info("Output streaming task (nested) cancelled.")
+                    # Propagate cancellation to any remaining pending_stream_tasks
+                    for task_in_set in pending_stream_tasks:
+                        task_in_set.cancel()
+                    if pending_stream_tasks:
+                        await asyncio.gather(
+                            *pending_stream_tasks, return_exceptions=True
+                        )
                 finally:
-                    # Ensure stream task is awaited/cancelled cleanly
-                    if stream_task and not stream_task.done():
-                        try:
-                            stream_task.cancel()
-                            # Replace wait_for with timeout
-                            async with asyncio.timeout(1.0):
-                                await stream_task
-                        except (TimeoutError, asyncio.CancelledError):
-                            logger.warning("Stream output task did not finish cleanly.")
-                            pass  # Suppress errors during cleanup
+                    # Final cleanup of any tasks still be in pending_stream_tasks
+                    # (e.g. if loop broke for other reasons or after
+                    # cancellation propagation)
+                    active_remaining_tasks = [
+                        t for t in pending_stream_tasks if not t.done()
+                    ]
+                    if active_remaining_tasks:
+                        for t_cancel in active_remaining_tasks:
+                            t_cancel.cancel()
+                        await asyncio.gather(
+                            *active_remaining_tasks, return_exceptions=True
+                        )
+                    logger.debug("nested_stream_output finished.")
 
-            except FileNotFoundError as e:
-                # Handle kubectl not found during create_async_kubectl_process
-                final_status = "Error (Setup)"
-                run_error = Error(error=str(e), exception=e)
-            except Exception as setup_err:
-                # Handle other errors during setup
-                logger.error(
-                    f"Error setting up watch process: {setup_err}", exc_info=True
-                )
-                final_status = "Error (Setup)"
-                run_error = Error(
-                    error=f"Error during setup: {setup_err}", exception=setup_err
-                )
-            finally:
-                # Ensure process is terminated if still running (e.g., setup error)
-                if process and process.returncode is None:
+            # ----- main_watch_task body -----
+            try:
+                if sys.stdin.isatty():
                     try:
-                        process.terminate()
-                        # Replace wait_for with timeout
-                        async with asyncio.timeout(1.0):
-                            await process.wait()
-                    except (TimeoutError, ProcessLookupError, Exception) as term_e:
+                        original_termios_settings = termios.tcgetattr(
+                            sys.stdin.fileno()
+                        )
+                        tty.setcbreak(sys.stdin.fileno())
+                        loop.add_reader(sys.stdin.fileno(), _keypress_handler)
+                        input_reader_active = True
+                        logger.debug(
+                            "cbreak mode enabled, stdin reader added for watch."
+                        )
+                    except Exception as e_tty_setup:
                         logger.warning(
-                            f"Error terminating watch process on cleanup: {term_e}"
+                            f"Failed to set cbreak mode or add reader: {e_tty_setup}"
                         )
 
-            # Return Success containing the tuple, or the captured Error
-            if run_error:
-                return run_error
-            else:
-                return Success(data=(process, final_status))
+                cmd_list_for_proc = [command, resource, *args]
+                process = await create_async_kubectl_process(
+                    cmd_list_for_proc, config=cfg
+                )
 
-        # --- Use the new runner ---
+                stream_handler_task = asyncio.create_task(
+                    nested_stream_output(
+                        process,
+                        live_display_content,
+                        accumulated_output_lines,
+                        live_display_max_lines,
+                    ),
+                    name="stream_handler_master",
+                )
+
+                active_monitor_tasks = []
+                # Use wrappers for create_task
+                process_wait_task_local = asyncio.create_task(
+                    _wrapped_process_wait(process), name="k8s_process_wait_wrapper"
+                )
+                active_monitor_tasks.append(process_wait_task_local)
+
+                exit_monitor_task_local: asyncio.Task[None] | None = (
+                    None  # Define here for finally block
+                )
+                if input_reader_active:
+                    exit_monitor_task_local = asyncio.create_task(
+                        _wrapped_event_wait(exit_requested_event),
+                        name="user_exit_event_wait_wrapper",
+                    )
+                    active_monitor_tasks.append(exit_monitor_task_local)
+
+                if not active_monitor_tasks:
+                    # This case should not be reached if process creation is successful
+                    logger.error(
+                        "No monitoring tasks were started for the watch operation."
+                    )
+                    return Error("Watch internal error: No monitoring tasks.")
+
+                # Wait for either kubectl process to finish or user to request exit
+                done_monitors, pending_monitors = await asyncio.wait(
+                    active_monitor_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if exit_monitor_task_local and exit_monitor_task_local in done_monitors:
+                    logger.info("User requested exit via 'E' key.")
+                    raise asyncio.CancelledError("Watch cancelled by user")
+
+                # If process_wait_task is in done_monitors, kubectl process
+                # ended (normally or with error)
+                # The stream_handler_task needs to finish processing
+                # any buffered output.
+                # It should self-terminate when its stream sources (stdout/stderr
+                # from process) end.
+                # We give it a grace period.
+                if stream_handler_task and not stream_handler_task.done():
+                    logger.debug(
+                        "Kubectl process ended, waiting for stream handler to flush..."
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            stream_handler_task, timeout=1.5
+                        )  # Increased timeout slightly
+                    except TimeoutError:
+                        logger.warning(
+                            "Stream handler task timed out after process "
+                            "exit. Cancelling."
+                        )
+                        if not stream_handler_task.done():
+                            stream_handler_task.cancel()
+                    except (
+                        asyncio.CancelledError
+                    ):  # If it was cancelled by other means (e.g. main task cancel)
+                        logger.info(
+                            "Stream handler task was cancelled during its final flush."
+                        )
+                    # Await one last time if cancelled to allow cleanup
+                    # within stream_handler_task
+                    if not stream_handler_task.done():
+                        with suppress(asyncio.CancelledError):
+                            await stream_handler_task
+
+                # Determine status based on process exit code and any
+                # captured stderr error_message
+                if process.returncode == 0 and error_message is None:
+                    final_status = "Completed"
+                elif process.returncode != 0:
+                    final_status = "Error (kubectl)"
+                    if error_message is None:
+                        # This part is tricky as stderr might have been consumed
+                        # by stream_handler
+                        # If stream_handler correctly sets error_message from
+                        # stderr, this might not be needed.
+                        # For safety, if error_message is STILL None, populate
+                        # from process.returncode
+                        error_message = f"kubectl exited code {process.returncode}"
+                    logger.error(f"Watch command kubectl error: {error_message}")
+                    run_error = Error(error=error_message)
+                else:  # returncode 0; error_message IS set (likely from stderr stream)
+                    final_status = "Completed with errors"
+                    logger.warning(
+                        f"Watch completed but stderr detected: {error_message}"
+                    )
+                    # This is not a fatal error for the Success/Error status
+                    # of the command itself
+                    # The error_message will be shown in the summary table.
+
+                if run_error:
+                    return run_error  # This is for actual kubectl execution errors
+                else:
+                    # Success path, details in summary table
+                    return Success(
+                        data={"status": final_status, "duration": 0.0}
+                    )  # duration will be calculated outside
+
+            except (
+                asyncio.CancelledError
+            ) as e:  # Catches 'E' key & external Ctrl+C via _run_async_main
+                logger.info(f"main_watch_task caught CancelledError: {e!s}")
+                final_status = (
+                    "Cancelled by user"  # Standardize status text for cancellations
+                )
+                # If CancelledError is from E key or Ctrl+C, error_message might
+                # be None or the cancel reason
+                if error_message is None:
+                    error_message = str(e) if str(e) else "Operation cancelled."
+                # Re-raise. _run_async_main will format the Error object with
+                # the cancel_message="Watch cancelled by user"
+                raise e
+
+            except FileNotFoundError as e_fnf:
+                logger.error(
+                    f"Watch setup error (FileNotFound): {e_fnf}", exc_info=True
+                )
+                final_status = "Error (Setup)"
+                error_message = str(e_fnf)
+                return Error(error=error_message, exception=e_fnf)
+            except Exception as e_unhandled:
+                logger.error(
+                    f"Unhandled exception in main_watch_task: {e_unhandled}",
+                    exc_info=True,
+                )
+                final_status = "Error (Internal)"
+                error_message = str(e_unhandled)
+                return Error(error=error_message, exception=e_unhandled)
+            finally:
+                logger.debug(
+                    f"Entering main_watch_task finally block. Current "
+                    f"final_status: {final_status}"
+                )
+                # Restore TTY settings
+                if input_reader_active and sys.stdin.isatty():  # Double check isatty
+                    try:
+                        loop.remove_reader(sys.stdin.fileno())
+                        logger.debug("Stdin reader removed.")
+                    except Exception as e_remove_reader:
+                        logger.warning(
+                            f"Failed to remove stdin reader: {e_remove_reader}"
+                        )
+                    if original_termios_settings:
+                        try:
+                            termios.tcsetattr(
+                                sys.stdin.fileno(),
+                                termios.TCSADRAIN,
+                                original_termios_settings,
+                            )
+                            logger.debug("TTY settings restored.")
+                        except Exception as e_restore_tty:
+                            logger.warning(
+                                f"Failed to restore TTY settings: {e_restore_tty}"
+                            )
+
+                # Updated task cleanup
+                tasks_to_clean_names = []
+                if stream_handler_task and not stream_handler_task.done():
+                    tasks_to_clean_names.append(stream_handler_task)
+                if process_wait_task_local and not process_wait_task_local.done():
+                    tasks_to_clean_names.append(process_wait_task_local)
+                if exit_monitor_task_local and not exit_monitor_task_local.done():
+                    tasks_to_clean_names.append(exit_monitor_task_local)
+
+                if tasks_to_clean_names:
+                    clean_names = [t.get_name() for t in tasks_to_clean_names]
+                    logger.debug(
+                        f"Cancelling {len(tasks_to_clean_names)} tasks in "
+                        f"main_watch_task finally: {clean_names}."
+                    )
+                    for task_to_cancel in tasks_to_clean_names:
+                        task_to_cancel.cancel()
+                    await asyncio.gather(*tasks_to_clean_names, return_exceptions=True)
+                    logger.debug(
+                        "Finished gathering cancelled tasks in main_watch_task finally."
+                    )
+
+                # Ensure kubectl process is terminated if it was started and
+                # might still be running
+                if process and process.returncode is None:
+                    logger.debug(
+                        f"Terminating kubectl process (PID: {process.pid}) "
+                        "in finally block."
+                    )
+                    process.terminate()
+                    try:
+                        # Wait for termination, with a timeout
+                        async with asyncio.timeout(1.0):
+                            await process.wait()
+                        logger.debug(
+                            f"Kubectl process (PID: {process.pid}) terminated with "
+                            f"code {process.returncode}."
+                        )
+                    except TimeoutError:
+                        logger.warning(
+                            f"Timeout waiting for kubectl process (PID: {process.pid}) "
+                            "to terminate. Killing."
+                        )
+                        process.kill()
+                        try:  # Short wait for kill
+                            async with asyncio.timeout(0.5):
+                                await process.wait()
+                        except TimeoutError:
+                            logger.warning(
+                                f"kubectl process (PID: {process.pid}) did not exit "
+                                "after kill."
+                            )
+                        except Exception:
+                            pass  # Ignore other errors during kill wait
+                    except Exception as e_proc_term:
+                        logger.error(
+                            f"Error during final process termination: {e_proc_term}"
+                        )
+                logger.debug("Exiting main_watch_task finally block.")
+
+        # --- Use the _run_async_main runner ---
+        # loop_result will be Success or Error
         loop_result = await _run_async_main(
             main_watch_task(),
             cancel_message="Watch cancelled by user",

@@ -42,6 +42,8 @@ DEFAULT_CONFIG = {
         "ollama": None,  # Path to file containing Ollama API key (if needed)
     },
     "log_level": "WARNING",  # Default log level for logging
+    "live_display_max_lines": 20,  # Default number of lines for live display
+    "live_display_wrap_text": True,  # Default to wrapping text in live display
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -76,6 +78,8 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "model_keys": dict,
     "model_key_files": dict,
     "log_level": str,  # Log level for logging
+    "live_display_max_lines": int,
+    "live_display_wrap_text": bool,
 }
 
 # Valid values for specific keys
