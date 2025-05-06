@@ -4,6 +4,7 @@ from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
     handle_vibe_request,
+    handle_watch_with_live_display,
     run_kubectl,
 )
 from vibectl.console import console_manager
@@ -68,7 +69,33 @@ async def run_events_command(
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
 
-        # Always use 'kubectl events' (never 'kubectl get events')
+        # Check for --watch flag
+        watch_flag_present = "--watch" in args or "-w" in args
+
+        if watch_flag_present:
+            logger.info(
+                "Handling 'events' command with --watch flag using live display."
+            )
+            # For 'events', the 'resource' argument to handle_watch_with_live_display
+            # isn't directly applicable like in 'get <resource>'.
+            result = await handle_watch_with_live_display(
+                command="events",
+                resource="",  # kubectl events doesn't take a resource like 'get'
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=events_prompt,
+            )
+            # Forward the Result from the handler
+            if isinstance(result, Error):
+                logger.error(
+                    f"Error from handle_watch_with_live_display: {result.error}"
+                )
+                return result
+            logger.info("Completed 'events --watch' subcommand.")
+            return result
+
+        # Original logic for non-watch 'kubectl events'
+        logger.info("Handling standard 'events' command.")
         try:
             cmd = ["events", *args]
             logger.info(f"Running kubectl command: {' '.join(cmd)}")
