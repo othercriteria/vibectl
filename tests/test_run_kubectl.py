@@ -184,9 +184,9 @@ def test_create_kubectl_error_halt_flag() -> None:
     for msg in recoverable_messages:
         err_obj = create_kubectl_error(msg)
         assert isinstance(err_obj, Error)
-        assert (
-            err_obj.halt_auto_loop is False
-        ), f"Expected halt_auto_loop=False for recoverable error: {msg!r}"
+        assert err_obj.halt_auto_loop is False, (
+            f"Expected halt_auto_loop=False for recoverable error: {msg!r}"
+        )
 
     # 2. Test potentially halting errors (should have halt_auto_loop=True)
     # Explicitly type the list for mypy
@@ -199,9 +199,9 @@ def test_create_kubectl_error_halt_flag() -> None:
     for msg in halting_messages:
         err_obj = create_kubectl_error(msg)
         assert isinstance(err_obj, Error)
-        assert (
-            err_obj.halt_auto_loop is True
-        ), f"Expected halt_auto_loop=True for halting error: {msg!r}"
+        assert err_obj.halt_auto_loop is True, (
+            f"Expected halt_auto_loop=True for halting error: {msg!r}"
+        )
 
     # 3. Test edge case: decoding error
     err_obj_decode = create_kubectl_error(b"\x80abc")  # Invalid utf-8 start byte
@@ -459,15 +459,12 @@ def test_run_kubectl_with_yaml_file_f_already_present(
         args = ["apply", "-f", "some_other_file.yaml"]
         result = run_kubectl_with_yaml(args, TEST_YAML_CONTENT)
 
-        assert isinstance(result, Success)
-        assert result.data == "AlreadyPresent"
-        mock_run.assert_called_once()
-        # Verify the original args were used, and NO extra -f temp_path was added
-        call_args = mock_run.call_args[0][0]
-        assert call_args == ["kubectl", "apply", "-f", "some_other_file.yaml"]
-        # Verify temp file was created and cleaned up even though not used in cmd
-        mock_tempfile.assert_called_once()
-        mock_unlink.assert_called_once_with("/tmp/dummy_file.yaml")
+        # Assert that an Error is returned because both YAML and -f file are given
+        assert isinstance(result, Error)
+        assert "Cannot provide both YAML content and a file via -f." in result.error
+        # Ensure the temp file wasn't created or written to in this error case
+        mock_tempfile.assert_not_called()
+        mock_unlink.assert_not_called()
 
 
 @patch("subprocess.run")

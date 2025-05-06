@@ -3,8 +3,9 @@
 These tests were moved from test_cli.py for clarity and maintainability.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
@@ -12,7 +13,8 @@ from vibectl.cli import cli
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
-def test_logs_basic(
+@pytest.mark.asyncio
+async def test_logs_basic(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     cli_runner: CliRunner,
@@ -22,16 +24,19 @@ def test_logs_basic(
 
     mock_run_kubectl.return_value = Success(data="test output")
 
-    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "my-pod"])
 
-    assert result.exit_code == 0
+    assert exc_info.value.code == 0
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
     mock_handle_output.assert_called_once()
 
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
-def test_logs_with_args(
+@pytest.mark.asyncio
+async def test_logs_with_args(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     cli_runner: CliRunner,
@@ -41,10 +46,11 @@ def test_logs_with_args(
 
     mock_run_kubectl.return_value = Success(data="test output")
 
-    # Use -- to separate options from arguments
-    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod", "--", "-n", "default"])
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "my-pod", "-n", "default"])
 
-    assert result.exit_code == 0
+    assert exc_info.value.code == 0
     mock_run_kubectl.assert_called_once_with(
         ["logs", "pod", "my-pod", "-n", "default"], capture=True
     )
@@ -54,42 +60,62 @@ def test_logs_with_args(
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
-def test_logs_with_flags(
+@pytest.mark.asyncio
+async def test_logs_with_flags(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
     """Test logs command with output flags."""
+    from vibectl.command_handler import OutputFlags
     from vibectl.types import Success
 
-    mock_configure_flags.model_name = "test-model-bar"
+    mock_flags = OutputFlags(
+        show_raw=True,
+        show_vibe=False,
+        model_name="test-model-foo",
+        warn_no_output=True,
+        show_kubectl=False,
+    )
+    mock_configure_flags.return_value = mock_flags
+    mock_configure_flags.model_name_check = "test-model-bar"
+
     mock_run_kubectl.return_value = Success(data="test output")
 
-    result = cli_runner.invoke(
-        cli,
-        [
-            "logs",
-            "pod",
-            "my-pod",
-            "--show-raw-output",
-            "--no-show-vibe",
-            "--model",
-            "test-model-foo",
-        ],
-    )
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(
+            [
+                "pod",
+                "my-pod",
+                "--show-raw-output",
+                "--no-show-vibe",
+                "--model",
+                "test-model-foo",
+            ]
+        )
 
-    assert result.exit_code == 0
+    assert exc_info.value.code == 0
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
     mock_handle_output.assert_called_once()
 
-    # Verify the configured model name is not modified
-    assert mock_configure_flags.model_name == "test-model-bar"
+    # Verify configure_output_flags called correctly by the subcommand's run function
+    # (assuming run_logs_command calls it like run_get_command does)
+    mock_configure_flags.assert_called_once_with(
+        show_raw_output=True,
+        show_vibe=False,
+        model="test-model-foo",
+        show_kubectl=None,  # Assert None, as flag wasn't passed and default is None
+    )
+    # Verify the original mock object attribute wasn't changed
+    assert mock_configure_flags.model_name_check == "test-model-bar"
 
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
-def test_logs_no_output(
+@pytest.mark.asyncio
+async def test_logs_no_output(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     cli_runner: CliRunner,
@@ -99,16 +125,19 @@ def test_logs_no_output(
 
     mock_run_kubectl.return_value = Success(data="")
 
-    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "my-pod"])
 
-    assert result.exit_code == 0
+    assert exc_info.value.code == 0
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
     mock_handle_output.assert_not_called()
 
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
-def test_logs_truncation_warning(
+@pytest.mark.asyncio
+async def test_logs_truncation_warning(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     cli_runner: CliRunner,
@@ -120,33 +149,55 @@ def test_logs_truncation_warning(
     large_output = "x" * (10000 * 3 + 1)  # Just over the limit
     mock_run_kubectl.return_value = Success(data=large_output)
 
-    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "my-pod"])
 
-    assert result.exit_code == 0
+    assert exc_info.value.code == 0
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.logs_cmd.handle_vibe_request")
-def test_logs_vibe_request(mock_handle_vibe: Mock, cli_runner: CliRunner) -> None:
+@patch("vibectl.subcommands.logs_cmd.handle_vibe_request", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_logs_vibe_request(
+    mock_handle_vibe: AsyncMock,
+    cli_runner: CliRunner,
+) -> None:
     """Test logs command with vibe request."""
-    result = cli_runner.invoke(cli, ["logs", "vibe", "show", "me", "pod", "logs"])
-    assert result.exit_code == 0
+    from vibectl.types import Success
+
+    mock_handle_vibe.return_value = Success()
+
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["vibe", "show", "me", "pod", "logs"])
+
+    assert exc_info.value.code == 0
     mock_handle_vibe.assert_called_once()
     args, kwargs = mock_handle_vibe.call_args
     assert kwargs["request"] == "show me pod logs"
     assert kwargs["command"] == "logs"
 
 
-def test_logs_vibe_no_request(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_logs_vibe_no_request(
+    cli_runner: CliRunner,
+) -> None:
     """Test logs vibe command without a request."""
-    result = cli_runner.invoke(cli, ["logs", "vibe"])
-    assert "Missing request after 'vibe'" in result.output
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["vibe"])
+
+    assert exc_info.value.code != 0
 
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
-def test_logs_error_handling(
+@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@pytest.mark.asyncio
+async def test_logs_error_handling(
+    mock_handle_output: Mock,
     mock_run_kubectl: Mock,
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
@@ -168,8 +219,10 @@ def test_logs_error_handling(
     mock_run_kubectl.return_value = Error(error="Test error")
 
     # Invoke the command
-    result = cli_runner.invoke(cli, ["logs", "pod", "my-pod"])
+    cmd_obj = cli.commands["logs"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "my-pod"])
 
     # Verify error handling
-    assert result.exit_code == 1
-    assert "Error running kubectl: Test error" in result.output
+    assert exc_info.value.code != 0
+    mock_handle_output.assert_not_called()

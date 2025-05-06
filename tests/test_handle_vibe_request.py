@@ -44,7 +44,8 @@ def mock_handle_output() -> Generator[Mock, None, None]:
         yield mock
 
 
-def test_handle_vibe_request_command_execution() -> None:
+@pytest.mark.asyncio
+async def test_handle_vibe_request_command_execution() -> None:
     """Test handle_vibe_request executing a basic command with confirmation bypassed."""
     # Create default output flags for this test
     output_flags = OutputFlags(
@@ -75,7 +76,7 @@ def test_handle_vibe_request_command_execution() -> None:
         mock_execute.return_value = Success(data="pod 'my-pod' deleted")
 
         # === Execution ===
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request="delete the pod named my-pod",
             command="vibe",  # Original command was 'vibe'
             plan_prompt="Plan: {request}",
@@ -98,7 +99,8 @@ def test_handle_vibe_request_command_execution() -> None:
     assert result.message == "pod 'my-pod' deleted"
 
 
-def test_handle_vibe_request_yaml_execution() -> None:
+@pytest.mark.asyncio
+async def test_handle_vibe_request_yaml_execution() -> None:
     """Test handle_vibe_request executing a command with YAML."""
     # Create default output flags for this test
     output_flags = OutputFlags(
@@ -126,7 +128,7 @@ def test_handle_vibe_request_yaml_execution() -> None:
             mock_execute.return_value = Success(data="pod 'my-pod' deleted")
 
             # === Execution ===
-            result = handle_vibe_request(
+            result = await handle_vibe_request(
                 request="delete the pod named my-pod",
                 command="vibe",  # Original command was 'vibe'
                 plan_prompt="Plan: {request}",
@@ -148,12 +150,13 @@ def test_handle_vibe_request_yaml_execution() -> None:
             mock_update_memory.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_planning_error(
+async def test_handle_vibe_request_llm_planning_error(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_handle_output: MagicMock,
@@ -177,7 +180,7 @@ def test_handle_vibe_request_llm_planning_error(
     }
     mock_adapter.execute.return_value = json.dumps(llm_response_error)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="do something vague",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -204,13 +207,14 @@ def test_handle_vibe_request_llm_planning_error(
     mock_console.print_error.assert_called_with(f"LLM Planning Error: {why_str}")
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
 @patch("time.sleep")  # Mock time.sleep
-def test_handle_vibe_request_llm_wait(
+async def test_handle_vibe_request_llm_wait(
     mock_sleep: MagicMock,
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
@@ -235,7 +239,7 @@ def test_handle_vibe_request_llm_wait(
     }
     mock_adapter.execute.return_value = json.dumps(llm_response_wait)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="wait a bit",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -258,12 +262,13 @@ def test_handle_vibe_request_llm_wait(
     )
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_feedback(
+async def test_handle_vibe_request_llm_feedback(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_handle_output: MagicMock,
@@ -286,7 +291,7 @@ def test_handle_vibe_request_llm_feedback(
     }
     mock_adapter.execute.return_value = json.dumps(llm_response_feedback)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="get pods",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -307,7 +312,7 @@ def test_handle_vibe_request_llm_feedback(
 
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_feedback_no_explanation(
+async def test_handle_vibe_request_llm_feedback_no_explanation(
     mock_console: MagicMock,
     mock_get_adapter: MagicMock,
 ) -> None:
@@ -324,7 +329,7 @@ def test_handle_vibe_request_llm_feedback_no_explanation(
     llm_response_feedback = {"action_type": ActionType.FEEDBACK.value}
     mock_adapter.execute.return_value = json.dumps(llm_response_feedback)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="get pods",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -342,7 +347,7 @@ def test_handle_vibe_request_llm_feedback_no_explanation(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_invalid_json(
+async def test_handle_vibe_request_llm_invalid_json(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -360,7 +365,7 @@ def test_handle_vibe_request_llm_invalid_json(
     invalid_json = '{"action_type": "COMMAND", "commands": ["get", "pods" '
     mock_adapter.execute.return_value = invalid_json
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="get pods",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -382,7 +387,7 @@ def test_handle_vibe_request_llm_invalid_json(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_invalid_schema(
+async def test_handle_vibe_request_llm_invalid_schema(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -404,7 +409,7 @@ def test_handle_vibe_request_llm_invalid_schema(
     )
     mock_adapter.execute.return_value = invalid_schema_json
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="get pods",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -427,7 +432,7 @@ def test_handle_vibe_request_llm_invalid_schema(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_llm_empty_response(
+async def test_handle_vibe_request_llm_empty_response(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -442,7 +447,7 @@ def test_handle_vibe_request_llm_empty_response(
     mock_adapter.get_model.return_value = mock_model
     mock_adapter.execute.return_value = ""
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="get pods",
         command="vibe",
         plan_prompt="Plan: {request}",
@@ -463,7 +468,7 @@ def test_handle_vibe_request_llm_empty_response(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_action_error_no_message(
+async def test_handle_vibe_request_action_error_no_message(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -481,7 +486,7 @@ def test_handle_vibe_request_action_error_no_message(
     llm_response = {"action_type": ActionType.ERROR.value}
     mock_adapter.execute.return_value = json.dumps(llm_response)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -497,7 +502,7 @@ def test_handle_vibe_request_action_error_no_message(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_action_wait_no_duration(
+async def test_handle_vibe_request_action_wait_no_duration(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -515,7 +520,7 @@ def test_handle_vibe_request_action_wait_no_duration(
     llm_response = {"action_type": ActionType.WAIT.value}
     mock_adapter.execute.return_value = json.dumps(llm_response)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -531,7 +536,7 @@ def test_handle_vibe_request_action_wait_no_duration(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_action_command_no_args(
+async def test_handle_vibe_request_action_command_no_args(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -549,7 +554,7 @@ def test_handle_vibe_request_action_command_no_args(
     llm_response = {"action_type": ActionType.COMMAND.value}
     mock_adapter.execute.return_value = json.dumps(llm_response)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -571,7 +576,7 @@ def test_handle_vibe_request_action_command_no_args(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_action_command_empty_verb(
+async def test_handle_vibe_request_action_command_empty_verb(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -592,7 +597,7 @@ def test_handle_vibe_request_action_command_empty_verb(
     }
     mock_adapter.execute.return_value = json.dumps(llm_response)
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -605,17 +610,17 @@ def test_handle_vibe_request_action_command_empty_verb(
     mock_update_memory.assert_not_called()
 
 
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
-def test_handle_vibe_request_command_recoverable_api_error_in_handler(
-    mock_handle_output: MagicMock,
-    mock_execute_command: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.get_model_adapter")
+async def test_handle_vibe_request_command_recoverable_api_error_in_handler(
     mock_get_adapter: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_console: MagicMock,
+    mock_execute_command: MagicMock,
+    mock_handle_output: MagicMock,
 ) -> None:
     """Test handle_vibe_request if handle_command_output raises RecoverableApiError."""
     from vibectl.model_adapter import RecoverableApiError
@@ -642,7 +647,7 @@ def test_handle_vibe_request_command_recoverable_api_error_in_handler(
     api_error = RecoverableApiError("Output processing failed")
     mock_handle_output.side_effect = api_error
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -659,17 +664,17 @@ def test_handle_vibe_request_command_recoverable_api_error_in_handler(
     mock_update_memory.assert_called_once()  # Memory updated after command execution
 
 
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.handle_command_output")
-def test_handle_vibe_request_command_generic_error_in_handler(
-    mock_handle_output: MagicMock,
-    mock_execute_command: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
+@patch("vibectl.command_handler._execute_command")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.get_model_adapter")
+async def test_handle_vibe_request_command_generic_error_in_handler(
     mock_get_adapter: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_console: MagicMock,
+    mock_execute_command: MagicMock,
+    mock_handle_output: MagicMock,
 ) -> None:
     """Test handle_vibe_request where handle_command_output raises generic Exception."""
     output_flags = OutputFlags(
@@ -694,7 +699,7 @@ def test_handle_vibe_request_command_generic_error_in_handler(
     generic_error = ValueError("Something broke")
     mock_handle_output.side_effect = generic_error
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -711,10 +716,11 @@ def test_handle_vibe_request_command_generic_error_in_handler(
     mock_update_memory.assert_called_once()  # Memory updated after command execution
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_action_unknown(
+async def test_handle_vibe_request_action_unknown(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -737,7 +743,7 @@ def test_handle_vibe_request_action_unknown(
     # But if ActionType conversion happens after, this tests the match default case.
     # Let's assume for the test it passes validation but fails the enum match.
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -758,10 +764,11 @@ def test_handle_vibe_request_action_unknown(
         pass  # Or assert that it's a validation error
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_planning_recoverable_api_error(
+async def test_handle_vibe_request_planning_recoverable_api_error(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -781,7 +788,7 @@ def test_handle_vibe_request_planning_recoverable_api_error(
     api_error = RecoverableApiError("Planning LLM Down")
     mock_adapter.execute.side_effect = api_error
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",
@@ -800,7 +807,7 @@ def test_handle_vibe_request_planning_recoverable_api_error(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_vibe_request_planning_generic_error(
+async def test_handle_vibe_request_planning_generic_error(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
@@ -818,7 +825,7 @@ def test_handle_vibe_request_planning_generic_error(
     generic_error = ConnectionError("Network Error")
     mock_adapter.execute.side_effect = generic_error
 
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="test",
         command="vibe",
         plan_prompt="p",

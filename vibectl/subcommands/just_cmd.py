@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 
 from vibectl.config import Config
@@ -6,7 +7,7 @@ from vibectl.logutil import logger
 from vibectl.types import Error, Result, Success
 
 
-def run_just_command(args: tuple) -> Result:
+async def run_just_command(args: tuple) -> Result:
     """
     Pass commands directly to kubectl. Returns Success or Error.
     Handles kubeconfig and errors on no arguments.
@@ -25,7 +26,9 @@ def run_just_command(args: tuple) -> Result:
         cmd.extend(args)
         logger.info(f"Running command: {' '.join(cmd)}")
         try:
-            result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+            result = await asyncio.to_thread(
+                subprocess.run, cmd, check=True, text=True, capture_output=True
+            )
         except FileNotFoundError as e:
             msg = "kubectl not found in PATH"
             logger.error(msg, exc_info=True)
@@ -52,7 +55,9 @@ def run_just_command(args: tuple) -> Result:
         if result.stderr:
             console_manager.print_error(result.stderr)
         logger.info("'just' subcommand completed successfully.")
-        return Success(message="kubectl command executed successfully.")
+        return Success(
+            message="kubectl command executed successfully.", data=result.stdout
+        )
     except Exception as e:
         logger.error(f"Unexpected error in 'just' subcommand: {e!s}", exc_info=True)
         return Error(error="Exception in 'just' subcommand", exception=e)

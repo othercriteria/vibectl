@@ -1,22 +1,17 @@
+# Local imports
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
     handle_vibe_request,
-    run_kubectl,
 )
+from vibectl.console import console_manager
+from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
-from vibectl.memory import (
-    configure_memory_flags,
-    get_memory,
-)
-from vibectl.prompt import (
-    PLAN_SCALE_PROMPT,
-    scale_resource_prompt,
-)
+from vibectl.prompt import PLAN_SCALE_PROMPT, scale_resource_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_scale_command(
+async def run_scale_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -26,70 +21,74 @@ def run_scale_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
 ) -> Result:
-    """
-    Implements the 'scale' subcommand logic, including logging and error handling.
-    Returns a Result (Success or Error).
-    """
-    logger.info(f"Invoking 'scale' subcommand with resource: {resource}, args: {args}")
-    try:
-        output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-        )
-        configure_memory_flags(freeze_memory, unfreeze_memory)
+    """Executes the scale command logic."""
 
-        if resource == "vibe":
-            if len(args) < 1:
-                msg = (
-                    "Missing request after 'vibe' command. "
-                    "Please provide a natural language request, e.g.: "
-                    'vibectl scale vibe "the nginx deployment to 3 replicas"'
-                )
-                return Error(error=msg)
-            request = " ".join(args)
-            logger.info("Planning how to: scale %s", request)
-            try:
-                handle_vibe_request(
-                    request=request,
-                    command="scale",
-                    plan_prompt=PLAN_SCALE_PROMPT,
-                    summary_prompt_func=scale_resource_prompt,
-                    output_flags=output_flags,
-                    memory_context=get_memory() or "",
-                )
-            except Exception as e:
-                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
-                return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'scale' subcommand for vibe request.")
-            return Success(message="Completed 'scale' subcommand for vibe request.")
+    # Correct argument order and remove memory flags
+    output_flags = configure_output_flags(
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        model=model,
+        # freeze_memory and unfreeze_memory are handled separately
+    )
 
-        # Regular scale command
-        cmd = ["scale", resource, *args]
-        logger.info(f"Running kubectl command: {' '.join(cmd)}")
+    # Handle vibe request first if resource is 'vibe'
+    if resource == "vibe":
+        if not args or not isinstance(args[0], str):
+            return Error("Missing request after 'vibe'")
+        request = args[0]
+
         try:
-            output = run_kubectl(cmd, capture=True)
+            vibe_result = await handle_vibe_request(
+                request=request,
+                command="scale",
+                plan_prompt=PLAN_SCALE_PROMPT,
+                output_flags=output_flags,
+                summary_prompt_func=scale_resource_prompt,
+                semiauto=False,
+            )
+            logger.info("Completed 'scale' command for vibe request.")
+            return vibe_result
         except Exception as e:
-            logger.error("Error running kubectl: %s", e, exc_info=True)
-            return Error(error="Exception running kubectl", exception=e)
+            logger.error(
+                "Exception in handle_vibe_request for scale: %s", e, exc_info=True
+            )
+            return Error(
+                error="Exception processing vibe request for scale", exception=e
+            )
 
-        if not output:
-            logger.info("No output from kubectl scale command.")
-            return Success(message="No output from kubectl scale command.")
+    # Standard kubectl scale
+    kubectl_command = ["scale", resource, *args]
 
+    # Log command if requested
+    if show_kubectl:
+        console_manager.print_note(f"Running: kubectl {' '.join(kubectl_command)}")
+
+    try:
+        # run_kubectl is synchronous, remove await
+        kube_result = run_kubectl(kubectl_command, capture=True)
+    except Exception as e:
+        logger.error("Error running kubectl scale: %s", e, exc_info=True)
+        return Error(error="Exception running kubectl scale", exception=e)
+
+    # Check result directly, don't await again
+    if isinstance(kube_result, Error):
+        return kube_result
+
+    if kube_result.data:
         try:
+            # handle_command_output is synchronous
             handle_command_output(
-                output=output,
+                output=kube_result.data,
+                command="scale",
                 output_flags=output_flags,
                 summary_prompt_func=scale_resource_prompt,
             )
         except Exception as e:
-            logger.error("Error in handle_command_output: %s", e, exc_info=True)
-            return Error(error="Exception in handle_command_output", exception=e)
+            logger.error("Error processing kubectl scale output: %s", e, exc_info=True)
+            return Error(error="Exception processing scale output", exception=e)
+    else:
+        logger.info("No output from kubectl scale command.")
+        return Success(message="No output from kubectl scale command.")
 
-        logger.info(f"Completed 'scale' subcommand for resource: {resource}")
-        return Success(message=f"Completed 'scale' subcommand for resource: {resource}")
-    except Exception as e:
-        logger.error("Error in 'scale' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'scale' subcommand", exception=e)
+    logger.info(f"Completed 'scale' command for resource: {resource}")
+    return Success(message=f"Successfully processed scale command for {resource}")

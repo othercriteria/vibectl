@@ -1,9 +1,12 @@
 """Tests for API error handling in auto mode."""
 
-from unittest.mock import Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
-from vibectl.cli import DEFAULT_MODEL
+import pytest
+
 from vibectl.command_handler import handle_command_output
+from vibectl.config import DEFAULT_CONFIG
 from vibectl.types import Error, OutputFlags, RecoverableApiError, Success
 
 
@@ -15,17 +18,18 @@ def create_api_error(error_type: str, error_message: str) -> Exception:
     )
 
 
-@patch("vibectl.subcommands.auto_cmd.run_vibe_command")
+@pytest.mark.asyncio
+@patch("vibectl.subcommands.auto_cmd.run_vibe_command", new_callable=AsyncMock)
 @patch("vibectl.subcommands.auto_cmd.console_manager")
 @patch("vibectl.subcommands.auto_cmd.configure_output_flags")
 @patch("vibectl.subcommands.auto_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.auto_cmd.time.sleep")
-def test_auto_command_continues_on_api_error(
+async def test_auto_command_continues_on_api_error(
     mock_sleep: Mock,
     mock_configure_memory: Mock,
     mock_configure_output: Mock,
     mock_console: Mock,
-    mock_vibe_command: Mock,
+    mock_vibe_command: AsyncMock,
 ) -> None:
     """Test that auto command continues on API errors like 'overloaded_error'."""
     from vibectl.subcommands.auto_cmd import run_auto_command
@@ -44,14 +48,20 @@ def test_auto_command_continues_on_api_error(
         halt_auto_loop=False,  # Updated to False - this is what our fix should produce
     )
 
-    mock_vibe_command.side_effect = [
-        mock_overloaded_error,
-        Success(message="Command succeeded"),
-        KeyboardInterrupt(),
-    ]
+    # Helper async function for side effect
+    async def vibe_side_effect(*args: Any, **kwargs: Any) -> Any:
+        call_num = mock_vibe_command.call_count
+        if call_num == 1:
+            return mock_overloaded_error
+        elif call_num == 2:
+            return Success(message="Command succeeded")
+        else:
+            raise KeyboardInterrupt()
+
+    mock_vibe_command.side_effect = vibe_side_effect
 
     # Run the auto command
-    result = run_auto_command(
+    result = await run_auto_command(
         request="test request",
         show_raw_output=None,
         show_vibe=None,
@@ -84,7 +94,8 @@ def test_handle_command_output_api_error_marked_non_halting(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
-        model_name=DEFAULT_MODEL,
+        # Explicitly cast to string to satisfy mypy
+        model_name=str(DEFAULT_CONFIG["model"]),
     )
 
     # Create a RecoverableApiError

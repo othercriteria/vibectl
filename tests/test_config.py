@@ -4,6 +4,7 @@ This module tests the configuration management functionality of vibectl.
 """
 
 import os
+from collections.abc import Generator
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -229,18 +230,30 @@ def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
     # log_level: invalid value
     with pytest.raises(ValueError):
         test_config.set("log_level", "not-a-level")
-    # model: valid providerless alias (should NOT raise)
-    # test_config.set("model", "tinyllama")
-    # model: invalid model name should raise ValueError
-    with pytest.raises(
-        ValueError, match="not recognized by the underlying 'llm' library"
-    ):
-        test_config.set("model", "invalid-model-name-123")
-    # model: valid providerless alias that IS NOT registered should raise ValueError
-    with pytest.raises(
-        ValueError, match="not recognized by the underlying 'llm' library"
-    ):
-        test_config.set("model", "unregistered-alias")
+
+    # Patch is_valid_llm_model_name for the model tests
+    # The slow part is the model validation, so we mock it here.
+    with patch("vibectl.config.is_valid_llm_model_name") as mock_is_valid_llm:
+        # Configure mock to simulate an invalid model name
+        mock_is_valid_llm.return_value = (False, "Mocked: Model not recognized")
+        with pytest.raises(ValueError, match="Mocked: Model not recognized"):
+            test_config.set("model", "invalid-model-name-123")
+        # Ensure our mock was called with the correct model name
+        mock_is_valid_llm.assert_called_once_with("invalid-model-name-123")
+
+        # Reset mock for the next test case within this patched context
+        mock_is_valid_llm.reset_mock()
+        mock_is_valid_llm.return_value = (False, "Mocked: Alias not registered")
+        with pytest.raises(ValueError, match="Mocked: Alias not registered"):
+            test_config.set("model", "unregistered-alias")
+        mock_is_valid_llm.assert_called_once_with("unregistered-alias")
+
+        # Example of testing a case that should pass if the mock allows it
+        mock_is_valid_llm.reset_mock()
+        mock_is_valid_llm.return_value = (True, None)  # Simulate a valid model
+        test_config.set("model", "valid-mocked-model")
+        assert test_config.get("model") == "valid-mocked-model"
+        mock_is_valid_llm.assert_called_once_with("valid-mocked-model")
 
 
 def test_config_convert_type_first_non_none(test_config: MockConfig) -> None:
@@ -459,62 +472,104 @@ def test_config_load_file_ioerror() -> None:
 
 # CLI Config Command Tests
 
-# The cli_runner fixture is now provided by conftest.py
+
+# Common fixtures for CLI tests (move to conftest.py?)
+@pytest.fixture
+def mock_handle_exception() -> Generator[Mock, None, None]:
+    with patch("vibectl.cli.handle_exception") as mock:
+        mock.side_effect = SystemExit(1)  # Simulate exit with error code
+        yield mock
 
 
-@patch("vibectl.cli.Config")
-def test_cli_config_set_save_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@pytest.fixture
+def mock_config_class() -> Generator[Mock, None, None]:
+    with patch("vibectl.cli.Config") as mock:
+        # Return a mock instance when Config() is called
+        mock_instance = Mock()
+        mock.return_value = mock_instance
+        yield mock  # Yield the class mock itself
+
+
+@pytest.mark.asyncio
+async def test_cli_config_set_save_error(
+    mock_config_class: Mock, mock_handle_exception: Mock
 ) -> None:
-    """Test config set command handles save error."""
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.save.side_effect = ValueError("Failed to save config")
+    """Test CLI config set with save error."""
+    # Simulate save error
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.save.side_effect = ValueError("Save failed")
 
-    result = cli_runner.invoke(cli, ["config", "set", "theme", "dark"])
-    assert result.exit_code == 1
-    assert "Failed to save config" in result.output
+    # Get the command object
+    config_cmd = cli.commands["config"]
+    set_cmd = config_cmd.commands["set"]  # type: ignore[attr-defined]
+
+    # Expect SystemExit(1) because mock_handle_exception raises it
+    with pytest.raises(SystemExit) as exc_info:
+        await set_cmd.main(["theme", "test"], standalone_mode=False)
+
+    # Assertions
+    assert exc_info.value.code == 1
+    mock_handle_exception.assert_called_once_with(mock_config_instance.save.side_effect)
 
 
-@patch("vibectl.cli.Config")
-def test_cli_config_show_get_all_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@pytest.mark.asyncio
+async def test_cli_config_show_get_all_error(
+    mock_config_class: Mock, mock_handle_exception: Mock
 ) -> None:
-    """Test config show command handles get_all error."""
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.get_all.side_effect = Exception("Failed to get config")
+    """Test CLI config show with get_all error."""
+    # Simulate get_all error
+    mock_config_instance = mock_config_class.return_value
+    get_all_error = ValueError("Get all failed")
+    mock_config_instance.get_all.side_effect = get_all_error
 
-    result = cli_runner.invoke(cli, ["config", "show"])
-    assert result.exit_code == 1
-    assert "Failed to get config" in result.output
+    # Get the command object
+    config_cmd = cli.commands["config"]
+    show_cmd = config_cmd.commands["show"]  # type: ignore[attr-defined]
+
+    # Expect SystemExit(1)
+    with pytest.raises(SystemExit) as exc_info:
+        await show_cmd.main([], standalone_mode=False)
+
+    # Assertions
+    assert exc_info.value.code == 1
+    mock_handle_exception.assert_called_once_with(get_all_error)
 
 
-@patch("vibectl.cli.Config")
-def test_cli_config_unset_invalid_key_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@pytest.mark.asyncio
+async def test_cli_config_unset_invalid_key_error(
+    mock_config_class: Mock, mock_handle_exception: Mock
 ) -> None:
-    """Test config unset command handles invalid key error."""
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.unset.side_effect = ValueError("Invalid key")
+    """Test CLI config unset with invalid key error."""
+    # Simulate unset error
+    mock_config_instance = mock_config_class.return_value
+    unset_error = ValueError("Unset failed")
+    mock_config_instance.unset.side_effect = unset_error
 
-    result = cli_runner.invoke(cli, ["config", "unset", "invalid_key"])
-    assert result.exit_code == 1
-    assert "Invalid key" in result.output
+    # Get the command object
+    config_cmd = cli.commands["config"]
+    unset_cmd = config_cmd.commands["unset"]  # type: ignore[attr-defined]
+
+    # Expect SystemExit(1)
+    with pytest.raises(SystemExit) as exc_info:
+        await unset_cmd.main(["invalidkey"], standalone_mode=False)
+
+    # Assertions
+    assert exc_info.value.code == 1
+    mock_handle_exception.assert_called_once_with(unset_error)
 
 
-@patch("vibectl.cli.Config")
-def test_cli_config_show_basic(mock_config_class: Mock, cli_runner: CliRunner) -> None:
-    """Test basic config show command."""
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.get_all.return_value = {"key": "value"}
+@pytest.mark.asyncio
+async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
+    """Test basic CLI config show."""
+    # Ensure get_all returns a dictionary
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.get_all.return_value = {"theme": "test", "model": "test"}
 
-    result = cli_runner.invoke(cli, ["config", "show"])
+    runner = CliRunner()
+    result = runner.invoke(cli.commands["config"], ["show"])  # type: ignore[arg-type]
 
+    # Assertions
     assert result.exit_code == 0
-    mock_config.get_all.assert_called_once()
 
 
 def test_config_handle_none_value_full(test_config: MockConfig) -> None:

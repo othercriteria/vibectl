@@ -74,8 +74,9 @@ def output_flags() -> OutputFlags:
     )
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.update_memory")
-def test_recovery_suggestions_not_in_memory(
+async def test_recovery_suggestions_not_in_memory(
     mock_update_memory: Mock,
     mock_get_adapter: MagicMock,
     mock_execute: MagicMock,
@@ -137,7 +138,7 @@ def test_recovery_suggestions_not_in_memory(
 
         # Execute command
         # Let the actual handle_command_output run to test recovery logic
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request="show the pods",
             command="vibe",  # Corrected: Command verb is 'vibe'
             plan_prompt="plan {request}",
@@ -160,9 +161,10 @@ def test_recovery_suggestions_not_in_memory(
     assert kwargs.get("model_name") == "test-model"
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.update_memory")
-def test_recovery_suggestions_should_update_memory(
+async def test_recovery_suggestions_should_update_memory(
     mock_update_memory: Mock,
     mock_execute: Mock,  # Represents _execute_command
     mock_get_adapter: MagicMock,  # Use the fixture for the adapter
@@ -196,7 +198,7 @@ def test_recovery_suggestions_should_update_memory(
         show_kubectl=True,
     )
     # Let the actual handle_command_output run to test recovery logic
-    result = handle_vibe_request(
+    result = await handle_vibe_request(
         request="show the pods",
         command="vibe",  # Command verb
         plan_prompt="plan {request}",
@@ -216,9 +218,10 @@ def test_recovery_suggestions_should_update_memory(
     assert recovery_suggestion_text in update_kwargs["vibe_output"]
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler._execute_command")
 @patch("vibectl.command_handler.update_memory")
-def test_recovery_suggestions_in_auto_mode(
+async def test_recovery_suggestions_in_auto_mode(
     mock_update_memory: Mock,
     mock_execute: Mock,  # Represents _execute_command
     mock_get_adapter: MagicMock,  # Use the adapter fixture
@@ -269,7 +272,7 @@ def test_recovery_suggestions_in_auto_mode(
         show_raw=True,
         show_kubectl=True,
     )
-    result1 = handle_vibe_request(
+    result1 = await handle_vibe_request(
         request="show the pods",
         command="vibe",  # Command verb
         plan_prompt="plan {request}",

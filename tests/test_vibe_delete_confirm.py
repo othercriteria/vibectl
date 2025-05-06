@@ -139,7 +139,8 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
         yield mock
 
 
-def test_vibe_delete_with_confirmation(
+@pytest.mark.asyncio
+async def test_vibe_delete_with_confirmation(
     mock_llm: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console_for_test: MagicMock,
@@ -165,7 +166,7 @@ def test_vibe_delete_with_confirmation(
         mock_click_prompt.return_value = "y"
         mock_execute_cmd.return_value = Success(data='pod "my-pod" deleted')
 
-        handle_vibe_request(
+        await handle_vibe_request(
             request="delete my pod",
             command="delete",
             plan_prompt="Plan this: {request}",
@@ -191,7 +192,8 @@ def test_vibe_delete_with_confirmation(
     assert ho_call_kwargs.get("command") == "delete"
 
 
-def test_vibe_delete_with_confirmation_cancelled(
+@pytest.mark.asyncio
+async def test_vibe_delete_with_confirmation_cancelled(
     mock_llm: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console_for_test: MagicMock,
@@ -217,7 +219,7 @@ def test_vibe_delete_with_confirmation_cancelled(
     ):
         mock_click_prompt.return_value = "n"  # User cancels
 
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request="delete nginx pod",
             command="delete",
             plan_prompt="Plan this: {request}",
@@ -246,7 +248,8 @@ def test_vibe_delete_with_confirmation_cancelled(
     mock_handle_output.assert_not_called()
 
 
-def test_vibe_delete_yes_flag_bypasses_confirmation(
+@pytest.mark.asyncio
+async def test_vibe_delete_yes_flag_bypasses_confirmation(
     mock_llm: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console_for_test: MagicMock,
@@ -270,7 +273,7 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
         mock_execute_cmd.return_value = Success(data="pod 'my-pod' deleted")
 
-        handle_vibe_request(
+        await handle_vibe_request(
             request="delete my pod",
             command="delete",
             plan_prompt="Plan this: {request}",
@@ -296,7 +299,8 @@ def test_vibe_delete_yes_flag_bypasses_confirmation(
     assert ho_call_kwargs.get("command") == "delete"
 
 
-def test_vibe_non_delete_commands_skip_confirmation(
+@pytest.mark.asyncio
+async def test_vibe_non_delete_commands_skip_confirmation(
     mock_llm: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console_for_test: MagicMock,
@@ -324,7 +328,7 @@ def test_vibe_non_delete_commands_skip_confirmation(
         mock_execute_cmd.return_value = Success(data="pod-a\\npod-b")
 
         # Call function with a non-delete command and yes=False
-        handle_vibe_request(
+        await handle_vibe_request(
             request="show pods",
             command="get",
             plan_prompt="Plan this: {request}",
@@ -356,7 +360,8 @@ def test_vibe_non_delete_commands_skip_confirmation(
 
 @patch("vibectl.memory.get_memory")
 @patch("vibectl.command_handler.console_manager")
-def test_vibe_delete_confirmation_memory_option(
+@pytest.mark.asyncio
+async def test_vibe_delete_confirmation_memory_option(
     mock_console: MagicMock,
     mock_get_memory: MagicMock,
     mock_llm: MagicMock,
@@ -387,7 +392,7 @@ def test_vibe_delete_confirmation_memory_option(
         mock_click_prompt.side_effect = ["m", "y"]
         mock_execute_cmd.return_value = Success(data='pod "mem-test" deleted')
 
-        handle_vibe_request(
+        await handle_vibe_request(
             request="delete mem-test pod",
             command="delete",
             plan_prompt="Plan: {request}",
@@ -416,11 +421,12 @@ def test_vibe_delete_confirmation_memory_option(
     mock_handle_output.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.command_handler.set_memory")  # Mock set_memory
 @patch("vibectl.command_handler.get_memory")
 @patch("vibectl.command_handler.get_model_adapter")  # Mock adapter for fuzzy update
 @patch("vibectl.command_handler.console_manager")
-def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
+async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
     mock_console: MagicMock,
     mock_get_adapter: MagicMock,
     mock_get_memory: MagicMock,
@@ -461,7 +467,7 @@ def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
         # Simulate user entering 'b' (no but) and then the update text
         mock_click_prompt.side_effect = ["b", "extra context"]
 
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request="delete fuzzy-fail pod",
             command="delete",
             plan_prompt="Plan: {request}",

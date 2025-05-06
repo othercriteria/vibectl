@@ -1,3 +1,5 @@
+import asyncio
+
 import click
 
 from vibectl.command_handler import (
@@ -18,7 +20,7 @@ from vibectl.prompt import (
 from vibectl.types import Error, Result, Success
 
 
-def run_rollout_command(
+async def run_rollout_command(
     subcommand: str,
     resource: str,
     args: tuple,
@@ -66,18 +68,18 @@ def run_rollout_command(
             request = " ".join(args)
             logger.info("Planning how to: rollout %s", request)
             try:
-                handle_vibe_request(
+                result_vibe = await handle_vibe_request(
                     request=request,
                     command="rollout",
                     plan_prompt=PLAN_ROLLOUT_PROMPT,
                     summary_prompt_func=rollout_general_prompt,
                     output_flags=output_flags,
                 )
+                logger.info("Completed 'rollout' subcommand for vibe request.")
+                return result_vibe
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'rollout' subcommand for vibe request.")
-            return Success(message="Completed 'rollout' subcommand for vibe request.")
 
         # Map subcommand to kubectl rollout subcommand and summary prompt
         rollout_map = {
@@ -107,18 +109,29 @@ def run_rollout_command(
         cmd = ["rollout", kubectl_subcmd, resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
         try:
-            output = run_kubectl(cmd, capture=True)
+            kubectl_result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+
+            if isinstance(kubectl_result, Error):
+                logger.error(f"Error running kubectl: {kubectl_result.error}")
+                return kubectl_result
+
+            output_data = kubectl_result.data
+            if not output_data:
+                logger.info("No output from kubectl rollout command.")
+                if "console_manager" in globals():
+                    console_manager.print_note(
+                        "No output from kubectl rollout command."
+                    )
+                return Success(message="No output from kubectl rollout command.")
+
         except Exception as e:
             logger.error("Error running kubectl: %s", e, exc_info=True)
             return Error(error="Exception running kubectl", exception=e)
 
-        if not output:
-            logger.info("No output from kubectl rollout command.")
-            return Success(message="No output from kubectl rollout command.")
-
         try:
-            handle_command_output(
-                output=output,
+            await asyncio.to_thread(
+                handle_command_output,
+                output=output_data,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
             )

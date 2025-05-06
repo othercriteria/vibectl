@@ -548,7 +548,7 @@ def _display_vibe_output(vibe_output: str) -> None:
     console_manager.print_vibe(vibe_output)
 
 
-def handle_vibe_request(
+async def handle_vibe_request(
     request: str,
     command: str,
     plan_prompt: str,
@@ -611,106 +611,98 @@ def handle_vibe_request(
         f"Matching action_type: {response.action_type} "
         f"(Type: {type(response.action_type)})"
     )
-    # Revert back to match statement
-    match response.action_type:
-        case ActionType.ERROR:
-            if not response.error:
-                logger.error("ActionType is ERROR but no error message provided.")
-                return Error(
-                    error="Internal error: LLM sent ERROR action without message."
-                )
-            # Handle planning errors (updates memory)
-            error_message = response.error
-            logger.info(f"LLM returned planning error: {error_message}")
-            # Display explanation first if provided
+    # Replace match with if/elif/else
+    action = response.action_type
+    if action == ActionType.ERROR:
+        if not response.error:
+            logger.error("ActionType is ERROR but no error message provided.")
+            return Error(error="Internal error: LLM sent ERROR action without message.")
+        # Handle planning errors (updates memory)
+        error_message = response.error
+        logger.info(f"LLM returned planning error: {error_message}")
+        # Display explanation first if provided
+        console_manager.print_note(f"AI Explanation: {response.explanation}")
+        update_memory(
+            command=command,
+            command_output=error_message,  # Store raw error from LLM
+            vibe_output=f"LLM Planning Error: {request} -> {error_message}",
+            model_name=output_flags.model_name,
+        )
+        logger.info("Planning error added to memory context")
+        console_manager.print_error(f"LLM Planning Error: {error_message}")
+        return Error(
+            error=f"LLM planning error: {error_message}",
+            recovery_suggestions=response.explanation
+            or "Check the request or try rephrasing.",
+        )
+
+    elif action == ActionType.WAIT:
+        if response.wait_duration_seconds is None:
+            logger.error("ActionType is WAIT but no duration provided.")
+            return Error(error="Internal error: LLM sent WAIT action without duration.")
+        duration = response.wait_duration_seconds
+        logger.info(f"LLM requested WAIT for {duration} seconds.")
+        # Display explanation first if provided
+        console_manager.print_note(f"AI Explanation: {response.explanation}")
+        console_manager.print_processing(
+            f"Waiting for {duration} seconds as requested by AI..."
+        )
+        time.sleep(duration)
+        return Success(message=f"Waited for {duration} seconds.")
+
+    elif action == ActionType.FEEDBACK:
+        logger.info("LLM issued FEEDBACK without command.")
+        if response.explanation:
             console_manager.print_note(f"AI Explanation: {response.explanation}")
+        else:
+            # If no explanation, provide a default message
+            console_manager.print_note("Received feedback from AI.")
+        return Success(message="Received feedback from AI.")
+
+    elif action == ActionType.COMMAND:
+        if not response.commands and not response.yaml_manifest:
+            logger.error(
+                "LLM returned COMMAND action but no commands or YAML provided."
+            )
             update_memory(
-                command=command,
-                command_output=error_message,  # Store raw error from LLM
-                vibe_output=f"LLM Planning Error: {request} -> {error_message}",
+                command=command or "system",
+                command_output="LLM Error: COMMAND action with no args.",
+                vibe_output="LLM Error: COMMAND action with no args.",
                 model_name=output_flags.model_name,
             )
-            logger.info("Planning error added to memory context")
-            console_manager.print_error(f"LLM Planning Error: {error_message}")
-            return Error(
-                error=f"LLM planning error: {error_message}",
-                recovery_suggestions=response.explanation
-                or "Check the request or try rephrasing.",
-            )
+            return Error(error="Internal error: LLM sent COMMAND action with no args.")
 
-        case ActionType.WAIT:
-            if response.wait_duration_seconds is None:
-                logger.error("ActionType is WAIT but no duration provided.")
-                return Error(
-                    error="Internal error: LLM sent WAIT action without duration."
-                )
-            duration = response.wait_duration_seconds
-            logger.info(f"LLM requested WAIT for {duration} seconds.")
-            # Display explanation first if provided
-            console_manager.print_note(f"AI Explanation: {response.explanation}")
-            console_manager.print_processing(
-                f"Waiting for {duration} seconds as requested by AI..."
-            )
-            time.sleep(duration)
-            return Success(message=f"Waited for {duration} seconds.")
+        # Extract verb and args using helper
+        raw_llm_commands = response.commands or []
+        kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
 
-        case ActionType.FEEDBACK:
-            logger.info("LLM issued FEEDBACK without command.")
-            if response.explanation:
-                console_manager.print_note(f"AI Explanation: {response.explanation}")
-            else:
-                # If no explanation, provide a default message
-                console_manager.print_note("Received feedback from AI.")
-            return Success(message="Received feedback from AI.")
+        # Handle error from extraction helper
+        if kubectl_verb is None:
+            return Error(error="LLM planning failed: Could not determine command verb.")
 
-        case ActionType.COMMAND:
-            if not response.commands and not response.yaml_manifest:
-                logger.error(
-                    "LLM returned COMMAND action but no commands or YAML provided."
-                )
-                update_memory(
-                    command=command or "system",
-                    command_output="LLM Error: COMMAND action with no args.",
-                    vibe_output="LLM Error: COMMAND action with no args.",
-                    model_name=output_flags.model_name,
-                )
-                return Error(
-                    error="Internal error: LLM sent COMMAND action with no args."
-                )
+        # Confirm and execute the plan using a helper function
+        return await _confirm_and_execute_plan(
+            kubectl_verb,
+            kubectl_args,
+            response.yaml_manifest,
+            response.explanation,
+            semiauto,
+            yes,
+            autonomous_mode,
+            live_display,
+            output_flags,
+            summary_prompt_func,
+        )
 
-            # Extract verb and args using helper
-            raw_llm_commands = response.commands or []
-            kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
-
-            # Handle error from extraction helper
-            if kubectl_verb is None:
-                return Error(
-                    error="LLM planning failed: Could not determine command verb."
-                )
-
-            # Confirm and execute the plan using a helper function
-            return _confirm_and_execute_plan(
-                kubectl_verb,
-                kubectl_args,
-                response.yaml_manifest,
-                response.explanation,
-                semiauto,
-                yes,
-                autonomous_mode,
-                live_display,
-                output_flags,
-                summary_prompt_func,
-            )
-
-        case _:
-            logger.error(f"Internal error: Unknown ActionType: {response.action_type}")
-            return Error(
-                error=f"Internal error: Unknown ActionType received from "
-                f"LLM: {response.action_type}"
-            )
+    else:  # Default case (Unknown ActionType)
+        logger.error(f"Internal error: Unknown ActionType: {response.action_type}")
+        return Error(
+            error=f"Internal error: Unknown ActionType received from "
+            f"LLM: {response.action_type}"
+        )
 
 
-def _confirm_and_execute_plan(
+async def _confirm_and_execute_plan(
     kubectl_verb: str,
     kubectl_args: list[str],
     yaml_content: str | None,
@@ -722,7 +714,23 @@ def _confirm_and_execute_plan(
     output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
 ) -> Result:
-    """Handles confirmation, execution, and output processing for a planned command."""
+    """Confirms the plan if necessary, then executes it.
+
+    Args:
+        kubectl_verb: The kubectl command verb (e.g., 'get', 'delete')
+        kubectl_args: List of command arguments (e.g., ['pods', '-n', 'default'])
+        yaml_content: YAML content if present
+        explanation: Optional explanation from the AI
+        semiauto: Whether this is operating in semiauto mode
+        yes: Bypass confirmation prompts
+        autonomous_mode: Enable fully autonomous mode (no confirmations)
+        live_display: Show live output for background tasks
+        output_flags: Flags controlling output format
+        summary_prompt_func: Function to generate the summary prompt
+
+    Returns:
+        Result object with the outcome of the operation
+    """
     cmd_for_display = _create_display_command(kubectl_args)
     display_cmd = (f"kubectl {kubectl_verb} {cmd_for_display}").strip()
 
@@ -760,7 +768,7 @@ def _confirm_and_execute_plan(
     if live_display:
         if kubectl_verb == "wait":
             logger.info("'wait' command dispatched to live display handler.")
-            return handle_wait_with_live_display(
+            return await handle_wait_with_live_display(
                 resource=kubectl_args[0] if kubectl_args else "",
                 args=tuple(kubectl_args[1:]),
                 output_flags=output_flags,
@@ -768,7 +776,7 @@ def _confirm_and_execute_plan(
             )
         elif kubectl_verb == "port-forward":
             logger.info("'port-forward' command dispatched to live display handler.")
-            return handle_port_forward_with_live_display(
+            return await handle_port_forward_with_live_display(
                 resource=kubectl_args[0] if kubectl_args else "",
                 args=tuple(kubectl_args[1:]),
                 output_flags=output_flags,
@@ -1181,7 +1189,7 @@ def parse_kubectl_command(command_string: str) -> tuple[str, list[str]]:
 
 
 # Wrapper for wait command live display
-def handle_wait_with_live_display(
+async def handle_wait_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
@@ -1208,7 +1216,7 @@ def handle_wait_with_live_display(
     display_text = f"Waiting for {resource} to meet {condition}"
 
     # Call the worker function in live_display.py
-    wait_result = _execute_wait_with_live_display(
+    wait_result = await _execute_wait_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
@@ -1228,7 +1236,7 @@ def handle_wait_with_live_display(
 
 
 # Wrapper for port-forward command live display
-def handle_port_forward_with_live_display(
+async def handle_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
@@ -1264,7 +1272,7 @@ def handle_port_forward_with_live_display(
     )
 
     # Call the worker function in live_display.py
-    return _execute_port_forward_with_live_display(
+    return await _execute_port_forward_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
@@ -1277,7 +1285,7 @@ def handle_port_forward_with_live_display(
 
 
 # Wrapper for watch command live display
-def handle_watch_with_live_display(
+async def handle_watch_with_live_display(
     command: str,  # e.g., 'get'
     resource: str,
     args: tuple[str, ...],
@@ -1308,7 +1316,7 @@ def handle_watch_with_live_display(
     # Call the worker function in live_display.py
     # This worker will run `kubectl get <resource> <args> --watch`
     # and handle the streaming output and summarization.
-    watch_result = _execute_watch_with_live_display(
+    watch_result = await _execute_watch_with_live_display(
         command=command,
         resource=resource,
         args=args,  # Pass original args including --watch/-w

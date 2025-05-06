@@ -1,3 +1,5 @@
+import asyncio
+
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
@@ -13,10 +15,10 @@ from vibectl.prompt import (
     PLAN_GET_PROMPT,
     get_resource_prompt,
 )
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, Result
 
 
-def run_get_command(
+async def run_get_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -51,8 +53,8 @@ def run_get_command(
             request = " ".join(args)
             logger.info("Planning how to: %s", request)
 
-            # Use the Result returned from handle_vibe_request
-            result = handle_vibe_request(
+            # Await the async handler
+            result = await handle_vibe_request(
                 request=request,
                 command="get",
                 plan_prompt=PLAN_GET_PROMPT,
@@ -67,20 +69,15 @@ def run_get_command(
                 return result
 
             logger.info("Completed 'get' subcommand for vibe request.")
-            return Success(
-                message="Completed 'get' subcommand for vibe request.",
-                data=result.data
-                if isinstance(result, Success) and result.data
-                else None,
-            )
+            return result
 
         # Check for --watch flag
         watch_flag_present = "--watch" in args or "-w" in args
 
         if watch_flag_present:
             logger.info("Handling 'get' command with --watch flag using live display.")
-            # Call the new handler for watch with live display
-            result = handle_watch_with_live_display(
+            # Await the async handler
+            result = await handle_watch_with_live_display(
                 command="get",
                 resource=resource,
                 args=args,
@@ -89,9 +86,10 @@ def run_get_command(
             )
 
         else:
-            # Use the Result returned from handle_standard_command
+            # Run the sync handler in a thread
             logger.info("Handling standard 'get' command.")
-            result = handle_standard_command(
+            result = await asyncio.to_thread(
+                handle_standard_command,
                 command="get",
                 resource=resource,
                 args=args,
@@ -106,21 +104,8 @@ def run_get_command(
 
         logger.info(f"Completed 'get' subcommand for resource: {resource}")
 
-        # Determine final result based on handler's output
-        if isinstance(result, Error):
-            return result
-        result_data = result.data if result.data else None
-        if args and args[0] == "vibe":  # vibe request handled
-            return Success(
-                message="Completed 'get' subcommand for vibe request.",
-                data=result_data,
-            )
-        else:  # Standard get command (including --watch)
-            # Use 'resource' parameter directly, args contains only extra flags/params
-            return Success(
-                message=f"Completed 'get' subcommand for resource: {resource}",
-                data=result_data,
-            )
+        # Return the result directly from the handler
+        return result
 
     except Exception as e:
         logger.error("Error in 'get' subcommand: %s", e, exc_info=True)

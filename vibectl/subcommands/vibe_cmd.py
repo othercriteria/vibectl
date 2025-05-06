@@ -8,7 +8,7 @@ from vibectl.prompt import PLAN_VIBE_PROMPT, vibe_autonomous_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_vibe_command(
+async def run_vibe_command(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -57,7 +57,7 @@ def run_vibe_command(
             # if --yes is passed.
             is_autonomous = not semiauto and yes
 
-            result = handle_vibe_request(
+            result = await handle_vibe_request(
                 request=request,
                 command="vibe",
                 plan_prompt=PLAN_VIBE_PROMPT,

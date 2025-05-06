@@ -1,8 +1,3 @@
-# Standard library imports
-
-# Third-party imports
-
-# Local imports
 from vibectl.command_handler import (
     OutputFlags,
     configure_output_flags,
@@ -21,7 +16,7 @@ from vibectl.prompt import (
 from vibectl.types import Error, Result, Success
 
 
-def run_describe_command(
+async def run_describe_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -54,13 +49,13 @@ def run_describe_command(
 
     # Handle 'vibe' command special case
     if resource == "vibe":
-        return _handle_vibe_describe(args, output_flags)
+        return await _handle_vibe_describe(args, output_flags)
 
     # Handle standard describe command
     return _handle_standard_describe(resource, args, output_flags)
 
 
-def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
+async def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
     """Handle the 'describe vibe' subcommand."""
     # Ensure we have arguments after 'vibe'
     if not args:
@@ -76,7 +71,8 @@ def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
     logger.info("Planning how to: describe %s", request)
 
     try:
-        result = handle_vibe_request(
+        # Run the async function in a synchronous context
+        result = await handle_vibe_request(
             request=request,
             command="describe",
             plan_prompt=PLAN_DESCRIBE_PROMPT,

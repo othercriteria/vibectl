@@ -48,7 +48,8 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
         yield mock_adapter
 
 
-def test_handle_command_output_updates_memory(
+@pytest.mark.asyncio
+async def test_handle_command_output_updates_memory(
     mock_get_adapter: MagicMock,
     mock_memory_update: Mock,
     mock_process_auto: Mock,
@@ -85,7 +86,8 @@ def test_handle_command_output_updates_memory(
     )
 
 
-def test_handle_command_output_does_not_update_memory_without_command(
+@pytest.mark.asyncio
+async def test_handle_command_output_does_not_update_memory_without_command(
     mock_get_adapter: MagicMock,
     mock_memory_update: Mock,
     mock_process_auto: Mock,
@@ -125,7 +127,8 @@ def test_handle_command_output_does_not_update_memory_without_command(
     )
 
 
-def test_handle_command_output_updates_memory_with_error_output(
+@pytest.mark.asyncio
+async def test_handle_command_output_updates_memory_with_error_output(
     mock_get_adapter: MagicMock,
     mock_memory_update: Mock,
     mock_process_auto: Mock,
@@ -173,7 +176,8 @@ def test_handle_command_output_updates_memory_with_error_output(
     assert call_kwargs.get("vibe_output") == "Vibe summary of the error."
 
 
-def test_handle_command_output_updates_memory_with_overloaded_error(
+@pytest.mark.asyncio
+async def test_handle_command_output_updates_memory_with_overloaded_error(
     mock_get_adapter: MagicMock,
     mock_memory_update: Mock,
     mock_process_auto: Mock,
@@ -222,7 +226,8 @@ def test_handle_command_output_updates_memory_with_overloaded_error(
     assert not result.halt_auto_loop
 
 
-def test_handle_vibe_request_updates_memory_on_error(
+@pytest.mark.asyncio
+async def test_handle_vibe_request_updates_memory_on_error(
     mock_get_adapter: MagicMock, mock_memory_update: Mock
 ) -> None:
     """Test handle_vibe_request updates memory when LLM returns ActionType.ERROR."""
@@ -258,7 +263,7 @@ def test_handle_vibe_request_updates_memory_on_error(
             return_value="Plan this: error test",
         ),
     ):
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request=request_text,
             command="vibe",
             plan_prompt="Plan: {request}",
@@ -283,7 +288,8 @@ def test_handle_vibe_request_updates_memory_on_error(
     assert result.recovery_suggestions == explanation
 
 
-def test_handle_vibe_request_error_recovery_flow(
+@pytest.mark.asyncio
+async def test_handle_vibe_request_error_recovery_flow(
     mock_get_adapter: MagicMock, mock_memory_update: Mock
 ) -> None:
     """Test command execution error triggers recovery suggestion.
@@ -415,7 +421,7 @@ def test_handle_vibe_request_error_recovery_flow(
         mock_handle_output.side_effect = handle_output_side_effect
 
         # Call handle_vibe_request
-        result = handle_vibe_request(
+        result = await handle_vibe_request(
             request="get pods causing error",
             command="vibe",  # <<< Corrected command to 'vibe'
             plan_prompt="Plan: {request}",
@@ -457,7 +463,8 @@ def test_handle_vibe_request_error_recovery_flow(
         assert result.recovery_suggestions == recovery_suggestion
 
 
-def test_handle_vibe_request_includes_memory_context(
+@pytest.mark.asyncio
+async def test_handle_vibe_request_includes_memory_context(
     mock_model_adapter: MagicMock,
     mock_memory_functions: tuple,
     mock_logger: MagicMock,
@@ -491,7 +498,8 @@ def test_handle_vibe_request_includes_memory_context(
             data="done"
         )  # Prevent further processing
 
-        handle_vibe_request(
+        # Add await back, handle_vibe_request is async
+        await handle_vibe_request(
             request=test_request,
             command="get",
             plan_prompt=test_plan_prompt,

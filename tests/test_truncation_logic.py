@@ -534,9 +534,9 @@ def test_truncate_logs_by_lines(
 
         # Check if the actual number of lines matches the expected count
         # including the marker
-        assert (
-            actual_lines_count == expected_actual_lines
-        ), f"Expected {expected_actual_lines} lines, got {actual_lines_count}"
+        assert actual_lines_count == expected_actual_lines, (
+            f"Expected {expected_actual_lines} lines, got {actual_lines_count}"
+        )
 
     # Check for expected content / markers
     for sub in expected_substrings:

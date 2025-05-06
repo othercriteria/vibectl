@@ -7,8 +7,6 @@ an intermediate port, collecting statistics about data transfer.
 
 import asyncio
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Protocol
 
 from .logutil import logger  # Use shared logger
@@ -22,25 +20,6 @@ class StatsProtocol(Protocol):
     last_activity: float
 
 
-@dataclass
-class ProxyStats:
-    """Statistics for tracking proxy data transfer."""
-
-    bytes_received: int = 0  # From target to client
-    bytes_sent: int = 0  # From client to target
-    last_activity_timestamp: float = 0
-
-    @property
-    def last_activity(self) -> float:
-        """Get the last activity timestamp."""
-        return self.last_activity_timestamp
-
-    @last_activity.setter
-    def last_activity(self, value: float) -> None:
-        """Set the last activity timestamp."""
-        self.last_activity_timestamp = value
-
-
 class TcpProxy:
     """TCP proxy for monitoring port-forward traffic."""
 
@@ -50,7 +29,6 @@ class TcpProxy:
         target_host: str,
         target_port: int,
         stats: StatsProtocol,
-        stats_callback: Callable[[], None] | None = None,
     ) -> None:
         """Initialize the TCP proxy.
 
@@ -59,16 +37,13 @@ class TcpProxy:
             target_host: The target host to forward to (usually localhost)
             target_port: The target port to forward to
             stats: Statistics object that tracks bytes_received and bytes_sent
-            stats_callback: Optional callback function to call when stats are updated
         """
         self.local_port = local_port
         self.target_host = target_host
         self.target_port = target_port
         self.stats: StatsProtocol = stats
-        self.stats_callback = stats_callback
         self.server: asyncio.Server | None = None
         self.connections: set[asyncio.Task[None]] = set()
-        self._proxy_stats = ProxyStats()
 
     async def start(self) -> None:
         """Start the proxy server."""
@@ -121,7 +96,6 @@ class TcpProxy:
 
         # Update last activity timestamp
         current_time = time.time()
-        self._proxy_stats.last_activity = current_time
         self.stats.last_activity = current_time
 
         # Wait for either task to complete using TaskGroup
@@ -168,36 +142,48 @@ class TcpProxy:
             writer: Destination stream writer
             direction: Direction of data flow ("client_to_target" or "target_to_client")
         """
+        logger.debug(f"_proxy_data started for direction: {direction}")
         try:
             while True:
                 # Read data from source
                 data = await reader.read(8192)  # 8KB buffer
+                logger.debug(f"_proxy_data ({direction}): read {len(data)} bytes")
                 if not data:
+                    logger.debug(
+                        f"_proxy_data ({direction}): no data, "
+                        "connection closed by peer."
+                    )
                     break  # Connection closed
 
                 # Update statistics
                 if direction == "client_to_target":
-                    self._proxy_stats.bytes_sent += len(data)
-                    self.stats.bytes_sent = self._proxy_stats.bytes_sent
+                    self.stats.bytes_sent += len(data)
+                    logger.debug(
+                        f"_proxy_data ({direction}): updated self.stats.bytes_sent "
+                        f"to {self.stats.bytes_sent}"
+                    )
                 else:
-                    self._proxy_stats.bytes_received += len(data)
-                    self.stats.bytes_received = self._proxy_stats.bytes_received
+                    self.stats.bytes_received += len(data)
+                    logger.debug(
+                        f"_proxy_data ({direction}): updated self.stats.bytes_received "
+                        f"to {self.stats.bytes_received}"
+                    )
 
                 # Update last activity timestamp
                 current_time = time.time()
-                self._proxy_stats.last_activity = current_time
                 self.stats.last_activity = current_time
 
-                # Call the stats callback if provided
-                if self.stats_callback:
-                    self.stats_callback()
-
                 # Write data to destination
+                logger.debug(
+                    f"_proxy_data ({direction}): writing {len(data)} bytes "
+                    "to destination."
+                )
                 writer.write(data)
                 await writer.drain()
 
         except asyncio.CancelledError:
             # Handle task cancellation gracefully
+            logger.debug(f"_proxy_data ({direction}): task cancelled.")
             pass
         except Exception as e:
             logger.error(f"Proxy error ({direction}): {e}")
@@ -207,7 +193,6 @@ async def start_proxy_server(
     local_port: int,
     target_port: int,
     stats: StatsProtocol,
-    stats_callback: Callable[[], None] | None = None,
 ) -> TcpProxy:
     """Start a proxy server for port forwarding.
 
@@ -215,7 +200,6 @@ async def start_proxy_server(
         local_port: The local port to listen on
         target_port: The target port to forward to
         stats: Statistics object to update
-        stats_callback: Optional callback function to call when stats are updated
 
     Returns:
         A TcpProxy instance
@@ -225,7 +209,6 @@ async def start_proxy_server(
         target_host="127.0.0.1",
         target_port=target_port,
         stats=stats,
-        stats_callback=stats_callback,
     )
     await proxy.start()
     return proxy

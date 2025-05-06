@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import random
-import re
 import time
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
@@ -72,7 +71,7 @@ async def _run_async_main(
 
 
 # Worker function for handle_wait_with_live_display
-def _execute_wait_with_live_display(
+async def _execute_wait_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
@@ -169,7 +168,7 @@ def _execute_wait_with_live_display(
             return inner_result or Error(error="Wait command yielded no result.")
 
         # Use the new runner
-        loop_result = _run_async_main(
+        loop_result = await _run_async_main(
             main(),
             cancel_message="Wait operation cancelled by user",
             error_message_prefix="Wait operation",
@@ -289,7 +288,7 @@ def has_port_mapping(port_mapping: str) -> bool:
 
 
 # Worker function for handle_port_forward_with_live_display
-def _execute_port_forward_with_live_display(
+async def _execute_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
@@ -422,7 +421,8 @@ def _execute_port_forward_with_live_display(
         task_id: TaskID,
         progress: Progress,
         process: asyncio.subprocess.Process,
-        proxy: TcpProxy | None = None,
+        proxy: TcpProxy | None,
+        live_updater: Live,  # Added live_updater parameter (was live_manager)
     ) -> None:
         """Update the progress display with connection status and data."""
         connected = False
@@ -431,37 +431,54 @@ def _execute_port_forward_with_live_display(
         try:
             # Keep updating until cancelled
             while True:
-                # Check if process has output ready
-                if process.stdout:
-                    line = await process.stdout.readline()
-                    if line:
-                        # Got output, update connection status
-                        line_str = line.decode("utf-8").strip()
-                        if "Forwarding from" in line_str:
-                            connected = True
-                            stats.current_status = "Connected"
-                            if connection_start_time is None:
-                                connection_start_time = time.time()
+                # Initialize for logger, in case not connected or no proxy
+                b_sent = "N/A"
+                b_recv = "N/A"
 
-                            # Attempt to parse traffic information if available
-                            if "traffic" in line_str.lower():
-                                stats.traffic_monitoring_enabled = True
-                                # Extract bytes sent/received if available
-                                # Parsing depends on the output format
-                                if "sent" in line_str.lower():
-                                    sent_match = re.search(
-                                        r"sent (\d+)", line_str.lower()
-                                    )
-                                    if sent_match:
-                                        stats.bytes_sent += int(sent_match.group(1))
-                                if "received" in line_str.lower():
-                                    received_match = re.search(
-                                        r"received (\d+)", line_str.lower()
-                                    )
-                                    if received_match:
-                                        stats.bytes_received += int(
-                                            received_match.group(1)
-                                        )
+                # Check if process has output ready - with a timeout
+                if process.stdout:  # and not process.stdout.at_eof():
+                    try:
+                        # Try to read a line with a very short timeout
+                        line = await asyncio.wait_for(
+                            process.stdout.readline(), timeout=0.01
+                        )
+                        if line:  # Line received
+                            line_str = line.decode("utf-8").strip()
+                            if "Forwarding from" in line_str:
+                                connected = True
+                                stats.current_status = "Connected"
+                                if connection_start_time is None:
+                                    connection_start_time = time.time()
+                        elif line == b"":  # Explicitly check for EOF
+                            logger.info("kubectl port-forward stdout reached EOF.")
+                            # If kubectl's stdout closes, it's a sign the process might
+                            # be ending. The main `await process.wait()` in the outer
+                            # `main` coroutine will handle the actual process
+                            # termination and status.
+                            # We can update status here if it helps, but avoid breaking
+                            # the loop prematurely, to allow showing final proxy stats.
+                            if process.returncode is not None and connected:
+                                logger.info(
+                                    f"kubectl process likely exited "
+                                    f"(rc={process.returncode}) after stdout EOF."
+                                )
+                                # Let main logic determine 'connected' based on process
+                    except TimeoutError:
+                        # This is normal, means kubectl has no new output to send.
+                        # The loop will continue to update based on proxy stats.
+                        pass
+                    except Exception as e_stdout:
+                        # Handle other readline errors
+                        logger.error(
+                            f"Error reading kubectl port-forward stdout: {e_stdout}"
+                        )
+                        if not any(
+                            str(e_stdout) in msg for msg in stats.error_messages
+                        ):
+                            stats.error_messages.append(
+                                f"KubeCtlStdoutError: {str(e_stdout)[:100]}"
+                            )
+                        # Depending on severity, could set connected = False or log
 
                 # Update stats from proxy if enabled
                 if proxy and connected:
@@ -480,37 +497,33 @@ def _execute_port_forward_with_live_display(
                         # Show traffic stats in the description when using proxy
                         bytes_sent = stats.bytes_sent
                         bytes_received = stats.bytes_received
-                        progress.update(
-                            task_id,
-                            description=(
-                                f"{display_text} - [green]Connected[/green] "
-                                f"([cyan]↑{bytes_sent}B[/] "
-                                f"[magenta]↓{bytes_received}B[/])"
-                            ),
-                        )
+                        status_text = "[green]Connected[/green] "
+                        b_sent = f"[cyan]↑{bytes_sent}B[/]"
+                        b_recv = f"[magenta]↓{bytes_received}B[/]"
+                        status_text += f"({b_sent} {b_recv})"
                     else:
-                        progress.update(
-                            task_id,
-                            description=f"{display_text} - [green]Connected[/green]",
-                        )
+                        status_text = "[green]Connected[/green]"
                 else:
                     # Check if the process is still running
                     if process.returncode is not None:
                         stats.current_status = "Disconnected"
-                        progress.update(
-                            task_id,
-                            description=f"{display_text} - [red]Disconnected[/red]",
-                        )
+                        status_text = "[red]Disconnected[/red]"
                         break
 
                     # Still establishing connection
-                    progress.update(
-                        task_id,
-                        description=f"{display_text} - Connecting...",
-                    )
+                    status_text = "Connecting..."
 
-                # Small sleep for smooth updates
-                await asyncio.sleep(0.1)
+                # Update the entire description
+                description = f"{display_text} - {status_text}"
+                logger.debug(
+                    f"Updating progress: TaskID={task_id}, Sent={b_sent}, "
+                    f"Recv={b_recv}, Status='{status_text}', "
+                    f"Full Desc='{description}'"
+                )
+                progress.update(task_id, description=description)
+                live_updater.update(progress)  # Explicitly update the Live display
+
+                await asyncio.sleep(0.1)  # Update interval
 
         except asyncio.CancelledError:
             # Final update before cancellation
@@ -521,16 +534,21 @@ def _execute_port_forward_with_live_display(
             )
 
     # Create progress display
-    with Progress(
+    port_forward_progress_bar = Progress(
         SpinnerColumn(),
         TimeElapsedColumn(),
         TextColumn("{task.description}"),
         console=console_manager.console,
         transient=False,  # We want to keep this visible
+    )
+    with Live(
+        port_forward_progress_bar,
+        console=console_manager.console,
         refresh_per_second=10,
-    ) as progress:
+        transient=False,
+    ) as live_manager:
         # Add port-forward task
-        task_id = progress.add_task(
+        task_id = port_forward_progress_bar.add_task(
             description=f"{display_text} - Starting...", total=None
         )
 
@@ -555,8 +573,15 @@ def _execute_port_forward_with_live_display(
                 process = await run_port_forward()
 
                 # Start updating the progress display
+                # Pass the Progress instance and the Live instance
                 progress_task = asyncio.create_task(
-                    update_progress(task_id, progress, process, proxy)
+                    update_progress(
+                        task_id,
+                        port_forward_progress_bar,
+                        process,
+                        proxy,
+                        live_manager,  # Pass live_manager to update_progress
+                    )
                 )
 
                 try:
@@ -627,11 +652,11 @@ def _execute_port_forward_with_live_display(
             else:
                 return Success(data=(process, final_status))
 
-        # --- Use the new runner ---
-        loop_result = _run_async_main(
-            main(),
+        # Use the new runner
+        loop_result = await _run_async_main(
+            main(),  # Call main without arguments
             cancel_message="Port-forward cancelled by user",
-            error_message_prefix="Port-forward",
+            error_message_prefix="Port-forward operation",
         )
 
         # Process results
@@ -810,7 +835,7 @@ def _execute_port_forward_with_live_display(
 
 
 # Worker function for handle_watch_with_live_display
-def _execute_watch_with_live_display(
+async def _execute_watch_with_live_display(
     command: str,  # e.g., 'get'
     resource: str,
     args: tuple[str, ...],
@@ -1096,7 +1121,7 @@ def _execute_watch_with_live_display(
                 return Success(data=(process, final_status))
 
         # --- Use the new runner ---
-        loop_result = _run_async_main(
+        loop_result = await _run_async_main(
             main_watch_task(),
             cancel_message="Watch cancelled by user",
             error_message_prefix="Watch execution",

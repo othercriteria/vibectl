@@ -10,7 +10,7 @@ from vibectl.prompt import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
 from vibectl.types import Error, Result
 
 
-def run_port_forward_command(
+async def run_port_forward_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None = None,
@@ -49,7 +49,7 @@ def run_port_forward_command(
             logger.info("Planning how to: port-forward %s", request)
 
             # Use the Result returned from handle_vibe_request
-            result = handle_vibe_request(
+            result = await handle_vibe_request(
                 request=request,
                 command="port-forward",
                 plan_prompt=PLAN_PORT_FORWARD_PROMPT,
@@ -66,7 +66,7 @@ def run_port_forward_command(
             logger.info(
                 f"Handling port-forward with live display for resource: {resource}"
             )
-            result = handle_port_forward_with_live_display(
+            result = await handle_port_forward_with_live_display(
                 resource=resource,
                 args=args,
                 output_flags=output_flags,

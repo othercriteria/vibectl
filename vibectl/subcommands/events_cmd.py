@@ -1,3 +1,5 @@
+import asyncio
+
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
@@ -17,7 +19,7 @@ from vibectl.prompt import (
 from vibectl.types import Error, Result, Success
 
 
-def run_events_command(
+async def run_events_command(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -52,7 +54,7 @@ def run_events_command(
             request = " ".join(args[1:])
             logger.info("Planning how to: get events for %s", request)
             try:
-                handle_vibe_request(
+                result_vibe = await handle_vibe_request(
                     request=request,
                     command="events",
                     plan_prompt=PLAN_EVENTS_PROMPT,
@@ -60,23 +62,32 @@ def run_events_command(
                     output_flags=output_flags,
                     memory_context=get_memory() or "",
                 )
+                logger.info("Completed 'events' subcommand for vibe request.")
+                return result_vibe
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'events' subcommand for vibe request.")
-            return Success(message="Completed 'events' subcommand for vibe request.")
 
         # Always use 'kubectl events' (never 'kubectl get events')
         try:
             cmd = ["events", *args]
             logger.info(f"Running kubectl command: {' '.join(cmd)}")
-            output = run_kubectl(cmd, capture=True)
-            if not output:
+            kubectl_result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+
+            if isinstance(kubectl_result, Error):
+                logger.error(f"Error running kubectl: {kubectl_result.error}")
+                return kubectl_result
+
+            output_data = kubectl_result.data
+            if not output_data:
                 console_manager.print_empty_output_message()
                 logger.info("No output from kubectl events command.")
                 return Success(message="No output from kubectl events command.")
-            handle_command_output(
-                output=output,
+
+            # Use asyncio.to_thread for sync output handler
+            await asyncio.to_thread(
+                handle_command_output,
+                output=output_data,
                 output_flags=output_flags,
                 summary_prompt_func=events_prompt,
             )

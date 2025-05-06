@@ -1,3 +1,5 @@
+import asyncio
+
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
@@ -11,7 +13,7 @@ from vibectl.prompt import PLAN_LOGS_PROMPT, logs_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_logs_command(
+async def run_logs_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -47,25 +49,35 @@ def run_logs_command(
             request = " ".join(args)
             logger.info("Planning how to: logs %s", request)
             try:
-                handle_vibe_request(
+                # Await the potentially async vibe handler
+                result_vibe = await handle_vibe_request(
                     request=request,
                     command="logs",
                     plan_prompt=include_memory_in_prompt(PLAN_LOGS_PROMPT),
                     summary_prompt_func=logs_prompt,
                     output_flags=output_flags,
                 )
+                # Return result directly if handle_vibe_request provides one
+                if isinstance(result_vibe, Error):
+                    logger.error(f"Error from handle_vibe_request: {result_vibe.error}")
+                    return result_vibe
+                # Assuming Success means completion, potentially with message/data
+                # Let's return the result from handle_vibe_request
+                logger.info("Completed 'logs' subcommand for vibe request.")
+                return result_vibe  # Return the actual result
+
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'logs' subcommand for vibe request.")
-            return Success(message="Completed 'logs' subcommand for vibe request.")
 
         # Regular logs command
         cmd = ["logs", resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
 
         # Run kubectl and check result type
-        result = run_kubectl(cmd, capture=True)
+        # Assume run_kubectl might be sync or async; wrap sync in to_thread if needed
+        # For now, assume it remains sync as in handle_standard_command pattern
+        result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
 
         # If result is an error, return it
         if isinstance(result, Error):
@@ -79,11 +91,17 @@ def run_logs_command(
 
         if not output:
             logger.info("No output from kubectl logs command.")
-            console_manager.print_note("No output from kubectl logs command.")
+            # Use console_manager if available, otherwise print
+            if "console_manager" in globals():
+                console_manager.print_note("No output from kubectl logs command.")
+            else:
+                print("[NOTE] No output from kubectl logs command.")
             return Success(message="No output from kubectl logs command.")
 
         # handle_command_output will handle truncation warnings and output display
-        handle_command_output(
+        # Assume handle_command_output might be sync or async
+        await asyncio.to_thread(
+            handle_command_output,
             output=output,
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,

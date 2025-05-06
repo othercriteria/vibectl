@@ -11,7 +11,7 @@ from vibectl.prompt import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_cluster_info_command(
+async def run_cluster_info_command(
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
@@ -50,20 +50,18 @@ def run_cluster_info_command(
             request = " ".join(args[1:])
             logger.info("Planning how to: get cluster info %s", request)
             try:
-                handle_vibe_request(
+                # Capture and return the result of handle_vibe_request
+                vibe_result = await handle_vibe_request(
                     request=request,
                     command="cluster-info",
                     plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
                     summary_prompt_func=cluster_info_prompt,
                     output_flags=output_flags,
                 )
+                return vibe_result  # Return the actual result
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'cluster-info' subcommand for vibe request.")
-            return Success(
-                message="Completed 'cluster-info' subcommand for vibe request."
-            )
 
         # For standard cluster-info command
         try:

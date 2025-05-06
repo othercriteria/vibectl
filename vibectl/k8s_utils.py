@@ -33,7 +33,7 @@ def create_kubectl_error(
             # Attempt decoding
             error_str = error_message.decode(
                 "utf-8", errors="strict"
-            )  # Use strict first
+            ).strip()  # Use strict first and strip result
         except UnicodeDecodeError as decode_err:  # Catch specific error
             logger.warning(f"Failed to decode error message bytes: {decode_err}")
             # Assign specific fallback message on decoding error
@@ -212,6 +212,13 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
                 return create_kubectl_error(error_msg)
             return Success(data=stdout)
         else:
+            # If not using stdin, check if -f <file> was provided alongside YAML content
+            if any(arg == "-f" or arg.startswith("-f=") for arg in args):
+                return Error(
+                    error="Cannot provide both YAML content and a file via -f.",
+                    halt_auto_loop=False,  # User input error, likely recoverable
+                )
+
             # Use a temporary file
             temp_path = None
             try:
@@ -221,10 +228,10 @@ def run_kubectl_with_yaml(args: list[str], yaml_content: str) -> Result:
                     temp.write(yaml_content)
                     temp_path = temp.name
 
-                # Add -f <temp_path> only if -f is not already present
+                # By earlier check, -f <file> isn't present if we reach here,
+                # sowe can always add -f <temp_path>
                 cmd_to_run = list(full_cmd_list)  # Create a copy
-                if not any(arg == "-f" or arg.startswith("-f=") for arg in cmd_to_run):
-                    cmd_to_run.extend(["-f", temp_path])
+                cmd_to_run.extend(["-f", temp_path])
 
                 proc = subprocess.run(
                     cmd_to_run, capture_output=True, text=True, check=False

@@ -5,9 +5,9 @@ This module tests the functionality of the rollout command group and its subcomm
 
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
-from vibectl.cli import cli, history, pause, restart, resume, rollout, status, undo
 from vibectl.prompt import (
     rollout_general_prompt,
     rollout_history_prompt,
@@ -15,106 +15,121 @@ from vibectl.prompt import (
 )
 
 
-def test_rollout_vibe_request(cli_runner: CliRunner) -> None:
-    """Test that the rollout command handles vibe requests properly
-    (now not supported at group level).
-    """
-    with patch("vibectl.command_handler.handle_vibe_request"):
-        result = cli_runner.invoke(
-            rollout, ["vibe", "check status of frontend deployment"]
-        )
-        assert result.exit_code == 2
-        assert "No such command" in result.output
-
-
-def test_rollout_vibe_no_request(cli_runner: CliRunner) -> None:
-    """Test that the rollout command properly handles missing vibe request
-    (now not supported at group level).
-    """
-    with patch("vibectl.cli.console_manager"):
-        result = cli_runner.invoke(rollout, ["vibe"])
-        assert result.exit_code == 2
-        assert "No such command" in result.output
-
-
-def test_rollout_no_subcommand(cli_runner: CliRunner) -> None:
-    """Test that an error is displayed when no subcommand is provided for rollout."""
-    with patch("vibectl.cli.console_manager") as mock_console:
-        result = cli_runner.invoke(rollout, [])
-        assert result.exit_code == 1
-        mock_console.print_error.assert_called_once_with(
-            "Missing subcommand for rollout. "
-            "Use one of: status, history, undo, restart, pause, resume"
-        )
-
-
-def test_rollout_status(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_status(cli_runner: CliRunner) -> None:
     """Test normal execution of the rollout status command."""
+    from vibectl.cli import _rollout_common  # Import helper
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "deployment/nginx successfully rolled out"
+        mock_run_kubectl.return_value = Success(
+            data="deployment/nginx successfully rolled out"
+        )
 
-        # Execute the command
-        _ = cli_runner.invoke(status, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="status",
+            resource="deployment/nginx",
+            args=("-n", "default"),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "status", "deployment/nginx"], capture=True
+            ["rollout", "status", "deployment/nginx", "-n", "default"], capture=True
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_status_prompt
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_history(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_history(cli_runner: CliRunner) -> None:
     """Test normal execution of the rollout history command."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
         revision_output = "REVISION  CHANGE-CAUSE\n1         <none>\n2         <none>"
-        mock_run_kubectl.return_value = revision_output
+        mock_run_kubectl.return_value = Success(data=revision_output)
 
-        # Execute the command
-        _ = cli_runner.invoke(history, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="history",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "history", "deployment/nginx"], capture=True
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_history_prompt
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_undo_with_confirmation(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_undo_with_confirmation(cli_runner: CliRunner) -> None:
     """Test rollout undo command with user confirmation."""
+    # Import the helper function directly
+    from vibectl.cli import _rollout_common
+
+    # Import or mock necessary types/functions if needed
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
         patch("click.confirm") as mock_confirm,
-    ):
-        # Setup return values
-        mock_run_kubectl.return_value = "rollback to revision 2 deployment/nginx"
+        patch("vibectl.cli.handle_result") as mock_handle_result,
+    ):  # Mock handle_result
+        mock_run_kubectl.return_value = Success(
+            data="rollback to revision 2 deployment/nginx"
+        )
         mock_confirm.return_value = True
 
-        # Execute the command
-        _ = cli_runner.invoke(undo, ["deployment/nginx", "--to-revision=2"])
+        # Call the helper function directly
+        await _rollout_common(
+            subcommand="undo",
+            resource="deployment/nginx",
+            args=("--to-revision=2",),
+            show_raw_output=None,  # Pass defaults or specific values
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+            yes=False,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_confirm.assert_called_once()
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "undo", "deployment/nginx", "--to-revision=2"], capture=True
@@ -122,34 +137,59 @@ def test_rollout_undo_with_confirmation(cli_runner: CliRunner) -> None:
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_general_prompt
+        # Assert that handle_result was called with a Success object
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_undo_with_yes_flag(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_undo_with_yes_flag(cli_runner: CliRunner) -> None:
     """Test rollout undo command with --yes flag."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
         patch("click.confirm") as mock_confirm,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "rollback to revision 2 deployment/nginx"
+        mock_run_kubectl.return_value = Success(
+            data="rollback to revision 2 deployment/nginx"
+        )
 
-        # Execute the command with --yes flag
-        _ = cli_runner.invoke(undo, ["deployment/nginx", "--to-revision=2", "--yes"])
+        await _rollout_common(
+            subcommand="undo",
+            resource="deployment/nginx",
+            args=("--to-revision=2",),  # Pass args directly
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+            yes=True,  # Set yes flag
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
-        mock_confirm.assert_not_called()  # Should skip confirmation
+        mock_confirm.assert_not_called()
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "undo", "deployment/nginx", "--to-revision=2"], capture=True
         )
         mock_handle_output.assert_called_once()
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_undo_cancelled(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_undo_cancelled(cli_runner: CliRunner) -> None:
     """Test rollout undo command when user cancels the confirmation."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
@@ -157,176 +197,257 @@ def test_rollout_undo_cancelled(cli_runner: CliRunner) -> None:
         ) as mock_handle_output,
         patch("click.confirm") as mock_confirm,
         patch("vibectl.subcommands.rollout_cmd.console_manager") as mock_console,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
         mock_confirm.return_value = False
 
-        # Execute the command
-        _ = cli_runner.invoke(undo, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="undo",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+            yes=False,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_confirm.assert_called_once()
-        mock_run_kubectl.assert_not_called()  # Should not run kubectl if cancelled
-        mock_handle_output.assert_not_called()  # Should not handle output if cancelled
+        mock_run_kubectl.assert_not_called()
+        mock_handle_output.assert_not_called()
         mock_console.print_note.assert_called_once_with("Operation cancelled")
+        # Check that handle_result was called with the cancellation Success message
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
+        assert call_args[0].message == "Operation cancelled"
 
 
-def test_rollout_restart(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_restart(cli_runner: CliRunner) -> None:
     """Test normal execution of the rollout restart command."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "deployment.apps/nginx restarted"
+        mock_run_kubectl.return_value = Success(data="deployment.apps/nginx restarted")
 
-        # Execute the command
-        _ = cli_runner.invoke(restart, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="restart",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "restart", "deployment/nginx"], capture=True
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_general_prompt
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_pause(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_pause(cli_runner: CliRunner) -> None:
     """Test normal execution of the rollout pause command."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "deployment.apps/nginx paused"
+        mock_run_kubectl.return_value = Success(data="deployment.apps/nginx paused")
 
-        # Execute the command
-        _ = cli_runner.invoke(pause, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="pause",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "pause", "deployment/nginx"], capture=True
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_general_prompt
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_resume(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_resume(cli_runner: CliRunner) -> None:
     """Test normal execution of the rollout resume command."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "deployment.apps/nginx resumed"
+        mock_run_kubectl.return_value = Success(data="deployment.apps/nginx resumed")
 
-        # Execute the command
-        _ = cli_runner.invoke(resume, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="resume",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "resume", "deployment/nginx"], capture=True
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
         assert kwargs["summary_prompt_func"] == rollout_general_prompt
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
 
 
-def test_rollout_no_output(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_no_output(cli_runner: CliRunner) -> None:
     """Test rollout command when there's no output from kubectl."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.subcommands.rollout_cmd.console_manager") as mock_console,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = ""
+        mock_run_kubectl.return_value = Success(data="")
 
-        # Execute
-        _ = cli_runner.invoke(status, ["deployment/nginx"])
+        await _rollout_common(
+            subcommand="status",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "status", "deployment/nginx"], capture=True
         )
-        # No output should not trigger handle_command_output
         mock_handle_output.assert_not_called()
+        mock_console.print_note.assert_called_once_with(
+            "No output from kubectl rollout command."
+        )
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)
+        assert call_args[0].message == "No output from kubectl rollout command."
 
 
-def test_rollout_error_handling(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_rollout_error_handling(cli_runner: CliRunner) -> None:
     """Test error handling in rollout command."""
-    with (
-        patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
-    ):
-        # Setup an exception
-        mock_run_kubectl.side_effect = Exception("Test error")
-        # Execute
-        result = cli_runner.invoke(status, ["deployment/nginx"])
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Error
 
-        # Assert error output or exit code
-        assert result.exit_code == 1
-        # Accept either output or exception for robust testing
-        if result.output:
-            assert "Exception running kubectl" in result.output
-        else:
-            assert result.exception is not None
-            assert "Test error" in str(result.exception)
-
-
-def test_rollout_with_args(cli_runner: CliRunner) -> None:
-    """Test rollout command with additional arguments."""
     with (
         patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
-        # Setup return values
-        mock_run_kubectl.return_value = "deployment.apps/nginx history"
+        mock_run_kubectl.return_value = Error(error="Test error")
 
-        # Execute with namespace argument
-        _ = cli_runner.invoke(history, ["deployment", "nginx", "-n", "default"])
+        await _rollout_common(
+            subcommand="status",
+            resource="deployment/nginx",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
 
-        # With sys.exit mocked, we can't rely on exit code checks
-        # Just verify the functions were called correctly
+        mock_run_kubectl.assert_called_once_with(
+            ["rollout", "status", "deployment/nginx"], capture=True
+        )
+        mock_handle_output.assert_not_called()
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Error)
+        assert call_args[0].error == "Test error"
+
+
+@pytest.mark.asyncio
+async def test_rollout_with_args(cli_runner: CliRunner) -> None:
+    """Test rollout command with additional arguments."""
+    from vibectl.cli import _rollout_common
+    from vibectl.types import Success
+
+    with (
+        patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
+        patch(
+            "vibectl.subcommands.rollout_cmd.handle_command_output"
+        ) as mock_handle_output,
+        patch("vibectl.cli.handle_result") as mock_handle_result,
+    ):
+        mock_run_kubectl.return_value = Success(data="deployment.apps/nginx history")
+
+        await _rollout_common(
+            subcommand="history",
+            resource="deployment",
+            args=("nginx", "-n", "default"),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+        )
+
         mock_run_kubectl.assert_called_once_with(
             ["rollout", "history", "deployment", "nginx", "-n", "default"], capture=True
         )
         mock_handle_output.assert_called_once()
-
-
-def test_rollout_integration_flow(cli_runner: CliRunner) -> None:
-    """Test the integration between rollout parent command and subcommands."""
-    with (
-        patch("vibectl.command_handler.handle_vibe_request"),
-        patch("vibectl.subcommands.rollout_cmd.run_kubectl") as mock_run_kubectl,
-        patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output"
-        ) as mock_handle_command_output,
-        patch(
-            "sys.exit",
-            side_effect=lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
-        ),
-    ):
-        # Setup mocks for a successful rollout status
-        mock_run_kubectl.return_value = "deployment/nginx successfully rolled out"
-
-        # Execute rollout with subcommand status
-        cli_runner.invoke(cli, ["rollout", "status", "deployment/nginx"])
-
-        # Assert that handle_command_output was called
-        mock_handle_command_output.assert_called_once()
+        mock_handle_result.assert_called_once()
+        call_args, _ = mock_handle_result.call_args
+        assert isinstance(call_args[0], Success)

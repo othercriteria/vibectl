@@ -18,7 +18,7 @@ from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.types import Error, Result, Success
 
 
-def run_auto_command(
+async def run_auto_command(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -132,7 +132,7 @@ def run_auto_command(
             # Inner try-except for the vibe command execution within the loop
             try:
                 # Run the vibe command with semiauto-specific settings
-                result = run_vibe_command(
+                result = await run_vibe_command(
                     request=request,
                     show_raw_output=show_raw_output,
                     show_vibe=show_vibe,
@@ -198,19 +198,24 @@ def run_auto_command(
     # Outer try-except catches setup errors and KeyboardInterrupt during setup
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt detected during auto command setup")
-        console_manager.print_warning("Auto session interrupted by user")
+        console_manager.print_warning("Auto session stopped by user")
         return Success(message="Auto session stopped by user")
-
     except Exception as e:
-        # Catch any other unexpected exception during setup or loop exit logic
-        logger.error(f"Error in auto command: {e}")
-        if exit_on_error:  # pragma: no cover - difficult to trigger in tests,
-            # covered by integration tests
-            raise
-        return Error(error=f"Exception in auto command: {e}", exception=e)
+        # If exit_on_error is True, always re-raise the original exception
+        # to halt execution and allow tests to catch it.
+        if exit_on_error:
+            # Log before raising might be helpful for debugging
+            logger.error(f"Halting auto command due to error: {e}", exc_info=True)
+            raise e
+
+        # If exit_on_error is False (e.g., during testing or specific scenarios):
+        # Log the error and return an Error object.
+        log_msg = f"Error during auto command execution: {e}"
+        logger.error(log_msg, exc_info=True)
+        return Error(error=log_msg, exception=e)
 
 
-def run_semiauto_command(
+async def run_semiauto_command(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -247,7 +252,7 @@ def run_semiauto_command(
         f"Starting 'semiauto' command with request: {request!r}, limit: {limit}"
     )
 
-    return run_auto_command(
+    return await run_auto_command(
         request=request,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,

@@ -10,7 +10,7 @@ from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
 from vibectl.types import Error, Result, Success
 
 
-def run_wait_command(
+async def run_wait_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -51,7 +51,7 @@ def run_wait_command(
             logger.info("Planning how to: wait for %s", request)
 
             # Use the Result returned by handle_vibe_request
-            result = handle_vibe_request(
+            result = await handle_vibe_request(
                 request=request,
                 command="wait",
                 plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
@@ -77,7 +77,7 @@ def run_wait_command(
             logger.info(f"Handling wait with live display for resource: {resource}")
 
             # Use the Result returned by handle_wait_with_live_display
-            result = handle_wait_with_live_display(
+            result = await handle_wait_with_live_display(
                 resource=resource,
                 args=args,
                 output_flags=output_flags,

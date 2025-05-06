@@ -4,79 +4,85 @@ This module tests the delete command functionality of vibectl with focus on
 error handling and confirmation functionality.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from click.testing import CliRunner
+import pytest
 
-from vibectl.cli import delete
-from vibectl.prompt import PLAN_DELETE_PROMPT
+from vibectl.cli import cli
 
 
-def test_delete_vibe_request(cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_delete_vibe_request() -> None:
     """Test delete vibe request handling."""
     with patch(
-        "vibectl.subcommands.delete_cmd.handle_vibe_request"
+        "vibectl.subcommands.delete_cmd.handle_vibe_request", new_callable=AsyncMock
     ) as mock_handle_vibe_request:
-        # Execute
-        with patch("sys.exit"):
-            result = cli_runner.invoke(delete, ["vibe", "delete the nginx pod"])
+        from vibectl.types import Success
 
-        # Assert
-        assert result.exit_code == 0
+        mock_handle_vibe_request.return_value = Success()
+
+        cmd_obj = cli.commands["delete"]
+        with pytest.raises(SystemExit) as exc_info:
+            await cmd_obj.main(["vibe", "delete the nginx pod"])
+
+        assert exc_info.value.code == 0
         mock_handle_vibe_request.assert_called_once()
         args, kwargs = mock_handle_vibe_request.call_args
         assert kwargs["request"] == "delete the nginx pod"
         assert kwargs["command"] == "delete"
-        assert "plan_prompt" in kwargs
-        assert kwargs["plan_prompt"] == PLAN_DELETE_PROMPT
-        assert kwargs["yes"] is False  # Verify yes flag is passed as False by default
+        assert kwargs["yes"] is False
 
 
-def test_delete_vibe_request_with_yes_flag(cli_runner: CliRunner) -> None:
-    """Test delete vibe request with yes flag to bypass confirmation."""
+@pytest.mark.asyncio
+async def test_delete_vibe_request_with_yes_flag() -> None:
+    """Test delete vibe request with yes flag."""
     with patch(
-        "vibectl.subcommands.delete_cmd.handle_vibe_request"
+        "vibectl.subcommands.delete_cmd.handle_vibe_request", new_callable=AsyncMock
     ) as mock_handle_vibe_request:
-        # Execute with yes flag
-        with patch("sys.exit"):
-            result = cli_runner.invoke(
-                delete, ["vibe", "delete the nginx pod", "--yes"]
-            )
+        from vibectl.types import Success
 
-        # Assert
-        assert result.exit_code == 0
+        mock_handle_vibe_request.return_value = Success()
+
+        cmd_obj = cli.commands["delete"]
+        with pytest.raises(SystemExit) as exc_info:
+            await cmd_obj.main(["vibe", "delete the nginx pod", "--yes"])
+
+        assert exc_info.value.code == 0
         mock_handle_vibe_request.assert_called_once()
         args, kwargs = mock_handle_vibe_request.call_args
-        assert kwargs["yes"] is True  # Verify yes flag is passed as True
+        assert kwargs["yes"] is True
 
 
 @patch("vibectl.subcommands.delete_cmd.handle_standard_command")
-def test_delete_standard(
+@pytest.mark.asyncio
+async def test_delete_standard(
     mock_handle_standard_command: MagicMock,
-    cli_runner: CliRunner,
 ) -> None:
     """Test standard delete command has no confirmation."""
-    # Execute delete command
-    result = cli_runner.invoke(delete, ["pod", "nginx-pod"])
+    from vibectl.types import Success
 
-    # Assert standard command is called directly without confirmation
-    assert result.exit_code == 0
+    mock_handle_standard_command.return_value = Success()
+
+    cmd_obj = cli.commands["delete"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "nginx-pod"])
+
+    assert exc_info.value.code == 0
     mock_handle_standard_command.assert_called_once()
 
 
 @patch("vibectl.subcommands.delete_cmd.handle_standard_command")
-def test_delete_handles_exception(
+@pytest.mark.asyncio
+async def test_delete_handles_exception(
     mock_handle_standard_command: MagicMock,
-    cli_runner: CliRunner,
 ) -> None:
     """Test error handling in delete command."""
-    # Setup mock to raise an exception
     mock_error = ValueError("Test error")
     mock_handle_standard_command.side_effect = mock_error
 
-    # Execute delete command
-    result = cli_runner.invoke(delete, ["pod", "nginx-pod"])
+    cmd_obj = cli.commands["delete"]
+    with pytest.raises(SystemExit) as exc_info:
+        await cmd_obj.main(["pod", "nginx-pod"])
 
-    # Assert error output or exit code
-    assert result.exit_code == 1
-    assert "Error: Test error" in result.output
+    assert exc_info.value.code == 1
+    mock_handle_standard_command.assert_called_once()

@@ -6,7 +6,6 @@ from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
-from click.testing import CliRunner
 
 from vibectl.cli import memory_group
 from vibectl.memory import (
@@ -36,7 +35,9 @@ def setup_and_cleanup_memory() -> Generator[None, None, None]:
         clear_memory()
 
 
-def test_memory_freeze_unfreeze() -> None:
+# Marker for consistency, even if underlying funcs are sync
+@pytest.mark.asyncio
+async def test_memory_freeze_unfreeze() -> None:
     """Test memory freeze and unfreeze functions."""
     # Test disabling (freezing) memory
     disable_memory()
@@ -53,7 +54,11 @@ def test_memory_freeze_unfreeze() -> None:
     assert memory is not None
 
 
-def test_memory_clear(setup_and_cleanup_memory: Generator[None, None, None]) -> None:
+# Marker for consistency, even if underlying funcs are sync
+@pytest.mark.asyncio
+async def test_memory_clear(
+    setup_and_cleanup_memory: Generator[None, None, None],
+) -> None:
     """Test memory clear functionality."""
     # Verify memory has content
     assert get_memory() is not None
@@ -66,24 +71,21 @@ def test_memory_clear(setup_and_cleanup_memory: Generator[None, None, None]) -> 
     assert not memory
 
 
-@patch("click.edit")
-def test_memory_set_with_editor(
+@pytest.mark.asyncio
+@patch("vibectl.cli.click.edit")  # Patch click.edit used within the command
+async def test_memory_set_with_editor(
     mock_edit: MagicMock, setup_and_cleanup_memory: Generator[None, None, None]
 ) -> None:
     """Test memory set using the editor."""
-    # Create Click runner
-    runner = CliRunner()
+    set_cmd = memory_group.commands["set"]  # Get the set command object
 
     # Mock the editor return value
     edited_content = "This is the edited memory content"
     mock_edit.return_value = edited_content
 
-    # Run the memory_set command with edit flag
-    with patch("vibectl.cli.console_manager"):
-        result = runner.invoke(memory_group, ["set", "--edit"])
-
-    # Check the command executed successfully
-    assert result.exit_code == 0
+    # Run the memory_set command directly
+    with patch("vibectl.cli.console_manager"):  # Mock console if needed by command
+        await set_cmd.main(["--edit"], standalone_mode=False)  # Use await and call main
 
     # Check the memory was updated with edited content
     assert get_memory() == edited_content
@@ -92,13 +94,13 @@ def test_memory_set_with_editor(
     mock_edit.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.llm")
-def test_memory_update(
+async def test_memory_update(
     mock_llm: MagicMock, setup_and_cleanup_memory: Generator[None, None, None]
 ) -> None:
     """Test memory update functionality."""
-    # Create Click runner
-    runner = CliRunner()
+    update_cmd = memory_group.commands["update"]  # Get the update command object
 
     # Set up mock response
     mock_model = MagicMock()
@@ -107,12 +109,11 @@ def test_memory_update(
     mock_model.prompt.return_value = mock_response
     mock_llm.get_model.return_value = mock_model
 
-    # Run the memory_update command
-    with patch("vibectl.cli.console_manager"):
-        result = runner.invoke(memory_group, ["update", "Add", "new", "information"])
-
-    # Check the command executed successfully
-    assert result.exit_code == 0
+    # Run the memory_update command directly
+    with patch("vibectl.cli.console_manager"):  # Mock console if needed by command
+        await update_cmd.main(
+            ["Add", "new", "information"], standalone_mode=False
+        )  # Use await and call main
 
     # Verify memory was updated
     assert get_memory() == "Updated memory with new information"

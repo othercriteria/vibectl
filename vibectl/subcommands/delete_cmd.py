@@ -1,3 +1,5 @@
+import asyncio
+
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
@@ -6,10 +8,10 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, include_memory_in_prompt
 from vibectl.prompt import PLAN_DELETE_PROMPT, delete_resource_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, Result
 
 
-def run_delete_command(
+async def run_delete_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None = None,
@@ -47,7 +49,8 @@ def run_delete_command(
             request = " ".join(args)
             logger.info("Planning how to: delete %s", request)
             try:
-                handle_vibe_request(
+                # Restore await for handle_vibe_request
+                result = await handle_vibe_request(
                     request=request,
                     command="delete",
                     plan_prompt=include_memory_in_prompt(PLAN_DELETE_PROMPT),
@@ -55,15 +58,17 @@ def run_delete_command(
                     output_flags=output_flags,
                     yes=yes,
                 )
+                # logger.info("Completed 'delete' subcommand for vibe request.")
+                return result  # Return the result from the async call
             except Exception as e:
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
-            logger.info("Completed 'delete' subcommand for vibe request.")
-            return Success(message="Completed 'delete' subcommand for vibe request.")
 
-        # Handle standard command without confirmation
+        # Handle standard command: run sync function in thread
         try:
-            handle_standard_command(
+            # Use asyncio.to_thread to run the sync function
+            result = await asyncio.to_thread(
+                handle_standard_command,
                 command="delete",
                 resource=resource,
                 args=args,
@@ -74,7 +79,7 @@ def run_delete_command(
             logger.error("Error running standard delete command: %s", e, exc_info=True)
             return Error(error="Exception running standard delete command", exception=e)
         logger.info("Completed 'delete' subcommand.")
-        return Success(message="Completed 'delete' subcommand.")
+        return result
     except Exception as e:
         logger.error("Error in 'delete' subcommand: %s", e, exc_info=True)
         return Error(error="Exception in 'delete' subcommand", exception=e)

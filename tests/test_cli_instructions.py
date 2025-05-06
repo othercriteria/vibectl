@@ -7,11 +7,8 @@ from collections.abc import Generator
 from unittest.mock import Mock, patch
 
 import pytest
-from click.testing import CliRunner
 
-from vibectl.cli import clear, instructions_set, instructions_show
-
-# The cli_runner fixture is now provided by conftest.py
+from vibectl.cli import cli
 
 
 @pytest.fixture
@@ -23,34 +20,32 @@ def mock_config() -> Generator[Mock, None, None]:
         yield mock_config
 
 
-def test_instructions_set_basic(mock_config: Mock, cli_runner: CliRunner) -> None:
+@pytest.mark.asyncio
+async def test_instructions_set_basic(mock_config: Mock) -> None:
     """Test setting instructions with direct text input."""
-    result = cli_runner.invoke(instructions_set, ["Test instructions"])
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
 
-    assert result.exit_code == 0
+    await set_cmd.main(["Test instructions"], standalone_mode=False)  # type: ignore[attr-defined]
+
     mock_config.set.assert_called_once_with("custom_instructions", "Test instructions")
     mock_config.save.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("click.edit")
-def test_instructions_set_with_editor(
+@patch("vibectl.cli.click.edit")
+async def test_instructions_set_with_editor(
     mock_edit: Mock,
     mock_config_class: Mock,
-    cli_runner: CliRunner,
 ) -> None:
     """Test setting instructions using the editor."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     mock_config.get.return_value = "Existing instructions"
     mock_edit.return_value = "Edited instructions"
 
-    # Execute
-    result = cli_runner.invoke(instructions_set, ["--edit"])
+    await set_cmd.main(["--edit"], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 0
     mock_config.get.assert_called_once_with("custom_instructions", "")
     mock_edit.assert_called_once_with("Existing instructions")
     mock_config.set.assert_called_once_with(
@@ -59,158 +54,163 @@ def test_instructions_set_with_editor(
     mock_config.save.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("click.edit")
-def test_instructions_set_editor_cancelled(
+@patch("vibectl.cli.click.edit")
+async def test_instructions_set_editor_cancelled(
     mock_edit: Mock,
     mock_config_class: Mock,
-    cli_runner: CliRunner,
 ) -> None:
     """Test handling when editor is closed without saving."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     mock_config.get.return_value = "Existing instructions"
-    mock_edit.return_value = None  # Editor was closed without saving
+    mock_edit.return_value = None
 
-    # Execute
-    result = cli_runner.invoke(instructions_set, ["--edit"])
+    await set_cmd.main(["--edit"], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 0
     mock_config.set.assert_not_called()
     mock_config.save.assert_not_called()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_set_no_text(
-    mock_config_class: Mock, cli_runner: CliRunner
+@patch("vibectl.cli.console_manager")
+@patch("vibectl.cli.handle_exception")
+@patch("sys.stdin")
+async def test_instructions_set_no_text(
+    mock_stdin: Mock,
+    mock_handle_exception: Mock,
+    mock_console: Mock,
+    mock_config_class: Mock,
 ) -> None:
-    """Test handling when no instructions text is provided."""
-    # Execute
-    result = cli_runner.invoke(instructions_set, [])
+    """Test handling when no instructions text is provided (and not TTY)."""
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 1
+    mock_stdin.isatty.return_value = False
+    mock_stdin.read.return_value = ""
+
+    await set_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
+
     mock_config_class.return_value.set.assert_not_called()
+    mock_console.print_error.assert_any_call(
+        "Error: No instructions provided via stdin."
+    )
+    mock_handle_exception.assert_called_once()
+    assert isinstance(mock_handle_exception.call_args[0][0], ValueError)
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_set_config_save_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@patch("vibectl.cli.handle_exception")
+async def test_instructions_set_config_save_error(
+    mock_handle_exception: Mock,
+    mock_config_class: Mock,
 ) -> None:
     """Test handling when config save fails."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     mock_config.save.side_effect = Exception("Save error")
 
-    # Execute
-    result = cli_runner.invoke(instructions_set, ["Test instructions"])
+    await set_cmd.main(["Test instructions"], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 1
     mock_config.set.assert_called_once()
+    mock_handle_exception.assert_called_once_with(mock_config.save.side_effect)
 
 
-def test_instructions_show_basic(cli_runner: CliRunner, mock_config: Mock) -> None:
+@pytest.mark.asyncio
+async def test_instructions_show_basic(mock_config: Mock) -> None:
     """Test showing instructions when they are set."""
-    # Setup direct mock for get_memory
+    show_cmd = cli.commands["instructions"].commands["show"]  # type: ignore[attr-defined]
     mock_config.get.return_value = "Test instructions"
 
     with patch("vibectl.cli.console_manager") as mock_console:
-        # Execute
-        result = cli_runner.invoke(instructions_show)
+        await show_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-        # Assert
-        assert result.exit_code == 0
         mock_config.get.assert_called_once_with("custom_instructions", "")
         mock_console.print_note.assert_called_once_with("Custom instructions:")
         mock_console.print.assert_called_once_with("Test instructions")
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_show_empty(
-    mock_config_class: Mock, cli_runner: CliRunner
-) -> None:
+async def test_instructions_show_empty(mock_config_class: Mock) -> None:
     """Test showing instructions when none are set."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    show_cmd = cli.commands["instructions"].commands["show"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     mock_config.get.return_value = ""
 
     with patch("vibectl.cli.console_manager") as mock_console:
-        # Execute
-        result = cli_runner.invoke(instructions_show)
+        await show_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-        # Assert
-        assert result.exit_code == 0
         mock_config.get.assert_called_once_with("custom_instructions", "")
         mock_console.print_note.assert_called_once_with("No custom instructions set")
         mock_console.print.assert_not_called()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_show_get_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@patch("vibectl.cli.handle_exception")
+async def test_instructions_show_get_error(
+    mock_handle_exception: Mock,
+    mock_config_class: Mock,
 ) -> None:
     """Test handling when config get fails."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    show_cmd = cli.commands["instructions"].commands["show"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     mock_config.get.side_effect = Exception("Get error")
 
-    # Execute
-    result = cli_runner.invoke(instructions_show)
+    await show_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 1
+    mock_handle_exception.assert_called_once_with(mock_config.get.side_effect)
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_clear_basic(
-    mock_config_class: Mock, cli_runner: CliRunner
-) -> None:
+async def test_instructions_clear_basic(mock_config_class: Mock) -> None:
     """Test clearing instructions."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
+    clear_cmd = cli.commands["instructions"].commands["clear"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
 
-    # Execute
-    result = cli_runner.invoke(clear)
+    await clear_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 0
     mock_config.set.assert_called_once_with("custom_instructions", "")
     mock_config.save.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_clear_unset_error(
-    mock_config_class: Mock, cli_runner: CliRunner
+@patch("vibectl.cli.handle_exception")
+async def test_instructions_clear_unset_error(
+    mock_handle_exception: Mock,
+    mock_config_class: Mock,
 ) -> None:
-    """Test handling when config unset fails."""
-    # Setup
-    mock_config = Mock()
-    mock_config_class.return_value = mock_config
-    mock_config.set.side_effect = Exception("Unset error")
+    """Test handling when config set fails during clear."""
+    clear_cmd = cli.commands["instructions"].commands["clear"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
+    mock_config.set.side_effect = Exception("Set error")
 
-    # Execute
-    result = cli_runner.invoke(clear)
+    await clear_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-    # Assert
-    assert result.exit_code == 1
+    mock_handle_exception.assert_called_once_with(mock_config.set.side_effect)
 
 
+@pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-def test_instructions_set_stdin_accepted(
-    mock_config_class: Mock, cli_runner: CliRunner
+@patch("sys.stdin")
+async def test_instructions_set_stdin_accepted(
+    mock_stdin: Mock,
+    mock_config_class: Mock,
 ) -> None:
     """Test that instructions set accepts piped input (stdin) and sets instructions."""
+    set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
+    mock_config = mock_config_class.return_value
     test_input = "Instructions from stdin!"
-    result = cli_runner.invoke(instructions_set, [], input=test_input)
-    assert result.exit_code == 0
-    mock_config_class.return_value.set.assert_called_once_with(
-        "custom_instructions", test_input
-    )
-    mock_config_class.return_value.save.assert_called_once()
+
+    mock_stdin.isatty.return_value = False
+    mock_stdin.read.return_value = test_input
+
+    await set_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
+
+    mock_config.set.assert_called_once_with("custom_instructions", test_input)
+    mock_config.save.assert_called_once()
