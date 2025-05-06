@@ -1190,7 +1190,21 @@ async def _execute_watch_with_live_display(
     summary_table.add_row("Duration", f"{elapsed_time:.1f}s")
     summary_table.add_row("Lines Received", str(len(accumulated_output_lines)))
     if error_message:
-        summary_table.add_row("Error", error_message, style="red")
+        if final_status == "Completed with errors":
+            # This handles informational stderr when kubectl exits 0.
+            # 'has_error' is False in this case.
+            summary_table.add_row("Notes", error_message, style="yellow")
+        elif has_error:
+            # This handles genuine errors where error_message is set.
+            # 'has_error' would be True for "Error (kubectl)", "Error (Setup)",
+            # "Error (Internal Wait)", etc.
+            summary_table.add_row("Error", error_message, style="red")
+        # If error_message is set, but is not "Completed with errors" (first condition)
+        # AND it's not a "has_error" case (second condition), then we DON'T add the row.
+        # This correctly covers user cancellations where 'error_message' might be
+        # a cancellation message itself (e.g., "Watch execution cancelled internally.")
+        # and 'has_error' is False. The "Status: Cancelled by user" row is sufficient.
+
     console_manager.console.print(summary_table)
 
     # Prepare Vibe summary

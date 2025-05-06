@@ -9,10 +9,6 @@
     - **Commands using `--watch`:**
         - `get`: Intercepts `--watch`. Runs `kubectl get <resource> --watch` and pipes to live display.
         - `events`: Intercepts `--watch`. Runs `kubectl events --watch` and pipes to live display.
-        - `delete`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for deletion) and pipes status updates to live display.
-        - `create`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
-        - `apply`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
-        - `patch`: Intercepts `--watch`. Implements custom watch logic (polling `kubectl get` for readiness/status) and pipes status updates to live display.
     - **Commands using `--follow`:**
         - `logs`: Intercepts `--follow` (or `-f`). Runs `kubectl logs --follow` and pipes output stream to live display.
 

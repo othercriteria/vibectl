@@ -4,6 +4,7 @@ from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
     handle_vibe_request,
+    handle_watch_with_live_display,
     run_kubectl,
 )
 from vibectl.console import console_manager
@@ -70,7 +71,33 @@ async def run_logs_command(
                 logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
                 return Error(error="Exception in handle_vibe_request", exception=e)
 
-        # Regular logs command
+        # Check for --follow or -f flag
+        follow_flag_present = "--follow" in args or "-f" in args
+
+        if follow_flag_present:
+            logger.info(
+                f"Handling 'logs' command for resource '{resource}' with "
+                f"--follow flag using live display."
+            )
+            result = await handle_watch_with_live_display(
+                command="logs",
+                resource=resource,  # Pod name or resource/name for logs
+                args=args,
+                output_flags=output_flags,
+                summary_prompt_func=logs_prompt,
+            )
+            if isinstance(result, Error):
+                logger.error(
+                    f"Error from handle_watch_with_live_display: {result.error}"
+                )
+                return result
+            logger.info(
+                f"Completed 'logs --follow' subcommand for resource: {resource}."
+            )
+            return result
+
+        # Regular logs command (non-streaming)
+        logger.info(f"Handling standard 'logs' command for resource: {resource}.")
         cmd = ["logs", resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
 

@@ -236,6 +236,7 @@ Implementation should prioritize commands that provide the most value to users w
 ## Test Structure Cleanup
 - Flattened `tests/coverage/` into `tests/` for now.
 - Revisit test organization and structure comprehensively later.
+  - Systematically move subcommand-specific CLI tests from `tests/` or `tests/test_cli*.py` into `tests/subcommands/test_<subcommand>_cmd.py` (e.g., `logs` tests moved).
 
 ## Prompt Templating
 - Consider using a dedicated templating library (e.g., Jinja2) for prompt
@@ -256,6 +257,11 @@ Implementation should prioritize commands that provide the most value to users w
 - **Verb Expansion:**
     - Evaluate adding enhanced `--watch` to other verbs like `apply`, `patch`, `cordon`, `uncordon`, `drain`, `top`.
     - Revisit adding enhanced `--watch` to `vibectl just` once the core feature is stable.
+    - **Custom Watch Logic for Specific Commands (Moved from PLANNED_CHANGES.md):**
+        - `delete --watch`: Implement custom watch logic (polling `kubectl get` for deletion) and pipe status updates to live display.
+        - `create --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
+        - `apply --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
+        - `patch --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
 
 ## LLM Interaction and Mocking
 
