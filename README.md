@@ -410,7 +410,7 @@ For a comprehensive overview of the project's structure and organization, please
 [project structure rules](.cursor/rules/project-structure.mdc) to ensure it stays
 up-to-date and accurate.
 
-## Development
+## Development Workflow
 
 This project uses [Flake](https://flake.build) for development environment
 management. The environment is automatically set up when you run `flake develop`.

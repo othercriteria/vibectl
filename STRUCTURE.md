@@ -90,7 +90,6 @@ This document provides an overview of the project's structure and organization.
 - `TESTING.md` - Documentation for testing practices
 - `TODO.md` - Task tracker and planned work
 - `UPDATES.md` - Recent updates and changes tracking
-- `PLANNED_CHANGES.md` - Feature planning document
 - `bump_version.py` - Script for semantic version management
 
 ## Architecture

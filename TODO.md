@@ -262,6 +262,8 @@ Implementation should prioritize commands that provide the most value to users w
         - `create --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
         - `apply --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
         - `patch --watch`: Implement custom watch logic (polling `kubectl get` for readiness/status) and pipe status updates to live display.
+- **Error Handling:**
+    - Ensure clear display of errors from the underlying `kubectl` command or the custom watch/poll logic during the live session.
 
 ## LLM Interaction and Mocking
 
