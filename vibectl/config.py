@@ -44,7 +44,7 @@ DEFAULT_CONFIG = {
     "log_level": "WARNING",  # Default log level for logging
     "live_display_max_lines": 20,  # Default number of lines for live display
     "live_display_wrap_text": True,  # Default to wrapping text in live display
-    "live_display_stream_buffer_max_lines": 100000,  # Max lines for in-memory stream buffer
+    "live_display_stream_buffer_max_lines": 100000,  # Max lines for in-memory stream
     "live_display_default_filter_regex": None,  # Default regex filter (string or None)
     "live_display_save_dir": ".",  # Default directory to save watch output logs
 }

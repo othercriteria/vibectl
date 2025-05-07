@@ -1,30 +1,42 @@
 """Tests for live_display_watch.py helper functions."""
 
-import pytest
-from rich.table import Table
-from rich.text import Text
-from pathlib import Path
 import collections
 import re
-from unittest.mock import MagicMock, Mock
-from pytest_mock import MockerFixture
+import time
+from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, Mock
+
+import pytest
+from pytest_mock import MockerFixture
+from rich.console import Console
+from rich.spinner import Spinner
+from rich.table import Table
+from rich.text import Text
 
 from vibectl.live_display_watch import (
-    _create_watch_summary_table,
+    StatusBarManager,
     WatchDisplayState,
     WatchKeypressAction,
-    process_keypress,
-    _perform_save_to_file,
-    _apply_filter_to_lines,
-    _refresh_footer_controls_text,
     WatchOutcome,
     WatchReason,
     WatchStatusInfo,
+    _apply_filter_to_lines,
+    _create_watch_summary_table,
+    _perform_save_to_file,
+    _refresh_footer_controls_text,
+    process_keypress,
 )
 
 # Test cases for _create_watch_summary_table
-# Parameters: (command_str, status_info, elapsed_time, lines_streamed, expected_rows, expected_message_row)
+# Parameters: (
+#   command_str,
+#   status_info,
+#   elapsed_time,
+#   lines_streamed,
+#   expected_rows,
+#   expected_message_row
+# )
 test_data = [
     # 1. Basic success case
     (
@@ -126,7 +138,14 @@ test_data = [
 
 
 @pytest.mark.parametrize(
-    "command_str, status_info, elapsed_time, lines_streamed, expected_rows, expected_message_content",
+    (
+        "command_str",
+        "status_info",
+        "elapsed_time",
+        "lines_streamed",
+        "expected_rows",
+        "expected_message_content",
+    ),
     test_data,
 )
 def test_create_watch_summary_table(
@@ -137,7 +156,7 @@ def test_create_watch_summary_table(
     expected_rows: int,
     expected_message_content: tuple[str, Text] | None,
 ) -> None:
-    """Verify _create_watch_summary_table generates the correct table structure and content."""
+    """Verify _create_watch_summary_table generates correct table."""
     table = _create_watch_summary_table(
         command_str=command_str,
         status_info=status_info,
@@ -168,8 +187,8 @@ def test_create_watch_summary_table(
 
     # Assertions checking row_data values
     assert str(row_data["Command"]) == f"`kubectl {command_str}`"
-    # assert str(row_data["Status"]) == status_info.outcome.value # This was incorrect
-    # Correctly check the formatted status text based on how _create_watch_summary_table formats it
+    # Correctly check the formatted status text based on how _create_watch_summary_table
+    # formats it
     expected_status_text = f"{status_info.outcome.name.capitalize()}"
     if status_info.reason != WatchReason.PROCESS_EXIT_0:
         expected_status_text += f" ({status_info.reason.name.replace('_', ' ')})"
@@ -178,7 +197,6 @@ def test_create_watch_summary_table(
     actual_status_text = str(
         row_data["Status"]
     )  # Get the plain text from the Text object
-    # Need to handle potential Rich markup in actual_status_text if Text object has style
     # For simplicity, let's assert the plain text content matches
     # A more robust check might involve checking the Text object's spans/style
     assert actual_status_text == expected_status_text
@@ -237,21 +255,71 @@ keypress_test_data = [
         WatchDisplayState(is_paused=False, wrap_text=False),
         WatchKeypressAction.TOGGLE_PAUSE,
     ),
-    # 4. Save key ('s' or 'S') - State should not change
-    ("s", WatchDisplayState(), WatchDisplayState(), WatchKeypressAction.PROMPT_SAVE),
+    # 4. Save key ('s' or 'S') - Updated for input mode
+    (
+        "s",
+        WatchDisplayState(),  # Initial default state
+        WatchDisplayState(  # Expected state after 's' is pressed
+            input_mode_active=True,
+            input_prompt="Save to: ",  # Use the generic prompt set by process_keypress
+            input_buffer="",
+            input_target_action=WatchKeypressAction.PROMPT_SAVE,
+            # Preserve other defaults from WatchDisplayState()
+            wrap_text=True,
+            is_paused=False,
+            filter_regex_str=None,
+            filter_compiled_regex=None,
+        ),
+        WatchKeypressAction.ENTER_INPUT_MODE,  # Expected action
+    ),
     (
         "S",
-        WatchDisplayState(is_paused=True),
-        WatchDisplayState(is_paused=True),
-        WatchKeypressAction.PROMPT_SAVE,
+        WatchDisplayState(is_paused=True),  # Initial state with pause
+        WatchDisplayState(  # Expected state after 'S' is pressed
+            is_paused=True,  # Preserve pause
+            input_mode_active=True,
+            input_prompt="Save to: ",  # Use the generic prompt
+            input_buffer="",
+            input_target_action=WatchKeypressAction.PROMPT_SAVE,
+            # Preserve other defaults
+            wrap_text=True,
+            filter_regex_str=None,
+            filter_compiled_regex=None,
+        ),
+        WatchKeypressAction.ENTER_INPUT_MODE,
     ),
-    # 5. Filter key ('f' or 'F') - State should not change
-    ("f", WatchDisplayState(), WatchDisplayState(), WatchKeypressAction.PROMPT_FILTER),
+    # 5. Filter key ('f' or 'F') - Updated for input mode
+    (
+        "f",
+        WatchDisplayState(),  # Initial default state
+        WatchDisplayState(  # Expected state after 'f' is pressed
+            input_mode_active=True,
+            input_prompt="Filter: ",  # Use the generic prompt
+            input_buffer="",
+            input_target_action=WatchKeypressAction.PROMPT_FILTER,
+            # Preserve other defaults
+            wrap_text=True,
+            is_paused=False,
+            filter_regex_str=None,
+            filter_compiled_regex=None,
+        ),
+        WatchKeypressAction.ENTER_INPUT_MODE,
+    ),
     (
         "F",
-        WatchDisplayState(filter_regex_str="test"),
-        WatchDisplayState(filter_regex_str="test"),
-        WatchKeypressAction.PROMPT_FILTER,
+        WatchDisplayState(filter_regex_str="test"),  # Initial state with a filter
+        WatchDisplayState(  # Expected state after 'F' is pressed
+            filter_regex_str="test",  # process_keypress doesn't clear it on entry
+            input_mode_active=True,
+            input_prompt="Filter: ",  # Use the generic prompt
+            input_buffer="",
+            input_target_action=WatchKeypressAction.PROMPT_FILTER,
+            # Preserve other defaults
+            wrap_text=True,
+            is_paused=False,
+            filter_compiled_regex=None,  # not set by process_keypress
+        ),
+        WatchKeypressAction.ENTER_INPUT_MODE,
     ),
     # 6. Invalid key - State should not change, action is NO_ACTION
     ("x", WatchDisplayState(), WatchDisplayState(), WatchKeypressAction.NO_ACTION),
@@ -275,7 +343,9 @@ def test_process_keypress(
 ) -> None:
     """Verify process_keypress returns the correct new state and action."""
 
-    new_state, action = process_keypress(input_char, initial_state)
+    # Provide a dummy resource string for the new required argument
+    dummy_resource = "test/resource"
+    new_state, action = process_keypress(input_char, initial_state, dummy_resource)
 
     assert action == expected_action
     # Compare dataclass instances directly
@@ -301,7 +371,15 @@ def mock_strftime(mocker: MockerFixture) -> Any:
 
 
 # Test cases for _perform_save_to_file
-# Parameters: (save_dir_mock, filename_suggestion, user_filename, all_lines, filter_re_str, expected_save_path_name, expected_lines_written)
+# Parameters: (
+#   save_dir_mock,
+#   filename_suggestion,
+#   user_filename,
+#   all_lines,
+#   filter_re_str,
+#   expected_save_path_name,
+#   expected_lines_written
+# )
 save_test_data = [
     # 1. Basic save, no filter, default filename
     (
@@ -377,7 +455,15 @@ save_test_data = [
 
 
 @pytest.mark.parametrize(
-    "save_dir_base, filename_suggestion, user_filename, all_lines, filter_re_str, expected_save_path_name, expected_lines_written",
+    (
+        "save_dir_base",
+        "filename_suggestion",
+        "user_filename",
+        "all_lines",
+        "filter_re_str",
+        "expected_save_path_name",
+        "expected_lines_written",
+    ),
     save_test_data,
 )
 def test_perform_save_to_file(
@@ -394,7 +480,7 @@ def test_perform_save_to_file(
 ) -> None:
     """Verify _perform_save_to_file writes correct filtered content to expected path."""
 
-    # Configure the mock_path fixture to represent the specific save_dir for this test case
+    # Configure the mock_path fixture to represent the specific test case save_dir
     # This ensures that `save_dir / filename` resolves correctly using the mock
     mock_save_dir = mocker.MagicMock(spec=Path)
     mock_save_dir.configure_mock(
@@ -559,3 +645,122 @@ def test_refresh_footer_controls_text(
     _refresh_footer_controls_text(mock_text_obj, state)
     # Assert that the mock Text object's plain attribute was set correctly
     assert mock_text_obj.plain == expected_plain_text
+
+
+@pytest.fixture
+def status_bar_components() -> dict[str, Any]:
+    """Provides components needed to initialize StatusBarManager."""
+    start_time = time.time() - 15.5  # Simulate time elapsed
+    shared_line_counter = [0]  # Use list for mutable counter via lambda
+    spinner = Spinner("dots")
+    live_stats_text = Text()
+    temp_message_text = Text()
+    show_temp_flag = [False]  # Use list for mutable flag via lambda
+    footer_controls_text = Text()  # ADDED: Footer controls text object
+
+    # Dummy function for get_input_mode_state_func for existing tests
+    # Tests specifically for input mode would need to manipulate this
+    # or provide a different mock
+    def dummy_get_input_mode_state() -> tuple[bool, str, str]:
+        return False, "", ""  # Default: input mode not active
+
+    manager = StatusBarManager(
+        start_time=start_time,
+        get_current_lines_func=lambda: shared_line_counter[0],
+        spinner=spinner,
+        live_stats_text_obj=live_stats_text,
+        temporary_message_text_obj=temp_message_text,
+        get_show_temporary_message_func=lambda: show_temp_flag[0],
+        footer_controls_text_obj=footer_controls_text,
+        get_input_mode_state_func=dummy_get_input_mode_state,
+    )
+    return {
+        "manager": manager,
+        "start_time": start_time,
+        "shared_line_counter": shared_line_counter,
+        "spinner": spinner,
+        "live_stats_text": live_stats_text,
+        "temp_message_text": temp_message_text,
+        "show_temp_flag": show_temp_flag,
+        "footer_controls_text": footer_controls_text,
+        "get_input_mode_state_func": dummy_get_input_mode_state,
+    }
+
+
+def test_statusbarmanager_renders_live_stats_mode(
+    status_bar_components: dict[str, Any],
+) -> None:
+    """Test StatusBarManager renders spinner and stats when temp flag is False."""
+    manager = status_bar_components["manager"]
+    line_counter = status_bar_components["shared_line_counter"]
+    show_temp_flag = status_bar_components["show_temp_flag"]
+
+    # Set initial state
+    line_counter[0] = 123
+    show_temp_flag[0] = False  # Ensure live mode
+
+    console = Console(record=True, width=80)
+    console.print(manager)
+    output = console.export_text()
+
+    # Check for stats text format (adjust time check if needed)
+    assert "15." in output  # Check elapsed time part
+    assert "123 lines" in output  # Check line count part
+
+
+def test_statusbarmanager_renders_temporary_message_mode(
+    status_bar_components: dict[str, Any],
+) -> None:
+    """Test StatusBarManager renders the temporary message when flag is True."""
+    manager = status_bar_components["manager"]
+    temp_text = status_bar_components["temp_message_text"]
+    show_temp_flag = status_bar_components["show_temp_flag"]
+
+    # Set state
+    temp_message = "This is a test temporary message."
+    temp_text.plain = temp_message
+    show_temp_flag[0] = True  # Ensure temporary message mode
+
+    console = Console(record=True, width=80)
+    console.print(manager)
+    output = console.export_text()
+
+    assert temp_message in output
+    assert "lines" not in output  # Check live stats are not shown
+
+
+def test_statusbarmanager_updates_stats_on_render(
+    status_bar_components: dict[str, Any],
+) -> None:
+    """Test that live stats are recalculated on each render."""
+    manager = status_bar_components["manager"]
+    line_counter = status_bar_components["shared_line_counter"]
+    show_temp_flag = status_bar_components["show_temp_flag"]
+    start_time = status_bar_components["start_time"]
+
+    show_temp_flag[0] = False  # Live mode
+
+    # First render
+    line_counter[0] = 10
+    console1 = Console(record=True, width=80)
+    console1.print(manager)
+    output1 = console1.export_text()
+    time_elapsed1 = time.time() - start_time
+
+    # Simulate time passing and more lines
+    time.sleep(0.2)
+    line_counter[0] = 50
+
+    # Second render
+    console2 = Console(record=True, width=80)
+    console2.print(manager)
+    output2 = console2.export_text()
+    time_elapsed2 = time.time() - start_time
+
+    assert "10 lines" in output1
+
+    assert f"{time_elapsed2:.1f}s" in output2
+    assert "50 lines" in output2
+
+    # Ensure times are different enough
+    assert time_elapsed2 > time_elapsed1

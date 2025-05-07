@@ -220,7 +220,7 @@ Note:
 # Basic operations with AI-powered summaries
 vibectl get pods                                  # List pods with summary
 vibectl describe deployment my-app                # Get detailed info
-vibectl logs pod/my-pod                          # Get pod logs
+vibectl logs pod/my-pod -f                       # Follow pod logs interactively
 vibectl scale deployment/nginx --replicas=3      # Scale a deployment
 
 # Natural language commands
@@ -232,6 +232,22 @@ vibectl describe vibe what's wrong with the database
 # Direct kubectl access
 vibectl just get pods                            # Pass directly to kubectl
 ```
+
+### Interactive Watch/Follow (`get --watch`, `logs -f`, `events --watch`)
+
+When using `--watch` with `vibectl get` or `vibectl events`, or `--follow`/`-f` with `vibectl logs`, `vibectl` provides an interactive live display powered by Rich.
+
+Features:
+- **Live Updates:** See new events, log lines, or resource changes as they happen.
+- **Status Bar:** Displays elapsed time, total lines streamed, and a spinner indicating activity.
+- **Keybindings:**
+    - `[P]ause / Resume`: Toggle pausing the display updates (stream continues in background).
+    - `[W]rap / Unwrap`: Toggle text line wrapping.
+    - `[F]ilter`: Enter a Python regex to filter the displayed lines.
+    - `[S]ave`: Save the currently captured output (respecting filters) to a file.
+    - `[E]xit`: Stop watching/following and display the final summary (including Vibe analysis if applicable).
+    - `[Ctrl+C]`: Force exit.
+- **Post-Watch Summary:** After exiting, `vibectl` provides a summary table and, if applicable, a Vibe analysis of the captured output.
 
 ### Memory
 

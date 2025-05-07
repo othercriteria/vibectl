@@ -8,12 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Interactive live display for commands using `--watch` (`get`, `events`) or `--follow` (`logs`), replacing simple pass-through. Includes keybindings for Exit (E), Pause (P), Wrap (W), Save (S), and Filter (F).
+- Status bar for live display showing elapsed time, line count, and spinner.
 - Live display feature for `vibectl get --watch` using Rich Live.
 - Planned: Enhanced watch/follow functionality for relevant vibectl commands (WIP)
 
 ### Changed
 - Refactored tests for `get` subcommand into `tests/subcommands/test_get_cmd.py`.
 - Improved test coverage for `vibectl/subcommands/get_cmd.py`.
+- Refactored watch/follow logic from `command_handler.py` into new `live_display_watch.py` module.
+- Vibe summarization for watched/followed commands now occurs after the live display is exited, using the captured output.
 
 ## [0.6.0] - 2025-05-04
 

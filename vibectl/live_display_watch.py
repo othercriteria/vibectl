@@ -1,5 +1,6 @@
 import asyncio
 import collections  # specifically for deque
+import contextlib
 import functools
 import logging
 import re
@@ -7,11 +8,12 @@ import sys
 import termios
 import time
 import tty
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Callable, Iterable
 
+from rich.columns import Columns
 from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.live import Live
 from rich.panel import Panel
@@ -28,49 +30,77 @@ from .utils import console_manager
 logger = logging.getLogger(__name__)
 
 
-# --- Custom Rich Renderable for Live Status Bar ---
-class LiveStatusDisplay:
+# ustom Renderable to Manage Status Bar Content
+class StatusBarManager:
     def __init__(
         self,
         start_time: float,
         get_current_lines_func: Callable[[], int],
         spinner: Spinner,
-        text_obj: Text,
+        live_stats_text_obj: Text,
+        temporary_message_text_obj: Text,
+        get_show_temporary_message_func: Callable[[], bool],
+        footer_controls_text_obj: Text,
+        get_input_mode_state_func: Callable[
+            [], tuple[bool, str, str]
+        ],  # New: (is_active, prompt, buffer)
     ):
         self.start_time = start_time
         self.get_current_lines_func = get_current_lines_func
         self.spinner = spinner
-        self.text_obj = text_obj
-        self._last_lines_streamed = (
-            -1
-        )  # To help with conditional refresh if needed, though Rich handles it
-        self._last_elapsed_str = ""
+        self.live_stats_text_obj = live_stats_text_obj
+        self.temp_message = temporary_message_text_obj
+        self.get_show_temp_func = get_show_temporary_message_func
+        self.footer_controls = footer_controls_text_obj
+        self.get_input_mode_state = get_input_mode_state_func
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        elapsed_seconds = time.time() - self.start_time
-        # Format to 1 decimal place, but ensure it updates even if only milliseconds change
-        elapsed_str = f"{elapsed_seconds:.1f}s"
-        lines_streamed = self.get_current_lines_func()
+        show_temp = self.get_show_temp_func()
+        input_mode_active, input_prompt, input_buffer = self.get_input_mode_state()
 
-        # Update text object only if content changed to avoid unnecessary re-rendering triggers if Rich doesn\'t diff
-        current_text = f"{elapsed_str} | {lines_streamed} lines"
-        if self.text_obj.plain != current_text:
-            self.text_obj.plain = current_text
+        if input_mode_active:
+            # Render prompt and user's current input buffer
+            yield Text(
+                f"{input_prompt}{input_buffer}", style="bold cyan"
+            )  # Example style
+        elif show_temp:
+            yield self.temp_message
+        else:
+            # Calculate stats
+            elapsed_seconds = time.time() - self.start_time
+            elapsed_str = f"{elapsed_seconds:.1f}s"
+            lines_streamed = self.get_current_lines_func()
+            current_text = f"{elapsed_str} | {lines_streamed} lines"
+            if self.live_stats_text_obj.plain != current_text:
+                self.live_stats_text_obj.plain = current_text
 
-        yield self.spinner
-        yield Text(" ", style="dim")  # For spacing
-        yield self.text_obj
+            # Yield Columns for spinner, stats, and footer controls
+            yield Columns(
+                [
+                    self.spinner,
+                    Text(" ", style="dim"),  # Spacer
+                    self.live_stats_text_obj,
+                    Text("  |  ", style="dim"),  # Spacer & Separator
+                    self.footer_controls,
+                ],
+                padding=0,
+                expand=False,
+            )
 
 
-# --- State and Actions for Keypress Handling (Module Level) ---
+# State and Actions for Keypress Handling
 @dataclass
 class WatchDisplayState:
     wrap_text: bool = True
     is_paused: bool = False
     filter_regex_str: str | None = None
     filter_compiled_regex: re.Pattern | None = None
+    input_mode_active: bool = False
+    input_prompt: str = ""
+    input_buffer: str = ""
+    input_target_action: "WatchKeypressAction | None" = None  # Fixed forward reference
 
 
 class WatchKeypressAction(Enum):
@@ -80,44 +110,69 @@ class WatchKeypressAction(Enum):
     PROMPT_SAVE = auto()
     PROMPT_FILTER = auto()
     UPDATE_STATE_ONLY = auto()  # Use when only state changes (e.g. wrap toggle)
+    ENTER_INPUT_MODE = auto()  # New action to signal entering input mode
+    SUBMIT_INPUT = auto()  # New action for Enter key in input mode
+    CANCEL_INPUT = auto()  # New action for Esc key in input mode
+    APPEND_CHAR_TO_INPUT = auto()  # New action for appending to input buffer
+    BACKSPACE_INPUT = auto()  # New action for backspace
     NO_ACTION = auto()  # For unrecognized keys
 
 
 def process_keypress(
     char: str,
     current_state: WatchDisplayState,
+    resource: str,
 ) -> tuple[WatchDisplayState, WatchKeypressAction]:
     """Processes a keypress, returning updated state and requested action."""
-    new_state = current_state  # Start with current state
-    action = WatchKeypressAction.NO_ACTION  # Default action
+    action = WatchKeypressAction.NO_ACTION
 
+    if current_state.input_mode_active:
+        # Input mode key handling (delegated to _input_reader_callback,
+        # but process_keypress needs to map char to specific input actions)
+        if char == "\r" or char == "\n":  # Enter key
+            action = WatchKeypressAction.SUBMIT_INPUT
+        elif char == "\x1b":  # Escape key
+            action = WatchKeypressAction.CANCEL_INPUT
+        # Add Backspace handling (e.g., '\x7f' for DEL or '\x08' for BS)
+        # For simplicity, we'll handle specific backspace chars if detected by read(1)
+        # This is OS/terminal dependent. A more robust solution uses curses or similar.
+        elif char == "\x7f" or char == "\x08":  # DEL or Backspace
+            action = WatchKeypressAction.BACKSPACE_INPUT
+        elif char.isprintable():
+            # The char itself will be the data for APPEND_CHAR_TO_INPUT
+            # The callback will handle appending it to current_state.input_buffer
+            action = WatchKeypressAction.APPEND_CHAR_TO_INPUT
+        # else: no action for other control chars in input mode for now
+        return WatchDisplayState(
+            **current_state.__dict__
+        ), action  # Return current state, action is key
+
+    # Normal mode key handling
     char_lower = char.lower()
+    new_state_dict = current_state.__dict__.copy()
 
     if char_lower == "e":
         action = WatchKeypressAction.EXIT
     elif char_lower == "w":
-        new_state = WatchDisplayState(
-            wrap_text=not current_state.wrap_text,
-            is_paused=current_state.is_paused,  # Preserve other state
-            filter_regex_str=current_state.filter_regex_str,
-            filter_compiled_regex=current_state.filter_compiled_regex,
-        )
-        action = WatchKeypressAction.TOGGLE_WRAP  # Signify wrap toggled
+        new_state_dict["wrap_text"] = not current_state.wrap_text
+        action = WatchKeypressAction.TOGGLE_WRAP
     elif char_lower == "p":
-        new_state = WatchDisplayState(
-            wrap_text=current_state.wrap_text,  # Preserve other state
-            is_paused=not current_state.is_paused,
-            filter_regex_str=current_state.filter_regex_str,
-            filter_compiled_regex=current_state.filter_compiled_regex,
-        )
-        action = WatchKeypressAction.TOGGLE_PAUSE  # Signify pause toggled
+        new_state_dict["is_paused"] = not current_state.is_paused
+        action = WatchKeypressAction.TOGGLE_PAUSE
     elif char_lower == "s":
-        action = WatchKeypressAction.PROMPT_SAVE
+        new_state_dict["input_mode_active"] = True
+        new_state_dict["input_prompt"] = "Save to: "
+        new_state_dict["input_buffer"] = ""
+        new_state_dict["input_target_action"] = WatchKeypressAction.PROMPT_SAVE
+        action = WatchKeypressAction.ENTER_INPUT_MODE
     elif char_lower == "f":
-        action = WatchKeypressAction.PROMPT_FILTER
+        new_state_dict["input_mode_active"] = True
+        new_state_dict["input_prompt"] = "Filter: "
+        new_state_dict["input_buffer"] = ""
+        new_state_dict["input_target_action"] = WatchKeypressAction.PROMPT_FILTER
+        action = WatchKeypressAction.ENTER_INPUT_MODE
 
-    # Return the (potentially updated) state and the determined action
-    return new_state, action
+    return WatchDisplayState(**new_state_dict), action
 
 
 # Add New Enums and Dataclass here
@@ -172,9 +227,10 @@ def _create_watch_summary_table(
     status_style = "green"
     if status_info.outcome == WatchOutcome.ERROR:
         status_style = "red"
-    elif status_info.outcome == WatchOutcome.CANCELLED:
-        status_style = "yellow"
-    elif status_info.reason != WatchReason.PROCESS_EXIT_0:  # Success but with stderr
+    elif (
+        status_info.outcome == WatchOutcome.CANCELLED
+        or status_info.reason != WatchReason.PROCESS_EXIT_0
+    ):
         status_style = "yellow"
 
     summary_table.add_row("Command", f"`kubectl {command_str}`")
@@ -257,10 +313,9 @@ async def _process_stream_output(
     master_line_buffer: collections.deque[str],
     accumulated_output_lines: list[str],
     max_lines_for_disp: int,
-    get_is_showing_temporary_message_func: Callable[[], bool],
     get_current_display_state_func: Callable[[], WatchDisplayState],
     shared_line_counter_ref: list[int],
-) -> tuple[str | None, int]:
+) -> str | None:
     """Reads stdout/stderr from process, updates display and master buffer."""
     captured_stderr: str | None = None
     lines_read_count = 0
@@ -273,7 +328,10 @@ async def _process_stream_output(
             return b""
         try:
             line = await stream.readline()
-            logger.debug(f"_read_stream_line ({stream_name}): read {len(line)} bytes: {line[:100]!r}")
+            logger.debug(
+                f"_read_stream_line ({stream_name}): read {len(line)} bytes: "
+                f"{line[:100]!r}"
+            )
             return line
         except Exception as e_read:
             # Log error but return empty bytes, let main loop handle stream ending
@@ -299,7 +357,7 @@ async def _process_stream_output(
         logger.warning(
             "Watch command (_process_stream) has no stdout/stderr initially."
         )
-        return None, 0  # No streams, no lines read
+        return None
 
     try:
         while pending_stream_tasks:
@@ -337,18 +395,11 @@ async def _process_stream_output(
                             new_text_plain = "\n".join(actual_lines_for_disp)
                             text_content_to_update.plain = new_text_plain
 
-                    # Stats are updated by LiveStatusDisplay via Rich's refresh cycle
-
-                    # Log conditions before deciding to re-add task
-                    if process.stdout:
-                        logger.debug(f"Re-add check (task: {task_name}): stdout EOF? {process.stdout.at_eof()}, pending: {len(pending_stream_tasks)}, rc: {process.returncode}")
-                    else:
-                        logger.debug(f"Re-add check (task: {task_name}): stdout is None, pending: {len(pending_stream_tasks)}, rc: {process.returncode}")
-
                     # Re-add task to read next line if process is still running
                     if process.returncode is None:
                         if (
-                            "stdout_reader_stream_proc" in task_name # Check specific task
+                            "stdout_reader_stream_proc"
+                            in task_name  # Check specific task
                             and process.stdout
                             and not process.stdout.at_eof()
                         ):
@@ -358,7 +409,8 @@ async def _process_stream_output(
                             )
                             pending_stream_tasks.add(new_stdout_task)
                         elif (
-                            "stderr_reader_stream_proc" in task_name # Check specific task
+                            "stderr_reader_stream_proc"
+                            in task_name  # Check specific task
                             and process.stderr
                             and not process.stderr.at_eof()
                         ):
@@ -393,7 +445,7 @@ async def _process_stream_output(
                 t_cancel.cancel()
             await asyncio.gather(*active_remaining, return_exceptions=True)
 
-    return captured_stderr, lines_read_count
+    return captured_stderr
 
 
 async def _execute_watch_with_live_display(
@@ -435,7 +487,6 @@ async def _execute_watch_with_live_display(
     live_display_content = Text("", no_wrap=not live_display_wrap_text)
     loop = asyncio.get_running_loop()
 
-    # --- Centralized Display State (Initialized before Live starts) ---
     initial_filter_compiled: re.Pattern | None = None
     if live_display_filter_regex:
         try:
@@ -446,7 +497,6 @@ async def _execute_watch_with_live_display(
                 f"'{live_display_filter_regex}': {e_init_re}"
             )
 
-    # Initialize the state object in the outer scope
     current_display_state_obj = WatchDisplayState(
         wrap_text=live_display_wrap_text,
         is_paused=False,
@@ -457,30 +507,24 @@ async def _execute_watch_with_live_display(
     all_streamed_lines: collections.deque[str] = collections.deque(
         maxlen=stream_buffer_max_lines
     )
-    total_lines_actually_streamed_counter = 0
 
     footer_controls_text_obj = Text("", style="dim")
     live_stats_spinner_obj = Spinner("dots", style="dim", speed=1.5)
     live_stats_text_obj = Text("", style="dim")
-    live_status_bar_renderable = Group(live_stats_spinner_obj, " ", live_stats_text_obj)
 
     temporary_status_message_text_obj = Text("", style="dim i")
-
-    # Initialize with a temporary message for "Initializing..."
     temporary_status_message_text_obj.plain = "Initializing..."
-    status_bar_content_holder = Panel(
-        temporary_status_message_text_obj, border_style="none", padding=0
-    )
 
-    overall_layout = Group(
+    status_bar_renderable_placeholder = Text("")
+
+    initial_overall_layout = Group(
         Panel(
             live_display_content,
             title=display_text,
             border_style="blue",
             height=live_display_max_lines + 2,
         ),
-        status_bar_content_holder,
-        footer_controls_text_obj,
+        status_bar_renderable_placeholder,
     )
 
     # --- Set initial footer text BEFORE starting Live ---
@@ -501,17 +545,38 @@ async def _execute_watch_with_live_display(
         nonlocal current_display_state_obj
         nonlocal start_time_session
         nonlocal live_stats_spinner_obj, live_stats_text_obj
-        nonlocal temporary_status_message_text_obj, status_bar_content_holder
+        nonlocal temporary_status_message_text_obj, status_bar_renderable_placeholder
+        nonlocal resource
 
         is_showing_temporary_message: bool = False
+
         shared_line_counter = [0]
 
-        live_status_renderable = LiveStatusDisplay(
-            start_time_session,
-            lambda: shared_line_counter[0],
-            live_stats_spinner_obj,
-            live_stats_text_obj,
+        # Create the StatusBarManager instance HERE, passing necessary components/data
+        status_bar_manager = StatusBarManager(
+            start_time=start_time_session,
+            get_current_lines_func=lambda: shared_line_counter[0],
+            spinner=live_stats_spinner_obj,
+            live_stats_text_obj=live_stats_text_obj,
+            temporary_message_text_obj=temporary_status_message_text_obj,
+            get_show_temporary_message_func=lambda: is_showing_temporary_message,
+            footer_controls_text_obj=footer_controls_text_obj,
+            get_input_mode_state_func=lambda: (
+                current_display_state_obj.input_mode_active,
+                current_display_state_obj.input_prompt,
+                current_display_state_obj.input_buffer,
+            ),
         )
+
+        # Replace the placeholder in the live instance's layout
+        if (
+            live_instance_ref
+            and hasattr(live_instance_ref, "renderable")
+            and isinstance(live_instance_ref.renderable, Group)
+            and len(live_instance_ref.renderable.renderables) > 1
+        ):
+            live_instance_ref.renderable.renderables[1] = status_bar_manager
+            live_instance_ref.refresh()
 
         original_termios_settings = None
         input_reader_active = False
@@ -526,68 +591,215 @@ async def _execute_watch_with_live_display(
             nonlocal all_streamed_lines, live_display_content
             nonlocal current_display_state_obj
             nonlocal is_showing_temporary_message
-            
+
             try:
                 # Handle temporary message dismissal first
                 if is_showing_temporary_message:
                     _revert_to_live_status()
-                    try: 
-                        sys.stdin.read(1) # Consume the keypress
-                    except Exception as e_read_dismiss_key:
-                         logger.warning(f"Could not read dismissal key: {e_read_dismiss_key}")
+                    with contextlib.suppress(Exception):
+                        sys.stdin.read(1)  # Consume the keypress
                     return
 
                 char = sys.stdin.read(1)
                 if not char:
                     return
 
+                # Get new state and action from process_keypress
                 new_state_from_keypress, requested_action = process_keypress(
-                    char,
-                    current_display_state_obj,
+                    char, current_display_state_obj, resource
                 )
-                current_display_state_obj = new_state_from_keypress
 
+                # If in input mode, and action is APPEND_CHAR_TO_INPUT, char is the data
+                char_to_append = (
+                    char
+                    if requested_action == WatchKeypressAction.APPEND_CHAR_TO_INPUT
+                    and char.isprintable()
+                    else None
+                )
+
+                current_display_state_obj = (
+                    new_state_from_keypress  # Update state first
+                )
+
+                # Handle actions
                 if requested_action == WatchKeypressAction.EXIT:
                     logger.debug("Exit action requested by keypress.")
                     loop.call_soon_threadsafe(exit_requested_event.set)
-                elif (
-                    requested_action == WatchKeypressAction.TOGGLE_PAUSE
-                    and not current_display_state_obj.is_paused
-                ):
-                    live_display_content.no_wrap = (
-                        not current_display_state_obj.wrap_text
-                    )
-                    filtered_lines_on_resume = _apply_filter_to_lines(
-                        all_streamed_lines,
-                        current_display_state_obj.filter_compiled_regex,
-                    )
-                    latest_lines_to_display = filtered_lines_on_resume[-max_lines:]
-                    live_display_content.plain = "\n".join(latest_lines_to_display)
+
+                elif requested_action == WatchKeypressAction.ENTER_INPUT_MODE:
+                    # Finalize the prompt string based on the target action
+                    if (
+                        current_display_state_obj.input_target_action
+                        == WatchKeypressAction.PROMPT_SAVE
+                    ):
+                        filename_path = resource.replace("/", "_")
+                        filename_suffix = time.strftime("%Y%m%d_%H%M%S")
+                        filename_suggestion = (
+                            f"vibectl_watch_{filename_path}_{filename_suffix}.log"
+                        )
+                        current_display_state_obj.input_prompt = (
+                            f"Save to [{filename_suggestion}]: "
+                        )
+                    elif (
+                        current_display_state_obj.input_target_action
+                        == WatchKeypressAction.PROMPT_FILTER
+                    ):
+                        filter_regex_str = current_display_state_obj.filter_regex_str
+                        current_filter_display = (
+                            f" (current: '{filter_regex_str}')"
+                            if filter_regex_str
+                            else " (off)"
+                        )
+                        current_display_state_obj.input_prompt = (
+                            f"Filter regex (empty to clear){current_filter_display}: "
+                        )
+                    # Else: prompt already set generically by process_keypress or
+                    # invalid state?
+                    # Let StatusBarManager pick up the updated prompt on next refresh.
+                    pass  # State change already handled activation
+
+                elif requested_action == WatchKeypressAction.APPEND_CHAR_TO_INPUT:
+                    if char_to_append:
+                        current_display_state_obj.input_buffer += char_to_append
+                    # StatusBarManager will show updated buffer on refresh
+
+                elif requested_action == WatchKeypressAction.BACKSPACE_INPUT:
+                    if current_display_state_obj.input_buffer:
+                        current_display_state_obj.input_buffer = (
+                            current_display_state_obj.input_buffer[:-1]
+                        )
+                    # StatusBarManager will show updated buffer on refresh
+
+                elif requested_action == WatchKeypressAction.SUBMIT_INPUT:
+                    # Finalize the input
+                    target_action = current_display_state_obj.input_target_action
+                    buffer_content = current_display_state_obj.input_buffer
+
+                    # Reset input mode state FIRST
+                    current_display_state_obj.input_mode_active = False
+                    current_display_state_obj.input_prompt = ""
+                    current_display_state_obj.input_buffer = ""
+                    current_display_state_obj.input_target_action = None
+
+                    _finalize_input_action(target_action, buffer_content, max_lines)
+                    # _finalize_input_action will call _set_temporary_status_message
+                    # for confirmation
+
+                elif requested_action == WatchKeypressAction.CANCEL_INPUT:
+                    current_display_state_obj.input_mode_active = False
+                    current_display_state_obj.input_prompt = ""
+                    current_display_state_obj.input_buffer = ""
+                    current_display_state_obj.input_target_action = None
+                    _set_temporary_status_message("Input cancelled.", True)
                     _refresh_footer_controls_text(
                         footer_controls_text_obj, current_display_state_obj
-                    )
+                    )  # Refresh to show normal controls
+
                 elif requested_action in [
                     WatchKeypressAction.TOGGLE_WRAP,
                     WatchKeypressAction.TOGGLE_PAUSE,
                 ]:
-                    is_just_pause = (
-                        requested_action == WatchKeypressAction.TOGGLE_PAUSE
-                        and current_display_state_obj.is_paused
+                    # Update display content for wrap/pause changes
+                    live_display_content.no_wrap = (
+                        not current_display_state_obj.wrap_text
                     )
-                    is_just_wrap = requested_action == WatchKeypressAction.TOGGLE_WRAP
-                    if is_just_pause or is_just_wrap:
-                        live_display_content.no_wrap = (
-                            not current_display_state_obj.wrap_text
+                    if (
+                        not current_display_state_obj.is_paused
+                    ):  # If unpausing, refresh content
+                        filtered_lines = _apply_filter_to_lines(
+                            all_streamed_lines,
+                            current_display_state_obj.filter_compiled_regex,
                         )
-                        _refresh_footer_controls_text(
-                            footer_controls_text_obj, current_display_state_obj
-                        )
-                elif requested_action == WatchKeypressAction.PROMPT_SAVE:
-                    _handle_save_action()
-                elif requested_action == WatchKeypressAction.PROMPT_FILTER:
-                    _handle_filter_action(max_lines=max_lines)
+                        latest_lines_to_display = filtered_lines[-max_lines:]
+                        live_display_content.plain = "\n".join(latest_lines_to_display)
+
+                    # Footer text IS part of StatusBarManager, but the underlying Text
+                    # object needs its .plain updated.
+                    _refresh_footer_controls_text(
+                        footer_controls_text_obj, current_display_state_obj
+                    )
+
             except Exception as e_callback:
                 logger.debug(f"Error in callback: {e_callback}", exc_info=True)
+
+        def _finalize_input_action(
+            target_action: WatchKeypressAction | None,
+            buffer: str,
+            max_lines_for_display: int,
+        ) -> None:
+            nonlocal \
+                current_display_state_obj, \
+                save_dir, \
+                resource, \
+                all_streamed_lines, \
+                live_display_content
+
+            if target_action == WatchKeypressAction.PROMPT_SAVE:
+                filename_path = resource.replace("/", "_")
+                filename_suffix = time.strftime("%Y%m%d_%H%M%S")
+                filename_suggestion = (
+                    f"vibectl_watch_{filename_path}_{filename_suffix}.log"
+                )
+                try:
+                    saved_path = _perform_save_to_file(
+                        save_dir=save_dir,
+                        filename_suggestion=filename_suggestion,
+                        user_provided_filename=buffer or None,  # Use buffer as filename
+                        all_lines=all_streamed_lines,
+                        filter_re=current_display_state_obj.filter_compiled_regex,
+                    )
+                    _set_temporary_status_message(f"Saved to {saved_path}", True)
+                except OSError as e:
+                    _set_temporary_status_message(f"Save failed: {e}", True)
+                except Exception as e_save_final:
+                    _set_temporary_status_message(f"Save error: {e_save_final}", True)
+
+            elif target_action == WatchKeypressAction.PROMPT_FILTER:
+                new_filter_str: str | None = None
+                new_filter_re: re.Pattern | None = None
+                filter_update_status = "Filter cleared."
+
+                if buffer:  # User entered something
+                    try:
+                        new_filter_re = re.compile(buffer)
+                        new_filter_str = buffer
+                        filter_update_status = f"Filter set to '{new_filter_str}'."
+                    except re.error as e_re:
+                        filter_update_status = (
+                            f"Invalid regex: {e_re}. Filter unchanged."
+                        )
+                        # Keep old filter if new one is invalid
+                        new_filter_str = current_display_state_obj.filter_regex_str
+                        new_filter_re = current_display_state_obj.filter_compiled_regex
+                else:  # User submitted empty buffer, clear filter
+                    new_filter_str, new_filter_re = None, None
+
+                current_display_state_obj = WatchDisplayState(
+                    current_display_state_obj.wrap_text,
+                    current_display_state_obj.is_paused,
+                    new_filter_str,
+                    new_filter_re,
+                    input_mode_active=False,  # Ensure these are reset
+                    input_prompt="",
+                    input_buffer="",
+                    input_target_action=None,
+                )
+
+                # Refresh main display content based on new filter
+                if not current_display_state_obj.is_paused:
+                    filtered_lines = _apply_filter_to_lines(
+                        all_streamed_lines,
+                        current_display_state_obj.filter_compiled_regex,
+                    )
+                    latest_lines_to_display = filtered_lines[-max_lines_for_display:]
+                    live_display_content.plain = "\n".join(latest_lines_to_display)
+
+                _set_temporary_status_message(filter_update_status, True)
+
+            # After finalizing, ensure footer controls text is up-to-date
+            _refresh_footer_controls_text(
+                footer_controls_text_obj, current_display_state_obj
+            )
 
         reader_callback_with_args = functools.partial(
             _input_reader_callback, max_lines=live_display_max_lines
@@ -601,159 +813,22 @@ async def _execute_watch_with_live_display(
             if event:
                 await event.wait()
 
-        def _handle_save_action() -> None:
-            nonlocal original_termios_settings, input_reader_active, loop, resource
-            nonlocal save_dir, all_streamed_lines
-            nonlocal current_display_state_obj, is_showing_temporary_message
-            nonlocal live_instance_ref
-
-            if not sys.stdin.isatty():
-                _set_temporary_status_message("Save failed: No TTY.", True)
-                logger.warning("Save action ignored: Not running in a TTY.")
-                _refresh_footer_controls_text(
-                    footer_controls_text_obj, current_display_state_obj
-                )
-                return
-
-            live_instance_ref.stop()
-            if input_reader_active:
-                loop.remove_reader(sys.stdin.fileno())
-            if original_termios_settings:
-                termios.tcsetattr(
-                    sys.stdin.fileno(), termios.TCSADRAIN, original_termios_settings
-                )
-
-            filename_suggestion = f"vibectl_watch_{resource.replace('/', '_')}_{time.strftime('%Y%m%d_%H%M%S')}.log"
-            prompt_text = f"Enter filename to save output (in {save_dir}) [Default: {filename_suggestion}]: "
-
-            error_msg_save: str | None = None
-            try:
-                user_input = input(prompt_text).strip()
-                saved_path = _perform_save_to_file(
-                    save_dir=save_dir,
-                    filename_suggestion=filename_suggestion,
-                    user_provided_filename=user_input or None,
-                    all_lines=all_streamed_lines,
-                    filter_re=current_display_state_obj.filter_compiled_regex,
-                )
-                _set_temporary_status_message(f"Saved to {saved_path}.", True)
-            except OSError as e:
-                error_msg_save = f"Save failed: {e}"
-                _set_temporary_status_message(error_msg_save, True)
-            except (EOFError, KeyboardInterrupt) as e:
-                error_msg_save = f"Save cancelled: {e}"
-                _set_temporary_status_message(error_msg_save, True)
-            finally:
-                _restore_tty_and_reader()
-                live_instance_ref.start(refresh=True)
-
-        def _restore_tty_and_reader() -> None:
-            nonlocal original_termios_settings, input_reader_active, loop
-            if sys.stdin.isatty():
-                if original_termios_settings:
-                    try:
-                        tty.setcbreak(sys.stdin.fileno())
-                        if input_reader_active:
-                            loop.add_reader(
-                                sys.stdin.fileno(), reader_callback_with_args
-                            )
-                    except Exception as e_restore:
-                        logger.warning(f"TTY restore failed: {e_restore}")
-                _refresh_footer_controls_text(
-                    footer_controls_text_obj, current_display_state_obj
-                )
-
-        def _handle_filter_action(max_lines: int) -> None:
-            nonlocal original_termios_settings, input_reader_active, loop
-            nonlocal all_streamed_lines, live_display_content
-            nonlocal current_display_state_obj, is_showing_temporary_message
-            nonlocal live_instance_ref
-
-            if not sys.stdin.isatty():
-                _set_temporary_status_message("Filter failed: No TTY.", True)
-                logger.warning("Filter action ignored: Not running in a TTY.")
-                _refresh_footer_controls_text(
-                    footer_controls_text_obj, current_display_state_obj
-                )
-                return
-
-            live_instance_ref.stop()
-            if input_reader_active:
-                loop.remove_reader(sys.stdin.fileno())
-            if original_termios_settings:
-                termios.tcsetattr(
-                    sys.stdin.fileno(), termios.TCSADRAIN, original_termios_settings
-                )
-
-            current_filter_display = (
-                f" (current: '{current_display_state_obj.filter_regex_str}')"
-                if current_display_state_obj.filter_regex_str
-                else " (off)"
-            )
-            prompt_text = (
-                f"Enter filter regex (empty to clear){current_filter_display}: "
-            )
-
-            new_filter_str: str | None = None
-            new_filter_re: re.Pattern | None = None
-            filter_update_status = "Filter cleared."
-            error_during_input = False
-            try:
-                user_input = input(prompt_text).strip()
-                if user_input:
-                    try:
-                        new_filter_re = re.compile(user_input)
-                        new_filter_str = user_input
-                        filter_update_status = f"Filter set to '{new_filter_str}'."
-                    except re.error as e_re:
-                        filter_update_status = (
-                            f"Invalid regex: {e_re}. Filter unchanged."
-                        )
-                else:
-                    new_filter_str, new_filter_re = None, None
-
-                if not (
-                    user_input and not new_filter_re and new_filter_str is not None
-                ):
-                    current_display_state_obj = WatchDisplayState(
-                        current_display_state_obj.wrap_text,
-                        current_display_state_obj.is_paused,
-                        new_filter_str,
-                        new_filter_re,
-                    )
-
-                filtered_lines = _apply_filter_to_lines(
-                    all_streamed_lines, current_display_state_obj.filter_compiled_regex
-                )
-                latest_lines_to_display = filtered_lines[-max_lines:]
-                live_display_content.plain = "\n".join(latest_lines_to_display)
-                _set_temporary_status_message(filter_update_status, True)
-
-            except (EOFError, KeyboardInterrupt) as e:
-                error_during_input = True
-                _set_temporary_status_message(f"Filter input cancelled: {e}", True)
-            finally:
-                _restore_tty_and_reader()
-                live_instance_ref.start(refresh=True)
-
         def _set_temporary_status_message(
             message: str, require_keypress: bool = True
         ) -> None:
-            nonlocal temporary_status_message_text_obj, status_bar_content_holder
+            nonlocal \
+                temporary_status_message_text_obj, \
+                status_bar_renderable_placeholder
             nonlocal is_showing_temporary_message
 
             msg_to_display = message
             if require_keypress:
                 msg_to_display += " Press any key to continue..."
             temporary_status_message_text_obj.plain = msg_to_display
-            status_bar_content_holder.renderable = temporary_status_message_text_obj
-            if require_keypress:
-                is_showing_temporary_message = True
+            is_showing_temporary_message = True
 
         def _revert_to_live_status() -> None:
-            nonlocal status_bar_content_holder, live_status_renderable
             nonlocal is_showing_temporary_message
-            status_bar_content_holder.renderable = live_status_renderable
             is_showing_temporary_message = False
 
         # ----- main_watch_task body starts here -----
@@ -768,8 +843,6 @@ async def _execute_watch_with_live_display(
                 except Exception as e_tty_setup:
                     logger.warning(f"TTY/Reader setup failed: {e_tty_setup}")
 
-            _revert_to_live_status()
-
             cmd_list_for_proc = [command, resource, *args]
             process = await create_async_kubectl_process(cmd_list_for_proc, config=cfg)
 
@@ -780,7 +853,6 @@ async def _execute_watch_with_live_display(
                     all_streamed_lines,
                     accumulated_output_lines,
                     live_display_max_lines,
-                    lambda: is_showing_temporary_message,
                     lambda: current_display_state_obj,
                     shared_line_counter,
                 ),
@@ -809,15 +881,11 @@ async def _execute_watch_with_live_display(
                 raise asyncio.CancelledError("Watch cancelled by user via 'E' key")
 
             stream_stderr: str | None = None
-            stream_lines_read_this_run: int = 0
             if stream_handler_task:
                 if not stream_handler_task.done():
                     try:
                         async with asyncio.timeout(2.0):
-                            (
-                                stream_stderr,
-                                stream_lines_read_this_run,
-                            ) = await stream_handler_task
+                            stream_stderr = await stream_handler_task
                     except TimeoutError:
                         if not stream_handler_task.done():
                             stream_handler_task.cancel()
@@ -828,9 +896,7 @@ async def _execute_watch_with_live_display(
                             error_message = f"Stream handler error: {e_sh_wait}"
                 elif stream_handler_task.done():
                     try:
-                        stream_stderr, stream_lines_read_this_run = (
-                            stream_handler_task.result()
-                        )
+                        stream_stderr = stream_handler_task.result()
                     except Exception as e_sh_res:
                         if error_message is None:
                             error_message = f"Stream result error: {e_sh_res}"
@@ -841,15 +907,10 @@ async def _execute_watch_with_live_display(
             final_outcome = WatchOutcome.SUCCESS
             final_reason = WatchReason.PROCESS_EXIT_0
             final_detail = error_message
-            final_exit_code = process.returncode if process else None
+            final_exit_code = process.returncode
 
-            if process is None:
-                final_outcome, final_reason, final_detail = (
-                    WatchOutcome.ERROR,
-                    WatchReason.SETUP_ERROR,
-                    final_detail or "Process not started.",
-                )
-            elif process.returncode is None:
+            # Check process exit code status
+            if process.returncode is None:
                 final_outcome, final_reason, final_detail = (
                     WatchOutcome.ERROR,
                     WatchReason.INTERNAL_ERROR,
@@ -873,12 +934,9 @@ async def _execute_watch_with_live_display(
         except asyncio.CancelledError as e_cancel:
             detail = str(e_cancel) if str(e_cancel) else "Operation cancelled."
             # Determine reason based on detail
-            reason_cancel = WatchReason.CTRL_C
             if "via 'E' key" in detail:  # Note: single quotes 'E'
-                reason_cancel = WatchReason.USER_EXIT_KEY
+                pass  # reason_cancel = WatchReason.USER_EXIT_KEY
 
-            # Ensure status is updated before returning Error for cancellation
-            # No, _run_async_main will create the WatchStatusInfo for cancellation
             return Error(error=detail)  # _run_async_main will wrap this
         except FileNotFoundError as e_fnf:
             return Error(error=str(e_fnf))  # _run_async_main will wrap this
@@ -887,16 +945,12 @@ async def _execute_watch_with_live_display(
             return Error(error=str(e_unhandled))  # _run_async_main will wrap this
         finally:
             if input_reader_active and sys.stdin.isatty() and original_termios_settings:
-                try:
+                with contextlib.suppress(Exception):
                     loop.remove_reader(sys.stdin.fileno())
-                except:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     termios.tcsetattr(
                         sys.stdin.fileno(), termios.TCSADRAIN, original_termios_settings
                     )
-                except:
-                    pass
 
             tasks_to_clean = [
                 t
@@ -927,31 +981,18 @@ async def _execute_watch_with_live_display(
 
     # --- Use the _run_async_main runner for the main_watch_task ---
     with Live(
-        overall_layout,
+        initial_overall_layout,
         console=console_manager.console,
-        refresh_per_second=10,  # For continuous time update
+        refresh_per_second=10,
         transient=False,  # Keep final summary
         vertical_overflow="visible",
     ) as live_instance:  # live_instance is now available
         # Pass live_instance to main_watch_task
         loop_result = await _run_async_main(
             main_watch_task(live_instance),  # Pass it here
-            cancel_message="Watch cancelled by user (Ctrl+C)",  # For _run_async_main's own handling
+            cancel_message="Watch cancelled by user (Ctrl+C)",
             error_message_prefix="Watch execution",
         )
-
-        # total_lines_actually_streamed_counter for the summary needs to be obtained
-        # from the shared_line_counter if main_watch_task completed successfully
-        # or based on accumulated_output_lines if it errored early.
-        # For now, main_watch_task returns WatchStatusInfo which doesn't have the line count.
-        # The accumulated_output_lines is still the most reliable source for final count.
-        # Let's assume shared_line_counter was correctly updated if loop_result is Success.
-
-        # The line count for summary should come from the shared counter if possible,
-        # or fallback to len(accumulated_output_lines)
-        # This is tricky because shared_line_counter is inside main_watch_task.
-        # The easiest is to rely on len(accumulated_output_lines) for the final summary table,
-        # as it's always populated. LiveStatusDisplay handles the live count.
 
         final_lines_for_summary = len(accumulated_output_lines)
 
@@ -972,7 +1013,8 @@ async def _execute_watch_with_live_display(
                 reason, outcome = WatchReason.USER_EXIT_KEY, WatchOutcome.CANCELLED
             elif isinstance(loop_result.exception, FileNotFoundError):
                 reason = WatchReason.SETUP_ERROR
-            # Add more detailed parsing if needed, e.g., from kubectl exit codes in error_detail_str
+            # Add more detailed parsing if needed, e.g., from
+            # kubectl exit codes in error_detail_str
 
             final_status_info = WatchStatusInfo(
                 outcome, reason, error_detail_str, exit_code_parsed
@@ -1000,7 +1042,6 @@ async def _execute_watch_with_live_display(
         overall_operation_had_error = final_status_info.outcome == WatchOutcome.ERROR
 
         temporary_status_message_text_obj.plain = "Watch ended. Preparing summary..."
-        status_bar_content_holder.renderable = temporary_status_message_text_obj
         live_instance.refresh()
 
         summary_table = _create_watch_summary_table(
@@ -1010,17 +1051,21 @@ async def _execute_watch_with_live_display(
             lines_streamed=final_lines_for_summary,  # Use len(accumulated_output_lines)
         )
 
-        summary_layout = Group(
+        final_status_message = Text("Watch ended.", style="dim")  # Simple static text
+
+        final_layout = Group(
+            # Use the summary table IN a panel for the final display main content
             Panel(
                 summary_table,
                 title="Watch Session Ended",
                 border_style="green" if not overall_operation_had_error else "red",
             ),
-            status_bar_content_holder,  # Shows "Watch ended..."
-            footer_controls_text_obj,
+            final_status_message,  # Use the simple static text for the status line
+            # footer_final, # REMOVED - This was causing the duplicate controls
         )
-        live_instance.update(summary_layout)
-        # No "Press any key to exit..." needed here, transient=False keeps it.
+        live_instance.update(
+            final_layout, refresh=True
+        )  # Update with the final static layout
 
     raw_output_str = "\n".join(accumulated_output_lines)
     if overall_operation_had_error:

@@ -1,20 +1,15 @@
 import asyncio
 import logging
 import random
-import re
 
 # Ensure all necessary imports are present
-import sys
 import time
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from typing import TypeVar
 
 import yaml
-from rich.columns import Columns
-from rich.console import Group
 from rich.live import Live
-from rich.panel import Panel
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -22,12 +17,10 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
-from rich.spinner import Spinner
 from rich.table import Table
-from rich.text import Text
 
 from .config import Config
-from .k8s_utils import create_async_kubectl_process, run_kubectl
+from .k8s_utils import run_kubectl
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .proxy import TcpProxy, start_proxy_server, stop_proxy_server

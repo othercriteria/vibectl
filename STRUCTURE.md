@@ -9,7 +9,7 @@ This document provides an overview of the project's structure and organization.
 - `prompt.py` - Prompt templates and LLM interaction logic
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils`
+- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils` and live display to relevant modules.
 - `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
@@ -17,6 +17,8 @@ This document provides an overview of the project's structure and organization.
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
 - `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning)
+- `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait).
+- `live_display_watch.py` - Interactive live display implementation for watch/follow commands.
 - `types.py` - Custom type definitions (e.g., `ActionType` enum for schema)
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
