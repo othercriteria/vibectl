@@ -6,7 +6,7 @@ from rich.text import Text
 from pathlib import Path
 import collections
 import re
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 from pytest_mock import MockerFixture
 from typing import Any
 
@@ -16,102 +16,133 @@ from vibectl.live_display_watch import (
     WatchKeypressAction,
     process_keypress,
     _perform_save_to_file,
+    _apply_filter_to_lines,
+    _refresh_footer_controls_text,
+    WatchOutcome,
+    WatchReason,
+    WatchStatusInfo,
 )
 
 # Test cases for _create_watch_summary_table
-# Parameters: (command_str, final_status, elapsed_time, lines_streamed, error_message, operation_had_error, expected_rows, expected_message_row)
+# Parameters: (command_str, status_info, elapsed_time, lines_streamed, expected_rows, expected_message_row)
 test_data = [
     # 1. Basic success case
     (
         "get pods my-pod",
-        "Completed",
+        WatchStatusInfo(
+            outcome=WatchOutcome.SUCCESS, reason=WatchReason.PROCESS_EXIT_0, exit_code=0
+        ),
         10.55,
         150,
-        None,
-        False,
-        4,  # CORRECTED: Command, Status, Duration, Lines (No Message)
+        4,  # Command, Status, Duration, Lines
         None,
     ),
-    # 2. Completed with warnings (error_message present, operation_had_error=False, status includes 'warning')
+    # 2. Completed with warnings (Success with detail message)
     (
         "get pods --watch",
-        "Completed with warnings",
+        WatchStatusInfo(
+            outcome=WatchOutcome.SUCCESS,
+            reason=WatchReason.PROCESS_EXIT_0,
+            detail="Connection timed out",
+            exit_code=0,
+        ),
         25.1,
         300,
-        "Connection timed out",
-        False,
-        5,  # CORRECTED: Command, Status, Duration, Lines, Message
-        ("Message", Text("Connection timed out", style="yellow")),
+        5,  # Command, Status, Duration, Lines, Message
+        (
+            "Message",
+            Text("Connection timed out", style="yellow"),
+        ),  # Warnings/details are yellow
     ),
-    # 3. Operation had error (error_message present, operation_had_error=True)
+    # 3. Operation had error (kubectl non-zero exit)
     (
         "get pods non-existent",
-        "Error (kubectl rc=1)",
+        WatchStatusInfo(
+            outcome=WatchOutcome.ERROR,
+            reason=WatchReason.PROCESS_EXIT_NONZERO,
+            detail="pods 'non-existent' not found",
+            exit_code=1,
+        ),
         5.2,
         10,
-        "pods 'non-existent' not found",
-        True,
-        5,  # CORRECTED: Command, Status, Duration, Lines, Message
-        ("Message", Text("pods 'non-existent' not found", style="red")),
+        5,  # Command, Status, Duration, Lines, Message
+        (
+            "Message",
+            Text("pods 'non-existent' not found", style="red"),
+        ),  # Errors are red
     ),
-    # 4. Cancelled by user (error_message can be None or present, operation_had_error=False, status includes 'cancel')
+    # 4. Cancelled by user (with message)
     (
         "get events --watch",
-        "Cancelled by user",
+        WatchStatusInfo(
+            outcome=WatchOutcome.CANCELLED,
+            reason=WatchReason.USER_EXIT_KEY,
+            detail="Operation cancelled by user.",
+        ),
         120.0,
         5000,
-        "Operation cancelled by user.",  # Example cancel message
-        False,
-        5,  # CORRECTED: Command, Status, Duration, Lines, Message
-        ("Message", Text("Operation cancelled by user.", style="yellow")),
+        5,  # Command, Status, Duration, Lines, Message
+        (
+            "Message",
+            Text("Operation cancelled by user.", style="yellow"),
+        ),  # Cancellations are yellow
     ),
-    # 5. Cancelled by user (error_message is None)
+    # 5. Cancelled by user (no message)
     (
         "logs my-pod -f",
-        "Cancelled by user",
+        WatchStatusInfo(
+            outcome=WatchOutcome.CANCELLED, reason=WatchReason.CTRL_C, detail=None
+        ),  # Example using CTRL_C reason
         60.3,
         1000,
-        None,  # No specific error message
-        False,
-        4,  # CORRECTED: Command, Status, Duration, Lines (No Message) - error_message is None
+        4,  # Command, Status, Duration, Lines (No Message)
         None,
     ),
-    # 6. Operation had error, but no error_message provided (edge case)
+    # 6. Operation had internal error (no message)
     (
         "get pods",
-        "Error (Internal)",
+        WatchStatusInfo(
+            outcome=WatchOutcome.ERROR, reason=WatchReason.INTERNAL_ERROR, detail=None
+        ),
         2.1,
         5,
+        4,  # Command, Status, Duration, Lines (No Message)
         None,
-        True,  # Still an error state
-        4,  # CORRECTED: Command, Status, Duration, Lines (No Message) - error_message is None
-        None,
+    ),
+    # 7. Setup Error
+    (
+        "get pods",
+        WatchStatusInfo(
+            outcome=WatchOutcome.ERROR,
+            reason=WatchReason.SETUP_ERROR,
+            detail="kubectl not found",
+        ),
+        0.1,
+        0,
+        5,  # Command, Status, Duration, Lines, Message
+        ("Message", Text("kubectl not found", style="red")),
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    "command_str, final_status, elapsed_time, lines_streamed, error_message, operation_had_error, expected_rows, expected_message_content",
+    "command_str, status_info, elapsed_time, lines_streamed, expected_rows, expected_message_content",
     test_data,
 )
 def test_create_watch_summary_table(
     command_str: str,
-    final_status: str,
+    status_info: WatchStatusInfo,
     elapsed_time: float,
     lines_streamed: int,
-    error_message: str | None,
-    operation_had_error: bool,
     expected_rows: int,
     expected_message_content: tuple[str, Text] | None,
 ) -> None:
     """Verify _create_watch_summary_table generates the correct table structure and content."""
     table = _create_watch_summary_table(
         command_str=command_str,
-        final_status=final_status,
+        status_info=status_info,
         elapsed_time=elapsed_time,
         lines_streamed=lines_streamed,
-        error_message=error_message,
-        operation_had_error=operation_had_error,
     )
 
     assert isinstance(table, Table)
@@ -137,7 +168,21 @@ def test_create_watch_summary_table(
 
     # Assertions checking row_data values
     assert str(row_data["Command"]) == f"`kubectl {command_str}`"
-    assert str(row_data["Status"]) == final_status
+    # assert str(row_data["Status"]) == status_info.outcome.value # This was incorrect
+    # Correctly check the formatted status text based on how _create_watch_summary_table formats it
+    expected_status_text = f"{status_info.outcome.name.capitalize()}"
+    if status_info.reason != WatchReason.PROCESS_EXIT_0:
+        expected_status_text += f" ({status_info.reason.name.replace('_', ' ')})"
+    if status_info.exit_code is not None:
+        expected_status_text += f" (rc={status_info.exit_code})"
+    actual_status_text = str(
+        row_data["Status"]
+    )  # Get the plain text from the Text object
+    # Need to handle potential Rich markup in actual_status_text if Text object has style
+    # For simplicity, let's assert the plain text content matches
+    # A more robust check might involve checking the Text object's spans/style
+    assert actual_status_text == expected_status_text
+
     assert str(row_data["Duration"]) == f"{elapsed_time:.2f} seconds"
     assert str(row_data["Lines Streamed"]) == str(lines_streamed)
 
@@ -410,3 +455,107 @@ def test_perform_save_to_file_write_error(
         )
 
     final_mock_path.write_text.assert_called_once()  # Verify it was called
+
+
+# --- Tests for _apply_filter_to_lines ---
+
+filter_lines_test_data = [
+    # 1. No filter
+    (
+        collections.deque(["line a", "line b", "line c"]),
+        None,
+        ["line a", "line b", "line c"],
+    ),
+    # 2. Filter matches some (deque input)
+    (
+        collections.deque(["apple pie", "banana bread", "apple tart"]),
+        re.compile(r"apple"),
+        ["apple pie", "apple tart"],
+    ),
+    # 3. Filter matches some (list input)
+    (
+        ["apple pie", "banana bread", "apple tart"],
+        re.compile(r"apple"),
+        ["apple pie", "apple tart"],
+    ),
+    # 4. Filter matches none
+    (
+        collections.deque(["one", "two", "three"]),
+        re.compile(r"four"),
+        [],
+    ),
+    # 5. Filter matches all
+    (
+        ["test1", "test2", "test3"],
+        re.compile(r"test\d"),
+        ["test1", "test2", "test3"],
+    ),
+    # 6. Empty input
+    (collections.deque([]), re.compile(r"any"), []),
+    ([], None, []),
+]
+
+
+@pytest.mark.parametrize(
+    "lines_to_filter, compiled_filter_regex, expected_output", filter_lines_test_data
+)
+def test_apply_filter_to_lines(
+    lines_to_filter: collections.deque[str] | list[str],
+    compiled_filter_regex: re.Pattern | None,
+    expected_output: list[str],
+) -> None:
+    """Verify _apply_filter_to_lines correctly filters lines."""
+    result = _apply_filter_to_lines(lines_to_filter, compiled_filter_regex)
+    assert result == expected_output
+
+
+# --- Tests for _refresh_footer_controls_text ---
+
+
+@pytest.fixture
+def mock_text_obj() -> Mock:
+    """Fixture for a mock Rich Text object."""
+    # We only need to mock the 'plain' attribute for assignment
+    mock = Mock(spec=Text)
+    # Initialize plain attribute so it can be asserted
+    mock.plain = ""
+    return mock
+
+
+# Parameters: (state, expected_plain_text)
+refresh_footer_test_data = [
+    # 1. Default state (wrap on, running, no filter)
+    (
+        WatchDisplayState(wrap_text=True, is_paused=False, filter_regex_str=None),
+        "[E]xit | [W]rap: on | [P]ause: running | [S]ave | [F]ilter: off",
+    ),
+    # 2. Wrap off, paused, filter active
+    (
+        WatchDisplayState(
+            wrap_text=False, is_paused=True, filter_regex_str="error|warn"
+        ),
+        "[E]xit | [W]rap: off | [P]ause: paused | [S]ave | [F]ilter: 'error|warn'",
+    ),
+    # 3. Wrap on, running, filter active
+    (
+        WatchDisplayState(wrap_text=True, is_paused=False, filter_regex_str="^pod/"),
+        "[E]xit | [W]rap: on | [P]ause: running | [S]ave | [F]ilter: '^pod/'",
+    ),
+    # 4. Wrap off, paused, no filter
+    (
+        WatchDisplayState(wrap_text=False, is_paused=True, filter_regex_str=None),
+        "[E]xit | [W]rap: off | [P]ause: paused | [S]ave | [F]ilter: off",
+    ),
+]
+
+
+@pytest.mark.parametrize("state, expected_plain_text", refresh_footer_test_data)
+def test_refresh_footer_controls_text(
+    mock_text_obj: Mock,
+    state: WatchDisplayState,
+    expected_plain_text: str,
+) -> None:
+    """Verify _refresh_footer_controls_text sets the correct plain text."""
+    _refresh_footer_controls_text(mock_text_obj, state)
+    # Assert that the mock Text object's plain attribute was set correctly
+    assert mock_text_obj.plain == expected_plain_text
