@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import re
 
 # Ensure all necessary imports are present
 import sys
@@ -10,6 +11,8 @@ import tty
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from typing import TypeVar
+import collections
+from pathlib import Path
 
 import yaml
 from rich.columns import Columns
@@ -879,10 +882,21 @@ async def _execute_watch_with_live_display(
         "live_display_wrap_text", True
     )  # Default to wrapping
 
-    # TODO: Explore sizing the panel by the number of *displayed* visual lines after
-    # wrapping, rather than by the number of logical lines from the stream. This is
-    # complex because panel height is content-driven. `live_display_max_lines` currently
-    # controls the number of logical lines buffered and potentially shown.
+    # Configured save directory for logs
+    save_dir_str = cfg.get("live_display_save_dir", ".")
+    save_dir_path = Path(save_dir_str).expanduser().resolve()
+    # Ensure save directory exists, handle potential error if it can't be created
+    try:
+        save_dir_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e_mkdir:
+        # Log a warning and default to current directory if specific save_dir fails
+        logger.warning(f"Could not create or access save directory {save_dir_path}: {e_mkdir}. Defaulting to current directory '.' for saving.")
+        save_dir_path = Path(".").resolve()
+
+    # Initialize the master buffer for all streamed lines
+    stream_buffer_max_len = cfg.get("live_display_stream_buffer_max_lines", 100000)
+    all_streamed_lines: collections.deque[str] = collections.deque(maxlen=stream_buffer_max_len)
+    total_lines_actually_streamed_counter = 0 # New counter
 
     # Initialize Text with a fixed number of lines (some blank initially)
     initial_text_lines = (
@@ -1055,13 +1069,32 @@ async def _execute_watch_with_live_display(
             nonlocal error_message
             nonlocal footer_controls_text_obj  # Capture Text object for footer updates
             nonlocal live_display_content  # To update its no_wrap property
+            nonlocal all_streamed_lines # Use the deque
+            nonlocal total_lines_actually_streamed_counter # Make counter nonlocal for nested_stream_output
+            nonlocal save_dir_path # For constructing save path
+            nonlocal resource # For filename
+            # Revert TTY state to separate variables
+            original_termios_settings = None
+            input_reader_active = False
+            # Define event here
+            exit_requested_event = asyncio.Event()
 
-            # Session-local wrap state, initialized directly from config value captured
-            # by closure
-            current_session_wrap_state = live_display_wrap_text
+            # Session-local states
+            current_session_wrap_state = live_display_wrap_text 
             live_display_content.no_wrap = (
                 not current_session_wrap_state
             )  # Apply initial wrap setting
+            is_display_paused_state = False # Initial pause state
+            current_filter_regex_str_state: str | None = cfg.get("live_display_default_filter_regex")
+            current_filter_compiled_regex_state: re.Pattern | None = None
+
+            if current_filter_regex_str_state:
+                try:
+                    current_filter_compiled_regex_state = re.compile(current_filter_regex_str_state)
+                except re.error as e_re_compile:
+                    logger.warning(f"Invalid default filter regex '{current_filter_regex_str_state}': {e_re_compile}. Disabling filter.")
+                    current_filter_regex_str_state = None # Disable if compilation fails
+                    # current_filter_compiled_regex_state remains None
 
             process: asyncio.subprocess.Process | None = None
             stream_handler_task: asyncio.Task[None] | None = None
@@ -1069,18 +1102,24 @@ async def _execute_watch_with_live_display(
             final_status = "Unknown"
             run_error: Error | None = None
 
-            original_termios_settings = None
-            input_reader_active = False
-            exit_requested_event = asyncio.Event()
             loop = asyncio.get_running_loop()
 
             # Helper to update the footer controls text
             def _refresh_footer_controls_text() -> None:
-                nonlocal current_session_wrap_state  # Access current wrap state
-                # Add more states here for future controls
+                nonlocal current_session_wrap_state 
+                nonlocal is_display_paused_state 
+                nonlocal current_filter_regex_str_state
+                
                 wrap_text = f"[W]rap: {'on' if current_session_wrap_state else 'off'}"
-                # Add more control strings here, joined by " | "
-                controls_string = f"Press [E] to exit | {wrap_text}"
+                pause_text = f"[P]ause: {'RESUME' if is_display_paused_state else 'PAUSE'}" # Simpler toggle text
+                
+                filter_status_text = "Filter: None"
+                if current_filter_regex_str_state:
+                    filter_status_text = f"Filter: /{current_filter_regex_str_state}/"
+                
+                save_text = "[S]ave filtered"
+
+                controls_string = f"[E]xit | {wrap_text} | {pause_text} | {filter_status_text} | {save_text}"
                 footer_controls_text_obj.plain = controls_string
 
             # Wrappers for asyncio.create_task to ensure None return type for linter
@@ -1092,8 +1131,26 @@ async def _execute_watch_with_live_display(
                 if event:
                     await event.wait()
 
+            # Helper to apply filter to lines
+            def _apply_filter_to_lines(lines_to_filter: collections.deque[str] | list[str]) -> list[str]:
+                nonlocal current_filter_compiled_regex_state
+                if not current_filter_compiled_regex_state:
+                    return list(lines_to_filter)
+                
+                filtered_lines: list[str] = []
+                for line in lines_to_filter:
+                    if current_filter_compiled_regex_state.search(line):
+                        filtered_lines.append(line)
+                return filtered_lines
+
             def _keypress_handler() -> None:
-                nonlocal current_session_wrap_state  # Need to modify this
+                # Only declare nonlocal for variables directly REASSIGNED here
+                nonlocal current_session_wrap_state  
+                nonlocal is_display_paused_state 
+                # Add back nonlocals for TTY state management
+                nonlocal original_termios_settings, input_reader_active, loop
+                # Other variables accessed from enclosing scope
+                
                 try:
                     char = sys.stdin.read(1)
                     if char.lower() == "e":
@@ -1101,18 +1158,77 @@ async def _execute_watch_with_live_display(
                     elif char.lower() == "w":
                         current_session_wrap_state = not current_session_wrap_state
                         live_display_content.no_wrap = not current_session_wrap_state
-                        _refresh_footer_controls_text()  # Update footer via helper
+                        _refresh_footer_controls_text()
+                    elif char.lower() == "p":
+                        is_display_paused_state = not is_display_paused_state
+                        if not is_display_paused_state:
+                            filtered_lines_on_resume = _apply_filter_to_lines(all_streamed_lines)
+                            latest_lines_to_display = filtered_lines_on_resume[-live_display_max_lines:]
+                            num_padding = max(0, live_display_max_lines - len(latest_lines_to_display))
+                            padded_display_lines = ([""] * num_padding) + latest_lines_to_display
+                            live_display_content.plain = "\n".join(padded_display_lines)
+                        _refresh_footer_controls_text()
+                    elif char.lower() == "s":
+                        # Save logic needs access to many variables from main_watch_task scope
+                        was_paused_before_save = is_display_paused_state
+                        # Read TTY state directly from variables
+                        original_input_reader_active_state = input_reader_active 
+
+                        if not was_paused_before_save: # Modify state
+                            is_display_paused_state = True 
+                            _refresh_footer_controls_text()
+                        
+                        if original_input_reader_active_state:
+                            loop.remove_reader(sys.stdin.fileno()) # Use loop 
+                            # Only restore if settings were captured
+                            if original_termios_settings is not None:
+                                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, original_termios_settings) 
+                            else:
+                                logger.warning("Could not restore TTY settings during save: original settings not captured.")
+                            logger.debug("Stdin reader removed, TTY potentially restored for save operation.")
+                        
+                        lines_to_save = _apply_filter_to_lines(all_streamed_lines) # Use helper and lines from enclosing
+                        
+                        sanitized_resource_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', resource) # Use resource from enclosing
+                        timestamp = time.strftime("%Y%m%d%H%M%S")
+                        filename = f"vibectl-watch-{sanitized_resource_name}-{timestamp}.log"
+                        full_save_path = save_dir_path / filename # Use save_dir_path from enclosing
+
+                        try:
+                            with open(full_save_path, "w", encoding="utf-8") as f:
+                                for line in lines_to_save:
+                                    f.write(line + "\n")
+                            console_manager.print_success(f"Saved {len(lines_to_save)} lines to {full_save_path}")
+                        except OSError as e_save:
+                            console_manager.print_error(f"Error saving to {full_save_path}: {e_save}")
+                        
+                        if original_input_reader_active_state:
+                            tty.setcbreak(sys.stdin.fileno())
+                            loop.add_reader(sys.stdin.fileno(), _keypress_handler) # Use loop
+                            logger.debug("TTY set to cbreak, stdin reader re-added after save.")
+
+                        if not was_paused_before_save: # Modify state
+                            is_display_paused_state = False 
+                            filtered_lines_after_save = _apply_filter_to_lines(all_streamed_lines)
+                            latest_lines_to_display_after_save = filtered_lines_after_save[-live_display_max_lines:]
+                            num_padding_as = max(0, live_display_max_lines - len(latest_lines_to_display_after_save))
+                            padded_display_lines_as = ([""] * num_padding_as) + latest_lines_to_display_after_save
+                            live_display_content.plain = "\n".join(padded_display_lines_as) # Use live_display_content from enclosing
+                        
+                        _refresh_footer_controls_text()
+
                 except Exception as e_key_handler:
                     logger.debug(f"Error in keypress handler: {e_key_handler}")
 
             async def nested_stream_output(
                 proc_to_stream: asyncio.subprocess.Process,
-                text_content_to_update: Text,
-                output_lines_list: list[str],
+                text_content_to_update: Text, # live_display_content
+                master_line_buffer: collections.deque[str], # The main deque
                 max_lines_for_disp: int,
             ) -> None:
-                nonlocal error_message
-
+                nonlocal error_message 
+                nonlocal total_lines_actually_streamed_counter # Access the counter
+                
                 pending_stream_tasks = set()
 
                 async def _read_stream_line(
@@ -1158,15 +1274,13 @@ async def _execute_watch_with_live_display(
                         ) = await asyncio.wait(
                             pending_stream_tasks, return_when=asyncio.FIRST_COMPLETED
                         )
-                        pending_stream_tasks = (
-                            pending_stream_tasks_after_wait  # Update pending set
-                        )
+                        pending_stream_tasks = pending_stream_tasks_after_wait # Update pending set
 
                         for task_done in done_stream:
                             task_name = task_done.get_name() or "unknown_stream_task"
-                            try:
+                            try: # This is the try for processing each task_done
                                 # Get result, handles exceptions from _read_stream_line
-                                line_bytes = await task_done
+                                line_bytes = await task_done 
 
                                 if (
                                     not line_bytes
@@ -1180,30 +1294,24 @@ async def _execute_watch_with_live_display(
                                 line_str = line_bytes.decode(
                                     "utf-8", errors="replace"
                                 ).strip()
-                                output_lines_list.append(line_str)
+                                # Increment counter for every line processed, before adding to deque
+                                total_lines_actually_streamed_counter += 1 
+                                master_line_buffer.append(line_str) # Append to the deque
 
                                 if "stderr_reader_nested" in task_name:
                                     logger.warning(f"Watch STDERR (nested): {line_str}")
                                     if error_message is None:
                                         error_message = line_str
                                 elif "stdout_reader_nested" in task_name:
-                                    # Construct display text
-                                    actual_lines_for_disp = output_lines_list[
-                                        -max_lines_for_disp:
-                                    ]
-                                    num_padding = max(
-                                        0,
-                                        max_lines_for_disp - len(actual_lines_for_disp),
-                                    )
-                                    padded_display_lines = (
-                                        [""] * num_padding
-                                    ) + actual_lines_for_disp
-                                    new_text_plain = "\n".join(padded_display_lines)
-                                    text_content_to_update.plain = new_text_plain
-
-                                # Re-submit reader task for this stream type IF the
-                                # current read yielded data
-                                # AND the process is still running.
+                                    if not is_display_paused_state: # Only update display if not paused
+                                        # Apply filter before displaying
+                                        filtered_lines = _apply_filter_to_lines(master_line_buffer)
+                                        actual_lines_for_disp = filtered_lines[-max_lines_for_disp:]
+                                        num_padding = max(0, max_lines_for_disp - len(actual_lines_for_disp))
+                                        padded_display_lines = ([""] * num_padding) + actual_lines_for_disp
+                                        new_text_plain = "\n".join(padded_display_lines)
+                                        text_content_to_update.plain = new_text_plain
+                                
                                 if line_bytes and proc_to_stream.returncode is None:
                                     if (
                                         "stdout_reader_nested" in task_name
@@ -1238,7 +1346,7 @@ async def _execute_watch_with_live_display(
                                         f"not re-adding task for {task_name}."
                                     )
 
-                            except Exception as e_proc_stream:
+                            except Exception as e_proc_stream: # This except should align with the inner try
                                 logger.error(
                                     f"Error processing result from {task_name} "
                                     f"(nested): {e_proc_stream}",
@@ -1248,8 +1356,7 @@ async def _execute_watch_with_live_display(
                                     error_message = (
                                         f"Error in stream {task_name}: {e_proc_stream}"
                                     )
-                                # Don't break loop, try to process other completed tasks
-
+                        
                         if (
                             not pending_stream_tasks
                             and proc_to_stream.returncode is not None
@@ -1257,7 +1364,7 @@ async def _execute_watch_with_live_display(
                             logger.debug("All stream tasks done and process ended.")
                             break  # Exit while loop if process ended and no more tasks
 
-                except asyncio.CancelledError:
+                except asyncio.CancelledError: # This except aligns with the outer try of nested_stream_output
                     logger.info("Output streaming task (nested) cancelled.")
                     # Propagate cancellation to any remaining pending_stream_tasks
                     for task_in_set in pending_stream_tasks:
@@ -1287,12 +1394,11 @@ async def _execute_watch_with_live_display(
 
                 if sys.stdin.isatty():
                     try:
-                        original_termios_settings = termios.tcgetattr(
-                            sys.stdin.fileno()
-                        )
+                        # Assign to separate variables
+                        original_termios_settings = termios.tcgetattr(sys.stdin.fileno())
                         tty.setcbreak(sys.stdin.fileno())
                         loop.add_reader(sys.stdin.fileno(), _keypress_handler)
-                        input_reader_active = True
+                        input_reader_active = True 
                         logger.debug(
                             "cbreak mode enabled, stdin reader added for watch."
                         )
@@ -1310,7 +1416,7 @@ async def _execute_watch_with_live_display(
                     nested_stream_output(
                         process,
                         live_display_content,
-                        accumulated_output_lines,
+                        all_streamed_lines, # Pass the deque here
                         live_display_max_lines,
                     ),
                     name="stream_handler_master",
@@ -1452,7 +1558,8 @@ async def _execute_watch_with_live_display(
                     f"final_status: {final_status}"
                 )
                 # Restore TTY settings
-                if input_reader_active and sys.stdin.isatty():  # Double check isatty
+                # Use separate variables directly
+                if input_reader_active and sys.stdin.isatty():  
                     try:
                         loop.remove_reader(sys.stdin.fileno())
                         logger.debug("Stdin reader removed.")
@@ -1460,12 +1567,12 @@ async def _execute_watch_with_live_display(
                         logger.warning(
                             f"Failed to remove stdin reader: {e_remove_reader}"
                         )
-                    if original_termios_settings:
+                    if original_termios_settings: 
                         try:
                             termios.tcsetattr(
                                 sys.stdin.fileno(),
                                 termios.TCSADRAIN,
-                                original_termios_settings,
+                                original_termios_settings, # Use variable
                             )
                             logger.debug("TTY settings restored.")
                         except Exception as e_restore_tty:
@@ -1594,7 +1701,9 @@ async def _execute_watch_with_live_display(
     # --- Post-Watch Processing ---
     end_time_capture = time.time()  # Capture end time for summary
     elapsed_time = end_time_capture - start_time
-    accumulated_output_str = "\n".join(accumulated_output_lines)
+    # Convert deque to list for join and Vibe context if needed
+    final_all_streamed_lines_list = list(all_streamed_lines) 
+    accumulated_output_str = "\n".join(final_all_streamed_lines_list)
     command_str = f"{command} {resource} {' '.join(args)}"
 
     # Format start and end times for display
@@ -1609,7 +1718,7 @@ async def _execute_watch_with_live_display(
     summary_table.add_row("Start Time", start_time_str)
     summary_table.add_row("End Time", end_time_str)
     summary_table.add_row("Duration", f"{elapsed_time:.1f}s")
-    summary_table.add_row("Lines Streamed", str(len(accumulated_output_lines)))
+    summary_table.add_row("Lines Streamed", str(total_lines_actually_streamed_counter)) # Use counter
     if error_message:
         if final_status == "Completed with errors":
             # This handles informational stderr when kubectl exits 0.
@@ -1643,8 +1752,8 @@ async def _execute_watch_with_live_display(
                 "status": final_status,  # Correct variable for watch display
                 "watch_start_time": start_time_str,
                 "watch_end_time": end_time_str,
-                "lines_streamed": len(accumulated_output_lines),
-                "output_preview": "\n".join(accumulated_output_lines[:10]),
+                "lines_streamed": total_lines_actually_streamed_counter, # Use counter
+                "output_preview": "\n".join(final_all_streamed_lines_list[:10]),
                 "full_output": accumulated_output_str,  # Consider truncating
             }
             # Add error_info only if there was an error message and it wasn't a
