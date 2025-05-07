@@ -29,8 +29,8 @@ from .k8s_utils import (
 from .live_display import (
     _execute_port_forward_with_live_display,
     _execute_wait_with_live_display,
-    _execute_watch_with_live_display,
 )
+from .live_display_watch import _execute_watch_with_live_display
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
@@ -1315,21 +1315,24 @@ async def handle_watch_with_live_display(
         f"Watching [bold]{command} {resource} {''.join(display_args)}[/bold]..."
     )
 
-    # Call the worker function in live_display.py
-    # This worker will run `kubectl get <resource> <args> --watch`
-    # and handle the streaming output and summarization.
+    # Call the worker function in live_display_watch.py (corrected module name)
     watch_result = await _execute_watch_with_live_display(
         command=command,
         resource=resource,
-        args=args,  # Pass original args including --watch/-w
+        args=args,
         output_flags=output_flags,
         display_text=display_text,
-        summary_prompt_func=summary_prompt_func,
     )
 
-    # The worker function should return the final Result (including vibe summary)
-    # so we just return it directly.
-    return watch_result
+    # Process the result from the worker using handle_command_output
+    # Create the command string for context
+    command_str = f"{command} {resource} {' '.join(args)}"
+    return handle_command_output(
+        output=watch_result,  # Pass the Result object directly
+        output_flags=output_flags,
+        summary_prompt_func=summary_prompt_func,
+        command=command_str,
+    )
 
 
 # Helper function for Vibe planning
