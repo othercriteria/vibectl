@@ -11,16 +11,14 @@ metadata:
 rules:
 # Core resources - Read-only cluster-wide (including quotas)
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "resourcequotas"]
+  resources: ["resourcequotas", "nodes"]
   verbs: ["get", "list", "watch"]
 # Workload resources - Read-only cluster-wide
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
   verbs: ["get", "list", "watch"]
 # Allow creating new attack resources (like stress test pods) cluster-wide
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["create"]
+# THIS RULE IS BEING REMOVED - pod creation will be namespace-specific
 # Allow checking own RBAC permissions
 - apiGroups: ["authorization.k8s.io"]
   resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
@@ -57,7 +55,7 @@ rules:
 # Workload resources - CRUD except deployment deletion within services namespace
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "create", "update", "patch"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 # Allow scaling within services namespace
 - apiGroups: ["apps"]
   resources: ["deployments/scale"]
@@ -99,7 +97,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: services
+  namespace: chaos-monkey-system
 roleRef:
   kind: Role
   name: red-agent-restricted
@@ -122,7 +120,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: red-agent
-  namespace: services
+  namespace: chaos-monkey-system
 roleRef:
   kind: Role
   name: red-agent-no-access

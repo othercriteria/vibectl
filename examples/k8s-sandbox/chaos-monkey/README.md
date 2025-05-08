@@ -85,10 +85,9 @@ The offensive agent that:
 - Explores the environment during the passive phase.
 - **Aggressively attacks and destroys** services marked as attack targets during the *active* phase.
 - Implements various destructive strategies including:
-  - Deleting pods and deployments
+  - Deleting pods
   - Consuming resources to cause crashes
   - Exploiting dependencies between services
-  - Targeting critical infrastructure components
 - Adapts tactics based on blue agent responses.
 - **Is explicitly instructed to cause maximum disruption** to test services (during the active phase).
 - Operates within RBAC permissions assigned for each phase.

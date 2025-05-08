@@ -9,30 +9,31 @@ kind: ClusterRole
 metadata:
   name: blue-agent-role
 rules:
+# Broad read-only for monitoring and discovery
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "secrets", "namespaces", "resourcequotas"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-# Allow exec and portforward into pods cluster-wide
+  resources: ["secrets", "namespaces", "resourcequotas", "nodes"]
+  verbs: ["get", "list", "watch"]
+# Allow exec and portforward into pods cluster-wide (useful for debugging)
 - apiGroups: [""]
   resources: ["pods/exec", "pods/portforward"]
   verbs: ["create", "get"]
+# Broad read-only for apps
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets", "statefulsets"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-# Allow scaling deployments cluster-wide
+  verbs: ["get", "list", "watch"]
+# Allow scaling deployments cluster-wide (can be debated, but often part of defense)
 - apiGroups: ["apps"]
   resources: ["deployments/scale", "replicasets/scale", "statefulsets/scale"]
   verbs: ["get", "update", "patch"]
+# Broad read-only for batch
 - apiGroups: ["batch"]
   resources: ["jobs", "cronjobs"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  verbs: ["get", "list", "watch"]
+# Broad read-only for networking. NetworkPolicies might need CUD for defense - TBD.
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses", "networkpolicies"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: [""]
-  resources: ["nodes"]
   verbs: ["get", "list", "watch"]
-# Allow checking own RBAC permissions to better understand capabilities
+# Allow checking own RBAC permissions
 - apiGroups: ["authorization.k8s.io"]
   resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
   verbs: ["create"]
@@ -75,6 +76,65 @@ roleRef:
   name: blue-agent-manage-quotas
   apiGroup: rbac.authorization.k8s.io
 ---
+# Role for Blue Agent to defend services in the 'services' namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blue-agent-services-defense
+  namespace: services
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-agent-services-defense-binding
+  namespace: services
+subjects:
+- kind: ServiceAccount
+  name: blue-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: blue-agent-services-defense
+  apiGroup: rbac.authorization.k8s.io
+---
+# Role for Blue Agent to read common resources in the 'protected' namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blue-agent-read-protected
+  namespace: protected
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-agent-read-protected-binding
+  namespace: protected
+subjects:
+- kind: ServiceAccount
+  name: blue-agent
+  namespace: chaos-monkey-system
+roleRef:
+  kind: Role
+  name: blue-agent-read-protected
+  apiGroup: rbac.authorization.k8s.io
+---
 # No access to system-monitoring namespace resources
 # Explicitly deny all permissions through an empty role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -92,7 +152,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: blue-agent
-  namespace: services
+  namespace: chaos-monkey-system
 roleRef:
   kind: Role
   name: blue-agent-no-access
