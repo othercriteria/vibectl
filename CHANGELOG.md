@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **[Demo]** Refined Chaos Monkey agent RBAC permissions for Blue and Red agents:
+  - Restricted Red Agent's ability to create/delete Deployments/ReplicaSets.
+  - Scoped Red Agent's pod creation to the `services` namespace.
+  - Hardened Blue and Red agent access to the `system-monitoring` namespace (no access to common resources).
+  - Granted Blue Agent explicit read-only access to the `protected` namespace.
+  - Ensured Blue Agent retains necessary defensive capabilities in the `services` namespace via a dedicated Role, while its ClusterRole is now primarily read-only cluster-wide.
+- **[Demo]** Stabilized ServiceAccount (SA) handling in Chaos Monkey demo to ensure reliable token authentication:
+  - Agent SAs (blue-agent, red-agent) are now created once via a dedicated manifest (`agent-serviceaccounts.yaml`).
+  - SA definitions were removed from passive and active RBAC YAML files.
+  - `k8s-entrypoint.sh` updated to apply the standalone SA manifest early.
+  - Kubeconfig regeneration during the passive-to-active RBAC switch is now skipped, as the SA token remains valid.
+  - This resolves intermittent "Unauthorized" errors previously faced by agents post-RBAC switch.
+
 ## [0.6.2] - 2025-05-08
 
 ### Fixed
