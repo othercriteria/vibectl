@@ -24,15 +24,27 @@ services:
       - K3D_CLUSTER_NAME=kafka-demo-cluster
       # Explicitly pass the generated Kafka Cluster ID
       - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
+      # Pass resource limits as env vars for envsubst in instructions
+      - K8S_SANDBOX_CPU_LIMIT=${K8S_SANDBOX_CPU_LIMIT:-4.0}
+      - K8S_SANDBOX_MEM_LIMIT=${K8S_SANDBOX_MEM_LIMIT:-4G}
       # Add variable for dynamic IP-based listener configuration
       - KAFKA_ADVERTISED_HOST=172.20.0.2
       # Add target latency for the reporter script
       - TARGET_LATENCY_MS=10.0 # Value from producer.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      - status-volume:/tmp/status:rw
+      - ./status-volume:/tmp/status:rw
       # Mount source code for vibectl development/installation if needed
       - ../../..:/home/sandbox/vibectl-src:ro
+      # Mount entrypoint, manifests, and scripts
+      - ./k8s-sandbox/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
+      - ./k8s-sandbox/kafka-kraft.yaml:/home/sandbox/kafka/kafka-kraft.yaml:ro
+      - ./k8s-sandbox/kafka-latency-cm.yaml:/home/sandbox/kafka-latency-cm.yaml:ro
+      - ./k8s-sandbox/latency-reporter.py:/home/sandbox/latency-reporter.py:ro
+      - ./k8s-sandbox/vibectl_instructions.txt:/home/sandbox/vibectl_instructions.txt:ro
+      - ./k8s-sandbox/latency-reporter-rbac.yaml:/home/sandbox/latency-reporter-rbac.yaml:ro
     networks:
       kafka-demo-network:
         aliases:
@@ -62,7 +74,7 @@ services:
       - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-50}
     volumes:
       # Mount status volume to write producer stats
-      - status-volume:/tmp/status:rw
+      - ./status-volume:/tmp/status:rw
     networks:
       kafka-demo-network:
         aliases:
@@ -91,7 +103,7 @@ services:
       # Add config: TOPICS, SHARED_SECRET etc. via run.sh
     volumes:
       # Mount status volume to write latency metrics
-      - status-volume:/tmp/status:rw
+      - ./status-volume:/tmp/status:rw
     networks:
       kafka-demo-network:
         aliases:
@@ -123,7 +135,7 @@ services:
       # Add config: TARGET_LATENCY, RATE_ADJUST_STEP etc. via run.sh
     volumes:
       # Mount status volume to read latency and producer stats
-      - status-volume:/tmp/status:rw
+      - ./status-volume:/tmp/status:rw
       # Mount Docker socket
       - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only is safer
     networks:
@@ -147,10 +159,5 @@ networks:
       com.docker.network.bridge.enable_ip_masquerade: "true"
       com.docker.network.bridge.enable_icc: "true"
 
-volumes:
-  status-volume: # Named volume for shared status/metrics
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: "size=10m,mode=1777" # Small tmpfs, world-writable
+# volumes:
+#   status-volume: {}

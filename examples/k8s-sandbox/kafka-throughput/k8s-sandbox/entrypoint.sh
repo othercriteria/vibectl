@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+echo "Testing Docker socket connection..."
+if ! docker ps > /dev/null 2>&1; then
+  echo "Error: Cannot access Docker socket. Check that the volume mount and group permissions are correct." >&2
+  exit 1
+fi
+echo "Docker socket connection successful."
+
 echo "🚀 Starting Kafka Demo Sandbox Entrypoint..."
 
 # Environment variables from compose.yml
@@ -29,19 +36,73 @@ SHUTDOWN_FILE="${STATUS_DIR}/shutdown"
 # Reusable function from Bootstrap demo
 function setup_k3d_cluster() {
     echo "🔧 Checking for existing K3d cluster '${K3D_CLUSTER_NAME}'..."
-    if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then
-        echo "✅ Found existing cluster '${K3D_CLUSTER_NAME}'. Reusing it."
-        # Optionally, verify cluster health here if needed in the future.
-        return 0 # Cluster already exists, no need to create
-    else
-        echo "🤔 Cluster '${K3D_CLUSTER_NAME}' not found. Creating it..."
-        # Note: Add any specific k3d flags if needed (e.g., ports, agents)
-        if ! k3d cluster create ${K3D_CLUSTER_NAME}; then
-            echo "❌ Error: Failed to create K3d cluster."
+    if k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
+        echo "🗑️ Found existing cluster '${K3D_CLUSTER_NAME}'. Attempting to delete it forcefully..."
+
+        # 1. Try k3d delete
+        if ! k3d cluster delete "${K3D_CLUSTER_NAME}"; then
+            echo "⚠️ Warning: 'k3d cluster delete' command failed or reported issues. Proceeding with manual cleanup." >&2
+        else
+            echo "✅ 'k3d cluster delete' command initiated for '${K3D_CLUSTER_NAME}'."
+        fi
+
+        # Give things a moment
+        echo "⏳ Waiting 5 seconds after k3d delete attempt..."
+        sleep 5
+
+        # 2. Manual container stop/remove
+        K3D_CONTAINER_PATTERN="k3d-${K3D_CLUSTER_NAME}-"
+        echo "🧹 Forcefully stopping/removing any remaining Docker containers matching '${K3D_CONTAINER_PATTERN}'..."
+        if docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | grep -q .; then
+            docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker stop -t 2 || echo "⚠️ Warning: Failed to stop one or more containers gracefully. Attempting force remove..." >&2
+            sleep 2 # Brief pause after stop attempt
+            docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker rm -f || echo "⚠️ Warning: Failed to forcefully remove one or more containers." >&2
+        else
+            echo "No containers found matching '${K3D_CONTAINER_PATTERN}'."
+        fi
+
+        # 3. Manual network remove
+        K3D_NETWORK_NAME="k3d-${K3D_CLUSTER_NAME}"
+        echo "🧹 Attempting to remove Docker network '${K3D_NETWORK_NAME}'..."
+        if docker network inspect "${K3D_NETWORK_NAME}" >/dev/null 2>&1; then
+            docker network rm "${K3D_NETWORK_NAME}" || echo "⚠️ Warning: Failed to remove network '${K3D_NETWORK_NAME}'. It might have active endpoints from containers that failed to remove." >&2
+        else
+            echo "K3d network '${K3D_NETWORK_NAME}' not found."
+        fi
+
+        # 4. Wait and verify cluster is gone from k3d list
+        echo "⏳ Verifying cluster removal via 'k3d cluster list' (waiting up to 30 seconds)..."
+        ATTEMPTS=0
+        MAX_ATTEMPTS=15 # 15 attempts * 2 seconds = 30 seconds
+        CLUSTER_GONE=false
+        while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+            if ! k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
+                CLUSTER_GONE=true
+                break
+            fi
+            echo "    Cluster still listed, waiting 2 more seconds... (${ATTEMPTS}/${MAX_ATTEMPTS})"
+            sleep 2
+            ATTEMPTS=$((ATTEMPTS + 1))
+        done
+
+        if [ "$CLUSTER_GONE" = true ]; then
+            echo "✅ Cluster '${K3D_CLUSTER_NAME}' successfully removed according to 'k3d cluster list'."
+        else
+            echo "❌ Error: Cluster '${K3D_CLUSTER_NAME}' still exists according to 'k3d cluster list' after deletion attempts and timeout. Manual intervention required." >&2
+            k3d cluster list >&2 # Show what k3d sees
             exit 1
         fi
-        echo "✅ K3d cluster created successfully!"
+
+    fi # End of if cluster existed
+
+    # 5. Create cluster
+    echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}'..."
+    if ! k3d cluster create "${K3D_CLUSTER_NAME}"; then
+        echo "❌ Error: Failed to create K3d cluster '${K3D_CLUSTER_NAME}'." >&2
+        k3d cluster list >&2
+        exit 1
     fi
+    echo "✅ K3d cluster '${K3D_CLUSTER_NAME}' created successfully!"
 }
 
 # Reusable function from Bootstrap demo (adapted path)
@@ -49,21 +110,48 @@ function patch_kubeconfig() {
     echo "🔧 Patching kubeconfig..."
     mkdir -p /home/sandbox/.kube
     echo "Using kubeconfig at: ${KUBECONFIG}"
-    k3d kubeconfig get ${K3D_CLUSTER_NAME} > ${KUBECONFIG}
-    K3D_SERVERLB_NAME="k3d-${K3D_CLUSTER_NAME}-serverlb"
-    K3D_SERVERLB_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$K3D_SERVERLB_NAME")
-    if [ -n "$K3D_SERVERLB_IP" ]; then
-      sed -i "s#127.0.0.1:[0-9]*#${K3D_SERVERLB_IP}:6443#g" ${KUBECONFIG}
-      sed -i "s#0.0.0.0:[0-9]*#${K3D_SERVERLB_IP}:6443#g" ${KUBECONFIG}
-      echo "Patched kubeconfig to use k3d serverlb IP: $K3D_SERVERLB_IP:6443"
-    else
-      echo "⚠️ Warning: Could not determine k3d serverlb IP. Kubeconfig may not work correctly."
+    k3d kubeconfig get "${K3D_CLUSTER_NAME}" > "${KUBECONFIG}.orig" # Save original
+
+    CURRENT_SERVER_URL=$(grep 'server:' "${KUBECONFIG}.orig" | awk '{print $2}')
+    echo "Original server URL from k3d: ${CURRENT_SERVER_URL}"
+
+    if [[ -z "$CURRENT_SERVER_URL" ]]; then
+        echo "❌ Error: Could not extract server URL from k3d kubeconfig." >&2; cat "${KUBECONFIG}.orig" >&2; exit 1
     fi
-    # Add insecure-skip-tls-verify and remove certificate-authority-data
-    awk '/server: /{print; print "    insecure-skip-tls-verify: true"; next} !/certificate-authority-data/' ${KUBECONFIG} > ${KUBECONFIG}.tmp && mv ${KUBECONFIG}.tmp ${KUBECONFIG}
-    chmod 600 ${KUBECONFIG}
-    chown sandbox:sandbox ${KUBECONFIG}
-    echo "✅ Kubeconfig patched."
+
+    EXTRACTED_PORT=$(echo "$CURRENT_SERVER_URL" | sed -E 's#^https://(0\.0\.0\.0|127\.0\.0\.1):##')
+    if [[ -z "$EXTRACTED_PORT" ]] || [[ "$EXTRACTED_PORT" == "$CURRENT_SERVER_URL" ]]; then
+        echo "❌ Error: Could not extract port from server URL: ${CURRENT_SERVER_URL}." >&2; exit 1
+    fi
+    echo "Extracted host port: ${EXTRACTED_PORT}"
+
+    # Attempt to get the gateway IP (host IP on the container's network)
+    GATEWAY_IP=$(ip route | awk '/default via/ {print $3}' | head -n 1) # head -n 1 in case of multiple default routes
+    if [[ -z "$GATEWAY_IP" ]]; then
+        echo "⚠️ Warning: Could not determine gateway IP. Falling back to host.docker.internal." >&2
+        # If gateway IP fails, host.docker.internal is already configured by extra_hosts as a fallback.
+        # So we can proceed with host.docker.internal which might work in some environments
+        # or if the direct gateway IP method has issues.
+        NEW_HOST_IP="host.docker.internal"
+    else
+        echo "Found gateway IP: ${GATEWAY_IP}"
+        NEW_HOST_IP="${GATEWAY_IP}"
+    fi
+
+    NEW_SERVER_URL="https://${NEW_HOST_IP}:${EXTRACTED_PORT}"
+    echo "Attempting to patch kubeconfig to use server: ${NEW_SERVER_URL}"
+
+    awk -v new_url="${NEW_SERVER_URL}" \
+        '{ if ($1 == "server:") { print "    server: " new_url } else { print } }' \
+        "${KUBECONFIG}.orig" > "${KUBECONFIG}.tmp"
+    awk '/server: /{print; print "    insecure-skip-tls-verify: true"; next} !/certificate-authority-data/' \
+        "${KUBECONFIG}.tmp" > "${KUBECONFIG}"
+    rm "${KUBECONFIG}.tmp" "${KUBECONFIG}.orig"
+
+    chmod 600 "${KUBECONFIG}"
+    chown sandbox:sandbox "${KUBECONFIG}"
+    echo "✅ Kubeconfig patched to use ${NEW_SERVER_URL}."
+    echo "Final Kubeconfig server line:"; grep 'server:' "${KUBECONFIG}" || true
 }
 
 # Reusable function from Bootstrap demo
@@ -259,35 +347,55 @@ function setup_vibectl() {
         echo "Python path: $(which python3 || echo 'not found')" >&2
         echo "Installed packages:" >&2
         pip list >&2
-        exit 1
-    fi
-    echo "Using LLM keys path: $LLM_KEYS_PATH"
+        # Do not exit here, as API key might be set via env var directly for vibectl
+    else
+        echo "LLM keys path: $LLM_KEYS_PATH"
+        mkdir -p "$(dirname "$LLM_KEYS_PATH")"
 
-    # Ensure the directory exists (running as sandbox user)
-    mkdir -p "$(dirname "$LLM_KEYS_PATH")"
-
-    # Write the keys file directly
-    cat > "$LLM_KEYS_PATH" << EOF
+        # Write the keys file directly (used by llm CLI, vibectl also checks env vars)
+        # vibectl itself will prioritize VIBECTL_ANTHROPIC_API_KEY if set.
+cat > "$LLM_KEYS_PATH" << EOF
 {
-  "anthropic": "$VIBECTL_ANTHROPIC_API_KEY"
+  "anthropic": "${VIBECTL_ANTHROPIC_API_KEY}"
 }
 EOF
-    chmod 600 "$LLM_KEYS_PATH"
-    echo "LLM API key configured."
+        chmod 600 "$LLM_KEYS_PATH"
+        echo "LLM API key configured for llm CLI via keys file."
+    fi
+
+    echo "Setting custom instructions for vibectl..."
+    INSTRUCTIONS_FILE_PATH="/home/sandbox/vibectl_instructions.txt"
+    if [ -f "${INSTRUCTIONS_FILE_PATH}" ]; then
+        # Specify only the variables we want to substitute to avoid unintended replacements
+        # Ensure these variables are exported or available in the current environment
+        # The K8S_SANDBOX_CPU_LIMIT and K8S_SANDBOX_MEM_LIMIT need to be explicitly exported
+        # if they are only set in compose.yml for the 'deploy' section and not as 'environment' vars.
+        # However, they are passed via environment: in compose.yml, so they should be available.
+        # TARGET_LATENCY_MS is also passed as an environment variable.
+
+        # Create a string of variables for envsubst, e.g., '${VAR1} ${VAR2}'
+        # Default values are handled by bash's parameter expansion in the instructions file itself if needed,
+        # but envsubst will use the actual env var value if set.
+        VARIABLES_TO_SUBSTITUTE='${K8S_SANDBOX_CPU_LIMIT} ${K8S_SANDBOX_MEM_LIMIT} ${TARGET_LATENCY_MS}'
+
+        INSTRUCTIONS_CONTENT=$(envsubst "${VARIABLES_TO_SUBSTITUTE}" < "${INSTRUCTIONS_FILE_PATH}")
+
+        if ! vibectl config set custom_instructions "${INSTRUCTIONS_CONTENT}"; then
+            echo "❌ Error: Failed to set custom instructions for vibectl." >&2
+            # Consider exiting if instructions are critical, for now, just warn
+        else
+            echo "✅ Custom instructions set from ${INSTRUCTIONS_FILE_PATH}."
+        fi
+    else
+        echo "⚠️ Warning: Instructions file not found at ${INSTRUCTIONS_FILE_PATH}. vibectl will run without them." >&2
+    fi
+
+    # Set other vibectl configurations as needed
+    vibectl config set memory_max_chars 1000
 
     # Now set other vibectl configurations
     vibectl config set kubeconfig ${KUBECONFIG}
     vibectl config set kubectl_command kubectl
-    vibectl config set memory_max_chars 2000
-    # Use model provided by environment variable AFTER key is set
-    if [ -n "${VIBECTL_MODEL:-}" ]; then
-        vibectl config set model "${VIBECTL_MODEL}"
-        echo "Vibectl model set to: ${VIBECTL_MODEL}"
-    else
-        echo "⚠️ VIBECTL_MODEL not set, using default model."
-    fi
-
-    # Configure other vibectl settings (optional, based on needs)
     vibectl config set show_memory true
     vibectl config set show_iterations true
     if [ "${VIBECTL_VERBOSE:-false}" = "true" ]; then
@@ -298,6 +406,14 @@ EOF
     else
         vibectl config set show_raw_output false
         vibectl config set show_kubectl false
+    fi
+
+    # Use model provided by environment variable AFTER key is set
+    if [ -n "${VIBECTL_MODEL:-}" ]; then
+        vibectl config set model "${VIBECTL_MODEL}"
+        echo "Vibectl model set to: ${VIBECTL_MODEL}"
+    else
+        echo "⚠️ VIBECTL_MODEL not set, using default model."
     fi
 
     echo "✅ vibectl configured."
@@ -330,6 +446,8 @@ function run_vibectl_loop() {
     echo "🔄 Starting vibectl monitoring loop..."
     # Define log file path
     LOG_FILE="${STATUS_DIR}/vibectl_agent.log"
+
+    vibectl memory set "You are on a fresh k3d cluster. Kafka is deployed and is ready or will be ready soon." >> "${LOG_FILE}" 2>&1
 
     while true; do
         # Check for shutdown signal
@@ -384,7 +502,10 @@ else
     wait_for_kafka_ready
     setup_kafka_port_forward
     # Signal that Kafka is ready for dependents (producer/consumer)
+    echo "Touching ${KAFKA_READY_FILE}..."
     touch "${KAFKA_READY_FILE}"
+    sync # Attempt to flush filesystem changes
+    echo "✅ ${KAFKA_READY_FILE} touched and synced."
     echo "✅ Phase 1 complete! Kafka is ready and port-forwarded." > "${PHASE1_COMPLETE}"
 fi
 

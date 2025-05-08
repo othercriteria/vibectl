@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     lsb-release \
     dirmngr \
+    gettext \
     && rm -rf /var/lib/apt/lists/*
 
 # Link python3 to python3.11
@@ -50,36 +51,6 @@ RUN useradd -ms /bin/bash sandbox \
 RUN mkdir -p /home/sandbox/{.config,vibectl-src,.kube,kafka} \
     && chown -R sandbox:sandbox /home/sandbox
 
-# Copy various config and script files (as root)
-COPY kafka-kraft.yaml /home/sandbox/kafka/
-COPY vibectl_instructions.txt /home/sandbox/
-COPY latency-reporter.py /home/sandbox/
-COPY kafka-latency-cm.yaml /home/sandbox/
-COPY latency-reporter-rbac.yaml /home/sandbox/
-COPY entrypoint.sh /usr/local/bin/
-
-# Make scripts executable and set permissions (as root)
-RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && chmod +x /home/sandbox/latency-reporter.py \
-    # Chown only the files/dirs copied into the sandbox user's home
-    && chown sandbox:sandbox /home/sandbox/kafka/kafka-kraft.yaml \
-    && chown sandbox:sandbox /home/sandbox/vibectl_instructions.txt \
-    && chown sandbox:sandbox /home/sandbox/latency-reporter.py \
-    && chown sandbox:sandbox /home/sandbox/kafka-latency-cm.yaml \
-    && chown sandbox:sandbox /home/sandbox/latency-reporter-rbac.yaml
-    # We already chown -R /home/sandbox earlier, so no need to re-chown the whole dir
-
-# Create a Docker socket test script (as root)
-RUN echo '#!/bin/bash\n\
-echo "Testing Docker socket connection..."\n\
-if ! docker ps > /dev/null 2>&1; then\n\
-  echo "Error: Cannot access Docker socket. Check that the volume mount and group permissions are correct."\n\
-  exit 1\n\
-fi\n\
-echo "Docker socket connection successful."\n\
-exec "$@"' > /usr/local/bin/docker-test.sh && \
-    chmod +x /usr/local/bin/docker-test.sh
-
 # Now switch to the sandbox user
 USER sandbox
 WORKDIR /home/sandbox
@@ -93,5 +64,5 @@ RUN pip install --no-cache-dir \
     llm \
     llm-anthropic # Add required llm plugins
 
-# Entrypoint runs as sandbox user
-ENTRYPOINT ["/usr/local/bin/docker-test.sh", "/usr/local/bin/entrypoint.sh"]
+# Entrypoint runs as sandbox user, executed with bash
+ENTRYPOINT ["bash", "/usr/local/bin/entrypoint.sh"]
