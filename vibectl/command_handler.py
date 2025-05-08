@@ -714,74 +714,37 @@ async def _confirm_and_execute_plan(
     output_flags: OutputFlags,
     summary_prompt_func: Callable[[], str],
 ) -> Result:
-    """Confirms the plan if necessary, then executes it.
+    """Confirm and execute the kubectl command plan."""
+    full_command_parts = ["kubectl", kubectl_verb, *kubectl_args]
+    display_cmd = " ".join(filter(None, full_command_parts))
+    cmd_for_display = " ".join(filter(None, kubectl_args))
 
-    Args:
-        kubectl_verb: The kubectl command verb (e.g., 'get', 'delete')
-        kubectl_args: List of command arguments (e.g., ['pods', '-n', 'default'])
-        yaml_content: YAML content if present
-        explanation: Optional explanation from the AI
-        semiauto: Whether this is operating in semiauto mode
-        yes: Bypass confirmation prompts
-        autonomous_mode: Enable fully autonomous mode (no confirmations)
-        live_display: Show live output for background tasks
-        output_flags: Flags controlling output format
-        summary_prompt_func: Function to generate the summary prompt
-
-    Returns:
-        Result object with the outcome of the operation
-    """
-    cmd_for_display = _create_display_command(kubectl_args)
-    display_cmd = (f"kubectl {kubectl_verb} {cmd_for_display}").strip()
-
-    if output_flags.show_kubectl:
-        console_manager.print_processing(f"Running: {display_cmd}")
-
-    # Confirmation logic
-    confirmation_needed = _needs_confirmation(kubectl_verb, semiauto)
-    should_confirm = confirmation_needed and not (yes or autonomous_mode)
+    needs_conf = _needs_confirmation(kubectl_verb, semiauto)
     logger.debug(
-        f"Confirmation check: verb='{kubectl_verb}', "
-        f"needed={confirmation_needed}, should_confirm={should_confirm}, "
-        f"yes={yes}, auto={autonomous_mode}"
+        f"Confirmation check: command='{display_cmd}', verb='{kubectl_verb}', "
+        f"semiauto={semiauto}, needs_confirmation={needs_conf}, yes_flag={yes}"
     )
 
-    if should_confirm:
-        logger.debug("Calling _handle_command_confirmation")
+    if needs_conf:
         confirmation_result = _handle_command_confirmation(
-            display_cmd,
-            cmd_for_display,
-            semiauto,
-            output_flags.model_name,
-            explanation,
+            display_cmd=display_cmd,
+            cmd_for_display=cmd_for_display,
+            semiauto=semiauto,
+            model_name=output_flags.model_name,
+            explanation=explanation,
+            yes=yes,
         )
         if confirmation_result is not None:
-            if (
-                isinstance(confirmation_result, Success)
-                and not confirmation_result.continue_execution
-            ):
-                logger.info("Exiting due to user choice in confirmation.")
             return confirmation_result
-        logger.debug("Proceeding with command execution after confirmation")
+    elif yes:
+        logger.info(
+            f"Proceeding without prompt (confirmation not needed, yes=True) "
+            f"for command: {display_cmd}"
+        )
 
-    # Handle live display for specific commands
-    if live_display:
-        if kubectl_verb == "wait":
-            logger.info("'wait' command dispatched to live display handler.")
-            return await handle_wait_with_live_display(
-                resource=kubectl_args[0] if kubectl_args else "",
-                args=tuple(kubectl_args[1:]),
-                output_flags=output_flags,
-                summary_prompt_func=summary_prompt_func,
-            )
-        elif kubectl_verb == "port-forward":
-            logger.info("'port-forward' command dispatched to live display handler.")
-            return await handle_port_forward_with_live_display(
-                resource=kubectl_args[0] if kubectl_args else "",
-                args=tuple(kubectl_args[1:]),
-                output_flags=output_flags,
-                summary_prompt_func=summary_prompt_func,
-            )
+    # Display the command being run if show_kubectl is true, before execution
+    if output_flags.show_kubectl:
+        console_manager.print_processing(f"Running: {display_cmd}")
 
     # Execute the command
     logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
@@ -838,6 +801,7 @@ def _handle_command_confirmation(
     semiauto: bool,
     model_name: str,
     explanation: str | None = None,
+    yes: bool = False,  # Added yes flag
 ) -> Result | None:
     """Handle command confirmation with enhanced options.
 
@@ -847,11 +811,19 @@ def _handle_command_confirmation(
         semiauto: Whether this is operating in semiauto mode.
         model_name: The model name used.
         explanation: Optional explanation from the AI.
+        yes: If True, bypass prompt and default to yes.
 
     Returns:
         Result if the command was cancelled or memory update failed,
         None if the command should proceed.
     """
+    # If yes is True, bypass the prompt and proceed
+    if yes:
+        logger.info(
+            "Confirmation bypassed due to 'yes' flag for command: %s", display_cmd
+        )
+        return None  # Proceed with command execution
+
     # Enhanced confirmation dialog with options: yes, no, and, but, memory, [exit]
     options_base = "[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory?"
     options_exit = " or [E]xit?"
@@ -1054,32 +1026,34 @@ def _create_display_command(args: list[str]) -> str:
         return " ".join(display_args)
 
 
-def _needs_confirmation(command: str, semiauto: bool) -> bool:
+def _needs_confirmation(verb: str, semiauto: bool) -> bool:
     """Check if a command needs confirmation based on its type.
 
     Args:
-        command: Command type
+        verb: Command verb (e.g., get, delete)
         semiauto: Whether the command is running in semiauto mode
             (always requires confirmation)
 
     Returns:
         Whether the command needs confirmation
     """
-    # Remove the automatic True return for semiauto mode.
-    # Confirmation is now controlled by the `yes` flag passed to handle_vibe_request
-    # combined with whether the command is considered dangerous.
-
-    # These commands need confirmation due to their potentially dangerous nature
     dangerous_commands = [
         "delete",
         "scale",
-        "rollout",  # Includes undo, restart, pause, resume
+        "rollout",
         "patch",
         "apply",
         "replace",
         "create",
     ]
-    return command in dangerous_commands
+    is_dangerous = verb in dangerous_commands  # Check against the verb
+    needs_conf = semiauto or is_dangerous
+    logger.debug(
+        f"Checking confirmation for verb '{verb}': "
+        f"semiauto={semiauto}, is_dangerous={is_dangerous}, "
+        f"needs_confirmation={needs_conf}"
+    )
+    return needs_conf
 
 
 def _execute_command(command: str, args: list[str], yaml_content: str | None) -> Result:

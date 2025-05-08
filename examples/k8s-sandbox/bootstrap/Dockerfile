@@ -4,11 +4,10 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install basic requirements
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa && apt-get update && apt-get install -y \
     curl \
-    python3 \
-    python3-pip \
-    python3-venv \
+    python3.11 \
+    python3.11-venv \
     docker.io \
     apt-transport-https \
     ca-certificates \
@@ -17,13 +16,16 @@ RUN apt-get update && apt-get install -y \
     dirmngr \
     && rm -rf /var/lib/apt/lists/*
 
+# Ensure pip is installed for python3.11
+RUN python3.11 -m ensurepip --upgrade
+
 # Install Docker Buildx (official method)
 RUN mkdir -p ~/.docker/cli-plugins/ && \
     curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-linux-amd64 -o ~/.docker/cli-plugins/docker-buildx && \
     chmod +x ~/.docker/cli-plugins/docker-buildx
 
 # Install pyyaml for the Helm post-renderer (system Python)
-RUN pip3 install --no-cache-dir pyyaml
+RUN python3.11 -m pip install --no-cache-dir pyyaml
 
 # Install kubectl
 RUN curl -fsSL https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl && \
@@ -53,7 +55,7 @@ RUN mkdir -p /home/bootstrap/{ollama-models,.config,vibectl-src,.kube}
 RUN chown -R bootstrap:bootstrap /home/bootstrap
 
 # Set up virtual environment
-RUN python3 -m venv /home/bootstrap/.venv \
+RUN python3.11 -m venv /home/bootstrap/.venv \
     && . /home/bootstrap/.venv/bin/activate \
     && pip install --no-cache-dir pip setuptools wheel --upgrade \
     && pip install --no-cache-dir pyyaml

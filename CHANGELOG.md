@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Update example Dockerfiles (bootstrap, ctf) to use Python 3.11+.
+- Fix `TypeError` in `vibectl auto` command when `--yes` flag is used.
+- Fix `click.Abort` error in non-interactive `auto` mode by correctly handling the `yes` flag during command confirmation for dangerous commands.
+- Fix `No module named pip` error in bootstrap example Dockerfile by adding `ensurepip` step.
+
+## [0.6.1] - 2025-05-07
+
 ### Added
 - Interactive live display for commands using `--watch` (`get`, `events`) or `--follow` (`logs`), replacing simple pass-through. Includes keybindings for Exit (E), Pause (P), Wrap (W), Save (S), and Filter (F).
 - Status bar for live display showing elapsed time, line count, and spinner.

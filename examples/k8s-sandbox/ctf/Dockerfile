@@ -4,11 +4,10 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install basic requirements (only what's needed)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:deadsnakes/ppa && apt-get update && apt-get install -y \
     curl \
-    python3 \
-    python3-pip \
-    python3-venv \
+    python3.11 \
+    python3.11-venv \
     docker.io \
     netcat-openbsd \
     iproute2 \
@@ -59,11 +58,11 @@ RUN mkdir -p /home/sandbox/vibectl-src
 WORKDIR /home/sandbox/vibectl-src
 
 # Set up virtual environment (will be cached if requirements don't change)
-RUN python3 -m venv /home/sandbox/.venv \
+RUN python3.11 -m venv /home/sandbox/.venv \
     && . /home/sandbox/.venv/bin/activate \
     && pip install --no-cache-dir pip setuptools wheel --upgrade \
     && pip install --no-cache-dir llm-anthropic \
-    && python -m llm install llm-anthropic
+    && python3.11 -m llm install llm-anthropic
 
 # We'll install the package from GitHub directly
 RUN . /home/sandbox/.venv/bin/activate \

@@ -608,6 +608,7 @@ async def auto(
     unfreeze_memory: bool = False,
     interval: int = 5,
     limit: int | None = None,
+    yes: bool = False,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -620,7 +621,7 @@ async def auto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
-            yes=True,
+            yes=yes,
             interval=interval,
             semiauto=False,
             limit=limit,

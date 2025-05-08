@@ -72,12 +72,20 @@ async def run_auto_command(
 
         if semiauto:
             console_manager.print_note(
-                "Dangerous commands (e.g., delete, apply) will require confirmation."
+                "Starting vibectl semiauto session. "
+                "You will be prompted to confirm each command."
             )
-        else:
             console_manager.print_note(
-                "Commands will execute automatically (no confirmation needed)."
+                "Dangerous commands (e.g., delete, apply) will require confirmation. "
+                "Review each step carefully."
             )
+            yes_to_pass_to_vibe = False  # Semiauto always requires initial confirmation
+            effective_interval = (
+                0  # No sleep in semiauto, user confirmation is the pause
+            )
+        else:  # Full auto mode
+            yes_to_pass_to_vibe = True  # <<< MODIFIED: Force True for full auto mode
+            effective_interval = interval
 
         # Show limit information if applicable
         if limit is not None and show_iterations:
@@ -141,7 +149,7 @@ async def run_auto_command(
                     freeze_memory=freeze_memory,
                     unfreeze_memory=unfreeze_memory,
                     # Override yes flag in semiauto mode
-                    yes=yes if not semiauto else False,
+                    yes=yes_to_pass_to_vibe,
                     semiauto=semiauto,
                     # Handle errors here instead of in run_vibe_command
                     exit_on_error=False,
@@ -183,15 +191,15 @@ async def run_auto_command(
             # Determine if we need to sleep before next iteration
             # In semiauto mode without error, user confirmation provides natural pausing
             # The test expects that we don't sleep in semiauto mode, even with errors
-            if interval > 0 and not semiauto:
+            if effective_interval > 0 and not semiauto:
                 logger.info(
-                    f"Completed iteration {iteration}, waiting {interval} "
+                    f"Completed iteration {iteration}, waiting {effective_interval} "
                     f"seconds before next"
                 )
                 console_manager.print_note(
-                    f"Waiting {interval} seconds before next iteration..."
+                    f"Waiting {effective_interval} seconds before next iteration..."
                 )
-                time.sleep(interval)
+                time.sleep(effective_interval)
 
             iteration += 1
 

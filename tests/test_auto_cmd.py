@@ -4,8 +4,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from asyncclick.testing import CliRunner
 
 import vibectl.subcommands.auto_cmd  # Import for direct module access
+from vibectl.cli import cli
 from vibectl.types import Error, Success
 
 
@@ -1337,3 +1339,30 @@ async def test_auto_command_exits_nonzero_on_llm_missing_verb_error(
 
     # Ensure handle_vibe_request was called once
     mock_handle_vibe_request.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cli_auto_command_with_yes_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that 'vibectl auto --yes' runs without TypeError and 'yes' is passed."""
+    runner = CliRunner()
+    # Mock the underlying function that 'auto' calls in cli.py
+    # to isolate the CLI parsing and parameter forwarding.
+    # The actual run_auto_command is heavily tested elsewhere.
+    mock_run_auto_cmd = AsyncMock(return_value=Success(message="Auto ran"))
+    monkeypatch.setattr("vibectl.cli.run_auto_command", mock_run_auto_cmd)
+
+    # Invoke the 'auto' command with the '--yes' flag and a dummy request
+    result = await runner.invoke(cli, ["auto", "--yes", "dummy request"])
+
+    # Check that the command exited successfully
+    assert result.exit_code == 0, f"CLI command failed: {result.output}"
+
+    # Verify that the mocked run_auto_command was called
+    mock_run_auto_cmd.assert_called_once()
+
+    # Verify that 'yes=True' was passed to run_auto_command due to the --yes flag
+    call_kwargs = mock_run_auto_cmd.call_args.kwargs
+    assert call_kwargs.get("request") == "dummy request"
+    assert call_kwargs.get("yes") is True, "The 'yes' flag was not passed as True"
+    # Check other default or expected parameters if necessary, e.g.
+    assert call_kwargs.get("semiauto") is False

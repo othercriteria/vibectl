@@ -271,3 +271,9 @@ Implementation should prioritize commands that provide the most value to users w
 - [ ] Investigate if `LLMModelAdapter` instances (or the underlying model objects) can be passed into functions like `update_memory` to avoid them re-fetching the adapter/model via `get_model_adapter`. This would simplify mocking by reducing the number of patch points.
 
 ## Kubeconfig Handling
+
+## Auto and Semiauto Command Behavior Clarification
+- **`vibectl auto`**: Designed for fully non-interactive execution. It implies `yes=True` for all internal command confirmations, regardless of the `--yes` flag passed to `vibectl auto` itself. The `--yes` flag on `vibectl auto` is primarily for future use if `auto` mode itself were to have its own direct interactive prompts (which it currently doesn't).
+- **`vibectl semiauto`**: Designed for interactive execution where each step planned by the LLM is presented to the user for confirmation. It implies `yes=False` for internal command confirmations, requiring explicit user input (`y/n/a/b/m/e`).
+- **Confirmation Logic**: The `_needs_confirmation` helper in `command_handler.py` determines if a command verb is dangerous. This, combined with the effective `yes` status (always `True` for full auto, always `False` for semiauto initial prompt) dictates whether `_handle_command_confirmation` shows a prompt or bypasses it.
+- **Error Handling**: Both modes have mechanisms to continue or halt on errors, with `exit_on_error` controlling the loop's behavior. Non-halting errors allow the loop to proceed, often with recovery suggestions.
