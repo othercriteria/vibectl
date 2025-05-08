@@ -47,8 +47,9 @@ examples/k8s-sandbox/chaos-monkey/
     - `Dockerfile`: Defines the sandbox container image.
     - `kubernetes/kind-config.yaml`: Configuration for the Kind cluster itself.
     - `kubernetes/resource-quotas.yaml`: Defines CPU/memory quotas for namespaces.
+    - `kubernetes/agent-serviceaccounts.yaml`: Defines the stable ServiceAccount objects for the Blue and Red agents.
     - `kubernetes/demo-*.yaml`: Manifests for the vulnerable demo services deployed within the cluster.
-    - `kubernetes/*-rbac.yaml`: RBAC definitions for the agents (passive and active).
+    - `kubernetes/*-rbac.yaml`: RBAC definitions (Roles and Bindings) for the agents (passive and active).
 - **`agent/`**: Contains the unified Docker setup for both Blue and Red agents. Includes the `agent-entrypoint.sh` which handles role-specific logic, and the text files defining agent memory, instructions, and playbooks.
 - **`poller/`**: Contains the Python script and Dockerfile for the service that continuously monitors the health of the target applications in the Kubernetes cluster.
 - **`overseer/`**: Contains the Flask backend and React frontend for the monitoring dashboard. See `overseer/STRUCTURE.md` for its internal details.

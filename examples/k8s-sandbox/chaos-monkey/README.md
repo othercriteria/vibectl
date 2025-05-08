@@ -113,9 +113,9 @@ A Python-based service that:
 7.  The entrypoint script waits for the demo service deployment to become ready.
 8.  Initial instructions about the passive phase duration and constraints are injected into both agents using `vibectl memory update`.
 9.  Both agents are started using `vibectl auto` and begin their single, continuous loop.
-10. The demo enters the **Passive Phase** (default 5 minutes). Agents explore with read-only permissions.
-11. After the passive duration, the script **deletes passive RBAC** rules and **applies active RBAC** rules (permissive).
-12. The demo enters the **Active Phase** (default 25 minutes). The Red Agent begins attacks, and the Blue Agent defends.
+10. The demo enters the **Passive Phase** (default 5 minutes). Agents explore with read-only permissions defined by their initial RoleBindings.
+11. After the passive duration, the script modifies the agents' permissions by deleting their passive RoleBindings and applying active RoleBindings. The ServiceAccount identities for the agents remain stable throughout this process.
+12. The demo enters the **Active Phase** (default 25 minutes). The Red Agent begins attacks, and the Blue Agent defends using their updated permissions.
 13. Throughout the demo, the overseer provides a comprehensive view of the battle between agents and the evolving cluster state.
 14. After the active duration, the entrypoint script terminates the agent processes.
 
@@ -292,7 +292,7 @@ The chaos-monkey demo creates a fully isolated Kubernetes environment:
 - No ports are exposed to the host system except when explicitly configured
 - The Kubernetes cluster runs entirely within containers
 - Complete separation from any host Kubernetes configuration
-- RBAC policies manage agent permissions, transitioning from passive to active.
+- RBAC policies manage agent permissions, transitioning from passive to active. The ServiceAccount identities for the agents are stable, and only their RoleBindings change during phase transitions, ensuring token validity.
 - Network policies provide additional isolation for the monitoring infrastructure (intended, verify implementation)
 - System monitoring and observability components are isolated from the attack surface
 

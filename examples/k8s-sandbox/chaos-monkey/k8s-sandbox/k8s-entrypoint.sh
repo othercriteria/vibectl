@@ -368,6 +368,8 @@ function install_kubernetes_state_metrics() {
 # Apply Namespaces, Quotas, and initial PASSIVE RBAC
 log "Applying initial Kubernetes configurations (Namespaces, initial RBAC)..."
 kubectl apply -f /kubernetes/namespaces.yaml
+log "Applying standalone agent ServiceAccounts..."
+kubectl apply -f /kubernetes/agent-serviceaccounts.yaml
 kubectl apply -f /kubernetes/blue-agent-passive-rbac.yaml
 kubectl apply -f /kubernetes/red-agent-passive-rbac.yaml
 # Apply Poller RBAC early so the SA exists for token generation later
@@ -488,11 +490,11 @@ switch_agent_rbac() {
     #     echo "[RBAC Switch][${agent_role}] ERROR: Active ClusterRoleBinding not found after apply!"
     # fi
 
-    # --- Regenerate Kubeconfig ---
-    echo "[RBAC Switch][${agent_role}] Regenerating Kubeconfig (${kubeconfig_path}) with active token..."
-    # Call the existing function to handle regeneration
-    create_agent_kubeconfig "${sa_name}" "${sa_namespace}" "${kubeconfig_path}"
-    echo "[RBAC Switch][${agent_role}] Kubeconfig regenerated."
+    # --- Regenerate Kubeconfig (Now Skipped) ---
+    # echo "[RBAC Switch][${agent_role}] Regenerating Kubeconfig (${kubeconfig_path}) with active token..."
+    # # Call the existing function to handle regeneration
+    # create_agent_kubeconfig "${sa_name}" "${sa_namespace}" "${kubeconfig_path}"
+    # echo "[RBAC Switch][${agent_role}] Kubeconfig regenerated."
 
     echo "[RBAC Switch][${agent_role}] Waiting 2 seconds after active RBAC application..."
     sleep 2
