@@ -97,12 +97,37 @@ function setup_k3d_cluster() {
 
     # 5. Create cluster
     echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}'..."
+    # Note: No --network flag here anymore based on previous findings
     if ! k3d cluster create "${K3D_CLUSTER_NAME}"; then
         echo "❌ Error: Failed to create K3d cluster '${K3D_CLUSTER_NAME}'." >&2
         k3d cluster list >&2
         exit 1
     fi
     echo "✅ K3d cluster '${K3D_CLUSTER_NAME}' created successfully!"
+    # Ensure kubectl context is set correctly after create
+    k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
+    echo "✅ Switched kubectl context to '${K3D_CLUSTER_NAME}'."
+}
+
+# Function to clean up the Kafka namespace (Keep this, still useful)
+function cleanup_kafka_namespace() {
+    echo "🧹 Cleaning up Kafka namespace '${KAFKA_NAMESPACE}'..."
+    # Delete the namespace if it exists - this cleans up all resources within it.
+    if kubectl delete namespace "${KAFKA_NAMESPACE}" --ignore-not-found=true --timeout=2m; then
+        echo "✅ Namespace '${KAFKA_NAMESPACE}' deleted (or did not exist)."
+        # Wait briefly for termination to finalize if it existed
+        sleep 5
+    else
+        echo "⚠️ Warning: Failed to delete namespace '${KAFKA_NAMESPACE}' cleanly. Attempting to proceed." >&2
+        # Might need more robust error handling here if deletion failure is critical
+    fi
+    # Recreate the namespace for the new deployment
+    echo "🔧 Creating Kafka namespace '${KAFKA_NAMESPACE}'..."
+    if ! kubectl create namespace "${KAFKA_NAMESPACE}"; then
+        echo "❌ Error: Failed to create namespace '${KAFKA_NAMESPACE}'." >&2
+        exit 1
+    fi
+    echo "✅ Namespace '${KAFKA_NAMESPACE}' created."
 }
 
 # Reusable function from Bootstrap demo (adapted path)
@@ -152,23 +177,57 @@ function patch_kubeconfig() {
     chown sandbox:sandbox "${KUBECONFIG}"
     echo "✅ Kubeconfig patched to use ${NEW_SERVER_URL}."
     echo "Final Kubeconfig server line:"; grep 'server:' "${KUBECONFIG}" || true
+
+    wait_for_k8s_ready
+
+    # Copy the patched kubeconfig to the shared status volume for other services
+    echo "📋 Copying patched kubeconfig to ${STATUS_DIR}/k3d_kubeconfig for other services..."
+    if [ -f "${KUBECONFIG}" ]; then
+        cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
+        chmod 644 "${STATUS_DIR}/k3d_kubeconfig" # Ensure it's readable
+        echo "✅ Kubeconfig copied."
+    else
+        echo "❌ Error: Patched kubeconfig ${KUBECONFIG} not found after setup." >&2
+        # Decide if this is fatal or just a warning
+        # exit 1 # Uncomment if this should be fatal
+    fi
+
+    # Clean up the kafka namespace before deploying kafka
+    cleanup_kafka_namespace
+
+    deploy_kafka
+    wait_for_kafka_ready
+    setup_kafka_port_forward
 }
 
 # Reusable function from Bootstrap demo
 function wait_for_k8s_ready() {
-    echo "⏳ Waiting for Kubernetes cluster to be ready..."
+    echo "⏳ Waiting for Kubernetes cluster to be ready (using ${KUBECONFIG})..."
     for i in {1..60}; do # Increased timeout slightly
-        if kubectl cluster-info >/dev/null 2>&1; then
+        # Capture stderr to see potential errors
+        KCTL_OUTPUT=$(kubectl --kubeconfig "${KUBECONFIG}" cluster-info 2>&1)
+        KCTL_EXIT_CODE=$?
+
+        if [ $KCTL_EXIT_CODE -eq 0 ]; then
             echo "✅ Kubernetes cluster is ready!"
-            kubectl get nodes # Show nodes
+            kubectl --kubeconfig "${KUBECONFIG}" get nodes # Show nodes
             return 0
         fi
+
+        # If failed, print the error output before retrying
+        echo "Waiting for Kubernetes API... (${i}/60) Exit code: ${KCTL_EXIT_CODE}"
+        echo "kubectl cluster-info output:"
+        echo "${KCTL_OUTPUT}" # Print captured output
+        echo "---"
+
         if [ $i -eq 60 ]; then
             echo "❌ Error: Kubernetes cluster did not become ready within the timeout period."
-            k3d cluster list
+            k3d cluster list # Show k3d's view
+            # Try getting nodes again with error output
+            echo "Final attempt to get nodes:"
+            kubectl --kubeconfig "${KUBECONFIG}" get nodes
             exit 1
         fi
-        echo "Waiting for Kubernetes API... (${i}/60)"
         sleep 2
     done
 }
@@ -337,7 +396,6 @@ function setup_vibectl() {
         export VIBECTL_ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
     fi
 
-    # Configure vibectl using the llm tool approach
     echo "Configuring vibectl LLM API key..."
     LLM_KEYS_PATH=$(llm keys path 2>/dev/null)
     if [ -z "$LLM_KEYS_PATH" ]; then
@@ -366,26 +424,39 @@ EOF
     echo "Setting custom instructions for vibectl..."
     INSTRUCTIONS_FILE_PATH="/home/sandbox/vibectl_instructions.txt"
     if [ -f "${INSTRUCTIONS_FILE_PATH}" ]; then
-        # Specify only the variables we want to substitute to avoid unintended replacements
-        # Ensure these variables are exported or available in the current environment
-        # The K8S_SANDBOX_CPU_LIMIT and K8S_SANDBOX_MEM_LIMIT need to be explicitly exported
-        # if they are only set in compose.yml for the 'deploy' section and not as 'environment' vars.
-        # However, they are passed via environment: in compose.yml, so they should be available.
-        # TARGET_LATENCY_MS is also passed as an environment variable.
+        echo "--- Debug: Instructions Substitution (using sed) ---"
+        # Get values, applying defaults if env vars are empty/unset
+        CPU_LIMIT="${K8S_SANDBOX_CPU_LIMIT:-4.0}"
+        MEM_LIMIT="${K8S_SANDBOX_MEM_LIMIT:-4G}"
+        LATENCY_TARGET="${TARGET_LATENCY_MS:-10.0}"
 
-        # Create a string of variables for envsubst, e.g., '${VAR1} ${VAR2}'
-        # Default values are handled by bash's parameter expansion in the instructions file itself if needed,
-        # but envsubst will use the actual env var value if set.
-        VARIABLES_TO_SUBSTITUTE='${K8S_SANDBOX_CPU_LIMIT} ${K8S_SANDBOX_MEM_LIMIT} ${TARGET_LATENCY_MS}'
+        echo "K8S_SANDBOX_CPU_LIMIT: '${CPU_LIMIT}'"
+        echo "K8S_SANDBOX_MEM_LIMIT: '${MEM_LIMIT}'"
+        echo "TARGET_LATENCY_MS: '${LATENCY_TARGET}'"
 
-        INSTRUCTIONS_CONTENT=$(envsubst "${VARIABLES_TO_SUBSTITUTE}" < "${INSTRUCTIONS_FILE_PATH}")
+        # Perform substitutions using sed - pipe cat through multiple sed commands
+        SUBSTITUTED_CONTENT=$(cat "${INSTRUCTIONS_FILE_PATH}" | \
+            sed "s|\${K8S_SANDBOX_CPU_LIMIT:-4.0}|${CPU_LIMIT}|g" | \
+            sed "s|\${K8S_SANDBOX_MEM_LIMIT:-4G}|${MEM_LIMIT}|g" | \
+            sed "s|\${TARGET_LATENCY_MS:-10.0}|${LATENCY_TARGET}|g"
+        )
+
+        if [ $? -ne 0 ]; then
+            echo "❌ Error: sed substitution command failed! Falling back to raw instructions." >&2
+            INSTRUCTIONS_CONTENT=$(cat "${INSTRUCTIONS_FILE_PATH}") # Fallback
+        else
+            echo "--- sed substituted content ---"
+            echo "${SUBSTITUTED_CONTENT}"
+            echo "--- end sed substituted content ---"
+            INSTRUCTIONS_CONTENT="${SUBSTITUTED_CONTENT}"
+        fi
 
         if ! vibectl config set custom_instructions "${INSTRUCTIONS_CONTENT}"; then
             echo "❌ Error: Failed to set custom instructions for vibectl." >&2
-            # Consider exiting if instructions are critical, for now, just warn
         else
             echo "✅ Custom instructions set from ${INSTRUCTIONS_FILE_PATH}."
         fi
+        echo "--- End Debug: Instructions Substitution ---"
     else
         echo "⚠️ Warning: Instructions file not found at ${INSTRUCTIONS_FILE_PATH}. vibectl will run without them." >&2
     fi
@@ -447,7 +518,7 @@ function run_vibectl_loop() {
     # Define log file path
     LOG_FILE="${STATUS_DIR}/vibectl_agent.log"
 
-    vibectl memory set "You are on a fresh k3d cluster. Kafka is deployed and is ready or will be ready soon." >> "${LOG_FILE}" 2>&1
+    vibectl memory set "Start by examining the existing Kafka setup." >> "${LOG_FILE}" 2>&1
 
     while true; do
         # Check for shutdown signal
@@ -459,7 +530,7 @@ function run_vibectl_loop() {
         echo "[Loop] Running vibectl auto (output to ${LOG_FILE})..." # Log before running
         # Run vibectl auto without limits or explicit memory updates.
         # Rely on vibectl's internal logic and instructions to handle metrics.
-        if ! vibectl auto >> "${LOG_FILE}" 2>&1; then
+        if ! vibectl auto "If there's no obvious next step, check the kafka-latency-metrics ConfigMap." >> "${LOG_FILE}" 2>&1; then
             echo "⚠️ Warning: vibectl auto command failed. Check ${LOG_FILE}. Continuing loop." >&2
             # Also log the failure message to the file itself
             echo "[Loop] ⚠️ vibectl auto command failed." >> "${LOG_FILE}" 2>&1

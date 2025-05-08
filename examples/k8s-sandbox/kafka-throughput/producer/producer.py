@@ -27,9 +27,13 @@ LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")  # Need latency file path
 
 # Adaptive Load Parameters
 ADAPTIVE_CHECK_INTERVAL_S = int(os.environ.get("ADAPTIVE_CHECK_INTERVAL_S", "30"))
-LOW_LATENCY_THRESHOLD_MS = float(os.environ.get("LOW_LATENCY_THRESHOLD_MS", "10.0"))
+# Use TARGET_LATENCY_MS consistently
+TARGET_LATENCY_MS = float(os.environ.get("TARGET_LATENCY_MS", "10.0"))
 MAX_MESSAGE_RATE = int(os.environ.get("MAX_MESSAGE_RATE", "10000"))
 RATE_INCREASE_FACTOR = float(os.environ.get("RATE_INCREASE_FACTOR", "1.20"))
+ACTUAL_VS_TARGET_THRESHOLD_PERCENT = float(
+    os.environ.get("ACTUAL_VS_TARGET_THRESHOLD_PERCENT", "0.80")  # Default 80%
+)
 
 
 def create_message(sequence_number: int, size_bytes: int) -> bytes:
@@ -81,54 +85,67 @@ def read_latency() -> float | None:
 
 
 def adjust_message_rate(
-    current_rate: int,
+    current_target_rate: int,
+    actual_rate_from_stats: int,
     latency_ms: float | None,
-    latency_threshold: float,
+    target_latency_ms: float,  # Renamed from latency_threshold
     max_rate: int,
     increase_factor: float,
+    actual_vs_target_threshold: float,
 ) -> int:
-    """Adjusts the message rate based on latency."""
+    """Adjusts the message rate based on latency and actual vs target rate."""
     # Early return if no latency data
     if latency_ms is None:
         logging.info(
-            f"Could not read latency. Holding target rate at {current_rate}/s."
+            f"Could not read latency. Holding target rate at {current_target_rate}/s."
         )
-        return current_rate
+        return current_target_rate
 
     # Early return if latency is too high
-    if latency_ms >= latency_threshold:
+    if latency_ms >= target_latency_ms:
         logging.info(
-            f"Latency ({latency_ms:.2f}ms) >= threshold ({latency_threshold}ms). "
-            f"Holding target rate at {current_rate}/s."
+            f"Latency ({latency_ms:.2f}ms) >= threshold ({target_latency_ms}ms). "
+            f"Holding target rate at {current_target_rate}/s."
         )
-        return current_rate
+        return current_target_rate
 
     # Early return if already at max rate
-    if current_rate >= max_rate:
+    if current_target_rate >= max_rate:
         logging.info(
             f"Latency low ({latency_ms:.2f}ms), but already at max rate "
-            f"({current_rate}/s). Holding."
+            f"({current_target_rate}/s). Holding."
         )
-        return current_rate
+        return current_target_rate
+
+    # Check if actual rate is keeping up with the target rate
+    if actual_rate_from_stats < (current_target_rate * actual_vs_target_threshold):
+        logging.info(
+            f"Latency low ({latency_ms:.2f}ms < {target_latency_ms}ms), "
+            f"but actual rate ({actual_rate_from_stats}/s) is below threshold "
+            f"({actual_vs_target_threshold * 100:.0f}%) of target "
+            f"({current_target_rate}/s). Holding target rate."
+        )
+        return current_target_rate
 
     # Calculate new rate
-    calculated_new_rate = current_rate * increase_factor
+    calculated_new_rate = current_target_rate * increase_factor
     new_rate = min(int(calculated_new_rate), max_rate)
 
     # Return new rate if increased, otherwise current rate
-    if new_rate > current_rate:
+    if new_rate > current_target_rate:
         logging.info(
-            f"Low latency ({latency_ms:.2f}ms < {latency_threshold}ms). "
-            f"Increasing target rate by factor {increase_factor}: "
-            f"{current_rate} -> {new_rate}/s"
+            f"Low latency ({latency_ms:.2f}ms < {target_latency_ms}ms) "
+            f"and actual rate ok. Increasing target rate by factor "
+            f"{increase_factor}: {current_target_rate} -> {new_rate}/s"
         )
         return new_rate
     else:
         logging.info(
-            f"Latency low ({latency_ms:.2f}ms), but already at/near max rate "
-            f"({current_rate}/s). Holding."
+            f"Latency low ({latency_ms:.2f}ms < {target_latency_ms}ms) "
+            f"and actual rate ok, but already at/near max rate "
+            f"({current_target_rate}/s). Holding."
         )
-        return current_rate  # Return current rate if no change
+        return current_target_rate
 
 
 def main() -> None:
@@ -144,7 +161,7 @@ def main() -> None:
     logging.info(f"Client ID: {PRODUCER_CLIENT_ID}")
     logging.info(
         f"Adaptive Load: Check={ADAPTIVE_CHECK_INTERVAL_S}s, "
-        f"Threshold=<{LOW_LATENCY_THRESHOLD_MS}ms, Factor=x{RATE_INCREASE_FACTOR}"
+        f"Threshold=<{TARGET_LATENCY_MS}ms, Factor=x{RATE_INCREASE_FACTOR}"
     )
 
     producer = None
@@ -156,6 +173,8 @@ def main() -> None:
                 client_id=PRODUCER_CLIENT_ID,
                 acks=1,  # Acknowledge after leader write (Changed to integer)
                 retries=3,  # Internal retries within kafka-python
+                linger_ms=10,  # Allow batching for 10ms
+                batch_size=65536,  # Increase batch size to 64KB
             )
             logging.info("KafkaProducer initialized successfully.")
             break  # Exit loop if connection successful
@@ -199,13 +218,35 @@ def main() -> None:
             # --- Adaptive Load Adjustment --- Check periodically
             if now - last_adaptive_check_time >= ADAPTIVE_CHECK_INTERVAL_S:
                 last_adaptive_check_time = now
-                latency_ms = read_latency()
+                current_latency = read_latency()
+
+                # Get current actual rate to pass to adjust_message_rate
+                last_actual_rate = 0  # Default if file not found or parse error
+                # current_message_rate is the current target rate for this iteration
+                try:
+                    if os.path.exists(PRODUCER_STATS_FILE):
+                        with open(PRODUCER_STATS_FILE) as f_stats:
+                            stats_content = f_stats.read().strip()
+                            parts = {
+                                p.split("=")[0]: int(p.split("=")[1])
+                                for p in stats_content.split(", ")
+                                if "=" in p  # Ensure key=value format
+                            }
+                            last_actual_rate = parts.get("actual_rate", 0)
+                except Exception as e_stats:
+                    logging.warning(
+                        f"Could not read last actual rate from stats file "
+                        f"'{PRODUCER_STATS_FILE}': {e_stats}"
+                    )
+
                 current_message_rate = adjust_message_rate(
-                    current_rate=current_message_rate,
-                    latency_ms=latency_ms,
-                    latency_threshold=LOW_LATENCY_THRESHOLD_MS,
+                    current_target_rate=current_message_rate,
+                    actual_rate_from_stats=last_actual_rate,
+                    latency_ms=current_latency,
+                    target_latency_ms=TARGET_LATENCY_MS,  # Pass the correct variable
                     max_rate=MAX_MESSAGE_RATE,
                     increase_factor=RATE_INCREASE_FACTOR,
+                    actual_vs_target_threshold=ACTUAL_VS_TARGET_THRESHOLD_PERCENT,
                 )
 
             # --- Rate limiting & Stats Reporting --- (Per second)
@@ -265,12 +306,9 @@ def main() -> None:
             if messages_sent_this_second >= current_message_rate:
                 time_to_next_second = start_time_current_second + 1.0 - time.time()
                 if time_to_next_second > 0:
+                    # If target rate met for the second, sleep precisely
+                    # until the next second starts
                     time.sleep(time_to_next_second)
-            else:
-                target_interval = (
-                    1.0 / current_message_rate if current_message_rate > 0 else 1.0
-                )
-                time.sleep(max(0, target_interval / 10))
 
     except KeyboardInterrupt:
         logging.info("Producer interrupted. Shutting down...")

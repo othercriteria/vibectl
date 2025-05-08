@@ -30,7 +30,7 @@ services:
       # Add variable for dynamic IP-based listener configuration
       - KAFKA_ADVERTISED_HOST=172.20.0.2
       # Add target latency for the reporter script
-      - TARGET_LATENCY_MS=10.0 # Value from producer.py
+      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-10.0} # Read from .env.generated (set by run.sh), default 10.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -71,7 +71,10 @@ services:
       - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Potentially report status here
       # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh -> Make MSG_RATE configurable here
-      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-50}
+      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-10} # Corrected from 50 to 10 to match producer.py default
+      - ACTUAL_VS_TARGET_THRESHOLD_PERCENT=${ACTUAL_VS_TARGET_THRESHOLD_PERCENT:-0.80}
+      # Pass the target latency threshold from the .env file (set by run.sh based on host TARGET_LATENCY_MS)
+      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-10.0}
     volumes:
       # Mount status volume to write producer stats
       - ./status-volume:/tmp/status:rw

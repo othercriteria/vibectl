@@ -1,33 +1,27 @@
-Goal: keep the target Kafka cluster healthy and with low consumer P99 latency.
+Goal: as an agent delegated to manage a Kafka installation in the 'kafka' namespace, you must:
+- ensure the target Kafka cluster's general health
+- adjust the cluster to handle an increasing message throughput
+- keep consumer P99 latency below target threshold
 
-Workloads are a producer and a consumer on which latency is measured.
+You have no direct visibility into, or control over, producer and consumer workloads.
 
-Producer throughput will increase adaptively as long as latency is low.
-
-You are operating within a resource-constrained Kubernetes sandbox (k3d).
-The container hosting Kubernetes and Kafka is limited to approximately:
-- ${K8S_SANDBOX_CPU_LIMIT:-4.0} CPUs
-- ${K8S_SANDBOX_MEM_LIMIT:-4G} Memory
-
-Key metrics are available in the 'kafka-latency-metrics' ConfigMap
-in the 'kafka' namespace. You can access these as needed:
-- p99_latency_ms: The latest calculated P99 consumer latency.
-- target_latency_ms: The configured target latency threshold (currently ${TARGET_LATENCY_MS:-10.0}ms).
-- producer_target_rate: The current target message rate of the producer (msg/s).
+Key metrics are regularly dumped into the 'kafka-latency-metrics' ConfigMap:
+- p99_latency_ms: calculated consumer P99 latency
+- target_latency_ms: configured target latency threshold (initially ${TARGET_LATENCY_MS:-10.0}ms)
+- producer_target_rate: current target message rate of the producer (msg/s)
 
 Example command to view these metrics:
 ```
 kubectl get configmap kafka-latency-metrics -n kafka -o jsonpath='{.data}'
 ```
 
-The Kafka cluster runs as a StatefulSet named 'kafka-controller' in the 'kafka' namespace.
-You can tune the following Kafka parameters by patching the StatefulSet's environment variables:
-- KAFKA_HEAP_OPTS (e.g., -Xms<size>m -Xmx<size>m)
-- KAFKA_NUM_NETWORK_THREADS (integer)
-- KAFKA_NUM_IO_THREADS (integer)
+You are operating in a resource-constrained Kubernetes sandbox (k3d).
+The entire sandbox is limited to approximately:
+- ${K8S_SANDBOX_CPU_LIMIT:-4.0} CPUs
+- ${K8S_SANDBOX_MEM_LIMIT:-4G} Memory
 
-You are not limited to changes involving these variables or the StatefulSet.
-Use the available metrics (p99 latency vs target latency, producer rate) to guide your tuning decisions towards the goal.
-
-The Kafka broker service inside Kubernetes is kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9092.
-The external Kafka endpoint (via port-forward) is localhost:9092 from this container's perspective.
+Some targets for tuning include (but are not limited to!) env variables on
+the 'kafka-controller' StatefulSet:
+- KAFKA_HEAP_OPTS (-Xms<size>m -Xmx<size>m)
+- KAFKA_NUM_NETWORK_THREADS
+- KAFKA_NUM_IO_THREADS
