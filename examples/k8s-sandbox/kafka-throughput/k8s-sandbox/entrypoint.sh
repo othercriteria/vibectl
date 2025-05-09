@@ -15,13 +15,14 @@ echo "🚀 Starting Kafka Demo Sandbox Entrypoint..."
 
 # --- Configuration ---
 export KUBECONFIG="/home/sandbox/.kube/config"
-export KAFKA_MANIFEST="/home/sandbox/kafka/kafka-kraft.yaml"
+export KAFKA_MANIFEST="/home/sandbox/manifests/kafka-kraft.yaml"
 export KAFKA_NAMESPACE="kafka"
 export KAFKA_SERVICE="kafka-service"
 export KAFKA_PORT=9092
 export KAFKA_STATEFULSET="kafka-controller"
 export KAFKA_REPLICAS=1 # Assuming 1 replica for KRaft initially
 export KAFKA_CLUSTER_ID_CM="kafka-cluster-id" # Define the ConfigMap name
+export TARGET_LATENCY_MS="10.0" # Assuming a default value
 
 # Status files
 mkdir -p "${STATUS_DIR}"
@@ -30,6 +31,44 @@ PHASE2_COMPLETE="${STATUS_DIR}/phase2_vibectl_setup_complete"
 KAFKA_READY_FILE="${STATUS_DIR}/kafka_ready"
 LATENCY_FILE="${STATUS_DIR}/latency.txt"
 SHUTDOWN_FILE="${STATUS_DIR}/shutdown"
+
+# --- Cleanup Function and Trap ---
+function cleanup_k3d_cluster_on_exit() {
+    echo "🚪 EXIT TRAP: Cleaning up k3d cluster '${K3D_CLUSTER_NAME:-unknown_cluster}'..."
+    if [ -n "${K3D_CLUSTER_NAME:-}" ]; then
+        if command -v k3d &> /dev/null; then
+            echo "Attempting to delete k3d cluster '${K3D_CLUSTER_NAME}'..."
+            # Give k3d a timeout to avoid hanging the exit trap indefinitely
+            # Using a subshell with timeout for the k3d command
+            ( timeout 30s k3d cluster delete "${K3D_CLUSTER_NAME}" ) || \
+                echo "⚠️ Warning: 'k3d cluster delete ${K3D_CLUSTER_NAME}' failed, timed out, or cluster was already gone. Continuing shutdown." >&2
+            
+            # Additional forceful cleanup of related Docker resources if k3d failed or missed something
+            # This is a best-effort and might be redundant if k3d delete is successful.
+            echo "Performing best-effort Docker resource cleanup for '${K3D_CLUSTER_NAME}'..."
+            K3D_CONTAINER_PATTERN="k3d-${K3D_CLUSTER_NAME}-"
+            if docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | grep -q .; then
+                docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker stop -t 5 || echo "⚠️ Warning: Failed to stop one or more k3d containers for ${K3D_CLUSTER_NAME}." >&2
+                docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker rm -f || echo "⚠️ Warning: Failed to remove one or more k3d containers for ${K3D_CLUSTER_NAME}." >&2
+            fi
+            # Attempt to remove the network if it exists and is empty
+            if docker network inspect "k3d-${K3D_CLUSTER_NAME}" >/dev/null 2>&1; then
+                # Check if network has active endpoints (should be none if containers are gone)
+                if ! docker network inspect "k3d-${K3D_CLUSTER_NAME}" | jq -e '.[0].Containers | length == 0'; then
+                     echo "⚠️ Warning: Network 'k3d-${K3D_CLUSTER_NAME}' still has active endpoints. Skipping direct removal." >&2
+                else
+                    docker network rm "k3d-${K3D_CLUSTER_NAME}" || echo "⚠️ Warning: Failed to remove network 'k3d-${K3D_CLUSTER_NAME}'. It might be in use or already gone." >&2
+                fi
+            fi
+        else
+            echo "⚠️ Warning: k3d command not found in EXIT TRAP. Cannot delete cluster." >&2
+        fi
+    else
+        echo "⚠️ Warning: K3D_CLUSTER_NAME not set in EXIT TRAP. Cannot determine which cluster to delete." >&2
+    fi
+    echo "🚪 EXIT TRAP: Cleanup attempt finished."
+}
+trap cleanup_k3d_cluster_on_exit EXIT SIGINT SIGTERM
 
 # --- Functions ---
 
@@ -47,8 +86,8 @@ function setup_k3d_cluster() {
         fi
 
         # Give things a moment
-        echo "⏳ Waiting 5 seconds after k3d delete attempt..."
-        sleep 5
+        echo "⏳ Waiting 2 seconds after k3d delete attempt..."
+        sleep 2
 
         # 2. Manual container stop/remove
         K3D_CONTAINER_PATTERN="k3d-${K3D_CLUSTER_NAME}-"
@@ -61,19 +100,10 @@ function setup_k3d_cluster() {
             echo "No containers found matching '${K3D_CONTAINER_PATTERN}'."
         fi
 
-        # 3. Manual network remove
-        K3D_NETWORK_NAME="k3d-${K3D_CLUSTER_NAME}"
-        echo "🧹 Attempting to remove Docker network '${K3D_NETWORK_NAME}'..."
-        if docker network inspect "${K3D_NETWORK_NAME}" >/dev/null 2>&1; then
-            docker network rm "${K3D_NETWORK_NAME}" || echo "⚠️ Warning: Failed to remove network '${K3D_NETWORK_NAME}'. It might have active endpoints from containers that failed to remove." >&2
-        else
-            echo "K3d network '${K3D_NETWORK_NAME}' not found."
-        fi
-
-        # 4. Wait and verify cluster is gone from k3d list
+        # Step 3 (was 4): Wait and verify cluster is gone from k3d list
         echo "⏳ Verifying cluster removal via 'k3d cluster list' (waiting up to 30 seconds)..."
         ATTEMPTS=0
-        MAX_ATTEMPTS=15 # 15 attempts * 2 seconds = 30 seconds
+        MAX_ATTEMPTS=10 # 10 attempts * 2 seconds = 20 seconds
         CLUSTER_GONE=false
         while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
             if ! k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
@@ -95,7 +125,7 @@ function setup_k3d_cluster() {
 
     fi # End of if cluster existed
 
-    # 5. Create cluster
+    # Step 4 (was 5): Create cluster
     echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}'..."
     # Note: No --network flag here anymore based on previous findings
     if ! k3d cluster create "${K3D_CLUSTER_NAME}"; then
@@ -107,27 +137,6 @@ function setup_k3d_cluster() {
     # Ensure kubectl context is set correctly after create
     k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
     echo "✅ Switched kubectl context to '${K3D_CLUSTER_NAME}'."
-}
-
-# Function to clean up the Kafka namespace (Keep this, still useful)
-function cleanup_kafka_namespace() {
-    echo "🧹 Cleaning up Kafka namespace '${KAFKA_NAMESPACE}'..."
-    # Delete the namespace if it exists - this cleans up all resources within it.
-    if kubectl delete namespace "${KAFKA_NAMESPACE}" --ignore-not-found=true --timeout=2m; then
-        echo "✅ Namespace '${KAFKA_NAMESPACE}' deleted (or did not exist)."
-        # Wait briefly for termination to finalize if it existed
-        sleep 5
-    else
-        echo "⚠️ Warning: Failed to delete namespace '${KAFKA_NAMESPACE}' cleanly. Attempting to proceed." >&2
-        # Might need more robust error handling here if deletion failure is critical
-    fi
-    # Recreate the namespace for the new deployment
-    echo "🔧 Creating Kafka namespace '${KAFKA_NAMESPACE}'..."
-    if ! kubectl create namespace "${KAFKA_NAMESPACE}"; then
-        echo "❌ Error: Failed to create namespace '${KAFKA_NAMESPACE}'." >&2
-        exit 1
-    fi
-    echo "✅ Namespace '${KAFKA_NAMESPACE}' created."
 }
 
 # Reusable function from Bootstrap demo (adapted path)
@@ -192,12 +201,8 @@ function patch_kubeconfig() {
         # exit 1 # Uncomment if this should be fatal
     fi
 
-    # Clean up the kafka namespace before deploying kafka
-    cleanup_kafka_namespace
-
     deploy_kafka
     wait_for_kafka_ready
-    setup_kafka_port_forward
 }
 
 # Reusable function from Bootstrap demo
@@ -295,69 +300,6 @@ function wait_for_kafka_ready() {
         exit 1
     fi
     echo "✅ Kafka is ready!"
-}
-
-function setup_kafka_port_forward() {
-    echo "🔧 Setting up resilient port forwarding for Kafka service '${KAFKA_SERVICE}' on port ${KAFKA_PORT}..."
-
-    # Remove any existing trap to avoid conflicts with the loop's background process
-    trap - EXIT
-
-    # Kill any existing port-forward processes
-    pkill -f "kubectl port-forward.*${KAFKA_SERVICE}" || true
-
-    # Create a flag file to indicate when port forwarding is working
-    PORT_FORWARD_OK="/tmp/kafka-port-forward-ok"
-    rm -f ${PORT_FORWARD_OK}
-
-    # Loop indefinitely to keep port-forward running
-    ( # Run the loop in a subshell to handle backgrounding and errors
-        while true; do
-            echo "[Port Forward Loop] Starting kubectl port-forward..."
-            # Run in foreground within the loop, log to file
-            kubectl port-forward -n ${KAFKA_NAMESPACE} svc/${KAFKA_SERVICE} ${KAFKA_PORT}:${KAFKA_PORT} --address 0.0.0.0 >>/tmp/kafka-pf.log 2>&1 &
-            PF_PID=$!
-
-            # Wait for port-forwarding to be established
-            for i in {1..12}; do
-                if ss -tln | grep -q ":${KAFKA_PORT}"; then
-                    echo "[Port Forward Loop] Port forwarding established on port ${KAFKA_PORT}"
-                    touch ${PORT_FORWARD_OK}
-                    break
-                fi
-                echo "[Port Forward Loop] Waiting for port ${KAFKA_PORT} to be open... (${i}/12)"
-                sleep 2
-            done
-
-            # Wait for the process to exit or be killed
-            wait $PF_PID
-
-            # If kubectl exits (e.g., connection lost), log and wait before retrying
-            echo "[Port Forward Loop] kubectl port-forward exited. Retrying in 10 seconds..." | tee -a /tmp/kafka-pf.log
-            rm -f ${PORT_FORWARD_OK}
-            sleep 10
-        done
-    ) &
-    PORT_FORWARD_LOOP_PID=$!
-    echo "✅ Port forward loop started in background (PID: $PORT_FORWARD_LOOP_PID)."
-
-    # Verify port-forwarding is listening (wait up to 60s)
-    echo "⏳ Verifying port forward establishment..."
-    for i in {1..30}; do
-        if [ -f ${PORT_FORWARD_OK} ]; then
-            echo "✅ Port forwarding for Kafka is listening."
-            return 0 # Success
-        fi
-        echo "   Waiting for port ${KAFKA_PORT} to be open... (${i}/30)"
-        sleep 2
-    done
-
-    echo "❌ Error: Failed to establish port forwarding for Kafka on port ${KAFKA_PORT} within timeout."
-    echo "Port forward logs:"
-    cat /tmp/kafka-pf.log
-    # Kill the background loop if verification fails
-    kill $PORT_FORWARD_LOOP_PID 2>/dev/null || true
-    exit 1
 }
 
 # Adapted from Bootstrap demo
@@ -492,8 +434,22 @@ EOF
 
 function deploy_latency_reporter() {
     echo "🔧 Deploying latency reporter components..."
-    # Apply ConfigMap first
-    if ! kubectl apply -f /home/sandbox/kafka-latency-cm.yaml; then
+    # Apply RBAC first if it exists and is needed
+    LATENCY_REPORTER_RBAC_MANIFEST="/home/sandbox/manifests/latency-reporter-rbac.yaml"
+    if [ -f "${LATENCY_REPORTER_RBAC_MANIFEST}" ]; then
+        if ! kubectl apply -f "${LATENCY_REPORTER_RBAC_MANIFEST}"; then
+            echo "❌ Error: Failed to apply latency reporter RBAC manifest." >&2
+            # Decide if this is fatal or a warning
+        else
+            echo "✅ Latency reporter RBAC manifest applied."
+        fi
+    else
+        echo "ℹ️ Latency reporter RBAC manifest not found at ${LATENCY_REPORTER_RBAC_MANIFEST}, skipping."
+    fi
+
+    # Apply ConfigMap
+    LATENCY_CM_MANIFEST="/home/sandbox/manifests/kafka-latency-cm.yaml"
+    if ! kubectl apply -f "${LATENCY_CM_MANIFEST}"; then
         echo "❌ Error: Failed to apply latency ConfigMap manifest." >&2
         # Attempt to get logs or describe if it exists
         kubectl get configmap kafka-latency-metrics -n kafka -o yaml || true
@@ -530,7 +486,7 @@ function run_vibectl_loop() {
         echo "[Loop] Running vibectl auto (output to ${LOG_FILE})..." # Log before running
         # Run vibectl auto without limits or explicit memory updates.
         # Rely on vibectl's internal logic and instructions to handle metrics.
-        if ! vibectl auto "If there's no obvious next step, check the kafka-latency-metrics ConfigMap." >> "${LOG_FILE}" 2>&1; then
+        if ! vibectl auto "Proceed with the next step. If there's no obvious next step, check the kafka-latency-metrics ConfigMap in the 'kafka' namespace." >> "${LOG_FILE}" 2>&1; then
             echo "⚠️ Warning: vibectl auto command failed. Check ${LOG_FILE}. Continuing loop." >&2
             # Also log the failure message to the file itself
             echo "[Loop] ⚠️ vibectl auto command failed." >> "${LOG_FILE}" 2>&1
@@ -548,11 +504,18 @@ function run_vibectl_loop() {
 # --- Main Execution ---
 
 if [ -f "$PHASE1_COMPLETE" ]; then
-    echo "[INFO] Phase 1 (k8s, Kafka, Port Forward) already complete. Re-establishing port forward..."
-    # Re-establish port forwarding if script restarted
-    setup_kafka_port_forward
+    echo "[INFO] Phase 1 (k8s, Kafka, Port Forward) already complete. Re-establishing port forward via Python manager..."
+    # Ensure necessary env vars are exported for the python script if it's re-run
+    export KUBECTL_CMD KAFKA_NAMESPACE KAFKA_SERVICE KAFKA_PORT KUBECTL_LOG_FILE="/tmp/kubectl-port-forward.log" # Ensure KUBECTL_LOG_FILE is set
+    # Launch the Python port forward manager in the background
+    echo "🔧 Launching Python port forward manager in background (re-entrant)..."
+    nohup python3 /home/sandbox/port_forward_manager.py > /tmp/port_forward_manager_stdout.log 2>&1 &
+    PF_MANAGER_PID=$!
+    echo "✅ Python Port Forward Manager (re-entrant) started with PID: ${PF_MANAGER_PID}. Logs: /tmp/port_forward_manager_stdout.log and ${KUBECTL_LOG_FILE}"
+    sleep 5 # Brief wait
+    echo "✅ Phase 1 complete! Kafka is ready and port-forwarded (via Python manager)." > "${PHASE1_COMPLETE}"
 else
-    echo "[INFO] Starting Phase 1: K8s Cluster, Kafka Deployment, Port Forwarding."
+    echo "[INFO] Starting Phase 1: K8s Cluster, Kafka Deployment, Port Forwarding via Python manager."
     setup_k3d_cluster
     patch_kubeconfig
     wait_for_k8s_ready
@@ -565,19 +528,29 @@ else
         echo "✅ Kubeconfig copied."
     else
         echo "❌ Error: Patched kubeconfig ${KUBECONFIG} not found after setup." >&2
-        # Decide if this is fatal or just a warning
-        # exit 1 # Uncomment if this should be fatal
     fi
 
     deploy_kafka
     wait_for_kafka_ready
-    setup_kafka_port_forward
-    # Signal that Kafka is ready for dependents (producer/consumer)
+    
+    # Ensure necessary env vars are exported for the python script
+    export KUBECTL_CMD KAFKA_NAMESPACE KAFKA_SERVICE KAFKA_PORT KUBECTL_LOG_FILE="/tmp/kubectl-port-forward.log"
+
+    # Launch the Python port forward manager in the background
+    echo "🔧 Launching Python port forward manager in background..."
+    nohup python3 /home/sandbox/port_forward_manager.py > /tmp/port_forward_manager_stdout.log 2>&1 &
+    PF_MANAGER_PID=$!
+    echo "✅ Python Port Forward Manager started with PID: ${PF_MANAGER_PID}. Logs: /tmp/port_forward_manager_stdout.log and ${KUBECTL_LOG_FILE}"
+    
+    echo "⏳ Waiting 5 seconds for Python port forward manager to initialize..."
+    sleep 5
+
     echo "Touching ${KAFKA_READY_FILE}..."
     touch "${KAFKA_READY_FILE}"
-    sync # Attempt to flush filesystem changes
+    sync 
     echo "✅ ${KAFKA_READY_FILE} touched and synced."
-    echo "✅ Phase 1 complete! Kafka is ready and port-forwarded." > "${PHASE1_COMPLETE}"
+
+    echo "✅ Phase 1 complete! Kafka is ready and port-forwarded (via Python manager)." > "${PHASE1_COMPLETE}"
 fi
 
 if [ -f "$PHASE2_COMPLETE" ]; then

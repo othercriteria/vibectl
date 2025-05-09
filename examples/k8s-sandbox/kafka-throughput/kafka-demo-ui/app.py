@@ -4,14 +4,14 @@ import subprocess
 import time
 from typing import Any  # Import Any
 
-import docker
+import docker  # type: ignore
 import urllib3  # Import urllib3
 from apscheduler.schedulers.background import (
     BackgroundScheduler,  # type: ignore[import-untyped]
 )
-from docker.errors import APIError, NotFound
+from docker.errors import APIError, NotFound  # type: ignore
 from flask import Flask, Response, jsonify, render_template, request  # Import request
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit  # type: ignore
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
@@ -31,12 +31,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 STATUS_DIR = "/tmp/status"
-LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")
-PRODUCER_STATS_FILE = os.path.join(STATUS_DIR, "producer_stats.txt")
-CONSUMER_STATS_FILE = os.path.join(STATUS_DIR, "consumer_stats.txt")
-VIBECTL_LOG_FILE = os.path.join(
-    STATUS_DIR, "vibectl_agent.log"
-)  # Added for potential future use
+# Old LATENCY_FILE is replaced by E2E_LATENCY_FILE_PATH
+# LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")
+PRODUCER_STATS_FILE = os.path.join(
+    STATUS_DIR, "producer_stats.txt"
+)  # Still used for actual rate and size
+VIBECTL_LOG_FILE = os.path.join(STATUS_DIR, "vibectl_agent.log")
+
+# New file paths from latency-reporter.py
+E2E_LATENCY_FILE_PATH = os.path.join(STATUS_DIR, "e2e_latency_ms.txt")
+UI_PRODUCER_TARGET_RATE_FILE_PATH = os.path.join(
+    STATUS_DIR, "producer_target_rate_value.txt"
+)
+UI_PRODUCER_ACTUAL_RATE_FILE_PATH = os.path.join(  # Ensure this is correctly defined
+    STATUS_DIR, "producer_actual_rate_value.txt"
+)
+UI_CONSUMER_ACTUAL_RATE_FILE_PATH = os.path.join(
+    STATUS_DIR, "consumer_actual_rate_value.txt"
+)
+TARGET_LATENCY_FILE_PATH = os.path.join(STATUS_DIR, "target_latency_ms.txt")
+
 NAMESPACE = "default"  # Assuming default namespace for now
 CHECK_INTERVAL_S = 5  # Interval for scheduler checks
 
@@ -50,8 +64,11 @@ VIBECTL_LOG_LINES = 50
 # Store the latest fetched data here
 latest_data = {
     "latency": "N/A",
-    "producer_rate": "N/A",
+    "producer_target_rate": "N/A",
+    "producer_actual_rate": "N/A",
     "producer_size": "N/A",
+    "consumer_actual_rate": "N/A",
+    "target_latency_ms": "N/A",
     "kafka_health": "N/A",
     "producer_health": "N/A",
     "consumer_health": "N/A",
@@ -209,22 +226,17 @@ def check_file_freshness(file_path: str, max_age_seconds: float) -> str:
         return "Error Checking"
 
 
-def read_file_content(file_path: str) -> str:
+def read_file_content(file_path: str, default_value: str = "N/A") -> str:
     """Safely reads content from a file."""
     try:
         if os.path.exists(file_path):
-            # Limit file read size to prevent large files from causing issues
-            with open(file_path) as f:
-                content = f.read(1024 * 10)  # Read max 10KB
-                if len(content) == 1024 * 10:
-                    logger.warning(f"File {file_path} might be truncated (read 10KB).")
-                return content.strip()
-        else:
-            # logger.warning(f"File not found: {file_path}") # Too noisy
-            return "N/A"
+            with open(file_path, "r") as f:
+                content = f.read().strip()
+                return content if content else default_value
+        return default_value
     except Exception as e:
         logger.error(f"Error reading {file_path}: {e}")
-        return "Error"
+        return default_value
 
 
 def get_statefulset_status(name: str, namespace: str) -> str:
@@ -350,132 +362,66 @@ def get_cluster_status() -> Any:
     return str(f"{node_summary}, {component_summary}")
 
 
+def get_producer_size_from_stats() -> str:
+    """Reads producer_stats.txt for size only."""
+    size = "N/A"
+    try:
+        if os.path.exists(PRODUCER_STATS_FILE):
+            with open(PRODUCER_STATS_FILE, "r") as f:
+                content = f.read().strip()
+                if content:
+                    stats: dict[str, str] = {}
+                    for item in content.split(","):
+                        parts = item.strip().split("=", 1)
+                        if len(parts) == 2:
+                            stats[parts[0].strip()] = parts[1].strip()
+                    size = stats.get("size", "Parse Error")
+                else:
+                    size = "Empty File"
+        else:
+            size = "Not Found"
+    except Exception as e:
+        logger.error(
+            f"Error reading/parsing producer stats {PRODUCER_STATS_FILE} for size: {e}"
+        )
+        size = "Read Error"
+    return size
+
+
 def update_status_data() -> None:
     """Scheduled job to fetch all status data and update global state."""
     global latest_data
     logger.info("Updating status data...")
     start_time = time.time()
 
-    # Read raw data
-    latency_raw = read_file_content(LATENCY_FILE)
-    producer_stats_raw = read_file_content(PRODUCER_STATS_FILE)
-    consumer_stats_raw = read_file_content(CONSUMER_STATS_FILE)
+    e2e_latency_raw = read_file_content(E2E_LATENCY_FILE_PATH)
+    producer_target_rate_raw = read_file_content(UI_PRODUCER_TARGET_RATE_FILE_PATH)
+    # Producer actual rate is now read from its own dedicated file
+    producer_actual_rate_from_file = read_file_content(
+        UI_PRODUCER_ACTUAL_RATE_FILE_PATH
+    )
+    # Producer size is read by its own function
+    producer_size_from_stats_file = get_producer_size_from_stats()
+    consumer_actual_rate_from_file = read_file_content(
+        UI_CONSUMER_ACTUAL_RATE_FILE_PATH
+    )
+
     vibectl_logs = read_log_tail(VIBECTL_LOG_FILE, VIBECTL_LOG_LINES)
 
-    # Initialize values
-    producer_target_rate = "N/A"
-    producer_actual_rate = "N/A"
-    producer_size = "N/A"
-    latency = "N/A"
-    consumer_rate = "N/A"
+    # Process E2E latency from KMinion (via latency-reporter.py)
+    latency = e2e_latency_raw  # Directly use the value (it handles N/A)
 
-    # Process latency
-    if latency_raw not in ["N/A", "Error", "Empty File", "No File", "Read Error"]:
-        latency = latency_raw  # Keep as string for display
-    else:
-        latency = latency_raw  # Use the error status directly
+    # Process producer target rate (from latency-reporter.py)
+    producer_target_rate = producer_target_rate_raw  # Directly use the value
 
-    # Process producer stats
-    producer_stats_file_status = check_file_freshness(
-        PRODUCER_STATS_FILE, STALENESS_THRESHOLD_S
-    )
-    if producer_stats_file_status == "Healthy":  # Only parse if file is fresh
-        if producer_stats_raw and producer_stats_raw not in [
-            "N/A",
-            "Error",
-            "Empty File",
-            "Read Error",
-        ]:
-            try:
-                # Expected format: "target_rate=X, actual_rate=Y, size=Z"
-                # More robust parsing: split by comma, then find first '='
-                stats = {}
-                for item in producer_stats_raw.split(","):
-                    parts = item.strip().split("=", 1)  # Split only on the first '='
-                    if len(parts) == 2:
-                        key, value = parts
-                        stats[key.strip()] = value.strip()  # Store cleaned key/value
-                    else:
-                        logger.warning(f"Skipping invalid producer stat item: '{item}'")
+    # Producer actual rate is now directly from its file (KMinion sourced)
+    producer_actual_rate = producer_actual_rate_from_file  # Directly use the value
 
-                producer_target_rate = stats.get("target_rate", "Parse Error (target)")
-                producer_actual_rate = stats.get("actual_rate", "Parse Error (actual)")
-                producer_size = stats.get("size", "Parse Error (size)")
+    # Producer size is from its dedicated function
+    producer_size = producer_size_from_stats_file  # Directly use the value
 
-                # Check if any keys were missing after successful parse
-                if "Parse Error" in [
-                    producer_target_rate,
-                    producer_actual_rate,
-                    producer_size,
-                ]:
-                    logger.warning(
-                        f"Parsed producer stats '{stats}' but some keys were missing."
-                    )
-
-            except Exception as e:  # Catches other unexpected errors during parsing
-                logger.error(
-                    f"Error parsing producer stats '{producer_stats_raw}': {e}"
-                )
-                producer_target_rate = "Parse Error (Exception)"
-                producer_actual_rate = "Parse Error (Exception)"
-                producer_size = "Parse Error (Exception)"
-        elif producer_stats_raw == "Empty File":
-            producer_target_rate = "Empty File"
-            producer_actual_rate = "Empty File"
-            producer_size = "Empty File"
-        elif producer_stats_raw == "Error" or producer_stats_raw == "Read Error":
-            producer_target_rate = "Read Error"
-            producer_actual_rate = "Read Error"
-            producer_size = "Read Error"
-        else:  # Includes "N/A" or unexpected content
-            producer_target_rate = "No Data"
-            producer_actual_rate = "No Data"
-            producer_size = "No Data"
-    else:  # File is "Not Found", "Stale", or "Error Checking"
-        producer_target_rate = producer_stats_file_status
-        producer_actual_rate = producer_stats_file_status
-        producer_size = producer_stats_file_status
-
-    # Process consumer stats
-    consumer_stats_file_status = check_file_freshness(
-        CONSUMER_STATS_FILE, STALENESS_THRESHOLD_S
-    )
-    if consumer_stats_file_status == "Healthy":  # Only parse if file is fresh
-        if consumer_stats_raw and consumer_stats_raw not in [
-            "N/A",
-            "Error",
-            "Empty File",
-            "Read Error",
-        ]:
-            try:
-                # Expected format: "rate=X.XX"
-                if "=" in consumer_stats_raw:
-                    key, value = consumer_stats_raw.strip().split("=", 1)
-                    if key.strip() == "rate":
-                        consumer_rate = value.strip()  # Keep as string for display
-                    else:
-                        logger.warning(f"Unexpected key in consumer stats: '{key}'")
-                        consumer_rate = "Format Error (key)"
-                else:
-                    consumer_rate = "Format Error (=)"
-            except ValueError as ve:
-                logger.error(
-                    f"Error parsing consumer stats '{consumer_stats_raw}': {ve}"
-                )
-                consumer_rate = "Format Error (split)"
-            except Exception as e:
-                logger.error(
-                    f"Error parsing consumer stats '{consumer_stats_raw}': {e}"
-                )
-                consumer_rate = "Parse Error"
-        elif consumer_stats_raw == "Empty File":
-            consumer_rate = "Empty File"
-        elif consumer_stats_raw == "Error" or consumer_stats_raw == "Read Error":
-            consumer_rate = "Read Error"
-        else:  # Includes "N/A" or unexpected content
-            consumer_rate = "No Data"
-    else:  # File is "Not Found", "Stale", or "Error Checking"
-        consumer_rate = consumer_stats_file_status
+    # Consumer actual rate is from its dedicated file (KMinion sourced)
+    consumer_actual_rate = consumer_actual_rate_from_file  # Directly use the value
 
     # Get health status based on Docker container status
     producer_container_health = get_container_health("kafka-producer")
@@ -485,32 +431,36 @@ def update_status_data() -> None:
     kafka_health = get_statefulset_status(name="kafka-controller", namespace="kafka")
     cluster_status = get_cluster_status()
 
-    new_data = {
-        "latency": latency,  # Use processed latency
-        "producer_target_rate": producer_target_rate,
-        "producer_actual_rate": producer_actual_rate,
-        "producer_size": producer_size,
-        "consumer_rate": consumer_rate,  # Use processed consumer rate
-        "kafka_health": kafka_health,
-        "producer_health": producer_container_health,
-        "consumer_health": consumer_container_health,
-        "producer_stats_file_status": producer_stats_file_status,
-        "consumer_stats_file_status": consumer_stats_file_status,
-        "cluster_status": cluster_status,
-        "vibectl_logs": vibectl_logs,
-        "last_updated": time.time(),
-    }
+    try:
+        latest_data = {
+            "latency": latency,
+            "producer_target_rate": producer_target_rate,
+            "producer_actual_rate": producer_actual_rate,
+            "producer_size": producer_size,
+            "consumer_actual_rate": consumer_actual_rate,
+            "target_latency_ms": read_file_content(TARGET_LATENCY_FILE_PATH),
+            "kafka_health": kafka_health,
+            "producer_health": producer_container_health,
+            "consumer_health": consumer_container_health,
+            "cluster_status": cluster_status,
+            "vibectl_logs": vibectl_logs,
+            "last_updated": time.time(),
+        }
 
-    latest_data = new_data
-    socketio.emit("status_update", latest_data)
-    logger.info(f"Status update emitted. Fetch took {time.time() - start_time:.2f}s")
+        socketio.emit("status_update", latest_data)
+        logger.info(
+            f"Status update emitted. Fetch took {time.time() - start_time:.2f}s"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in update_status_data: {e}", exc_info=True)
 
 
 # --- Flask Routes ---
 
 
 @app.route("/")
-def index() -> Any:
+def index() -> str:  # Explicitly str for render_template
     """Serves the main UI page."""
     # Renders the template, which will connect via SocketIO
     return render_template("index.html")
@@ -518,7 +468,7 @@ def index() -> Any:
 
 # Optional: Keep API endpoint for direct access/debugging
 @app.route("/status")
-def get_status_api() -> Response:
+def get_status_api() -> Response:  # Use Response type hint
     """API endpoint to provide latest status data."""
     return jsonify(latest_data)
 
@@ -529,16 +479,15 @@ def get_status_api() -> Response:
 @socketio.on("connect")
 def handle_connect() -> None:
     """Send current state to newly connected client."""
-    # Use request.sid directly, it's available in the SocketIO context
-    logger.info(f"Client connected: {request.sid}")
-    # Send the most recent data immediately
+    # request.sid is available in the SocketIO context
+    logger.info(f"Client connected: {request.sid}")  # type: ignore
     emit("status_update", latest_data)
 
 
 @socketio.on("disconnect")
 def handle_disconnect() -> None:
-    # Use request.sid directly, it's available in the SocketIO context
-    logger.info(f"Client disconnected: {request.sid}")
+    # request.sid is available in the SocketIO context
+    logger.info(f"Client disconnected: {request.sid}")  # type: ignore
 
 
 # --- Main Execution ---

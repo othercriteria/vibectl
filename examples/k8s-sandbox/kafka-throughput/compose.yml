@@ -4,8 +4,8 @@ services:
     deploy: # Add resource limits
       resources:
         limits:
-          cpus: "${K8S_SANDBOX_CPU_LIMIT:-4.0}"
-          memory: "${K8S_SANDBOX_MEM_LIMIT:-4G}"
+          cpus: "${K8S_SANDBOX_CPU_LIMIT:-8.0}"
+          memory: "${K8S_SANDBOX_MEM_LIMIT:-16G}"
     build:
       context: ./k8s-sandbox
       dockerfile: Dockerfile
@@ -25,26 +25,27 @@ services:
       # Explicitly pass the generated Kafka Cluster ID
       - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
       # Pass resource limits as env vars for envsubst in instructions
-      - K8S_SANDBOX_CPU_LIMIT=${K8S_SANDBOX_CPU_LIMIT:-4.0}
-      - K8S_SANDBOX_MEM_LIMIT=${K8S_SANDBOX_MEM_LIMIT:-4G}
+      - K8S_SANDBOX_CPU_LIMIT=${K8S_SANDBOX_CPU_LIMIT:-8.0}
+      - K8S_SANDBOX_MEM_LIMIT=${K8S_SANDBOX_MEM_LIMIT:-16G}
       # Add variable for dynamic IP-based listener configuration
       - KAFKA_ADVERTISED_HOST=172.20.0.2
       # Add target latency for the reporter script
-      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-10.0} # Read from .env.generated (set by run.sh), default 10.0
+      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-5.0}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./status-volume:/tmp/status:rw
-      # Mount source code for vibectl development/installation if needed
-      - ../../..:/home/sandbox/vibectl-src:ro
-      # Mount entrypoint, manifests, and scripts
+      # Mount the source code for vibectl for editable install
+      - ../../../:/home/sandbox/vibectl-src:ro
+      # Mount the new port_forward_manager.py script
+      - ./k8s-sandbox/port_forward_manager.py:/home/sandbox/port_forward_manager.py:ro
+      # Mount entrypoint, and other scripts
       - ./k8s-sandbox/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
-      - ./k8s-sandbox/kafka-kraft.yaml:/home/sandbox/kafka/kafka-kraft.yaml:ro
-      - ./k8s-sandbox/kafka-latency-cm.yaml:/home/sandbox/kafka-latency-cm.yaml:ro
-      - ./k8s-sandbox/latency-reporter.py:/home/sandbox/latency-reporter.py:ro
+      - ./k8s-sandbox/latency-reporter.py:/home/sandbox/latency-reporter.py:ro # Script itself
       - ./k8s-sandbox/vibectl_instructions.txt:/home/sandbox/vibectl_instructions.txt:ro
-      - ./k8s-sandbox/latency-reporter-rbac.yaml:/home/sandbox/latency-reporter-rbac.yaml:ro
+      # Mount the new consolidated manifests directory
+      - ./k8s-sandbox/manifests:/home/sandbox/manifests:ro
     networks:
       kafka-demo-network:
         aliases:
@@ -52,10 +53,10 @@ services:
     # Healthcheck: Wait for k3d cluster + Kafka to be ready (implement in entrypoint.sh)
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/status/kafka_ready || exit 1"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 30 # Wait up to 5 minutes
-      start_period: 60s # Allow time for initial setup
+      start_period: 90s # Allow time for initial setup
 
   producer:
     container_name: kafka-producer
@@ -70,11 +71,9 @@ services:
       # Use KAFKA_BROKER to match producer.py and point to the sandbox container
       - KAFKA_BROKER=k8s-sandbox:9092
       - STATUS_DIR=/tmp/status # Potentially report status here
-      # Add config: TOPICS, MSG_RATE, MSG_SIZE etc. via run.sh -> Make MSG_RATE configurable here
-      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-10} # Corrected from 50 to 10 to match producer.py default
+      - MESSAGE_RATE_PER_SECOND=${INITIAL_PRODUCER_RATE:-1000}
       - ACTUAL_VS_TARGET_THRESHOLD_PERCENT=${ACTUAL_VS_TARGET_THRESHOLD_PERCENT:-0.80}
-      # Pass the target latency threshold from the .env file (set by run.sh based on host TARGET_LATENCY_MS)
-      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-10.0}
+      - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-10.0} # Aligned default to 10.0
     volumes:
       # Mount status volume to write producer stats
       - ./status-volume:/tmp/status:rw
@@ -85,10 +84,10 @@ services:
     # Improved healthcheck
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
-      interval: 15s
+      interval: 5s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      start_period: 30s
 
   consumer:
     container_name: kafka-consumer
@@ -114,10 +113,10 @@ services:
     # Improved healthcheck
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
-      interval: 15s
+      interval: 5s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      start_period: 30s
 
   kafka-demo-ui: # Renamed from overseer
     container_name: kafka-demo-ui # Renamed from kafka-overseer
@@ -149,10 +148,27 @@ services:
     healthcheck:
       # Check if the Flask app is serving HTTP requests
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]
-      interval: 15s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 30s # Allow time for Flask app to start
+      start_period: 15s # Allow time for Flask app to start
+
+  kminion: # New KMinion service
+    image: redpandadata/kminion:latest
+    container_name: kafka-kminion
+    restart: unless-stopped
+    networks:
+      - kafka-demo-network
+    ports:
+      - "8088:8080" # Expose KMinion's web UI/metrics port (8080) to host 8088
+    environment:
+      LOGGER_LEVEL: "info"
+      KAFKA_BROKERS: "k8s-sandbox:9092"
+      MINION_ENDTOEND_ENABLED: "true"
+      MINION_CONSUMERGROUPS_SCRAPEMODE: "offsetsTopic"
+    depends_on:
+      k8s-sandbox: # KMinion needs Kafka to be ready, which is inside k8s-sandbox
+        condition: service_healthy # Wait for k8s-sandbox (and its internal Kafka port-forward) to be ready
 
 networks:
   kafka-demo-network:

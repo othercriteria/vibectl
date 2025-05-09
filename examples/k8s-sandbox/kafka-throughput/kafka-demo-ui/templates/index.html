@@ -24,14 +24,18 @@
         <div id="status-content" class="status-grid" style="display: none;">
             <!-- Row 1 -->
             <div class="status-item">
-                <strong>Consumer P99 Latency:</strong>
+                <strong>Actual E2E Latency (ms):</strong>
                 <span id="latency">N/A</span> ms
             </div>
+            <div class="status-item">
+                <strong>Target E2E Latency (ms):</strong>
+                <span id="target-latency">N/A</span> ms
+            </div>
+            <!-- Row 2 -->
             <div class="status-item">
                 <strong>Consumer Rate (msg/s):</strong>
                 <span id="consumer-rate">N/A</span>
             </div>
-            <!-- Row 2 -->
             <div class="status-item">
                 <strong>Producer Target Rate (msg/s):</strong>
                 <span id="producer-target-rate">N/A</span>
@@ -54,18 +58,10 @@
                 <strong>Producer Container:</strong>
                 <span id="producer-health">N/A</span>
             </div>
-             <div class="status-item">
-                <strong>Producer Stats File Status:</strong>
-                <span id="producer-stats-file-status">N/A</span>
-            </div>
             <!-- Row 5: Consumer Health -->
             <div class="status-item">
                 <strong>Consumer Container:</strong>
                 <span id="consumer-health">N/A</span>
-            </div>
-            <div class="status-item">
-                <strong>Consumer Stats File Status:</strong>
-                <span id="consumer-stats-file-status">N/A</span>
             </div>
              <!-- Row 6: Cluster Status & Last Updated -->
              <div class="status-item">
@@ -109,18 +105,17 @@
         socket.on('status_update', function(data) {
             console.log('Received status update:', data);
             document.getElementById('latency').textContent = data.latency || 'N/A';
-            document.getElementById('consumer-rate').textContent = data.consumer_rate || 'N/A';
+            document.getElementById('consumer-rate').textContent = data.consumer_actual_rate || 'N/A';
             document.getElementById('producer-target-rate').textContent = data.producer_target_rate || 'N/A';
             document.getElementById('producer-actual-rate').textContent = data.producer_actual_rate || 'N/A';
             document.getElementById('producer-size').textContent = data.producer_size || 'N/A';
             document.getElementById('kafka-health').textContent = data.kafka_health || 'N/A';
             document.getElementById('producer-health').textContent = data.producer_health || 'N/A';
             document.getElementById('consumer-health').textContent = data.consumer_health || 'N/A';
-            document.getElementById('producer-stats-file-status').textContent = data.producer_stats_file_status || 'N/A';
-            document.getElementById('consumer-stats-file-status').textContent = data.consumer_stats_file_status || 'N/A';
             document.getElementById('cluster-status').textContent = data.cluster_status || 'N/A';
             document.getElementById('vibectl-logs').textContent = data.vibectl_logs || 'N/A';
             document.getElementById('last-updated').textContent = new Date(data.last_updated * 1000).toLocaleTimeString() || 'N/A';
+            document.getElementById('target-latency').textContent = data.target_latency_ms || 'N/A';
 
             // Hide loading message and show status grid
             document.getElementById('loading').style.display = 'none';

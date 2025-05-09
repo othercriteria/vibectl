@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     dirmngr \
     gettext \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Link python3 to python3.11
@@ -22,17 +23,13 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 \
     && ln -sf /usr/bin/pip3.11 /usr/bin/pip3
 
 # Install kubectl (pin to a specific version for stability)
-RUN KUBECTL_VERSION="v1.28.0" \
+RUN KUBECTL_VERSION="v1.32.4" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
 # Install K3d (pin to a specific version for stability)
-RUN K3D_VERSION="v5.6.0" \
+RUN K3D_VERSION="v5.8.3" \
     && curl -s "https://raw.githubusercontent.com/k3d-io/k3d/${K3D_VERSION}/install.sh" | bash
-
-# Install Helm (pin to a specific version for stability)
-RUN HELM_VERSION="v3.13.0" \
-    && curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # Create a docker group with the same GID as the host
 # Pass this in at build time from compose.yml
@@ -48,7 +45,10 @@ RUN useradd -ms /bin/bash sandbox \
     && usermod -aG docker sandbox
 
 # Create home directory and set permissions
-RUN mkdir -p /home/sandbox/{.config,vibectl-src,.kube,kafka} \
+RUN mkdir -p /home/sandbox/.config \
+             /home/sandbox/vibectl-src \
+             /home/sandbox/.kube \
+             /home/sandbox/kafka \
     && chown -R sandbox:sandbox /home/sandbox
 
 # Now switch to the sandbox user
@@ -62,7 +62,9 @@ RUN pip install --no-cache-dir pip setuptools wheel --upgrade
 RUN pip install --no-cache-dir \
     kubernetes \
     llm \
-    llm-anthropic # Add required llm plugins
+    llm-anthropic \
+    requests \
+    prometheus_client # Add required llm plugins
 
 # Entrypoint runs as sandbox user, executed with bash
 ENTRYPOINT ["bash", "/usr/local/bin/entrypoint.sh"]

@@ -3,9 +3,14 @@ import logging
 import os
 import random
 import time
+from math import floor
+from functools import lru_cache
 
-from kafka import KafkaProducer
-from kafka.errors import KafkaTimeoutError, NoBrokersAvailable
+from kafka import KafkaProducer  # type: ignore[import-not-found]
+from kafka.errors import (  # type: ignore[import-not-found]
+    KafkaTimeoutError,
+    NoBrokersAvailable,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -13,27 +18,38 @@ logging.basicConfig(
 )
 
 # Configuration from environment variables
-KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:9092")
+KAFKA_BROKER = os.environ.get(
+    "KAFKA_BROKER", "kafka-service.kafka.svc.cluster.local:9092"
+)
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "throughput-topic")
-# Store initial rate, allow it to be modified
-INITIAL_MESSAGE_RATE = int(os.environ.get("MESSAGE_RATE_PER_SECOND", "10"))
+INITIAL_MESSAGE_RATE = int(os.environ.get("PRODUCER_TARGET_RATE", "1000"))
 MESSAGE_SIZE_BYTES = int(os.environ.get("MESSAGE_SIZE_BYTES", "1024"))
 PRODUCER_CLIENT_ID = os.environ.get("PRODUCER_CLIENT_ID", "kafka-throughput-producer")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "30"))
-INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "10"))
+INITIAL_RETRY_DELAY_S = int(os.environ.get("INITIAL_RETRY_DELAY_S", "5"))
 STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
 PRODUCER_STATS_FILE = os.path.join(STATUS_DIR, "producer_stats.txt")
-LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")  # Need latency file path
+LATENCY_FILE = os.path.join(STATUS_DIR, "e2e_latency_ms.txt")
+KMINION_PRODUCER_ACTUAL_RATE_FILE = os.path.join(
+    STATUS_DIR, "producer_actual_rate_value.txt"
+)
 
 # Adaptive Load Parameters
-ADAPTIVE_CHECK_INTERVAL_S = int(os.environ.get("ADAPTIVE_CHECK_INTERVAL_S", "30"))
-# Use TARGET_LATENCY_MS consistently
-TARGET_LATENCY_MS = float(os.environ.get("TARGET_LATENCY_MS", "10.0"))
-MAX_MESSAGE_RATE = int(os.environ.get("MAX_MESSAGE_RATE", "10000"))
-RATE_INCREASE_FACTOR = float(os.environ.get("RATE_INCREASE_FACTOR", "1.20"))
+ADAPTIVE_CHECK_INTERVAL_S = int(os.environ.get("ADAPTIVE_CHECK_INTERVAL_S", "10"))
+TARGET_LATENCY_MS = float(os.environ.get("TARGET_LATENCY_MS", "5.0"))
+MAX_MESSAGE_RATE = int(os.environ.get("MAX_MESSAGE_RATE", "50000"))
+RATE_INCREASE_FACTOR = float(os.environ.get("RATE_INCREASE_FACTOR", "1.03"))
 ACTUAL_VS_TARGET_THRESHOLD_PERCENT = float(
-    os.environ.get("ACTUAL_VS_TARGET_THRESHOLD_PERCENT", "0.80")  # Default 80%
+    os.environ.get("ACTUAL_VS_TARGET_THRESHOLD_PERCENT", "0.95")
 )
+
+
+# Memoized helper for creating padding string
+@lru_cache(maxsize=128)
+def _get_padding_string(length: int) -> str:
+    if length <= 0:
+        return ""
+    return "x" * length
 
 
 def create_message(sequence_number: int, size_bytes: int) -> bytes:
@@ -41,127 +57,165 @@ def create_message(sequence_number: int, size_bytes: int) -> bytes:
     payload = {
         "sequence": sequence_number,
         "timestamp": time.time(),
-        "data": "",
+        "data": "",  # Placeholder for padding
     }
-    # Calculate initial size (approximate)
+    # First serialization to determine the exact size of other fields
     base_payload_str = json.dumps(payload, separators=(",", ":"))
-    current_size = len(base_payload_str.encode("utf-8"))
+    current_encoded_size = len(base_payload_str.encode("utf-8"))
 
-    # Add padding to reach target size
-    padding_needed = size_bytes - current_size
-    if padding_needed > 0:
-        payload["data"] = "x" * padding_needed
+    padding_needed = size_bytes - current_encoded_size
 
-    # Final encoding
+    # Get padding string using the memoized helper
+    payload["data"] = _get_padding_string(padding_needed)
+
+    # Second serialization with the actual padding
     message_str = json.dumps(payload, separators=(",", ":"))
     return message_str.encode("utf-8")
 
 
-def write_producer_stats(target_rate: int, actual_rate: int, size: int) -> None:
-    """Writes producer stats (target rate and actual achieved rate) to a file."""
-    # Report both the target rate and the actual achieved rate
-    stats_str = f"target_rate={target_rate}, actual_rate={actual_rate}, size={size}"
+def send_message(
+    producer: KafkaProducer,
+    topic: str,
+    sequence_number: int,
+    message_size_bytes: int,
+) -> bool:
+    """
+    Creates a message, determines partition, sends it, and handles errors.
+    Returns True if successful, False otherwise.
+    """
+    message_bytes = create_message(sequence_number, message_size_bytes)
+
+    # Partition key logic (Benford's Law like distribution)
+    # This attempts to create a non-uniform distribution of messages across partitions
+    # for more realistic load.
+    lognorm_value = random.lognormvariate(5, 3)
+    random_int = floor(lognorm_value)
+    partition_key = int(str(random_int)[0])
+
+    try:
+        producer.send(topic, value=message_bytes, partition=partition_key)
+        logging.debug(f"Sent msg {sequence_number} to partition '{partition_key}'")
+        return True
+    except KafkaTimeoutError:
+        logging.warning("Timeout sending message. Kafka busy or unavailable?")
+        return False
+    except Exception as e:
+        logging.error(f"Error sending message: {e}")
+        return False
+
+
+def write_producer_stats(target_rate: int, size: int) -> None:
+    """Writes producer target rate and message size to a file."""
+    stats_str = f"target_rate={target_rate},size={size}"
     try:
         os.makedirs(STATUS_DIR, exist_ok=True)
         with open(PRODUCER_STATS_FILE, "w") as f:
             f.write(stats_str)
+        logging.debug(f"Producer stats written: {stats_str}")
     except Exception as e:
         logging.error(f"Error writing producer stats to {PRODUCER_STATS_FILE}: {e}")
 
 
-def read_latency() -> float | None:
-    """Reads the latency value from the shared file."""
+def _read_metric_from_file(file_path: str, metric_name: str) -> float | None:
+    """Helper function to read a metric value from a given file."""
     try:
-        if os.path.exists(LATENCY_FILE):
-            with open(LATENCY_FILE) as f:
+        if os.path.exists(file_path):
+            with open(file_path) as f:
                 content = f.read().strip()
-                if content:
+                if content and content != "N/A":
+                    logging.debug(f"{metric_name} from {file_path}: '{content}'")
                     return float(content)
+                elif content == "N/A":
+                    logging.debug(f"{metric_name} file {file_path} reported N/A.")
+                    return None  # Treat N/A as no data
+        else:
+            logging.warning(f"{metric_name} file {file_path} not found.")
     except ValueError:
-        logging.warning(f"Could not parse float from latency file: {LATENCY_FILE}")
+        logging.warning(f"Could not parse float from {metric_name} file: {file_path}")
     except Exception as e:
-        logging.error(f"Error reading latency file {LATENCY_FILE}: {e}")
+        logging.error(f"Error reading {metric_name} file {file_path}: {e}")
     return None
 
 
-def adjust_message_rate(
-    current_target_rate: int,
-    actual_rate_from_stats: int,
-    latency_ms: float | None,
-    target_latency_ms: float,  # Renamed from latency_threshold
-    max_rate: int,
+def adjust_message_rate_autonomously(
+    actual_rate: float | None,
+    target_rate: int,
+    actual_latency_ms: float | None,
+    target_latency_ms: float,
+    max_rate_cap: int,
     increase_factor: float,
-    actual_vs_target_threshold: float,
+    actual_vs_target_ratio_threshold: float,
 ) -> int:
-    """Adjusts the message rate based on latency and actual vs target rate."""
-    # Early return if no latency data
-    if latency_ms is None:
+    """Producer will adjust rate upwards if conditions are good."""
+
+    if actual_rate is None:
         logging.info(
-            f"Could not read latency. Holding target rate at {current_target_rate}/s."
+            "No KMinion-observed actual rate data available. "
+            f"Holding current target rate: {target_rate}/s."
         )
-        return current_target_rate
+        return target_rate
 
-    # Early return if latency is too high
-    if latency_ms >= target_latency_ms:
+    if actual_latency_ms is None:
+        logging.info(f"No latency data. Holding current target rate: {target_rate}/s.")
+        return target_rate
+
+    if actual_latency_ms >= target_latency_ms:
         logging.info(
-            f"Latency ({latency_ms:.2f}ms) >= threshold ({target_latency_ms}ms). "
-            f"Holding target rate at {current_target_rate}/s."
+            f"Latency ({actual_latency_ms:.2f}ms) >= threshold ({target_latency_ms}ms). "
+            f"Holding current target rate: {target_rate}/s."
         )
-        return current_target_rate
+        return target_rate
 
-    # Early return if already at max rate
-    if current_target_rate >= max_rate:
+    if target_rate >= max_rate_cap:
         logging.info(
-            f"Latency low ({latency_ms:.2f}ms), but already at max rate "
-            f"({current_target_rate}/s). Holding."
+            f"Latency low ({actual_latency_ms:.2f}ms), but already at max rate cap "
+            f"({target_rate}/s). Holding."
         )
-        return current_target_rate
+        return target_rate
 
-    # Check if actual rate is keeping up with the target rate
-    if actual_rate_from_stats < (current_target_rate * actual_vs_target_threshold):
+    if actual_rate < (target_rate * actual_vs_target_ratio_threshold):
         logging.info(
-            f"Latency low ({latency_ms:.2f}ms < {target_latency_ms}ms), "
-            f"but actual rate ({actual_rate_from_stats}/s) is below threshold "
-            f"({actual_vs_target_threshold * 100:.0f}%) of target "
-            f"({current_target_rate}/s). Holding target rate."
+            f"Latency low ({actual_latency_ms:.2f}ms < {target_latency_ms}ms), "
+            f"but local actual rate ({actual_rate:.2f}/s) is below threshold "
+            f"({actual_vs_target_ratio_threshold * 100:.0f}%) of current target "
+            f"({target_rate}/s). Holding current target rate."
         )
-        return current_target_rate
+        return target_rate
 
-    # Calculate new rate
-    calculated_new_rate = current_target_rate * increase_factor
-    new_rate = min(int(calculated_new_rate), max_rate)
+    calculated_new_rate = target_rate * increase_factor
+    new_rate = min(int(calculated_new_rate), max_rate_cap)
 
-    # Return new rate if increased, otherwise current rate
-    if new_rate > current_target_rate:
+    if new_rate > target_rate:
         logging.info(
-            f"Low latency ({latency_ms:.2f}ms < {target_latency_ms}ms) "
-            f"and actual rate ok. Increasing target rate by factor "
-            f"{increase_factor}: {current_target_rate} -> {new_rate}/s"
+            "Conditions good. Increasing target rate from "
+            f"{target_rate} to {new_rate}/s."
         )
         return new_rate
     else:
         logging.info(
-            f"Latency low ({latency_ms:.2f}ms < {target_latency_ms}ms) "
-            f"and actual rate ok, but already at/near max rate "
-            f"({current_target_rate}/s). Holding."
+            f"Conditions good, but proposed new rate {new_rate}/s "
+            f"not > current {target_rate}/s. Holding."
         )
-        return current_target_rate
+        return target_rate
 
 
 def main() -> None:
-    logging.info("--- Kafka Throughput Demo Producer --- ")
+    logging.info("--- Kafka Throughput Demo Producer (v2 - Autonomous) --- ")
     logging.info(f"Target Kafka Broker: {KAFKA_BROKER}")
     logging.info(f"Target Kafka Topic: {KAFKA_TOPIC}")
-    # Use mutable variable for rate
+
     current_message_rate = INITIAL_MESSAGE_RATE
     logging.info(
-        f"Initial Message Rate: {current_message_rate}/s (Max: {MAX_MESSAGE_RATE}/s)"
+        f"Initial Message Rate: {current_message_rate}/s (Max Cap for "
+        f"Autonomous Adjustments: {MAX_MESSAGE_RATE}/s)"
     )
     logging.info(f"Message Size: {MESSAGE_SIZE_BYTES} bytes")
     logging.info(f"Client ID: {PRODUCER_CLIENT_ID}")
     logging.info(
-        f"Adaptive Load: Check={ADAPTIVE_CHECK_INTERVAL_S}s, "
-        f"Threshold=<{TARGET_LATENCY_MS}ms, Factor=x{RATE_INCREASE_FACTOR}"
+        f"Autonomous Adaptive Logic: Check Interval={ADAPTIVE_CHECK_INTERVAL_S}s, "
+        f"Target Latency=<{TARGET_LATENCY_MS}ms, "
+        f"Increase Factor=x{RATE_INCREASE_FACTOR}, "
+        f"Min Actual/Target Ratio={ACTUAL_VS_TARGET_THRESHOLD_PERCENT * 100:.0f}%"
     )
 
     producer = None
@@ -171,28 +225,28 @@ def main() -> None:
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BROKER,
                 client_id=PRODUCER_CLIENT_ID,
-                acks=1,  # Acknowledge after leader write (Changed to integer)
-                retries=3,  # Internal retries within kafka-python
-                linger_ms=10,  # Allow batching for 10ms
-                batch_size=65536,  # Increase batch size to 64KB
+                acks=1,
+                retries=3,
+                linger_ms=50,
+                batch_size=16384 * 16,
             )
             logging.info("KafkaProducer initialized successfully.")
-            break  # Exit loop if connection successful
+            break
         except NoBrokersAvailable as e:
             retries += 1
             logging.warning(
-                f"Attempt {retries}/{MAX_RETRIES}: Could not connect to Kafka broker "
-                f"at {KAFKA_BROKER}. Error: {e}"
+                f"Attempt {retries}/{MAX_RETRIES}: Could not connect to Kafka "
+                f"broker at {KAFKA_BROKER}. Error: {e}"
             )
             if retries >= MAX_RETRIES:
                 logging.error("Maximum connection attempts reached. Exiting.")
                 exit(1)
-            delay = INITIAL_RETRY_DELAY_S * (2 ** (retries - 1))  # Exponential backoff
+            delay = INITIAL_RETRY_DELAY_S * (2 ** (retries - 1))
             logging.info(f"Retrying in {delay} seconds...")
             time.sleep(delay)
         except Exception as e:
             logging.error(
-                f"An unexpected error occurred during KafkaProducer initialization: {e}"
+                f"An unexpected error during KafkaProducer initialization: {e}"
             )
             exit(1)
 
@@ -200,130 +254,116 @@ def main() -> None:
         logging.error("Failed to initialize Kafka producer after multiple retries.")
         exit(1)
 
-    # Write initial status file (report target rate)
-    logging.info("Writing initial producer stats...")
-    write_producer_stats(
-        target_rate=current_message_rate, actual_rate=0, size=MESSAGE_SIZE_BYTES
-    )
+    logging.info("Writing initial producer stats (target_rate, size)...")
+    write_producer_stats(target_rate=current_message_rate, size=MESSAGE_SIZE_BYTES)
 
     sequence_number = 0
-    messages_sent_this_second = 0
-    start_time_current_second = time.time()
-    last_adaptive_check_time = time.time()
+    messages_sent_this_interval = 0  # For calculating local actual rate over 1 second
+    interval_start_time = time.time()
+    last_autonomous_adjustment_check_time = time.time()
 
     try:
         while True:
             now = time.time()
 
-            # --- Adaptive Load Adjustment --- Check periodically
-            if now - last_adaptive_check_time >= ADAPTIVE_CHECK_INTERVAL_S:
-                last_adaptive_check_time = now
-                current_latency = read_latency()
+            # 1. Autonomous Adaptive Rate Adjustment (periodically)
+            if now - last_autonomous_adjustment_check_time >= ADAPTIVE_CHECK_INTERVAL_S:
+                last_autonomous_adjustment_check_time = now
 
-                # Get current actual rate to pass to adjust_message_rate
-                last_actual_rate = 0  # Default if file not found or parse error
-                # current_message_rate is the current target rate for this iteration
-                try:
-                    if os.path.exists(PRODUCER_STATS_FILE):
-                        with open(PRODUCER_STATS_FILE) as f_stats:
-                            stats_content = f_stats.read().strip()
-                            parts = {
-                                p.split("=")[0]: int(p.split("=")[1])
-                                for p in stats_content.split(", ")
-                                if "=" in p  # Ensure key=value format
-                            }
-                            last_actual_rate = parts.get("actual_rate", 0)
-                except Exception as e_stats:
-                    logging.warning(
-                        f"Could not read last actual rate from stats file "
-                        f"'{PRODUCER_STATS_FILE}': {e_stats}"
-                    )
-
-                current_message_rate = adjust_message_rate(
-                    current_target_rate=current_message_rate,
-                    actual_rate_from_stats=last_actual_rate,
-                    latency_ms=current_latency,
-                    target_latency_ms=TARGET_LATENCY_MS,  # Pass the correct variable
-                    max_rate=MAX_MESSAGE_RATE,
-                    increase_factor=RATE_INCREASE_FACTOR,
-                    actual_vs_target_threshold=ACTUAL_VS_TARGET_THRESHOLD_PERCENT,
+                current_e2e_latency_ms = _read_metric_from_file(
+                    LATENCY_FILE, "E2E latency"
                 )
 
-            # --- Rate limiting & Stats Reporting --- (Per second)
-            elapsed_in_second = now - start_time_current_second
+                # Fetch KMinion's observed producer rate for decision making
+                kminion_observed_producer_rate = _read_metric_from_file(
+                    KMINION_PRODUCER_ACTUAL_RATE_FILE,
+                    "KMinion observed producer rate for decision",
+                )
 
-            if elapsed_in_second >= 1.0:
-                # Report stats for the completed second
-                actual_rate_this_second = messages_sent_this_second
-                # Report current target rate and actual achieved rate
-                write_producer_stats(
+                adjusted_target_rate = adjust_message_rate_autonomously(
+                    actual_rate=kminion_observed_producer_rate,
                     target_rate=current_message_rate,
-                    actual_rate=actual_rate_this_second,
-                    size=MESSAGE_SIZE_BYTES,
+                    actual_latency_ms=current_e2e_latency_ms,
+                    target_latency_ms=TARGET_LATENCY_MS,
+                    max_rate_cap=MAX_MESSAGE_RATE,
+                    increase_factor=RATE_INCREASE_FACTOR,
+                    actual_vs_target_ratio_threshold=ACTUAL_VS_TARGET_THRESHOLD_PERCENT,
                 )
 
-                # Reset counter and timer for the new second
-                messages_sent_this_second = 0
-                start_time_current_second = now  # Reset timer precisely
-                elapsed_in_second = 0  # Reset elapsed time for the new second
-
-            # --- Message Sending --- (Uses current_message_rate)
-            if messages_sent_this_second < current_message_rate:
-                message_bytes = create_message(sequence_number, MESSAGE_SIZE_BYTES)
-
-                # Generate partition key based on leading digit of a log-normally
-                # distributed variable. This provides a distribution closer to
-                # Benford's Law.
-                lognorm_value = random.lognormvariate(
-                    5, 3
-                )  # mu=5, sigma=3 as suggested
-                # Convert to integer (at least 1) to get the leading digit
-                random_int = max(1, int(lognorm_value))
-                leading_digit_str = str(random_int)[0]
-                partition_key_bytes = leading_digit_str.encode("utf-8")
-
-                try:
-                    # Send message with the calculated partition key
-                    producer.send(
-                        KAFKA_TOPIC, value=message_bytes, key=partition_key_bytes
+                if adjusted_target_rate != current_message_rate:
+                    logging.info(
+                        "Autonomous adjustment: Target rate changed from "
+                        f"{current_message_rate} to {adjusted_target_rate}/s."
                     )
-                    logging.debug(
-                        f"Sent msg {sequence_number} key='{leading_digit_str}' "
-                        f"(from {lognorm_value:.2f})"
+                    current_message_rate = adjusted_target_rate
+                    # Write new autonomously adjusted target to stats file
+                    write_producer_stats(
+                        target_rate=current_message_rate, size=MESSAGE_SIZE_BYTES
                     )
+
+            # 2. Message Sending Loop (to meet current_message_rate over 1 second)
+            # This loop aims to send `current_message_rate` messages
+            # within each 1-second wall-clock interval.
+            if messages_sent_this_interval < current_message_rate:
+                if send_message(
+                    producer, KAFKA_TOPIC, sequence_number, MESSAGE_SIZE_BYTES
+                ):
                     sequence_number += 1
-                    messages_sent_this_second += 1
-                except KafkaTimeoutError:
-                    logging.warning(
-                        "Timeout sending message. Retrying might happen internally."
-                    )
-                except Exception as e:
-                    logging.error(f"Error sending message: {e}")
-                    # Consider a delay or break here depending on the error
-                    time.sleep(1)  # Simple delay
+                    messages_sent_this_interval += 1
+                else:
+                    # Prevents a very tight loop if Kafka is temporarily unresponsive.
+                    time.sleep(0.1)
 
-            # --- Sleep Logic --- (Calculated based on current_message_rate)
-            if messages_sent_this_second >= current_message_rate:
-                time_to_next_second = start_time_current_second + 1.0 - time.time()
-                if time_to_next_second > 0:
-                    # If target rate met for the second, sleep precisely
-                    # until the next second starts
-                    time.sleep(time_to_next_second)
+            # 3. Stats Reporting & Loop Timing (every 1 second)
+            # Also ensures the loop roughly aligns with 1-second iterations.
+            if now - interval_start_time >= 1.0:
+                elapsed_interval_time = now - interval_start_time
+                logging.info(
+                    f"Interval: {elapsed_interval_time:.2f}s, "
+                    f"Current Target Rate: {current_message_rate}/s, "
+                    f"Sent this interval: {messages_sent_this_interval}"
+                )
+
+                write_producer_stats(
+                    target_rate=current_message_rate, size=MESSAGE_SIZE_BYTES
+                )
+
+                # Reset for next 1-second interval
+                messages_sent_this_interval = 0
+                interval_start_time = now  # Reset interval timer to current time
+            else:
+                # If we've already sent all messages for this target rate in the
+                # current <1s window, sleep briefly to yield CPU and avoid busy-waiting.
+                if messages_sent_this_interval >= current_message_rate:
+                    # Calculate remaining time in 1-second interval and sleep for that
+                    # duration, or a small fixed amount if the calculation is tricky.
+                    # This helps maintain the 1-second rhythm more accurately.
+                    remaining_time_in_interval = 1.0 - (now - interval_start_time)
+                    if (
+                        remaining_time_in_interval > 0.001
+                    ):  # Only sleep if meaningful time left
+                        time.sleep(
+                            min(remaining_time_in_interval, 0.1)
+                        )  # Sleep up to 0.1s or remaining time
+                    else:
+                        time.sleep(
+                            0.001
+                        )  # Minimal sleep if very close to end of interval or overshot
 
     except KeyboardInterrupt:
         logging.info("Producer interrupted. Shutting down...")
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        logging.error(f"An unexpected error occurred in main loop: {e}", exc_info=True)
     finally:
         if producer:
             logging.info("Flushing remaining messages...")
-            producer.flush()  # Ensure all buffered messages are sent
+            producer.flush(timeout=10)  # Adding timeout to flush
             logging.info("Closing Kafka producer...")
-            producer.close()
+            producer.close(timeout=10)  # Adding timeout to close
             logging.info("Producer closed.")
-            # Write final stats on clean exit
+            # Write final stats (target_rate, size) on clean exit
             write_producer_stats(
-                target_rate=current_message_rate, actual_rate=0, size=MESSAGE_SIZE_BYTES
+                target_rate=current_message_rate, size=MESSAGE_SIZE_BYTES
             )
 
 

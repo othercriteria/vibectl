@@ -4,17 +4,28 @@ Simple healthcheck script to verify Kafka connectivity for container healthcheck
 Exits with code 0 if healthy, non-zero otherwise.
 """
 
+import logging
 import os
 import sys
 
-from kafka import KafkaAdminClient
-from kafka.errors import NoBrokersAvailable
+from kafka import KafkaAdminClient  # type: ignore
+from kafka.errors import NoBrokersAvailable  # type: ignore
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # Configuration
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:9092")
 CONFIGMAP_NAME = os.environ.get("CONFIGMAP_NAME", "kafka-latency-metrics")
 CONFIGMAP_NAMESPACE = os.environ.get("CONFIGMAP_NAMESPACE", "kafka")
-LATENCY_CM_KEY = os.environ.get("LATENCY_CM_KEY", "p99_latency_ms")
+LATENCY_CM_KEY = os.environ.get("LATENCY_CM_KEY", "actual_latency_ms")
+TARGET_LATENCY_CM_KEY = os.environ.get("TARGET_LATENCY_CM_KEY", "target_latency_ms")
+MAX_LATENCY_THRESHOLD_FACTOR = float(
+    os.environ.get("MAX_LATENCY_THRESHOLD_FACTOR", "5.0")
+)
+KUBECTL_CMD = os.environ.get("KUBECTL_CMD", "kubectl")
 TIMEOUT = int(os.environ.get("HEALTHCHECK_TIMEOUT", "10"))
 
 

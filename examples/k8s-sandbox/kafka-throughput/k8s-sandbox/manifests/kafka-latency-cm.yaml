@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-latency-metrics
+  namespace: kafka # Ensure this is created in the correct namespace
+data:
+  actual_latency_ms: "N/A" # Initial value
+  target_latency_ms: "10.0" # Default, can be overridden by reporter's env var
+  producer_target_rate: "N/A"
+  producer_actual_rate: "N/A" # Added new metric
+  consumer_actual_rate: "N/A"
