@@ -1,13 +1,29 @@
-FROM python:3.11-slim
+FROM golang:1.24.3-bookworm AS builder
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy go mod and sum files
+COPY go.mod go.sum ./
 
-COPY consumer.py .
+# Download dependencies
+RUN go mod download
 
-# Add healthcheck script
-COPY healthcheck.py .
+# Copy source code
+COPY consumer.go ./
 
-CMD ["python", "./consumer.py"]
+# Get dependencies and build the application
+RUN go get ./... && \
+    CGO_ENABLED=0 GOOS=linux go build -o consumer .
+
+# Use a smaller image for the final container
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install procps for pgrep (used in healthcheck)
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from builder
+COPY --from=builder /app/consumer .
+
+CMD ["./consumer"]

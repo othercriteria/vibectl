@@ -6,8 +6,8 @@ from typing import Any  # Import Any
 
 import docker  # type: ignore
 import urllib3  # Import urllib3
-from apscheduler.schedulers.background import (
-    BackgroundScheduler,  # type: ignore[import-untyped]
+from apscheduler.schedulers.background import (  # type: ignore
+    BackgroundScheduler,
 )
 from docker.errors import APIError, NotFound  # type: ignore
 from flask import Flask, Response, jsonify, render_template, request  # Import request
@@ -30,12 +30,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-STATUS_DIR = "/tmp/status"
-# Old LATENCY_FILE is replaced by E2E_LATENCY_FILE_PATH
-# LATENCY_FILE = os.path.join(STATUS_DIR, "latency.txt")
-PRODUCER_STATS_FILE = os.path.join(
-    STATUS_DIR, "producer_stats.txt"
-)  # Still used for actual rate and size
+STATUS_DIR = os.environ.get("STATUS_DIR", "/tmp/status")
+PRODUCER_STATS_FILE = os.path.join(STATUS_DIR, "producer_stats.txt")
 VIBECTL_LOG_FILE = os.path.join(STATUS_DIR, "vibectl_agent.log")
 
 # New file paths from latency-reporter.py
@@ -43,7 +39,7 @@ E2E_LATENCY_FILE_PATH = os.path.join(STATUS_DIR, "e2e_latency_ms.txt")
 UI_PRODUCER_TARGET_RATE_FILE_PATH = os.path.join(
     STATUS_DIR, "producer_target_rate_value.txt"
 )
-UI_PRODUCER_ACTUAL_RATE_FILE_PATH = os.path.join(  # Ensure this is correctly defined
+UI_PRODUCER_ACTUAL_RATE_FILE_PATH = os.path.join(
     STATUS_DIR, "producer_actual_rate_value.txt"
 )
 UI_CONSUMER_ACTUAL_RATE_FILE_PATH = os.path.join(
@@ -51,7 +47,6 @@ UI_CONSUMER_ACTUAL_RATE_FILE_PATH = os.path.join(
 )
 TARGET_LATENCY_FILE_PATH = os.path.join(STATUS_DIR, "target_latency_ms.txt")
 
-NAMESPACE = "default"  # Assuming default namespace for now
 CHECK_INTERVAL_S = 5  # Interval for scheduler checks
 
 # Define staleness threshold (e.g., 3 times the check interval)
@@ -73,7 +68,7 @@ latest_data = {
     "producer_health": "N/A",
     "consumer_health": "N/A",
     "cluster_status": "N/A",
-    "vibectl_logs": "N/A",  # Placeholder for vibectl logs
+    "vibectl_logs": "N/A",
     "last_updated": time.time(),
 }
 
@@ -162,7 +157,7 @@ def read_log_tail(file_path: str, lines: int) -> str:
             capture_output=True,
             text=True,
             check=False,  # Don't throw error if tail fails (e.g., empty file)
-            timeout=2,  # Add timeout
+            timeout=2,
         )
         if result.returncode != 0:
             # Handle cases like empty file or read errors
@@ -191,7 +186,6 @@ def get_container_health(container_name: str) -> str:
     try:
         container = docker_client.containers.get(container_name)
         status = container.status
-        # Simplified check using a mapping
         status_map = {
             "running": "Running",
             "restarting": "Restarting",
@@ -230,7 +224,7 @@ def read_file_content(file_path: str, default_value: str = "N/A") -> str:
     """Safely reads content from a file."""
     try:
         if os.path.exists(file_path):
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 content = f.read().strip()
                 return content if content else default_value
         return default_value
@@ -367,7 +361,7 @@ def get_producer_size_from_stats() -> str:
     size = "N/A"
     try:
         if os.path.exists(PRODUCER_STATS_FILE):
-            with open(PRODUCER_STATS_FILE, "r") as f:
+            with open(PRODUCER_STATS_FILE) as f:
                 content = f.read().strip()
                 if content:
                     stats: dict[str, str] = {}
@@ -493,11 +487,9 @@ def handle_disconnect() -> None:
 # --- Main Execution ---
 
 if __name__ == "__main__":
-    # Add the job to the scheduler
     scheduler.add_job(
         update_status_data, "interval", seconds=CHECK_INTERVAL_S, id="status_update_job"
     )
-    # Start the scheduler
     scheduler.start()
     logger.info(f"Scheduler started. Updating status every {CHECK_INTERVAL_S} seconds.")
 
@@ -510,5 +502,4 @@ if __name__ == "__main__":
         app, host="0.0.0.0", port=8081, debug=False, allow_unsafe_werkzeug=True
     )
 
-    # Shut down the scheduler when exiting
     scheduler.shutdown()

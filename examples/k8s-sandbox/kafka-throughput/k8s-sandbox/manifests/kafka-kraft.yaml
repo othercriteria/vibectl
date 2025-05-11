@@ -21,9 +21,9 @@ data:
 
     # Listeners (Internal on 9091, External on 9092)
     listeners=INTERNAL://:9091,EXTERNAL://:9092,CONTROLLER://:9093
-    # Advertise internal listener with internal K8s service name
-    # Advertise external listener with placeholder replaced by entrypoint.sh (k8s-sandbox)
-    advertised.listeners=INTERNAL://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092
+    # Advertise internal listener with placeholder to be dynamically set by pod.
+    # Advertise external listener with placeholder replaced by KAFKA_ADVERTISED_HOST env var.
+    advertised.listeners=INTERNAL://<HOSTNAME_PLACEHOLDER>.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092
     inter.broker.listener.name=INTERNAL
 
     # Listener Security Protocol Map (Updated for INTERNAL/EXTERNAL)
@@ -33,7 +33,7 @@ data:
     log.dirs=/var/lib/kafka/data
 
     # Basic settings (adjust as needed)
-    num.partitions=10
+    num.partitions=20
     default.replication.factor=1
     min.insync.replicas=1
     offsets.topic.replication.factor=1
@@ -55,11 +55,11 @@ metadata:
 spec:
   clusterIP: None # Headless
   ports:
-  - name: plaintext # Keep old name for compatibility? Or rename to external?
+  - name: plaintext
     port: 9092
     protocol: TCP
     targetPort: 9092
-  - name: internal # Add internal port
+  - name: internal
     port: 9091
     protocol: TCP
     targetPort: 9091
@@ -114,10 +114,11 @@ spec:
         app: kafka
         role: controller
     spec:
+      serviceAccountName: kafka-broker-sa
       terminationGracePeriodSeconds: 30
       containers:
       - name: kafka
-        image: apache/kafka:3.7.0 # Use an official Kafka image
+        image: apache/kafka:3.7.0
         ports:
         - containerPort: 9092
           name: plaintext # External
@@ -139,44 +140,86 @@ spec:
             value: "broker,controller"
           - name: KAFKA_CONTROLLER_QUORUM_VOTERS
             value: "0@kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9093"
-          # Updated KAFKA_LISTENERS env var
           - name: KAFKA_LISTENERS
             value: "INTERNAL://:9091,EXTERNAL://:9092,CONTROLLER://:9093"
-          # Added KAFKA_ADVERTISED_LISTENERS env var
           - name: KAFKA_ADVERTISED_LISTENERS
             value: "INTERNAL://kafka-controller-0.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://${KAFKA_ADVERTISED_HOST}:9092"
-          # Updated KAFKA_INTER_BROKER_LISTENER_NAME env var
           - name: KAFKA_INTER_BROKER_LISTENER_NAME
             value: "INTERNAL"
           - name: KAFKA_CONTROLLER_LISTENER_NAMES
             value: "CONTROLLER"
-          # Updated KAFKA_LISTENER_SECURITY_PROTOCOL_MAP env var
           - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
             value: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
           - name: KAFKA_LOG_DIRS
             value: "/var/lib/kafka/data"
-          # JVM Heap settings (Reverted to 512m)
+          # KAFKA_ADVERTISED_HOST is still needed for the external listener.
+          # It should be set in the environment where kubectl apply is run,
+          # or directly in the StatefulSet spec if it's static for the k8s-sandbox.
+          # For this demo, entrypoint.sh in k8s-sandbox sets it.
+          - name: KAFKA_ADVERTISED_HOST
+            value: "k8s-sandbox" # Default for the demo, can be overridden by entrypoint.sh
+          # JVM Heap settings
           - name: KAFKA_HEAP_OPTS
             value: "-Xms512m -Xmx512m"
           # Network and I/O threads (Intentionally low initial settings)
           - name: KAFKA_NUM_NETWORK_THREADS
             value: "1" # Default is 3
           - name: KAFKA_NUM_IO_THREADS
-            value: "2" # Default is 8
-        # Command to format storage and start Kafka
-        # Note: Bitnami images might have different entrypoints/config methods
+            value: "1" # Default is 8
         command:
           - "/bin/bash"
           - "-c"
           - |
-            echo "Starting Kafka KRaft node 0..."
-            # Format storage directory if it does not exist
-            if [ ! -f /var/lib/kafka/data/meta.properties ]; then
-              echo "Formatting storage directory /var/lib/kafka/data for cluster $KAFKA_CLUSTER_ID..."
-              /opt/kafka/bin/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /etc/kafka/kraft/server.properties
+            set -e
+            echo "Starting Kafka KRaft node..."
+
+            # Prepare a writable copy of the server.properties
+            CONFIG_SOURCE="/etc/kafka/kraft/server.properties"
+            MY_CONFIG="/tmp/my-server.properties"
+            cp $CONFIG_SOURCE $MY_CONFIG
+
+            # Extract pod ordinal from hostname (e.g., kafka-controller-0 -> 0)
+            ORDINAL="${HOSTNAME##*-}"
+            echo "Pod ordinal: $ORDINAL"
+
+            # Dynamically set node.id
+            echo "Setting node.id=$ORDINAL"
+            sed -i "s/^node\.id=.*/node.id=$ORDINAL/" $MY_CONFIG
+
+            # Dynamically set the internal advertised listener using the pod's hostname
+            # The KAFKA_ADVERTISED_HOST variable is used for the EXTERNAL listener by Kafka's startup scripts
+            # if it finds it in the properties file like ${KAFKA_ADVERTISED_HOST}
+            echo "Setting internal advertised.listener to INTERNAL://${HOSTNAME}.kafka-headless.kafka.svc.cluster.local:9091"
+            # Ensure KAFKA_ADVERTISED_HOST is available for substitution in the next sed command
+            # If KAFKA_ADVERTISED_HOST env var is not set for the container, Kafka might fail to substitute it.
+            # The env var KAFKA_ADVERTISED_HOST above ensures it's available.
+            sed -i "s|advertised\.listeners=INTERNAL://<HOSTNAME_PLACEHOLDER>\.kafka-headless\.kafka\.svc\.cluster\.local:9091,EXTERNAL://\${KAFKA_ADVERTISED_HOST}:9092|advertised.listeners=INTERNAL://${HOSTNAME}.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://\${KAFKA_ADVERTISED_HOST}:9092|" $MY_CONFIG
+            
+            # Substitute KAFKA_ADVERTISED_HOST if it's used in the configMap and not replaced yet
+            # This ensures that if KAFKA_ADVERTISED_HOST is an env var, it gets correctly substituted by Kafka itself or here.
+            # Kafka's scripts usually handle ${ENV_VAR} substitution from the properties file.
+            # Explicitly doing it here can be a fallback.
+            if [ -n "$KAFKA_ADVERTISED_HOST" ]; then
+                echo "Ensuring KAFKA_ADVERTISED_HOST ($KAFKA_ADVERTISED_HOST) is substituted in $MY_CONFIG"
+                sed -i "s/\${KAFKA_ADVERTISED_HOST}/$KAFKA_ADVERTISED_HOST/g" $MY_CONFIG
+            else
+                echo "Warning: KAFKA_ADVERTISED_HOST is not set. External listener may not be correctly advertised."
             fi
-            echo "Launching Kafka..."
-            exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/kraft/server.properties
+
+            # Format storage directory if it does not exist
+            # KAFKA_CLUSTER_ID is sourced from the env var defined above
+            if [ ! -f /var/lib/kafka/data/meta.properties ]; then
+              echo "Formatting storage directory /var/lib/kafka/data for cluster $KAFKA_CLUSTER_ID with config $MY_CONFIG..."
+              /opt/kafka/bin/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c $MY_CONFIG
+            else
+              echo "Storage directory /var/lib/kafka/data already formatted."
+            fi
+
+            echo "Launching Kafka with config $MY_CONFIG..."
+            echo "--- Configuration ---"
+            cat $MY_CONFIG
+            echo "---------------------"
+            exec /opt/kafka/bin/kafka-server-start.sh $MY_CONFIG
         volumeMounts:
         - name: kafka-config
           mountPath: /etc/kafka/kraft
@@ -193,6 +236,18 @@ spec:
             port: 9091
           initialDelaySeconds: 180
           periodSeconds: 20
+      - name: voter-updater # Sidecar container
+        image: bitnami/kubectl:latest
+        command: ["/bin/sh", "-c", "/scripts/update-voters.sh"]
+        env:
+          # Pass HOSTNAME to the script for leader election (ordinal check)
+          - name: HOSTNAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        volumeMounts:
+        - name: voter-updater-script
+          mountPath: /scripts
       volumes:
       - name: kafka-config
         configMap:
@@ -202,6 +257,10 @@ spec:
             path: server.properties
       - name: kafka-data # Using emptyDir for ephemeral storage in demo
         emptyDir: {}
+      - name: voter-updater-script # Volume for the updater script
+        configMap:
+          name: kafka-voter-updater-script-cm
+          defaultMode: 0755 # Make script executable
 
 ---
 # Need a way to generate and store the cluster ID reliably.
@@ -216,3 +275,166 @@ data:
   # Generate this value once, e.g., using: kafka-storage.sh random-uuid
   # The entrypoint script will need to handle creation if missing.
   clusterId: "PLACEHOLDER_CLUSTER_ID"
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka # Ensuring namespace kafka exists
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-broker-sa
+  namespace: kafka
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: kafka
+  name: kafka-broker-role
+rules:
+- apiGroups: [""] # Core API group
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"] # Apps API group for StatefulSets
+  resources: ["statefulsets"]
+  verbs: ["get", "list"]
+- apiGroups: [""] # Core API group for ConfigMaps
+  resources: ["configmaps"]
+  verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-broker-rb
+  namespace: kafka
+subjects:
+- kind: ServiceAccount
+  name: kafka-broker-sa
+  namespace: kafka
+roleRef:
+  kind: Role
+  name: kafka-broker-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-voter-updater-script-cm
+  namespace: kafka
+data:
+  update-voters.sh: |
+    #!/bin/bash
+    set -eu
+    set -x # Enable command tracing
+
+    NAMESPACE="kafka"
+    CONFIGMAP_NAME="kafka-controller-config"
+    STATEFULSET_NAME="kafka-controller"
+    POD_SERVICE_NAME="kafka-headless" # The headless service for Kafka pods
+    CONTROLLER_PORT="9093"
+    CONFIG_KEY_PROPERTIES="kraft-server.properties"
+    SCRIPT_VERSION="1.1" # For tracking updates
+
+    echo "[VoterUpdater-${SCRIPT_VERSION}] Starting up on ${HOSTNAME}..."
+
+    # Only run on the leader pod (ordinal 0) to avoid multiple updaters
+    MY_ORDINAL="${HOSTNAME##*-}"
+    if [ "$MY_ORDINAL" != "0" ]; then
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Not the leader pod (ordinal $MY_ORDINAL). Sleeping indefinitely."
+      sleep infinity
+      exit 0
+    fi
+
+    echo "[VoterUpdater-${SCRIPT_VERSION}] Leader pod active. Will now monitor and update Kafka voter configuration."
+
+    while true; do
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Checking voter configuration..."
+      TARGET_REPLICAS=$(kubectl get statefulset "${STATEFULSET_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}')
+      
+      if ! (echo "$TARGET_REPLICAS" | grep -Eq '^[0-9]+$') || [ "$TARGET_REPLICAS" -lt 1 ]; then
+        echo "[VoterUpdater-${SCRIPT_VERSION}] Error: Invalid target replica count '$TARGET_REPLICAS' from StatefulSet. Retrying in 60s."
+        sleep 60
+        continue
+      fi
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Target StatefulSet replicas: $TARGET_REPLICAS"
+
+      DESIRED_VOTERS_STRING=""
+      for i in $(seq 0 $(($TARGET_REPLICAS - 1))); do
+        VOTER_HOST="${STATEFULSET_NAME}-${i}.${POD_SERVICE_NAME}.${NAMESPACE}.svc.cluster.local"
+        VOTER_ENTRY="${i}@${VOTER_HOST}:${CONTROLLER_PORT}"
+        if [ -z "$DESIRED_VOTERS_STRING" ]; then
+          DESIRED_VOTERS_STRING="$VOTER_ENTRY"
+        else
+          DESIRED_VOTERS_STRING="${DESIRED_VOTERS_STRING},${VOTER_ENTRY}"
+        fi
+      done
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Desired 'controller.quorum.voters': $DESIRED_VOTERS_STRING"
+
+      # Enhanced debugging for fetching ConfigMap data
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Attempting to fetch current '${CONFIG_KEY_PROPERTIES}' from ConfigMap '${CONFIGMAP_NAME}'..."
+      # MODIFIED: Use POSIX-compliant sed for escaping dots in the key name
+      JSONPATH_KEY_ESCAPED=$(echo "$CONFIG_KEY_PROPERTIES" | sed 's/\./\\\\./g')
+      # MODIFIED: Reverted jsonpath quoting to double quotes, keeping new JSONPATH_KEY_ESCAPED
+      
+      CMD_TO_RUN="kubectl get configmap \"${CONFIGMAP_NAME}\" -n \"${NAMESPACE}\" -o jsonpath=\"{.data.${JSONPATH_KEY_ESCAPED}}\""
+      echo "[VoterUpdater-${SCRIPT_VERSION}] EXECUTING: $CMD_TO_RUN"
+      KUBE_OUTPUT=$(eval "$CMD_TO_RUN") # Using eval to ensure complex command string is processed correctly
+      KUBE_EXIT_CODE=$?
+      echo "[VoterUpdater-${SCRIPT_VERSION}] kubectl exit code for get CM data: $KUBE_EXIT_CODE"
+      echo "[VoterUpdater-${SCRIPT_VERSION}] kubectl output for get CM data: [$KUBE_OUTPUT]"
+
+      if [ $KUBE_EXIT_CODE -ne 0 ]; then
+        echo "[VoterUpdater-${SCRIPT_VERSION}] Error: kubectl command to get CM data failed. Retrying in 60s."
+        sleep 60
+        continue
+      fi
+
+      if [ -z "$KUBE_OUTPUT" ]; then
+        echo "[VoterUpdater-${SCRIPT_VERSION}] Error: kubectl command for CM data succeeded but returned empty. Fetching all data keys for debugging..."
+        ALL_DATA_CONTENT=$(kubectl get configmap "${CONFIGMAP_NAME}" -n "${NAMESPACE}" -o jsonpath="{.data}" 2>&1)
+        ALL_DATA_EXIT_CODE=$?
+        echo "[VoterUpdater-${SCRIPT_VERSION}] kubectl exit code for get all CM data: $ALL_DATA_EXIT_CODE"
+        echo "[VoterUpdater-${SCRIPT_VERSION}] All .data content from ConfigMap: [$ALL_DATA_CONTENT]"
+        sleep 60
+        continue
+      fi
+      CURRENT_CM_PROPERTIES_CONTENT="$KUBE_OUTPUT"
+
+      CURRENT_VOTERS_VALUE=$(echo "$CURRENT_CM_PROPERTIES_CONTENT" | grep "^controller\\.quorum\\.voters=" | sed "s/controller\\.quorum\\.voters=//")
+      
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Current 'controller.quorum.voters' in ConfigMap: $CURRENT_VOTERS_VALUE"
+
+      if [ "$DESIRED_VOTERS_STRING" != "$CURRENT_VOTERS_VALUE" ]; then
+        echo "[VoterUpdater-${SCRIPT_VERSION}] Voter list differs. Updating ConfigMap '${CONFIGMAP_NAME}'."
+        
+        LINE_TO_REPLACE_PATTERN="^controller\\.quorum\\.voters=.*"
+        REPLACEMENT_LINE="controller.quorum.voters=${DESIRED_VOTERS_STRING}"
+        
+        if echo "$CURRENT_CM_PROPERTIES_CONTENT" | grep -q "$LINE_TO_REPLACE_PATTERN"; then
+            NEW_PROPERTIES_CONTENT=$(echo "$CURRENT_CM_PROPERTIES_CONTENT" | sed "s|$LINE_TO_REPLACE_PATTERN|$REPLACEMENT_LINE|")
+        else
+            echo "[VoterUpdater-${SCRIPT_VERSION}] Warning: 'controller.quorum.voters' line not found. Appending it. This might indicate an issue with the base ConfigMap structure."
+            NEW_PROPERTIES_CONTENT=$(printf "%s\\n%s" "$CURRENT_CM_PROPERTIES_CONTENT" "$REPLACEMENT_LINE")
+        fi
+
+        # kubectl patch requires the data to be a JSON string.
+        # MODIFIED: Corrected awk and final sed patterns for JSON escaping
+        JSON_ESCAPED_NEW_PROPERTIES_CONTENT=$(echo "$NEW_PROPERTIES_CONTENT" | awk '{printf "%s\\n", $0}' | sed 's/"/\\\\"/g' | sed '$s/\\n$//')
+        
+        PATCH_STRING="{\"data\": {\"${CONFIG_KEY_PROPERTIES}\": \"${JSON_ESCAPED_NEW_PROPERTIES_CONTENT}\"}}"
+
+        echo "[VoterUpdater-${SCRIPT_VERSION}] Applying patch to ConfigMap ${CONFIGMAP_NAME}..."
+        if kubectl patch configmap "${CONFIGMAP_NAME}" -n "${NAMESPACE}" --type merge -p "$PATCH_STRING"; then
+          echo "[VoterUpdater-${SCRIPT_VERSION}] ConfigMap ${CONFIGMAP_NAME} updated successfully with new voter list."
+          echo "[VoterUpdater-${SCRIPT_VERSION}] IMPORTANT: A rolling restart of StatefulSet '${STATEFULSET_NAME}' is likely required for changes to be effective on brokers."
+        else
+          echo "[VoterUpdater-${SCRIPT_VERSION}] Error: Failed to patch ConfigMap ${CONFIGMAP_NAME}."
+        fi
+      else
+        echo "[VoterUpdater-${SCRIPT_VERSION}] 'controller.quorum.voters' is already up to date."
+      fi
+      echo "[VoterUpdater-${SCRIPT_VERSION}] Sleeping for 60 seconds..."
+      sleep 60
+    done

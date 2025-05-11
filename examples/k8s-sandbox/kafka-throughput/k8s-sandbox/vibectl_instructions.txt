@@ -8,7 +8,7 @@ You have no direct visibility into, or control over, producer and consumer workl
 All relevant resources are in the 'kafka' namespace.
 
 Key metrics are regularly dumped into the 'kafka-latency-metrics' ConfigMap:
-- target_latency_ms: configured target latency threshold (initially ${TARGET_LATENCY_MS:-10.0}ms)
+- target_latency_ms: configured target latency threshold (initially ${TARGET_LATENCY_MS:MISSING}ms)
 - actual_latency_ms: average end-to-end latency on a diagnostic topic
 - producer_target_rate: target message rate of the producer (msg/s)
 - producer_actual_rate: actual message rate of the producer (msg/s)
@@ -19,22 +19,20 @@ Example command to view these metrics:
 kubectl get configmap kafka-latency-metrics -n kafka -o jsonpath='{.data}'
 ```
 
-A gap between producer's target rate and actual rate indicates a Kafka cluster
-that is not handling its throughput.
-
 You are operating in a resource-constrained Kubernetes sandbox (k3d).
 The entire sandbox is limited to approximately:
-- ${K8S_SANDBOX_CPU_LIMIT:-4.0} CPUs
-- ${K8S_SANDBOX_MEM_LIMIT:-4G} Memory
+- ${K8S_SANDBOX_CPU_LIMIT:MISSING} CPUs
+- ${K8S_SANDBOX_MEM_LIMIT:MISSING} Memory
 
-You might try horizontal scaling, with these limits in mind.
+You might try horizontal scaling, with these limits in mind. There's some automation in place
+to adjust the `kafka-controller-config` ConfigMap on a scale operation, but you will probably
+need to trigger this with `kubectl rollout restart statefulset/kafka-controller -n kafka` or
+similar.
 
 Some targets for tuning include (but are not limited to!) env variables on
 the 'kafka-controller' StatefulSet:
 - KAFKA_HEAP_OPTS (-Xms<size>m -Xmx<size>m)
 - KAFKA_NUM_NETWORK_THREADS
 - KAFKA_NUM_IO_THREADS
-
-Some changes may require restarting the broker to take effect.
 
 Clearly indicate your next step in your memory.

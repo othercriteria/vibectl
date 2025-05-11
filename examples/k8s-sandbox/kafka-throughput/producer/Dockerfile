@@ -1,18 +1,29 @@
-FROM python:3.11-slim
+FROM golang:1.24.3-bookworm AS builder
 
 WORKDIR /app
 
-# Install build dependencies, then Python packages, then remove build dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc python3-dev && \
-    pip install --no-cache-dir kafka-python && \
-    apt-get purge -y --auto-remove gcc python3-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Copy go mod and sum files
+COPY go.mod go.sum ./
 
-COPY producer.py .
+# Download dependencies
+RUN go mod download
 
-# Create a non-root user and switch to it
-RUN useradd --create-home appuser
-USER appuser
+# Copy source code
+COPY producer.go ./
 
-ENTRYPOINT ["python", "-u", "producer.py"]
+# Get dependencies and build the application
+RUN go get ./... && \
+    CGO_ENABLED=0 GOOS=linux go build -o producer .
+
+# Use a smaller image for the final container
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install procps for pgrep (used in healthcheck)
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from builder
+COPY --from=builder /app/producer .
+
+CMD ["./producer"]

@@ -47,11 +47,24 @@ up: ## Start services via run.sh (handles GID, API key, Cluster ID, build, up, w
 	@echo "🚀 Launching demo via ./run.sh..."
 	./run.sh
 
-# Stop and remove everything
+# Stop services but keep k3d cluster
 .PHONY: down
-down: ## Stop and remove containers, networks, volumes
-	@echo "🧹 Cleaning up Kafka Demo resources..."
-	$(COMPOSE_CMD) -f compose.yml down --volumes --remove-orphans --timeout 30 2>/dev/null || true
+down: ## Stop services but keep k3d cluster (use clean-cluster to remove everything)
+	@echo "🛑 Stopping demo services (keeping k3d cluster)..."
+	$(COMPOSE_CMD) -f compose.yml down --remove-orphans --timeout 30 2>/dev/null || true
+
+# Full cleanup (using Docker commands) for k3d cluster (no k3d binary assumed)
+.PHONY: docker-clean-k3d
+docker-clean-k3d: ## Remove (force) all k3d containers, networks, and volumes (using Docker commands)
+	@echo "🧹 (Docker) Cleaning up k3d cluster (containers, networks, volumes) ..."
+	@docker ps -a --filter "name=k3d-" -q | xargs --no-run-if-empty docker rm -f
+	@docker network ls --filter "name=k3d-" -q | xargs --no-run-if-empty docker network rm
+	@docker volume ls --filter "name=k3d-" -q | xargs --no-run-if-empty docker volume rm
+
+# Full cleanup (stop services and remove k3d cluster via Docker)
+.PHONY: clean-cluster
+clean-cluster: down docker-clean-k3d ## Stop services and remove k3d cluster (using Docker commands)
+	@echo "✅ Demo services stopped and k3d cluster (containers, networks, volumes) removed."
 
 # Show status
 .PHONY: ps

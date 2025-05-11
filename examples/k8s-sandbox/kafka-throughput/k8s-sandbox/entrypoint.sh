@@ -1,13 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "Testing Docker socket connection..."
-if ! docker ps > /dev/null 2>&1; then
-  echo "Error: Cannot access Docker socket. Check that the volume mount and group permissions are correct." >&2
-  exit 1
-fi
-echo "Docker socket connection successful."
-
 echo "🚀 Starting Kafka Demo Sandbox Entrypoint..."
 
 # Environment variables from compose.yml
@@ -22,219 +15,150 @@ export KAFKA_PORT=9092
 export KAFKA_STATEFULSET="kafka-controller"
 export KAFKA_REPLICAS=1 # Assuming 1 replica for KRaft initially
 export KAFKA_CLUSTER_ID_CM="kafka-cluster-id" # Define the ConfigMap name
-export TARGET_LATENCY_MS="10.0" # Assuming a default value
 
 # Status files
 mkdir -p "${STATUS_DIR}"
 PHASE1_COMPLETE="${STATUS_DIR}/phase1_k8s_kafka_setup_complete"
 PHASE2_COMPLETE="${STATUS_DIR}/phase2_vibectl_setup_complete"
 KAFKA_READY_FILE="${STATUS_DIR}/kafka_ready"
-LATENCY_FILE="${STATUS_DIR}/latency.txt"
 SHUTDOWN_FILE="${STATUS_DIR}/shutdown"
-
-# --- Cleanup Function and Trap ---
-function cleanup_k3d_cluster_on_exit() {
-    echo "🚪 EXIT TRAP: Cleaning up k3d cluster '${K3D_CLUSTER_NAME:-unknown_cluster}'..."
-    if [ -n "${K3D_CLUSTER_NAME:-}" ]; then
-        if command -v k3d &> /dev/null; then
-            echo "Attempting to delete k3d cluster '${K3D_CLUSTER_NAME}'..."
-            # Give k3d a timeout to avoid hanging the exit trap indefinitely
-            # Using a subshell with timeout for the k3d command
-            ( timeout 30s k3d cluster delete "${K3D_CLUSTER_NAME}" ) || \
-                echo "⚠️ Warning: 'k3d cluster delete ${K3D_CLUSTER_NAME}' failed, timed out, or cluster was already gone. Continuing shutdown." >&2
-            
-            # Additional forceful cleanup of related Docker resources if k3d failed or missed something
-            # This is a best-effort and might be redundant if k3d delete is successful.
-            echo "Performing best-effort Docker resource cleanup for '${K3D_CLUSTER_NAME}'..."
-            K3D_CONTAINER_PATTERN="k3d-${K3D_CLUSTER_NAME}-"
-            if docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | grep -q .; then
-                docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker stop -t 5 || echo "⚠️ Warning: Failed to stop one or more k3d containers for ${K3D_CLUSTER_NAME}." >&2
-                docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker rm -f || echo "⚠️ Warning: Failed to remove one or more k3d containers for ${K3D_CLUSTER_NAME}." >&2
-            fi
-            # Attempt to remove the network if it exists and is empty
-            if docker network inspect "k3d-${K3D_CLUSTER_NAME}" >/dev/null 2>&1; then
-                # Check if network has active endpoints (should be none if containers are gone)
-                if ! docker network inspect "k3d-${K3D_CLUSTER_NAME}" | jq -e '.[0].Containers | length == 0'; then
-                     echo "⚠️ Warning: Network 'k3d-${K3D_CLUSTER_NAME}' still has active endpoints. Skipping direct removal." >&2
-                else
-                    docker network rm "k3d-${K3D_CLUSTER_NAME}" || echo "⚠️ Warning: Failed to remove network 'k3d-${K3D_CLUSTER_NAME}'. It might be in use or already gone." >&2
-                fi
-            fi
-        else
-            echo "⚠️ Warning: k3d command not found in EXIT TRAP. Cannot delete cluster." >&2
-        fi
-    else
-        echo "⚠️ Warning: K3D_CLUSTER_NAME not set in EXIT TRAP. Cannot determine which cluster to delete." >&2
-    fi
-    echo "🚪 EXIT TRAP: Cleanup attempt finished."
-}
-trap cleanup_k3d_cluster_on_exit EXIT SIGINT SIGTERM
 
 # --- Functions ---
 
-# Reusable function from Bootstrap demo
 function setup_k3d_cluster() {
-    echo "🔧 Checking for existing K3d cluster '${K3D_CLUSTER_NAME}'..."
-    if k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
-        echo "🗑️ Found existing cluster '${K3D_CLUSTER_NAME}'. Attempting to delete it forcefully..."
-
-        # 1. Try k3d delete
-        if ! k3d cluster delete "${K3D_CLUSTER_NAME}"; then
-            echo "⚠️ Warning: 'k3d cluster delete' command failed or reported issues. Proceeding with manual cleanup." >&2
-        else
-            echo "✅ 'k3d cluster delete' command initiated for '${K3D_CLUSTER_NAME}'."
-        fi
-
-        # Give things a moment
-        echo "⏳ Waiting 2 seconds after k3d delete attempt..."
-        sleep 2
-
-        # 2. Manual container stop/remove
-        K3D_CONTAINER_PATTERN="k3d-${K3D_CLUSTER_NAME}-"
-        echo "🧹 Forcefully stopping/removing any remaining Docker containers matching '${K3D_CONTAINER_PATTERN}'..."
-        if docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | grep -q .; then
-            docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker stop -t 2 || echo "⚠️ Warning: Failed to stop one or more containers gracefully. Attempting force remove..." >&2
-            sleep 2 # Brief pause after stop attempt
-            docker ps -a --filter "name=${K3D_CONTAINER_PATTERN}" -q | xargs --no-run-if-empty docker rm -f || echo "⚠️ Warning: Failed to forcefully remove one or more containers." >&2
-        else
-            echo "No containers found matching '${K3D_CONTAINER_PATTERN}'."
-        fi
-
-        # Step 3 (was 4): Wait and verify cluster is gone from k3d list
-        echo "⏳ Verifying cluster removal via 'k3d cluster list' (waiting up to 30 seconds)..."
-        ATTEMPTS=0
-        MAX_ATTEMPTS=10 # 10 attempts * 2 seconds = 20 seconds
-        CLUSTER_GONE=false
-        while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-            if ! k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
-                CLUSTER_GONE=true
-                break
-            fi
-            echo "    Cluster still listed, waiting 2 more seconds... (${ATTEMPTS}/${MAX_ATTEMPTS})"
-            sleep 2
-            ATTEMPTS=$((ATTEMPTS + 1))
-        done
-
-        if [ "$CLUSTER_GONE" = true ]; then
-            echo "✅ Cluster '${K3D_CLUSTER_NAME}' successfully removed according to 'k3d cluster list'."
-        else
-            echo "❌ Error: Cluster '${K3D_CLUSTER_NAME}' still exists according to 'k3d cluster list' after deletion attempts and timeout. Manual intervention required." >&2
-            k3d cluster list >&2 # Show what k3d sees
+    echo "🔧 Setting up K3d cluster '${K3D_CLUSTER_NAME}'..."
+    
+    # Check if cluster exists
+    if ! k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
+        echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}' on network 'kafka-throughput_kafka-demo-network'..."
+        # Add memory reservation arguments and specify the Docker network
+        K3D_CREATE_LOG="/tmp/k3d_create.log"
+        echo "Attempting: k3d cluster create \"${K3D_CLUSTER_NAME}\" \
+             --network kafka-throughput_kafka-demo-network \
+             --k3s-arg '--kubelet-arg=kube-reserved=memory=1Gi@server:*' \
+             --k3s-arg '--kubelet-arg=system-reserved=memory=1Gi@server:*'"
+        if ! k3d cluster create "${K3D_CLUSTER_NAME}" \
+             --network kafka-throughput_kafka-demo-network \
+             --k3s-arg '--kubelet-arg=kube-reserved=memory=1Gi@server:*' \
+             --k3s-arg '--kubelet-arg=system-reserved=memory=1Gi@server:*' > "${K3D_CREATE_LOG}" 2>&1; then
+            echo "❌ Error: Failed to create K3d cluster '${K3D_CLUSTER_NAME}' on the specified network with memory limits." >&2
+            echo "--- k3d cluster create log (${K3D_CREATE_LOG}) ---" >&2
+            cat "${K3D_CREATE_LOG}" >&2
+            echo "--------------------------------------------------" >&2
             exit 1
         fi
-
-    fi # End of if cluster existed
-
-    # Step 4 (was 5): Create cluster
-    echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}'..."
-    # Note: No --network flag here anymore based on previous findings
-    if ! k3d cluster create "${K3D_CLUSTER_NAME}"; then
-        echo "❌ Error: Failed to create K3d cluster '${K3D_CLUSTER_NAME}'." >&2
-        k3d cluster list >&2
-        exit 1
+        echo "--- k3d cluster create log (${K3D_CREATE_LOG}) ---"
+        cat "${K3D_CREATE_LOG}"
+        echo "--------------------------------------------------"
+        # Important: Get kubeconfig *after* cluster is created and on the network
+        k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
+        echo "✅ K3d cluster '${K3D_CLUSTER_NAME}' created and context set."
+    else
+        echo "✅ Using existing cluster '${K3D_CLUSTER_NAME}'"
+        k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
+        
+        # Clean up the kafka namespace if it exists
+        echo "🧹 Cleaning up kafka namespace..."
+        if kubectl get namespace "${KAFKA_NAMESPACE}" &>/dev/null; then
+            kubectl delete namespace "${KAFKA_NAMESPACE}" --wait=false
+            echo "⏳ Waiting for namespace cleanup..."
+            # Wait for namespace to be gone or timeout
+            for i in {1..30}; do
+                if ! kubectl get namespace "${KAFKA_NAMESPACE}" &>/dev/null; then
+                    echo "✅ Namespace cleanup complete"
+                    break
+                fi
+                if [ $i -eq 30 ]; then
+                    echo "⚠️ Warning: Namespace cleanup timed out, but continuing anyway"
+                fi
+                sleep 1
+            done
+        fi
     fi
-    echo "✅ K3d cluster '${K3D_CLUSTER_NAME}' created successfully!"
-    # Ensure kubectl context is set correctly after create
-    k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
-    echo "✅ Switched kubectl context to '${K3D_CLUSTER_NAME}'."
 }
 
-# Reusable function from Bootstrap demo (adapted path)
 function patch_kubeconfig() {
     echo "🔧 Patching kubeconfig..."
     mkdir -p /home/sandbox/.kube
-    echo "Using kubeconfig at: ${KUBECONFIG}"
-    k3d kubeconfig get "${K3D_CLUSTER_NAME}" > "${KUBECONFIG}.orig" # Save original
+    
+    # Get original kubeconfig from k3d (after it has been placed on the correct network)
+    k3d kubeconfig get "${K3D_CLUSTER_NAME}" > "${KUBECONFIG}.orig"
 
-    CURRENT_SERVER_URL=$(grep 'server:' "${KUBECONFIG}.orig" | awk '{print $2}')
-    echo "Original server URL from k3d: ${CURRENT_SERVER_URL}"
+    echo "--- Original Kubeconfig from k3d (${KUBECONFIG}.orig) ---"
+    cat "${KUBECONFIG}.orig"
+    echo "------------------------------------------------------"
 
-    if [[ -z "$CURRENT_SERVER_URL" ]]; then
-        echo "❌ Error: Could not extract server URL from k3d kubeconfig." >&2; cat "${KUBECONFIG}.orig" >&2; exit 1
-    fi
+    # The k3d server/loadbalancer internal hostname. k3d typically names it k3d-<clustername>-serverlb
+    # The k3s API typically runs on port 6443 inside the cluster/network.
+    local K3D_INTERNAL_LB_HOST="k3d-${K3D_CLUSTER_NAME}-serverlb"
+    local K3D_INTERNAL_API_PORT="6443"
 
-    EXTRACTED_PORT=$(echo "$CURRENT_SERVER_URL" | sed -E 's#^https://(0\.0\.0\.0|127\.0\.0\.1):##')
-    if [[ -z "$EXTRACTED_PORT" ]] || [[ "$EXTRACTED_PORT" == "$CURRENT_SERVER_URL" ]]; then
-        echo "❌ Error: Could not extract port from server URL: ${CURRENT_SERVER_URL}." >&2; exit 1
-    fi
-    echo "Extracted host port: ${EXTRACTED_PORT}"
-
-    # Attempt to get the gateway IP (host IP on the container's network)
-    GATEWAY_IP=$(ip route | awk '/default via/ {print $3}' | head -n 1) # head -n 1 in case of multiple default routes
-    if [[ -z "$GATEWAY_IP" ]]; then
-        echo "⚠️ Warning: Could not determine gateway IP. Falling back to host.docker.internal." >&2
-        # If gateway IP fails, host.docker.internal is already configured by extra_hosts as a fallback.
-        # So we can proceed with host.docker.internal which might work in some environments
-        # or if the direct gateway IP method has issues.
-        NEW_HOST_IP="host.docker.internal"
-    else
-        echo "Found gateway IP: ${GATEWAY_IP}"
-        NEW_HOST_IP="${GATEWAY_IP}"
-    fi
-
-    NEW_SERVER_URL="https://${NEW_HOST_IP}:${EXTRACTED_PORT}"
-    echo "Attempting to patch kubeconfig to use server: ${NEW_SERVER_URL}"
-
+    # The SERVER_URL from the original kubeconfig might be https://0.0.0.0:<mapped_port> or already an internal name.
+    # We will explicitly set it to use the k3d load balancer's internal Docker DNS name and standard K8s API port.
+    NEW_SERVER_URL="https://${K3D_INTERNAL_LB_HOST}:${K3D_INTERNAL_API_PORT}"
+    echo "Patching kubeconfig to use server: ${NEW_SERVER_URL} and skip TLS verify"
+    
+    # Create a new kubeconfig with the patched server URL and insecure-skip-tls-verify
     awk -v new_url="${NEW_SERVER_URL}" \
-        '{ if ($1 == "server:") { print "    server: " new_url } else { print } }' \
-        "${KUBECONFIG}.orig" > "${KUBECONFIG}.tmp"
-    awk '/server: /{print; print "    insecure-skip-tls-verify: true"; next} !/certificate-authority-data/' \
-        "${KUBECONFIG}.tmp" > "${KUBECONFIG}"
-    rm "${KUBECONFIG}.tmp" "${KUBECONFIG}.orig"
-
+        '/server:/ { 
+            print "    server: " new_url;
+            print "    insecure-skip-tls-verify: true"; # Add/ensure skip TLS
+            next;
+        }
+        /certificate-authority-data:/ { next; } # Remove CA data as we are skipping verification
+        /insecure-skip-tls-verify:/ { next; } # Remove old insecure-skip-tls-verify if present
+        { print; }
+    ' "${KUBECONFIG}.orig" > "${KUBECONFIG}"
+    
+    if ! kubectl --kubeconfig "${KUBECONFIG}" config view &>/dev/null; then
+        echo "❌ Error: Generated kubeconfig is invalid" >&2
+        echo "Generated kubeconfig contents:" >&2
+        cat "${KUBECONFIG}" >&2
+        exit 1
+    fi
+    
+    rm "${KUBECONFIG}.orig"
     chmod 600 "${KUBECONFIG}"
     chown sandbox:sandbox "${KUBECONFIG}"
-    echo "✅ Kubeconfig patched to use ${NEW_SERVER_URL}."
-    echo "Final Kubeconfig server line:"; grep 'server:' "${KUBECONFIG}" || true
-
-    wait_for_k8s_ready
-
-    # Copy the patched kubeconfig to the shared status volume for other services
-    echo "📋 Copying patched kubeconfig to ${STATUS_DIR}/k3d_kubeconfig for other services..."
-    if [ -f "${KUBECONFIG}" ]; then
-        cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
-        chmod 644 "${STATUS_DIR}/k3d_kubeconfig" # Ensure it's readable
-        echo "✅ Kubeconfig copied."
-    else
-        echo "❌ Error: Patched kubeconfig ${KUBECONFIG} not found after setup." >&2
-        # Decide if this is fatal or just a warning
-        # exit 1 # Uncomment if this should be fatal
-    fi
-
-    deploy_kafka
-    wait_for_kafka_ready
+    
+    echo "✅ Kubeconfig patched successfully"
+    
+    # Copy to shared volume
+    cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
+    chmod 644 "${STATUS_DIR}/k3d_kubeconfig"
 }
 
-# Reusable function from Bootstrap demo
 function wait_for_k8s_ready() {
-    echo "⏳ Waiting for Kubernetes cluster to be ready (using ${KUBECONFIG})..."
-    for i in {1..60}; do # Increased timeout slightly
-        # Capture stderr to see potential errors
-        KCTL_OUTPUT=$(kubectl --kubeconfig "${KUBECONFIG}" cluster-info 2>&1)
-        KCTL_EXIT_CODE=$?
+    echo "⏳ Waiting for Kubernetes cluster to be ready..."
+    # Define K3D_INTERNAL_API_PORT here or ensure it's globally available if set in patch_kubeconfig
+    local K3D_INTERNAL_API_PORT="6443" # Standard K8s API port
 
-        if [ $KCTL_EXIT_CODE -eq 0 ]; then
-            echo "✅ Kubernetes cluster is ready!"
-            kubectl --kubeconfig "${KUBECONFIG}" get nodes # Show nodes
+    for i in {1..30}; do
+        echo "DEBUG: Attempting: kubectl --kubeconfig ${KUBECONFIG} cluster-info (Attempt ${i}/30)"
+        # Remove &>/dev/null to see kubectl's output/error
+        if kubectl --kubeconfig "${KUBECONFIG}" cluster-info; then
+            echo "✅ Kubernetes cluster is ready! (kubectl cluster-info succeeded)"
             return 0
+        else
+            echo "DEBUG: kubectl cluster-info failed. Last exit code: $?"
+            # Use the defined K3D_INTERNAL_API_PORT for the curl command
+            echo "DEBUG: Trying curl to https://k3d-${K3D_CLUSTER_NAME}-serverlb:${K3D_INTERNAL_API_PORT}/version for more details..."
+            if curl -kv "https://k3d-${K3D_CLUSTER_NAME}-serverlb:${K3D_INTERNAL_API_PORT}/version"; then
+                echo "DEBUG: curl to https://k3d-${K3D_CLUSTER_NAME}-serverlb:${K3D_INTERNAL_API_PORT}/version succeeded. API seems partially responsive."
+                # Even if curl works, we wait for kubectl cluster-info to be sure.
+            else
+                echo "DEBUG: curl to https://k3d-${K3D_CLUSTER_NAME}-serverlb:${K3D_INTERNAL_API_PORT}/version also failed. Last exit code: $?"
+            fi
         fi
-
-        # If failed, print the error output before retrying
-        echo "Waiting for Kubernetes API... (${i}/60) Exit code: ${KCTL_EXIT_CODE}"
-        echo "kubectl cluster-info output:"
-        echo "${KCTL_OUTPUT}" # Print captured output
-        echo "---"
-
-        if [ $i -eq 60 ]; then
-            echo "❌ Error: Kubernetes cluster did not become ready within the timeout period."
-            k3d cluster list # Show k3d's view
-            # Try getting nodes again with error output
-            echo "Final attempt to get nodes:"
-            kubectl --kubeconfig "${KUBECONFIG}" get nodes
-            exit 1
-        fi
+        echo "Waiting for Kubernetes API... (Attempt ${i}/30 failed, sleeping 2s)"
         sleep 2
     done
+    echo "❌ Error: Kubernetes cluster did not become ready within timeout." >&2
+    kubectl --kubeconfig "${KUBECONFIG}" cluster-info # Try one last time and show output
+    echo "--- Kubeconfig contents (${KUBECONFIG}) ---" >&2
+    cat "${KUBECONFIG}" >&2
+    echo "-----------------------------------------" >&2
+    exit 1
 }
 
 function ensure_kafka_cluster_id_cm() {
@@ -520,15 +444,9 @@ else
     patch_kubeconfig
     wait_for_k8s_ready
 
-    # Copy the patched kubeconfig to the shared status volume for other services
-    echo "📋 Copying patched kubeconfig to ${STATUS_DIR}/k3d_kubeconfig for other services..."
-    if [ -f "${KUBECONFIG}" ]; then
-        cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
-        chmod 644 "${STATUS_DIR}/k3d_kubeconfig" # Ensure it's readable
-        echo "✅ Kubeconfig copied."
-    else
-        echo "❌ Error: Patched kubeconfig ${KUBECONFIG} not found after setup." >&2
-    fi
+    # Create fresh kafka namespace
+    echo "🔧 Creating kafka namespace..."
+    kubectl create namespace "${KAFKA_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
     deploy_kafka
     wait_for_kafka_ready

@@ -12,7 +12,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
-  resourceNames: ["kafka-latency-metrics"] # Only allow access to this specific CM
+  resourceNames: ["kafka-latency-metrics"]
   verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
