@@ -8,39 +8,127 @@ from vibectl.command_handler import (
     _create_display_command,
     _execute_command,
     _handle_fuzzy_memory_update,
+    _quote_args,
 )
 from vibectl.types import Success
 
 
 def test_create_display_command_basic() -> None:
     """Test _create_display_command with basic arguments."""
-    args = ["get", "pods", "-n", "default"]
-    result = _create_display_command(args)
-    assert result == "get pods -n default"
+    verb = "get"
+    args = ["pods", "-n", "default"]
+    has_yaml = False
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == "kubectl get pods -n default"
 
 
 def test_create_display_command_with_spaces() -> None:
     """Test _create_display_command with arguments containing spaces."""
-    args = ["get", "pods", "-l", "app=my app"]
-    result = _create_display_command(args)
-    assert result == 'get pods -l "app=my app"'
+    verb = "get"
+    args = ["pods", "-l", "app=my app"]
+    has_yaml = False
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == 'kubectl get pods -l "app=my app"'
 
 
 def test_create_display_command_with_specials() -> None:
     """Test _create_display_command with special characters."""
-    args = ["exec", "pod-name", "--", "bash", "-c", "echo <hello> | grep hello"]
-    result = _create_display_command(args)
-    # Expecting quoting around the command part
-    assert result == 'exec pod-name -- bash -c "echo <hello> | grep hello"'
+    verb = "exec"
+    args = ["pod-name", "--", "bash", "-c", "echo <hello> | grep hello"]
+    has_yaml = False
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == 'kubectl exec pod-name -- bash -c "echo <hello> | grep hello"'
 
 
 def test_create_display_command_with_yaml() -> None:
-    """Test _create_display_command with args indicating YAML input."""
-    yaml_content = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod"
-    args = ["apply", "-f", "-", yaml_content]
-    result = _create_display_command(args)
-    # Should show simplified version for YAML
-    assert result == "apply -f - (with YAML content)"
+    """Test _create_display_command indicating YAML input is present."""
+    # Note: The actual YAML content is handled separately by the caller.
+    # This test only checks if the display string indicates YAML presence.
+    verb = "apply"
+    args = ["-f", "-"]
+    has_yaml = True
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == "kubectl apply -f - (with YAML content)"
+
+
+def test_create_display_command_with_none_yaml() -> None:
+    """Test _create_display_command when YAML is None (has_yaml=False)."""
+    verb = "apply"
+    args = ["-f", "-"]
+    has_yaml = False
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == "kubectl apply -f -"
+
+
+def test_create_display_command_with_empty_yaml() -> None:
+    """Test _create_display_command when YAML is empty (has_yaml=False)."""
+    verb = "apply"
+    args = ["-f", "-"]
+    has_yaml = False
+    result = _create_display_command(verb, args, has_yaml)
+    assert result == "kubectl apply -f -"
+
+
+def test_quote_args_no_quotes_needed() -> None:
+    """Test _quote_args when no arguments need quoting."""
+    args = ["get", "pods", "-n", "default"]
+    result = _quote_args(args)
+    assert result == ["get", "pods", "-n", "default"]
+
+
+def test_quote_args_with_spaces() -> None:
+    """Test _quote_args with arguments containing spaces."""
+    args = ["get", "pods", "-l", "app=my app"]
+    result = _quote_args(args)
+    assert result == ["get", "pods", "-l", '"app=my app"']
+
+
+def test_quote_args_with_specials() -> None:
+    """Test _quote_args with arguments containing special characters."""
+    args = ["exec", "pod-name", "--", "bash", "-c", "echo <hello> | grep hello"]
+    result = _quote_args(args)
+    expected = [
+        "exec",
+        "pod-name",
+        "--",
+        "bash",
+        "-c",
+        '"echo <hello> | grep hello"',
+    ]
+    assert result == expected
+
+
+def test_quote_args_mixed() -> None:
+    """Test _quote_args with a mix of arguments needing quotes or not."""
+    args: list[str] = [
+        "exec",
+        "-it",
+        "pod-name",
+        "--",
+        "echo",
+        "hello world",
+        ">",
+        "/tmp/test",
+    ]
+    result = _quote_args(args)
+    expected = [
+        "exec",
+        "-it",
+        "pod-name",
+        "--",
+        "echo",
+        '"hello world"',
+        '">"',
+        "/tmp/test",
+    ]
+    assert result == expected
+
+
+def test_quote_args_empty() -> None:
+    """Test _quote_args with an empty list."""
+    args: list[str] = []
+    result = _quote_args(args)
+    assert result == []
 
 
 def test_needs_confirmation_dangerous() -> None:

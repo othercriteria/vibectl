@@ -832,9 +832,14 @@ async def _confirm_and_execute_plan(
     summary_prompt_func: Callable[[], str],
 ) -> Result:
     """Confirm and execute the kubectl command plan."""
-    full_command_parts = ["kubectl", kubectl_verb, *kubectl_args]
-    display_cmd = " ".join(filter(None, full_command_parts))
-    cmd_for_display = " ".join(filter(None, kubectl_args))
+    # Determine if YAML content is present for display formatting
+    has_yaml_content = yaml_content is not None and yaml_content.strip() != ""
+
+    # Create the display command using the helper function
+    display_cmd = _create_display_command(kubectl_verb, kubectl_args, has_yaml_content)
+
+    # Keep the logic for cmd_for_display as it was, focusing on args
+    cmd_for_display = " ".join(_quote_args(kubectl_args))
 
     needs_conf = _needs_confirmation(kubectl_verb, semiauto)
     logger.debug(
@@ -1096,52 +1101,36 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         return Error(error=f"Error updating memory: {e}", exception=e)
 
 
-def _create_display_command(args: list[str]) -> str:
+def _quote_args(args: list[str]) -> list[str]:
+    """Quote arguments containing spaces or special characters."""
+    quoted_args = []
+    for arg in args:
+        if " " in arg or "<" in arg or ">" in arg or "|" in arg:
+            quoted_args.append(f'"{arg}"')  # Quote complex args
+        else:
+            quoted_args.append(arg)
+    return quoted_args
+
+
+def _create_display_command(verb: str, args: list[str], has_yaml: bool) -> str:
     """Create a display-friendly command string.
 
     Args:
-        args: List of command arguments
+        verb: The kubectl command verb.
+        args: List of command arguments.
+        has_yaml: Whether YAML content is being provided separately.
 
     Returns:
-        Display-friendly command string
+        Display-friendly command string.
     """
-    # Check if YAML content is likely present in the arguments
-    # (e.g., 'apply -f -' followed by a string starting with 'apiVersion:')
-    has_yaml = False
-    processed_args = []
-    skip_next = False
-    for i, arg in enumerate(args):
-        if skip_next:
-            skip_next = False
-            continue
+    # Quote arguments appropriately
+    display_args = _quote_args(args)
+    base_cmd = f"kubectl {verb} {' '.join(display_args)}"
 
-        if arg == "-f" and i + 1 < len(args) and args[i + 1] == "-":
-            if i + 2 < len(args) and args[i + 2].strip().startswith(
-                ("apiVersion:", "kind:")
-            ):
-                has_yaml = True
-                processed_args.extend(["-f", "-"])  # Keep -f -
-                skip_next = True  # Skip the actual YAML content in the next iteration
-                break  # Assume YAML is the last part for display purposes
-            else:
-                processed_args.append(arg)  # Keep -f if not followed by -
-        else:
-            processed_args.append(arg)
-
-    # Reconstruct the command for display
     if has_yaml:
-        # For commands with YAML, show a simplified version
-        cmd_prefix = " ".join(processed_args)
-        return f"{cmd_prefix} (with YAML content)"
+        return f"{base_cmd} (with YAML content)"
     else:
-        # For standard commands, quote arguments with spaces/chars
-        display_args = []
-        for arg in args:
-            if " " in arg or "<" in arg or ">" in arg or "|" in arg:
-                display_args.append(f'"{arg}"')  # Quote complex args
-            else:
-                display_args.append(arg)
-        return " ".join(display_args)
+        return base_cmd
 
 
 def _needs_confirmation(verb: str, semiauto: bool) -> bool:
