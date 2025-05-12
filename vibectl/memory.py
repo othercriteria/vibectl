@@ -11,7 +11,7 @@ from typing import cast
 from .config import Config
 from .model_adapter import get_model_adapter
 from .prompt import memory_update_prompt
-from .types import RecoverableApiError
+from .types import LLMMetrics, RecoverableApiError
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def update_memory(
     vibe_output: str,
     model_name: str = "claude-3.7-sonnet",
     config: Config | None = None,
-) -> None:
+) -> LLMMetrics | None:
     """Update memory with new command execution context.
 
     This function takes a command, its output, and the AI's interpretation
@@ -111,9 +111,12 @@ def update_memory(
         vibe_output: The AI's interpretation of the command output
         model_name: Model name to use for memory update
         config: Optional Config instance to use
+
+    Returns:
+        LLMMetrics object if memory was updated via LLM, None otherwise.
     """
     if not is_memory_enabled(config):
-        return
+        return None
 
     cfg = config or Config()
 
@@ -123,15 +126,19 @@ def update_memory(
         model = model_adapter.get_model(model_name)
         prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
         # Use the wrapper function to execute and handle metrics logging
-        updated_memory_text, _ = model_adapter.execute_and_log_metrics(model, prompt)
+        updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
+            model, prompt
+        )
         set_memory(updated_memory_text, cfg)
-    except (RecoverableApiError, ValueError):
+        return metrics  # Return the metrics from the LLM call
+    except (RecoverableApiError, ValueError) as e:
         # For now, just ignore errors updating memory to avoid disrupting flow
-        pass
+        logger.warning(f"Ignoring memory update error: {e}")
+        return None
     except Exception:
         # Log unexpected errors if logger is available
-        # logger.exception("Unexpected error updating memory")
-        pass  # Ignore unexpected errors too for now
+        logger.exception("Unexpected error updating memory")
+        return None  # Ignore unexpected errors too for now
 
 
 def include_memory_in_prompt(

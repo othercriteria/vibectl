@@ -34,7 +34,7 @@ from .live_display import (
 from .live_display_watch import _execute_watch_with_live_display
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
-from .model_adapter import LLMMetrics, RecoverableApiError, get_model_adapter
+from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
     memory_fuzzy_update_prompt,
@@ -43,6 +43,7 @@ from .prompt import (
 from .schema import ActionType, LLMCommandResponse
 from .types import (
     Error,
+    LLMMetrics,
     OutputFlags,
     Result,
     Success,
@@ -342,12 +343,21 @@ def handle_command_output(
                     # failure message)
                     # Wrap memory update in try-except as it's non-critical path
                     try:
-                        update_memory(
+                        memory_update_metrics = update_memory(
                             command=command or "Unknown",
                             command_output=original_error_object.error,
                             vibe_output=vibe_output_text,
                             model_name=output_flags.model_name,
                         )
+                        if memory_update_metrics and output_flags.show_vibe:
+                            console_manager.print_metrics(
+                                latency_ms=memory_update_metrics.latency_ms,
+                                tokens_in=memory_update_metrics.token_input,
+                                tokens_out=memory_update_metrics.token_output,
+                                cache_hit=memory_update_metrics.cache_hit,
+                                source="LLM Memory Update (Recovery)",
+                            )
+
                     except Exception as mem_err:
                         logger.error(
                             f"Failed to update memory during error recovery: {mem_err}"
@@ -550,12 +560,21 @@ def _process_vibe_output(
         _display_vibe_output(vibe_output_text)  # Display only the text
 
         # Update memory only if Vibe summary succeeded
-        update_memory(
+        memory_update_metrics = update_memory(
             command=command or "Unknown",
             command_output=output,  # Store original full output in memory
             vibe_output=vibe_output_text,  # Store summary text
             model_name=output_flags.model_name,
         )
+        if memory_update_metrics and output_flags.show_vibe:
+            console_manager.print_metrics(
+                latency_ms=memory_update_metrics.latency_ms,
+                tokens_in=memory_update_metrics.token_input,
+                tokens_out=memory_update_metrics.token_output,
+                cache_hit=memory_update_metrics.cache_hit,
+                source="LLM Memory Update (Summary)",
+            )
+
         # Return Success with the summary text and its metrics
         return Success(message=vibe_output_text, metrics=summary_metrics)
     except RecoverableApiError as api_err:
@@ -887,14 +906,24 @@ async def _confirm_and_execute_plan(
     vibe_output_str = explanation or f"Executed: {display_cmd}"
 
     # Update memory
+    memory_update_metrics: LLMMetrics | None = None
     try:
-        update_memory(
+        memory_update_metrics = update_memory(
             command=display_cmd,
             command_output=command_output_str,
             vibe_output=vibe_output_str,
             model_name=output_flags.model_name,
         )
         logger.info("Memory updated after command execution.")
+        # Display memory update metrics if available and requested
+        if memory_update_metrics and output_flags.show_vibe:
+            console_manager.print_metrics(
+                latency_ms=memory_update_metrics.latency_ms,
+                tokens_in=memory_update_metrics.token_input,
+                tokens_out=memory_update_metrics.token_output,
+                cache_hit=memory_update_metrics.cache_hit,
+                source="LLM Memory Update (Execution)",
+            )
     except Exception as mem_e:
         logger.error(f"Failed to update memory after command execution: {mem_e}")
 
