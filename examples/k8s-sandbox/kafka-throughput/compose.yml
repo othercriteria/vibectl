@@ -21,10 +21,8 @@ services:
       - VIBECTL_VERBOSE=${VIBECTL_VERBOSE:-false}
       - STATUS_DIR=/tmp/status
       - K3D_CLUSTER_NAME=kafka-demo-cluster
-      - GENERATED_KAFKA_CLUSTER_ID=${GENERATED_KAFKA_CLUSTER_ID}
       - K8S_SANDBOX_CPU_LIMIT=${K8S_SANDBOX_CPU_LIMIT:-4.0}
       - K8S_SANDBOX_MEM_LIMIT=${K8S_SANDBOX_MEM_LIMIT:-8G}
-      - KAFKA_ADVERTISED_HOST=172.20.0.2
       - TARGET_LATENCY_MS=${TARGET_LATENCY_MS:-5.0}
     extra_hosts:
       - "host.docker.internal:host-gateway"

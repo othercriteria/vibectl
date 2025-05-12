@@ -194,7 +194,7 @@ spec:
             # If KAFKA_ADVERTISED_HOST env var is not set for the container, Kafka might fail to substitute it.
             # The env var KAFKA_ADVERTISED_HOST above ensures it's available.
             sed -i "s|advertised\.listeners=INTERNAL://<HOSTNAME_PLACEHOLDER>\.kafka-headless\.kafka\.svc\.cluster\.local:9091,EXTERNAL://\${KAFKA_ADVERTISED_HOST}:9092|advertised.listeners=INTERNAL://${HOSTNAME}.kafka-headless.kafka.svc.cluster.local:9091,EXTERNAL://\${KAFKA_ADVERTISED_HOST}:9092|" $MY_CONFIG
-            
+
             # Substitute KAFKA_ADVERTISED_HOST if it's used in the configMap and not replaced yet
             # This ensures that if KAFKA_ADVERTISED_HOST is an env var, it gets correctly substituted by Kafka itself or here.
             # Kafka's scripts usually handle ${ENV_VAR} substitution from the properties file.
@@ -352,7 +352,7 @@ data:
     while true; do
       echo "[VoterUpdater-${SCRIPT_VERSION}] Checking voter configuration..."
       TARGET_REPLICAS=$(kubectl get statefulset "${STATEFULSET_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}')
-      
+
       if ! (echo "$TARGET_REPLICAS" | grep -Eq '^[0-9]+$') || [ "$TARGET_REPLICAS" -lt 1 ]; then
         echo "[VoterUpdater-${SCRIPT_VERSION}] Error: Invalid target replica count '$TARGET_REPLICAS' from StatefulSet. Retrying in 60s."
         sleep 60
@@ -377,7 +377,7 @@ data:
       # MODIFIED: Use POSIX-compliant sed for escaping dots in the key name
       JSONPATH_KEY_ESCAPED=$(echo "$CONFIG_KEY_PROPERTIES" | sed 's/\./\\\\./g')
       # MODIFIED: Reverted jsonpath quoting to double quotes, keeping new JSONPATH_KEY_ESCAPED
-      
+
       CMD_TO_RUN="kubectl get configmap \"${CONFIGMAP_NAME}\" -n \"${NAMESPACE}\" -o jsonpath=\"{.data.${JSONPATH_KEY_ESCAPED}}\""
       echo "[VoterUpdater-${SCRIPT_VERSION}] EXECUTING: $CMD_TO_RUN"
       KUBE_OUTPUT=$(eval "$CMD_TO_RUN") # Using eval to ensure complex command string is processed correctly
@@ -403,15 +403,15 @@ data:
       CURRENT_CM_PROPERTIES_CONTENT="$KUBE_OUTPUT"
 
       CURRENT_VOTERS_VALUE=$(echo "$CURRENT_CM_PROPERTIES_CONTENT" | grep "^controller\\.quorum\\.voters=" | sed "s/controller\\.quorum\\.voters=//")
-      
+
       echo "[VoterUpdater-${SCRIPT_VERSION}] Current 'controller.quorum.voters' in ConfigMap: $CURRENT_VOTERS_VALUE"
 
       if [ "$DESIRED_VOTERS_STRING" != "$CURRENT_VOTERS_VALUE" ]; then
         echo "[VoterUpdater-${SCRIPT_VERSION}] Voter list differs. Updating ConfigMap '${CONFIGMAP_NAME}'."
-        
+
         LINE_TO_REPLACE_PATTERN="^controller\\.quorum\\.voters=.*"
         REPLACEMENT_LINE="controller.quorum.voters=${DESIRED_VOTERS_STRING}"
-        
+
         if echo "$CURRENT_CM_PROPERTIES_CONTENT" | grep -q "$LINE_TO_REPLACE_PATTERN"; then
             NEW_PROPERTIES_CONTENT=$(echo "$CURRENT_CM_PROPERTIES_CONTENT" | sed "s|$LINE_TO_REPLACE_PATTERN|$REPLACEMENT_LINE|")
         else
@@ -422,7 +422,7 @@ data:
         # kubectl patch requires the data to be a JSON string.
         # MODIFIED: Corrected awk and final sed patterns for JSON escaping
         JSON_ESCAPED_NEW_PROPERTIES_CONTENT=$(echo "$NEW_PROPERTIES_CONTENT" | awk '{printf "%s\\n", $0}' | sed 's/"/\\\\"/g' | sed '$s/\\n$//')
-        
+
         PATCH_STRING="{\"data\": {\"${CONFIG_KEY_PROPERTIES}\": \"${JSON_ESCAPED_NEW_PROPERTIES_CONTENT}\"}}"
 
         echo "[VoterUpdater-${SCRIPT_VERSION}] Applying patch to ConfigMap ${CONFIGMAP_NAME}..."

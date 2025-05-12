@@ -2,7 +2,6 @@ import logging
 import os
 import subprocess
 import time
-from typing import Any  # Import Any
 
 import docker  # type: ignore
 import urllib3  # Import urllib3
@@ -286,7 +285,7 @@ def get_statefulset_status(name: str, namespace: str) -> str:
         return "Request Error"
 
 
-def get_cluster_status() -> Any:
+def get_cluster_status() -> str:
     """Gets a summary status of the Kubernetes cluster nodes and components."""
     if not k8s_client_v1:
         if not initialize_k8s_client():
@@ -353,7 +352,7 @@ def get_cluster_status() -> Any:
         logger.error(f"Unexpected error getting component status: {e}")
 
     # Explicitly cast to string to satisfy mypy
-    return str(f"{node_summary}, {component_summary}")
+    return f"{node_summary}, {component_summary}"
 
 
 def get_producer_size_from_stats() -> str:
@@ -457,7 +456,7 @@ def update_status_data() -> None:
 def index() -> str:  # Explicitly str for render_template
     """Serves the main UI page."""
     # Renders the template, which will connect via SocketIO
-    return render_template("index.html")
+    return str(render_template("index.html"))
 
 
 # Optional: Keep API endpoint for direct access/debugging

@@ -5,7 +5,7 @@ import subprocess
 import time
 from collections import deque
 
-import requests
+import requests  # type: ignore
 from prometheus_client.parser import text_string_to_metric_families  # type: ignore
 
 # Configure logging
@@ -59,6 +59,17 @@ KMINION_METRICS_URL = os.environ.get(
     "KMINION_METRICS_URL", "http://kminion:8080/metrics"
 )
 
+# List of known error strings from parsing functions, used by to_payload_value
+ERROR_STRINGS_FROM_PARSER = [
+    "N/A",
+    "Parse Error",
+    "Empty File",
+    "Not Found",
+    "Read Error",
+    "Malformed",
+    "No Data",
+]
+
 last_known_data: dict[str, str] = {}
 # State for E2E latency moving window
 previous_e2e_sum: float | None = None
@@ -108,7 +119,8 @@ class MovingWindowCalculator:
         self.window_target_weight = window_target_weight
         self.window_min_weight = window_min_weight
         self.max_intervals = max_intervals
-        self.is_latency_calc = is_latency_calc  # True if this calculates latency (value=avg_latency, weight=count)
+        self.is_latency_calc = is_latency_calc
+        # True if this calculates latency (value=avg_latency, weight=count)
         # False if rate (value=rate, weight=duration)
 
         # State for rate calculations (value per time)
@@ -188,12 +200,15 @@ class MovingWindowCalculator:
                     (interval_rate, delta_time)
                 )  # Weight is delta_time
                 logging.debug(
-                    f"[{self.name}] Added to window: interval_rate={interval_rate:.2f}, "
-                    f"duration={delta_time:.2f}s. Intervals: {len(self.intervals)}"
+                    f"[{self.name}] Added to window: "
+                    f"interval_rate={interval_rate:.2f}, "
+                    f"duration={delta_time:.2f}s. "
+                    f"Intervals: {len(self.intervals)}"
                 )
             elif delta_value < 0:
                 logging.warning(
-                    f"[{self.name}] Negative delta_value ({delta_value}). Interval not added."
+                    f"[{self.name}] Negative delta_value ({delta_value}). "
+                    "Interval not added."
                 )
             # elif delta_time <=0 - do nothing, not enough time passed
         elif self.previous_total_metric_value is None:  # First run for this calculator
@@ -249,11 +264,13 @@ class MovingWindowCalculator:
                 delta_count = current_total_count - self.previous_total_metric_count
             else:  # Anomaly or missed reset after first data point
                 logging.warning(
-                    f"[{self.name}] Anomaly detected in sum/count post-reset check. Re-initializing interval with current totals."
+                    f"[{self.name}] Anomaly detected in sum/count post-reset check. "
+                    "Re-initializing interval with current totals."
                 )
                 delta_sum = current_total_sum
                 delta_count = current_total_count
-                # Do not clear self.intervals here, let anomaly be a single point if window was already populated
+                # Do not clear self.intervals here, let anomaly be a
+                # single point if window was already populated
         else:  # First data point or after a reset
             delta_sum = current_total_sum
             delta_count = current_total_count
@@ -264,16 +281,20 @@ class MovingWindowCalculator:
                 (interval_avg_latency, delta_count)
             )  # Weight is delta_count
             logging.debug(
-                f"[{self.name}] Added to window: interval_avg_latency={interval_avg_latency:.4f}, "
-                f"delta_count={delta_count}. Intervals: {len(self.intervals)}"
+                f"[{self.name}] Added to window: "
+                f"interval_avg_latency={interval_avg_latency:.4f}, "
+                f"delta_count={delta_count}. "
+                f"Intervals: {len(self.intervals)}"
             )
         elif delta_count == 0:
             logging.debug(
-                f"[{self.name}] No new messages in this interval. Window not updated with new data."
+                f"[{self.name}] No new messages in this interval. "
+                "Window not updated with new data."
             )
         else:  # delta_count < 0 should be handled by reset
             logging.warning(
-                f"[{self.name}] Negative delta_count ({delta_count}) encountered unexpectedly. Interval not added."
+                f"[{self.name}] Negative delta_count ({delta_count}) "
+                "encountered unexpectedly. Interval not added."
             )
 
         self.previous_total_metric_sum = current_total_sum
@@ -298,13 +319,15 @@ class MovingWindowCalculator:
             moving_average_ms = moving_average * 1000
             logging.info(
                 f"[{self.name}] Moving avg: {moving_average_ms:.2f} ms "
-                f"(window_weight: {current_total_weight_in_window}, intervals: {len(self.intervals)})"
+                f"(window_weight: {current_total_weight_in_window}, "
+                f"intervals: {len(self.intervals)})"
             )
             return f"{moving_average_ms:.2f}"
         else:  # It's a rate
             logging.info(
                 f"[{self.name}] Moving avg: {moving_average:.2f} msg/s "
-                f"(window_weight: {current_total_weight_in_window:.2f}s, intervals: {len(self.intervals)})"
+                f"(window_weight: {current_total_weight_in_window:.2f}s, "
+                f"intervals: {len(self.intervals)})"
             )
             return f"{moving_average:.2f}"
 
@@ -324,11 +347,37 @@ topic_producer_rate_calculator = MovingWindowCalculator(
     max_intervals=MAX_RATE_INTERVALS,
 )
 consumer_rate_calculator = MovingWindowCalculator(
-    name=f"Consumer Rate ({TARGET_CONSUMER_GROUP_ID} on {TARGET_THROUGHPUT_TOPIC_NAME})",
+    name=(
+        f"Consumer Rate ({TARGET_CONSUMER_GROUP_ID} on {TARGET_THROUGHPUT_TOPIC_NAME})"
+    ),
     window_target_weight=RATE_WINDOW_TARGET_SECONDS,
     window_min_weight=RATE_WINDOW_MIN_SECONDS,
     max_intervals=MAX_RATE_INTERVALS,
 )
+
+
+# Helper to check if a string represents a valid number (int or float)
+# and is not one of the known error strings.
+def to_payload_value(parsed_value: str) -> str:
+    """Converts a parsed string value to a payload-safe string.
+
+    If the value is numeric, it's returned as is.
+    If it's a known error string or not numeric, "N/A" is returned.
+    """
+    is_error = parsed_value in ERROR_STRINGS_FROM_PARSER
+    is_numeric = False
+    if not is_error:
+        try:
+            float(parsed_value)  # Check if it can be cast to float
+            is_numeric = True
+        except ValueError:
+            pass  # Not numeric
+
+    if is_numeric:
+        return parsed_value
+    else:
+        logging.debug(f"Converting '{parsed_value}' to 'N/A' for payload/UI file.")
+        return "N/A"
 
 
 def write_metric_to_file(file_path: str, value: str) -> None:
@@ -358,11 +407,13 @@ def extract_specific_metric(
                     expected_sample_name += target_sample_name_suffix
 
                 logging.debug(
-                    f"Searching in family '{family.name}' for sample '{expected_sample_name}' with labels {target_labels}"
+                    f"Searching in family '{family.name}' for sample "
+                    f"'{expected_sample_name}' with labels {target_labels}"
                 )
                 for sample in family.samples:
                     logging.debug(
-                        f"  Inspecting sample: {sample.name}, Labels: {sample.labels}, Value: {sample.value}"
+                        f"  Inspecting sample: {sample.name}, Labels: {sample.labels}, "
+                        f"Value: {sample.value}"
                     )
                     if sample.name == expected_sample_name:
                         if target_labels:
@@ -378,11 +429,13 @@ def extract_specific_metric(
                                 return float(sample.value)
                         else:  # No labels to match, just name is enough
                             logging.debug(
-                                f"    Found matching sample (no labels specified): {sample.value}"
+                                f"    Found matching sample (no labels specified): "
+                                f"{sample.value}"
                             )
                             return float(sample.value)
         logging.warning(
-            f"Metric '{target_family_name}{target_sample_name_suffix}' with labels {target_labels} not found."
+            f"Metric '{target_family_name}{target_sample_name_suffix}' "
+            f"with labels {target_labels} not found."
         )
         return None
     except Exception as e:
@@ -416,7 +469,7 @@ def get_kminion_avg_e2e_latency(raw_metrics_text: str) -> str:
 
 
 def get_topic_producer_actual_rate(raw_metrics_text: str) -> str:
-    """Calculates a moving average for actual producer rate for the target topic from KMinion metrics."""
+    """Calculates moving average for KMinion actual producer rate for target topic."""
     current_time = time.time()
 
     current_high_water_mark_sum = extract_specific_metric(
@@ -428,7 +481,8 @@ def get_topic_producer_actual_rate(raw_metrics_text: str) -> str:
 
     if current_high_water_mark_sum is None:
         logging.warning(
-            f"Could not extract high water mark sum for topic '{TARGET_THROUGHPUT_TOPIC_NAME}' for producer rate."
+            "Could not extract high water mark sum for topic "
+            f"'{TARGET_THROUGHPUT_TOPIC_NAME}' for producer rate."
         )
         return topic_producer_rate_calculator.get_average()
 
@@ -579,37 +633,6 @@ def main() -> None:
 
     while True:
         try:
-            # Helper to check if a string represents a valid number (int or float)
-            # and is not one of the known error strings from parse_producer_stats
-            error_strings_from_parser = [
-                "N/A",
-                "Parse Error",
-                "Empty File",
-                "Not Found",
-                "Read Error",
-                "Malformed",
-                "No Data",
-            ]
-
-            def to_payload_value(parsed_value: str) -> str:
-                is_error = parsed_value in error_strings_from_parser
-                is_numeric = False
-                if not is_error:
-                    try:
-                        float(parsed_value)  # Check if it can be cast to float
-                        is_numeric = True
-                    except ValueError:
-                        pass  # Not numeric
-
-                if is_numeric:
-                    return parsed_value
-                else:
-                    # If it was an error string from parser, or became non-numeric for other reasons
-                    logging.debug(
-                        f"Converting '{parsed_value}' to 'N/A' for payload/UI file."
-                    )
-                    return "N/A"
-
             # Get current E2E latency from KMinion
             # First, fetch raw metrics once
             raw_kminion_metrics = "N/A"
@@ -620,7 +643,8 @@ def main() -> None:
                 logging.debug("Successfully fetched KMinion metrics for this cycle.")
             except requests.exceptions.RequestException as e:
                 logging.error(
-                    f"Error fetching KMinion metrics from {KMINION_METRICS_URL} for this cycle: {e}"
+                    f"Error fetching KMinion metrics from {KMINION_METRICS_URL} "
+                    f"for this cycle: {e}"
                 )
             except Exception as e:  # Catch any other parsing error from KMinion
                 logging.error(f"Generic error fetching KMinion metrics: {e}")
@@ -643,12 +667,7 @@ def main() -> None:
                     raw_kminion_metrics
                 )
 
-            # Read current producer target rate and size (actual rate now from KMinion)
-            parsed_target_rate, _ = (
-                parse_producer_stats(  # Size is ignored here for now, UI reads it directly
-                    PRODUCER_STATS_FILE_PATH
-                )
-            )
+            parsed_target_rate, _ = parse_producer_stats(PRODUCER_STATS_FILE_PATH)
 
             current_producer_target_rate_for_payload = to_payload_value(
                 parsed_target_rate

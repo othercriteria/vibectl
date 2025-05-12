@@ -14,7 +14,7 @@ export KAFKA_SERVICE="kafka-service"
 export KAFKA_PORT=9092
 export KAFKA_STATEFULSET="kafka-controller"
 export KAFKA_REPLICAS=1 # Assuming 1 replica for KRaft initially
-export KAFKA_CLUSTER_ID_CM="kafka-cluster-id" # Define the ConfigMap name
+export KAFKA_CLUSTER_ID_CM="kafka-cluster-id-config" # Define the ConfigMap name
 
 # Status files
 mkdir -p "${STATUS_DIR}"
@@ -27,7 +27,7 @@ SHUTDOWN_FILE="${STATUS_DIR}/shutdown"
 
 function setup_k3d_cluster() {
     echo "🔧 Setting up K3d cluster '${K3D_CLUSTER_NAME}'..."
-    
+
     # Check if cluster exists
     if ! k3d cluster list | grep -q -w "${K3D_CLUSTER_NAME}"; then
         echo "🤔 Creating new cluster '${K3D_CLUSTER_NAME}' on network 'kafka-throughput_kafka-demo-network'..."
@@ -56,7 +56,7 @@ function setup_k3d_cluster() {
     else
         echo "✅ Using existing cluster '${K3D_CLUSTER_NAME}'"
         k3d kubeconfig merge "${K3D_CLUSTER_NAME}" --kubeconfig-merge-default --kubeconfig-switch-context
-        
+
         # Clean up the kafka namespace if it exists
         echo "🧹 Cleaning up kafka namespace..."
         if kubectl get namespace "${KAFKA_NAMESPACE}" &>/dev/null; then
@@ -80,7 +80,7 @@ function setup_k3d_cluster() {
 function patch_kubeconfig() {
     echo "🔧 Patching kubeconfig..."
     mkdir -p /home/sandbox/.kube
-    
+
     # Get original kubeconfig from k3d (after it has been placed on the correct network)
     k3d kubeconfig get "${K3D_CLUSTER_NAME}" > "${KUBECONFIG}.orig"
 
@@ -97,10 +97,10 @@ function patch_kubeconfig() {
     # We will explicitly set it to use the k3d load balancer's internal Docker DNS name and standard K8s API port.
     NEW_SERVER_URL="https://${K3D_INTERNAL_LB_HOST}:${K3D_INTERNAL_API_PORT}"
     echo "Patching kubeconfig to use server: ${NEW_SERVER_URL} and skip TLS verify"
-    
+
     # Create a new kubeconfig with the patched server URL and insecure-skip-tls-verify
     awk -v new_url="${NEW_SERVER_URL}" \
-        '/server:/ { 
+        '/server:/ {
             print "    server: " new_url;
             print "    insecure-skip-tls-verify: true"; # Add/ensure skip TLS
             next;
@@ -109,20 +109,20 @@ function patch_kubeconfig() {
         /insecure-skip-tls-verify:/ { next; } # Remove old insecure-skip-tls-verify if present
         { print; }
     ' "${KUBECONFIG}.orig" > "${KUBECONFIG}"
-    
+
     if ! kubectl --kubeconfig "${KUBECONFIG}" config view &>/dev/null; then
         echo "❌ Error: Generated kubeconfig is invalid" >&2
         echo "Generated kubeconfig contents:" >&2
         cat "${KUBECONFIG}" >&2
         exit 1
     fi
-    
+
     rm "${KUBECONFIG}.orig"
     chmod 600 "${KUBECONFIG}"
     chown sandbox:sandbox "${KUBECONFIG}"
-    
+
     echo "✅ Kubeconfig patched successfully"
-    
+
     # Copy to shared volume
     cp "${KUBECONFIG}" "${STATUS_DIR}/k3d_kubeconfig"
     chmod 644 "${STATUS_DIR}/k3d_kubeconfig"
@@ -162,24 +162,45 @@ function wait_for_k8s_ready() {
 }
 
 function ensure_kafka_cluster_id_cm() {
-    echo "🔧 Ensuring Kafka Cluster ID ConfigMap (${KAFKA_CLUSTER_ID_CM}) exists..."
-    if kubectl get configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" >/dev/null 2>&1; then
-        echo "✅ Cluster ID ConfigMap already exists."
+    echo "🔧 Ensuring Kafka Cluster ID is available and ConfigMap (${KAFKA_CLUSTER_ID_CM}) exists..."
+    local CLUSTER_ID_FILE_PATH="${STATUS_DIR}/kafka_cluster_id.txt"
+    local KAFKA_CLUSTER_ID_VALUE=""
+
+    if [ -f "${CLUSTER_ID_FILE_PATH}" ]; then
+        KAFKA_CLUSTER_ID_VALUE=$(cat "${CLUSTER_ID_FILE_PATH}")
+        echo "🔑 Using existing Kafka Cluster ID from ${CLUSTER_ID_FILE_PATH}: ${KAFKA_CLUSTER_ID_VALUE}"
     else
-        echo "🤔 Cluster ID ConfigMap not found. Creating it using generated ID..."
-        # Get the generated ID from the environment variable passed by run.sh/compose
-        if [ -z "${GENERATED_KAFKA_CLUSTER_ID:-}" ]; then
-             echo "❌ Error: GENERATED_KAFKA_CLUSTER_ID environment variable is not set." >&2
-             echo "   This should have been generated and passed by the run.sh script." >&2
-             exit 1
-        fi
-        echo "🔑 Using pre-generated Kafka Cluster ID: ${GENERATED_KAFKA_CLUSTER_ID}"
-        # Create the ConfigMap
-        if ! kubectl create configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" --from-literal=clusterId="${GENERATED_KAFKA_CLUSTER_ID}"; then
-            echo "❌ Error: Failed to create Kafka Cluster ID ConfigMap." >&2
+        echo "🤔 Kafka Cluster ID file not found at ${CLUSTER_ID_FILE_PATH}. Generating new ID..."
+        if command -v python3 &> /dev/null; then
+            KAFKA_CLUSTER_ID_VALUE=$(python3 -c "import uuid; print(uuid.uuid4())")
+        elif command -v python &> /dev/null; then
+            KAFKA_CLUSTER_ID_VALUE=$(python -c "import uuid; print uuid.uuid4()") # Python 2 fallback
+        else
+            echo "❌ Error: Cannot generate UUID for Kafka Cluster ID. Python 3 or Python not found." >&2
             exit 1
         fi
-        echo "✅ Cluster ID ConfigMap created."
+
+        if [ -z "${KAFKA_CLUSTER_ID_VALUE}" ]; then
+            echo "❌ Error: Failed to generate Kafka Cluster ID using Python." >&2
+            exit 1
+        fi
+        echo "${KAFKA_CLUSTER_ID_VALUE}" > "${CLUSTER_ID_FILE_PATH}"
+        # Ensure file is group-writable for potential access from other tools/users if needed, though primarily for persistence.
+        chmod 664 "${CLUSTER_ID_FILE_PATH}"
+        echo "✅ Generated and saved new Kafka Cluster ID to ${CLUSTER_ID_FILE_PATH}: ${KAFKA_CLUSTER_ID_VALUE}"
+    fi
+
+    # Ensure ConfigMap exists or create it
+    if ! kubectl get configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" >/dev/null 2>&1; then
+        echo "Creating Kafka Cluster ID ConfigMap (${KAFKA_CLUSTER_ID_CM})..."
+        if ! kubectl create configmap "${KAFKA_CLUSTER_ID_CM}" -n "${KAFKA_NAMESPACE}" --from-literal=clusterId="${KAFKA_CLUSTER_ID_VALUE}"; then
+            echo "❌ Error: Failed to create Kafka Cluster ID ConfigMap '${KAFKA_CLUSTER_ID_CM}'." >&2
+            exit 1
+        fi
+        echo "✅ Kafka Cluster ID ConfigMap created."
+    else
+        # Optional: Update existing ConfigMap if ID changed? For now, assume if CM exists, it's correct or will be handled by re-applying manifests.
+        echo "✅ Kafka Cluster ID ConfigMap (${KAFKA_CLUSTER_ID_CM}) already exists."
     fi
 }
 
@@ -292,9 +313,9 @@ EOF
     if [ -f "${INSTRUCTIONS_FILE_PATH}" ]; then
         echo "--- Debug: Instructions Substitution (using sed) ---"
         # Get values, applying defaults if env vars are empty/unset
-        CPU_LIMIT="${K8S_SANDBOX_CPU_LIMIT:-4.0}"
-        MEM_LIMIT="${K8S_SANDBOX_MEM_LIMIT:-4G}"
-        LATENCY_TARGET="${TARGET_LATENCY_MS:-10.0}"
+        CPU_LIMIT="${K8S_SANDBOX_CPU_LIMIT}"
+        MEM_LIMIT="${K8S_SANDBOX_MEM_LIMIT}"
+        LATENCY_TARGET="${TARGET_LATENCY_MS}"
 
         echo "K8S_SANDBOX_CPU_LIMIT: '${CPU_LIMIT}'"
         echo "K8S_SANDBOX_MEM_LIMIT: '${MEM_LIMIT}'"
@@ -302,9 +323,9 @@ EOF
 
         # Perform substitutions using sed - pipe cat through multiple sed commands
         SUBSTITUTED_CONTENT=$(cat "${INSTRUCTIONS_FILE_PATH}" | \
-            sed "s|\${K8S_SANDBOX_CPU_LIMIT:-4.0}|${CPU_LIMIT}|g" | \
-            sed "s|\${K8S_SANDBOX_MEM_LIMIT:-4G}|${MEM_LIMIT}|g" | \
-            sed "s|\${TARGET_LATENCY_MS:-10.0}|${LATENCY_TARGET}|g"
+            sed "s|\${K8S_SANDBOX_CPU_LIMIT}|${CPU_LIMIT}|g" | \
+            sed "s|\${K8S_SANDBOX_MEM_LIMIT}|${MEM_LIMIT}|g" | \
+            sed "s|\${TARGET_LATENCY_MS}|${LATENCY_TARGET}|g"
         )
 
         if [ $? -ne 0 ]; then
@@ -450,7 +471,7 @@ else
 
     deploy_kafka
     wait_for_kafka_ready
-    
+
     # Ensure necessary env vars are exported for the python script
     export KUBECTL_CMD KAFKA_NAMESPACE KAFKA_SERVICE KAFKA_PORT KUBECTL_LOG_FILE="/tmp/kubectl-port-forward.log"
 
@@ -459,13 +480,13 @@ else
     nohup python3 /home/sandbox/port_forward_manager.py > /tmp/port_forward_manager_stdout.log 2>&1 &
     PF_MANAGER_PID=$!
     echo "✅ Python Port Forward Manager started with PID: ${PF_MANAGER_PID}. Logs: /tmp/port_forward_manager_stdout.log and ${KUBECTL_LOG_FILE}"
-    
+
     echo "⏳ Waiting 5 seconds for Python port forward manager to initialize..."
     sleep 5
 
     echo "Touching ${KAFKA_READY_FILE}..."
     touch "${KAFKA_READY_FILE}"
-    sync 
+    sync
     echo "✅ ${KAFKA_READY_FILE} touched and synced."
 
     echo "✅ Phase 1 complete! Kafka is ready and port-forwarded (via Python manager)." > "${PHASE1_COMPLETE}"

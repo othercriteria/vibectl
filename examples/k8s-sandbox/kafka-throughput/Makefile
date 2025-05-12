@@ -19,7 +19,7 @@ $(shell chmod +x $(RUN_SH) > /dev/null 2>&1)
 # Ignore stderr to suppress unset variable warnings during parsing
 # SERVICES := $(shell $(COMPOSE_CMD) config --services 2>/dev/null)
 # Hardcode services to avoid potential side effects of `config` command
-SERVICES := k8s-sandbox producer consumer kafka-demo-ui
+SERVICES := k8s-sandbox producer consumer kafka-demo-ui kminion
 
 # Default target: Show help
 .PHONY: help
@@ -88,19 +88,6 @@ $(addprefix logs-,$(SERVICES)): logs-%: ## Follow logs for a specific service (e
 $(addprefix shell-,$(SERVICES)): shell-%: ## Open a shell in a specific service (e.g., make shell-producer)
 	@echo "🐚 Opening shell in $*..."
 	$(COMPOSE_CMD) exec $* /bin/bash || $(COMPOSE_CMD) exec $* /bin/sh
-
-# Check latency file
-LATENCY_FILE := ./status-volume/latency.txt
-.PHONY: check-latency
-check-latency: ## Show current reported latency from ./status-volume/latency.txt
-	@echo "📉 Checking latency file ($(LATENCY_FILE))..."
-	@if [ -f "$(LATENCY_FILE)" ]; then \
-		echo -n "Current p99 Latency: "; \
-		cat "$(LATENCY_FILE)"; \
-		echo " ms"; \
-	else \
-		echo "Latency file not found yet."; \
-	fi
 
 # Prevent Make from deleting intermediate files and show commands
 .SECONDARY:

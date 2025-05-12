@@ -61,7 +61,7 @@ func createConsumerGroup() (sarama.ConsumerGroup, error) {
 
 		log.Printf("Attempt %d/%d: Could not connect to Kafka broker at %s. Error: %v",
 			retry+1, maxRetries, kafkaBroker, err)
-		
+
 		if retry < maxRetries-1 {
 			delay := time.Duration(initialRetryDelayS*(1<<retry)) * time.Second
 			log.Printf("Retrying in %v...", delay)
@@ -141,4 +141,4 @@ func main() {
 	}
 
 	logger.Printf("Total messages processed by this instance: %d", consumer.msgCount)
-} 
+}

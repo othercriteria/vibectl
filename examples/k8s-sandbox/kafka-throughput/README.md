@@ -56,7 +56,7 @@ The demo environment consists of:
     -   Handles initial setup: API key check/prompt, Docker GID detection for container permissions, Kafka Cluster ID generation (saved to `./status-volume/kafka_cluster_id.txt`).
     -   Builds images via `docker compose build`.
     -   Starts services via `docker compose up -d`.
-    -   Waits for the `k8s-sandbox` container to create `./status-volume/kafka_ready` as a signal that Kafka is up and port-forwarded, before allowing producer/consumer to fully start (via `depends_on: service_healthy`).
+    -   Waits for the `k8s-sandbox` to create `./status-volume/kafka_ready` as a signal that Kafka is up and port-forwarded, before allowing producer/consumer to fully start (via `depends_on: service_healthy`).
 
 -   **`k8s-sandbox/entrypoint.sh` (Inside `k8s-sandbox` container):**
     -   **Phase 1 (K8s & Kafka):**
@@ -65,12 +65,12 @@ The demo environment consists of:
         -   Copies the patched `kubeconfig` to `/tmp/status/k3d_kubeconfig` for the UI service.
         -   Deploys Kafka (using `kafka-kraft.yaml` and the generated cluster ID).
         -   Waits for Kafka pods to be ready.
-        -   Sets up a resilient `kubectl port-forward` in the background to expose Kafka on `localhost:9092` within the container (which maps to `k8s-sandbox:9092` on the Docker network for other containers).
+        -   Sets up a resilient port-forwarding mechanism for Kafka using `port_forward_manager.py` to expose Kafka on `localhost:9092` within the container (which maps to `k8s-sandbox:9092` on the Docker network for other containers).
         -   Touches `/tmp/status/kafka_ready` to signal `run.sh`.
     -   **Phase 2 (Vibectl):**
         -   Installs `vibectl` from the mounted source code.
         -   Configures `vibectl` (API key, model, paths).
-        -   Loads custom instructions from `/home/sandbox/vibectl_instructions.txt`, substituting environment variables like `${TARGET_LATENCY_MS}` and `${K8S_SANDBOX_CPU_LIMIT}` using `envsubst`.
+        -   Loads custom instructions from `/home/sandbox/vibectl_instructions.txt`, substituting environment variables like `${TARGET_LATENCY_MS}` and `${K8S_SANDBOX_CPU_LIMIT}` using `sed`.
         -   Starts the `latency-reporter.py` script in the background.
         -   Initiates the main `vibectl auto` loop, which runs continuously, logging its actions to `/tmp/status/vibectl_agent.log`.
 
@@ -89,7 +89,6 @@ A `Makefile` is provided for convenience:
 -   `make logs`: Follow logs for all services.
 -   `make logs-<service>`: Follow logs for a specific service (e.g., `make logs-producer`, `make logs-k8s-sandbox`).
 -   `make shell-<service>`: Open a shell (`bash` or `sh`) inside a running service container (e.g., `make shell-consumer`).
--   `make check-latency`: Display the current content of the latency file (`./status-volume/latency.txt`).
 -   `make down`: Stop and remove all containers, networks. The `./status-volume` directory on the host is not removed by this command.
 
 ## Monitoring the Demo
@@ -106,14 +105,9 @@ A `Makefile` is provided for convenience:
 
 -   Run `make down` to stop and remove containers and networks:
     ```bash
-    make down
+    make down && make clean-cluster
     ```
 
 ## Troubleshooting & Past Issues
-
-This demo has undergone several iterations to improve stability:
--   **K3d Cleanup**: The `k8s-sandbox/entrypoint.sh` now includes more robust K3d cluster deletion logic to handle cases where Docker resources might get stuck.
--   **Volume Propagation**: The `status-volume` was changed from a `tmpfs` Docker volume to a direct host bind mount (`./status-volume/`) to ensure reliable communication between the host (`run.sh`) and containers (e.g., for the `kafka_ready` signal).
--   **Kubeconfig Patching**: The logic for patching `kubeconfig` inside `k8s-sandbox` to make the K3d API server accessible has been refined to use the Docker host's gateway IP.
 
 If issues persist, check the logs from `make logs` and the `vibectl_agent.log` first.

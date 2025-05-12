@@ -76,4 +76,4 @@ The consumer can be configured using these environment variables:
 - `CONSUMER_GROUP_ID`: Consumer group ID (default: "kafka-throughput-consumer-group")
 - `CONSUMER_CLIENT_ID`: Client ID (default: "kafka-throughput-consumer")
 - `MAX_RETRIES`: Maximum connection retries (default: 5)
-- `INITIAL_RETRY_DELAY_S`: Initial retry delay in seconds (default: 5) 
+- `INITIAL_RETRY_DELAY_S`: Initial retry delay in seconds (default: 5)

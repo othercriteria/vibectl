@@ -15,7 +15,10 @@ LOCAL_PORT = os.environ.get("LOCAL_PORT", "9092")
 REMOTE_PORT = os.environ.get("REMOTE_PORT", "9092")
 KUBECTL_LOG_FILE = os.environ.get("KUBECTL_LOG_FILE", "/tmp/kubectl-port-forward.log")
 RETRY_DELAY_SECONDS = int(os.environ.get("RETRY_DELAY_SECONDS", "10"))
-PKILL_PATTERN = f"kubectl port-forward.*-n {TARGET_NAMESPACE}.*svc/{TARGET_SERVICE}.*{LOCAL_PORT}:{REMOTE_PORT}"
+PKILL_PATTERN = (
+    f"kubectl port-forward.*-n "
+    f"{TARGET_NAMESPACE}.*svc/{TARGET_SERVICE}.*{LOCAL_PORT}:{REMOTE_PORT}"
+)
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -66,7 +69,8 @@ def kill_existing_port_forwards() -> None:
             )
         else:  # Other error
             logger.warning(
-                f"pkill command finished with exit code {result.returncode}. Stderr: {result.stderr.strip()}"
+                f"pkill command finished with exit code {result.returncode}. "
+                f"Stderr: {result.stderr.strip()}"
             )
     except FileNotFoundError:
         logger.error("pkill command not found. Cannot kill existing port-forwards.")

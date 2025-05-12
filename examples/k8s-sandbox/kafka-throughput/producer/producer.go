@@ -206,7 +206,7 @@ func createMessage(sequence int64, sizeBytes int) ([]byte, error) {
 		Timestamp: float64(time.Now().UnixNano()) / 1e9,
 		Data:      "",
 	}
-	
+
 	baseJSON, err := json.Marshal(baseMsg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal base message: %w", err)
@@ -246,7 +246,7 @@ func adjustMessageRate(currentRate int, actualRate float64, actualLatency float6
 
 	// Increase rate by configured multiplier
 	newRate := int(float64(currentRate) * targetRateMult)
-	
+
 	// Cap at configured max message rate
 	if newRate > maxMessageRate {
 		newRate = maxMessageRate
@@ -411,7 +411,7 @@ func main() {
 	tokenBucket := newTokenBucket(float64(stats.targetRate), effectiveMaxTokensForBucket)
 	log.Printf("Initialized token bucket with rate %.2f/s, capacity: %.2f, current tokens: %.2f",
 		float64(stats.targetRate), effectiveMaxTokensForBucket, tokenBucket.tokens)
-	
+
 	// Message sending loop with batching
 	var sequence int64
 	intervalStart := time.Now()
@@ -423,7 +423,7 @@ func main() {
 	if targetRatePerBatch < 1 {
 		targetRatePerBatch = 1
 	}
-	log.Printf("Initial batch size: %d messages (target rate: %d/s, batches: %d/s)", 
+	log.Printf("Initial batch size: %d messages (target rate: %d/s, batches: %d/s)",
 		targetRatePerBatch, stats.targetRate, batchesPerSecond)
 
 	rateLimiter := time.NewTicker(batchConfig.MaxBatchDelay)
@@ -493,7 +493,7 @@ func main() {
 			tokensNeeded := float64(targetRatePerBatch)
 			currentTokens := tokenBucket.tokens // For logging before take()
 			log.Printf("Current tokens: %.2f, needed: %.2f", currentTokens, tokensNeeded)
-			
+
 			if tokenBucket.take(tokensNeeded) {
 				log.Printf("Got enough tokens, preparing batch...")
 				batchSize := targetRatePerBatch
@@ -524,9 +524,9 @@ func main() {
 					batch.size, tokenBucket.tokens)
 
 			} else {
-				log.Printf("Not enough tokens (need %.2f, have %.2f), waiting for next tick", 
+				log.Printf("Not enough tokens (need %.2f, have %.2f), waiting for next tick",
 					tokensNeeded, currentTokens)
 			}
 		}
 	}
-} 
+}
