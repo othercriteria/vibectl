@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Planned: Instrument LLM calls to measure cost/latency and refactor to use fragments for potential caching (WIP)
+
 ## [0.6.3] - 2025-05-12
 
 ### Changed
