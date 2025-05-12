@@ -8,8 +8,9 @@ from the details of model interaction.
 """
 
 import os
+import time
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import llm
 from pydantic import BaseModel
@@ -21,7 +22,11 @@ from .llm_interface import is_valid_llm_model_name
 from .logutil import logger
 
 # Import the consolidated keywords and custom exception
-from .types import RECOVERABLE_API_ERROR_KEYWORDS, RecoverableApiError
+from .types import (
+    RECOVERABLE_API_ERROR_KEYWORDS,
+    LLMMetrics,
+    RecoverableApiError,
+)
 
 
 @runtime_checkable
@@ -61,7 +66,7 @@ class ModelAdapter(ABC):
         model: Any,
         prompt_text: str,
         response_model: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> tuple[str, LLMMetrics | None]:
         """Execute a prompt on the model and get a response.
 
         Args:
@@ -70,8 +75,19 @@ class ModelAdapter(ABC):
             response_model: Optional Pydantic model for structured JSON response.
 
         Returns:
-            str: The response text
+            tuple[str, LLMMetrics | None]: A tuple containing the response text
+                                           and the metrics for the call.
         """
+        pass
+
+    @abstractmethod
+    def execute_and_log_metrics(
+        self,
+        model: Any,
+        prompt_text: str,
+        response_model: type[BaseModel] | None = None,
+    ) -> str:
+        """Wraps execute, logs metrics, returns only response text."""
         pass
 
     @abstractmethod
@@ -273,140 +289,140 @@ class LLMModelAdapter(ModelAdapter):
         model: Any,
         prompt_text: str,
         response_model: type[BaseModel] | None = None,
-    ) -> str:
-        """Execute a prompt on the model and get a response.
+    ) -> tuple[str, LLMMetrics | None]:
+        """Execute a prompt on the LLM package model and get a response.
 
         Args:
             model: The model instance to execute the prompt on
             prompt_text: The prompt text to execute
             response_model: Optional Pydantic model for structured JSON response.
-                            If provided, attempts to use the model's schema support.
-                            If the model doesn't support schemas, it falls back
-                            to a regular prompt call.
 
         Returns:
-            str: The response text (either raw text or JSON string if schema used).
+            tuple[str, LLMMetrics | None]: A tuple containing the response text
+                                           and the metrics for the call.
 
         Raises:
-            ValueError: If there is an error executing the prompt. The message will
-                        indicate if the error seems recoverable based on keywords.
-            RecoverableApiError: If the error seems recoverable (e.g., rate limit).
+            RecoverableApiError: If a potentially recoverable API error occurs.
+            ValueError: If another error occurs during execution.
         """
         logger.debug(
-            "Executing prompt on model '%s' with response model: %s",
+            "Executing prompt on model '%s' with response_model: %s",
             model.model_id,
-            response_model.__name__ if response_model else "None",
+            response_model is not None,
         )
-        logger.debug("Prompt text:\n%s", prompt_text)
-
-        # Use context manager for environment variables
-        with ModelEnvironment(model.model_id, self.config):
-            response: Any = None
-            try:
+        # Use context manager for environment variable handling
+        start_time = time.monotonic()
+        latency_ms = 0.0
+        metrics = None
+        try:
+            with ModelEnvironment(model.model_id, self.config):
+                kwargs = {}
                 if response_model:
-                    # Attempt schema-based call first
                     try:
-                        logger.debug("Attempting schema-based prompt call.")
-                        # Assume llm might raise specific error if schema not supported
-                        # e.g., llm.SchemaUnsupportedError - adjust if different
-                        response = model.prompt(prompt_text, schema=response_model)
-                        logger.debug("Schema-based call successful.")
-                    except AttributeError as ae:
-                        # Catch potential AttributeError if model lacks schema support
-                        # or if llm library changes how unsupported schemas are signaled
-                        # Also catch placeholder SchemaUnsupportedError
-                        # TODO: Identify and catch the specific exception raised by llm
-                        #       when a model doesn't support schemas.
-                        #       Replace this broad catch if possible.
-                        if "schema" in str(ae).lower():  # Basic check
-                            logger.warning(
-                                "Model '%s' may not support schemas or schema feature "
-                                "failed (%s). Falling back to non-schema prompt.",
-                                model.model_id,
-                                ae,
-                            )
-                            # Fallback: Call without schema
-                            response = model.prompt(prompt_text)
-                        else:
-                            # Re-raise if the AttributeError is unrelated to schemas
-                            raise ae
-                else:
-                    # Regular call if no schema is provided
-                    response = model.prompt(prompt_text)
-
-                # --- Process the response ---
-
-                # Check if the response conforms to the expected protocol
-                if not isinstance(response, ModelResponse):
-                    logger.warning(
-                        "Model response does not conform to ModelResponse protocol: %s",
-                        type(response),
-                    )
-                    # Attempt to get text anyway, assuming it might be a basic string
-                    # or have a similar interface. This is a best-effort approach.
-                    try:
-                        return str(response)  # Fallback to string conversion
-                    except Exception as conversion_err:
+                        # Generate schema dictionary from Pydantic model
+                        schema_dict = response_model.model_json_schema()
+                        kwargs["schema"] = schema_dict
+                        logger.debug("Generated schema for model: %s", schema_dict)
+                    except Exception as schema_exc:
                         logger.error(
-                            "Failed to convert bad model response to string: %s",
-                            conversion_err,
-                            exc_info=True,
+                            "Failed to generate schema from model %s: %s",
+                            response_model.__name__,
+                            schema_exc,
                         )
-                        raise ValueError(
-                            f"Model response type {type(response)} cannot be processed."
-                        ) from conversion_err
+                        # Decide if this should be a fatal error or just a warning
+                        # For now, log and continue without schema
 
-                # Get text from the response object
-                # Cast needed because 'response' could be Any after fallback
-                response_text = cast("ModelResponse", response).text()
+                # Execute the prompt using the llm library
+                try:
+                    response = model.prompt(prompt_text, **kwargs)
+                except AttributeError as attr_err:
+                    # Check if the error is specifically about the 'schema' attribute
+                    # and if we were actually trying to use a schema
+                    if "schema" in str(attr_err) and "schema" in kwargs:
+                        logger.warning(
+                            "Model %s does not support 'schema' argument. "
+                            "Retrying without schema.",
+                            model.model_id,
+                        )
+                        # Remove schema from kwargs and retry
+                        kwargs.pop("schema")
+                        response = model.prompt(prompt_text, **kwargs)
+                    else:
+                        # Re-raise if it's a different AttributeError
+                        raise attr_err
 
-                # If a schema was *attempted* and fallback occurred, the result might
-                # be unstructured text. If schema succeeded, it should be JSON.
-                # The caller (e.g., handle_vibe_request) needs to handle parsing.
-                return response_text
+                # Ensure the response object is valid before proceeding
+                if not isinstance(response, ModelResponse):
+                    raise TypeError(
+                        f"Expected ModelResponse, got {type(response).__name__}"
+                    )
 
-            except Exception as e:
-                # BUG FIX: Remove the immediate re-raise that prevented error checking.
-                # raise e # <<< REMOVE THIS LINE
+                # Get the response text (this blocks until completion for non-streaming)
+                response_text = response.text()
 
-                # If this is an AttributeError likely re-raised from schema fallback,
-                # let it propagate directly without wrapping.
-                if isinstance(e, AttributeError) and response_model is not None:
-                    logger.debug("Re-raising AttributeError from schema handling.")
-                    raise e
+                # --- Metrics Calculation ---
+                end_time = time.monotonic()
+                latency_ms = (end_time - start_time) * 1000
+                # TODO: Extract token usage from response.usage() when implemented
+                metrics = LLMMetrics(latency_ms=latency_ms, call_count=1)
+                logger.debug("LLM call completed in %.2f ms", latency_ms)
+                # -------------------------
 
-                error_message = str(e)
-                error_message_lower = error_message.lower()
-                logger.error(
-                    "Error executing prompt on model '%s': %s",
-                    model.model_id,
-                    error_message,
-                    exc_info=True,  # Log traceback directly at ERROR level
-                )
+                return response_text, metrics
 
-                # Check if the error message indicates a recoverable API error
-                is_recoverable = any(
-                    keyword in error_message_lower
-                    for keyword in RECOVERABLE_API_ERROR_KEYWORDS
-                )
+        except Exception as e:
+            end_time = time.monotonic()
+            latency_ms = (end_time - start_time) * 1000
+            error_str = str(e).lower()
+            logger.warning(
+                "LLM call failed after %.2f ms: %s", latency_ms, e, exc_info=True
+            )
 
-                if is_recoverable:
-                    raise RecoverableApiError(f"{error_message}") from e
-                else:
-                    # Raise a general ValueError for other errors
-                    raise ValueError(f"Error executing prompt: {error_message}") from e
+            # Create partial metrics even on error
+            metrics = LLMMetrics(latency_ms=latency_ms, call_count=1)
+
+            # Check if the error is potentially recoverable
+            if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
+                logger.warning("Recoverable API error detected: %s", e)
+                # Raise a specific exception for recoverable errors
+                raise RecoverableApiError(f"Recoverable API Error: {e}") from e
+            else:
+                # Re-raise other exceptions as ValueError for consistent handling
+                raise ValueError(f"LLM Execution Error: {e}") from e
+
+    # --- Wrapper Function for Metrics Logging --- #
+    def execute_and_log_metrics(
+        self,
+        model: Any,
+        prompt_text: str,
+        response_model: type[BaseModel] | None = None,
+    ) -> str:
+        """Wraps execute, logs metrics, returns only response text."""
+        response_text = ""
+        metrics = None
+        try:
+            response_text, metrics = self.execute(model, prompt_text, response_model)
+            # Successfully got response and metrics
+            if metrics:
+                # TODO: Replace print with proper logging/reporting later
+                print(f"[METRICS] LLM Call Latency: {metrics.latency_ms:.2f} ms")
+            return response_text
+        except (RecoverableApiError, ValueError) as e:
+            # execute already logs the error and latency
+            # We need to re-raise the exception to maintain original behavior
+            logger.debug("execute_and_log_metrics caught error: %s", e)
+            # TODO: Decide if/how to log metrics attached to exceptions?
+            raise e  # Re-raise the original error
+        except Exception as e:
+            # Catch any unexpected errors not handled by execute's specific catches
+            logger.exception("Unexpected error in execute_and_log_metrics wrapper")
+            # Re-raise to ensure it's handled upstream
+            raise e
+
+    # ------------------------------------------ #
 
     def validate_model_name(self, model_name: str) -> str | None:
-        """Validate if the model name is recognized by the llm library.
-
-        This check does not validate API keys.
-
-        Args:
-            model_name: The name of the model to validate.
-
-        Returns:
-            Optional error message string if validation fails, None otherwise.
-        """
+        """Validate the model name using llm library helper."""
         # Delegate to the config-independent function
         is_valid, error_msg = is_valid_llm_model_name(model_name)
         if not is_valid:

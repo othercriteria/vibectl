@@ -23,8 +23,8 @@ def mock_model_adapter() -> Generator[Mock, None, None]:
     # Setup mock model
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
-    # Setup default response for execute
-    mock_adapter.execute.return_value = "Updated memory content"
+    # Setup default response for execute_and_log_metrics
+    mock_adapter.execute_and_log_metrics.return_value = "Updated memory content"
 
     # Save original adapter
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
@@ -72,16 +72,18 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
 
     # Verify model adapter was called with correct parameters
     mock_model_adapter.get_model.assert_called_once_with("claude-3.7-sonnet")
-    mock_model_adapter.execute.assert_called_once()
+    mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
     # Verify prompt contains command, output and vibe_output
-    prompt = mock_model_adapter.execute.call_args[0][1]
+    prompt = mock_model_adapter.execute_and_log_metrics.call_args[0][1]
     assert command in prompt
     assert command_output in prompt
     assert vibe_output in prompt
 
     # Verify memory was updated
     assert get_memory(test_config) == "Updated memory content"
+
+    mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
 
 @patch("vibectl.memory.is_memory_enabled")
@@ -102,7 +104,7 @@ def test_update_memory_disabled(
 
     # Verify model adapter was not called
     mock_model_adapter.get_model.assert_not_called()
-    mock_model_adapter.execute.assert_not_called()
+    mock_model_adapter.execute_and_log_metrics.assert_not_called()
 
 
 def test_update_memory_with_error(
@@ -115,7 +117,7 @@ def test_update_memory_with_error(
     vibe_output = "Error: invalid resource type"
 
     # Configure mock to return error-focused memory
-    mock_model_adapter.execute.return_value = (
+    mock_model_adapter.execute_and_log_metrics.return_value = (
         "Error occurred: invalid resource type 'pod'"
     )
 
@@ -128,7 +130,7 @@ def test_update_memory_with_error(
     )
 
     # Verify prompt emphasizes the error
-    prompt = mock_model_adapter.execute.call_args[0][1]
+    prompt = mock_model_adapter.execute_and_log_metrics.call_args[0][1]
     assert "Error:" in prompt
     assert "extremely important information" in prompt
 
@@ -141,16 +143,24 @@ def test_update_memory_model_error(
 ) -> None:
     """Test handling when model adapter raises an exception."""
     # Setup model adapter to raise exception
-    mock_model_adapter.execute.side_effect = ValueError("Model execution failed")
+    mock_model_adapter.execute_and_log_metrics.side_effect = ValueError(
+        "Model execution failed"
+    )
 
-    # Call update_memory - should not raise exception
-    with pytest.raises(ValueError):
+    # Patch set_memory to verify it's not called
+    with patch("vibectl.memory.set_memory") as mock_set_mem:
+        # Call update_memory - should catch the exception internally
         update_memory(
             command="kubectl get pods",
             command_output="output",
             vibe_output="vibe",
             config=test_config,
         )
+
+        # Verify execute_and_log_metrics was called (and raised error)
+        mock_model_adapter.execute_and_log_metrics.assert_called_once()
+        # Verify set_memory was NOT called because of the error
+        mock_set_mem.assert_not_called()
 
 
 def test_update_memory_integration(test_config: Config) -> None:
@@ -163,9 +173,9 @@ def test_update_memory_integration(test_config: Config) -> None:
     mock_adapter = Mock(spec=ModelAdapter)
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.return_value = (
-        "Cluster has 3 pods running in namespace default"
-    )
+    # Set the expected final memory content
+    expected_memory = "Cluster has 3 pods running in namespace default"
+    mock_adapter.execute_and_log_metrics.return_value = expected_memory
 
     # Set our mock as the global adapter
     set_model_adapter(mock_adapter)
@@ -182,12 +192,13 @@ def test_update_memory_integration(test_config: Config) -> None:
             config=test_config,
         )
 
-        # Verify memory was updated
-        assert (
-            get_memory(test_config) == "Cluster has 3 pods running in namespace default"
-        )
+        # Verify execute_and_log_metrics was called
+        mock_adapter.execute_and_log_metrics.assert_called_once()
 
-        # Verify memory is used in prompts
+        # Verify memory was updated correctly
+        assert get_memory(test_config) == expected_memory
+
+        # Verify memory is used in prompts (optional check)
         assert is_memory_enabled(test_config)
     finally:
         # Clean up

@@ -97,6 +97,7 @@ class Success:
     data: Any | None = None
     continue_execution: bool = True  # Flag to control if execution flow should continue
     # When False, indicates a normal termination of a command sequence (like exit)
+    metrics: "LLMMetrics | None" = None
 
 
 @dataclass
@@ -107,6 +108,7 @@ class Error:
     # If False, auto command will continue processing after this error
     # Default True to maintain current behavior
     halt_auto_loop: bool = True
+    metrics: "LLMMetrics | None" = None
 
 
 # Union type for command results
@@ -146,6 +148,33 @@ Output = Truncation | InvalidOutput
 
 # Type alias for YAML sections dictionary
 YamlSections = dict[str, str]
+
+
+@dataclass
+class LLMMetrics:
+    """Stores metrics related to LLM calls."""
+
+    token_input: int = 0
+    token_output: int = 0
+    latency_ms: float = 0.0
+    fragments_used: list[str] | None = None  # Track fragments if used
+    cache_hit: bool | None = None  # Track if response was cached (if possible)
+    call_count: int = 0
+
+    def __add__(self, other: "LLMMetrics") -> "LLMMetrics":
+        """Allows adding metrics together, useful for aggregation."""
+        if not isinstance(other, LLMMetrics):
+            return NotImplemented
+        # Note: fragment/cache status isn\'t additive in a simple way
+        # Primarily summing counts and latency. Caller handles lists/bools if needed.
+        return LLMMetrics(
+            token_input=self.token_input + other.token_input,
+            token_output=self.token_output + other.token_output,
+            latency_ms=self.latency_ms + other.latency_ms,
+            call_count=self.call_count + other.call_count,
+            # fragments_used and cache_hit are not directly additive
+        )
+
 
 # --- Kubectl Command Types ---
 

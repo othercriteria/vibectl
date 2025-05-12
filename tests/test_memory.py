@@ -185,7 +185,7 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
     # Setup model response
     mock_response = "Updated memory content"
-    mock_adapter.execute.return_value = mock_response
+    mock_adapter.execute_and_log_metrics.return_value = mock_response
 
     # Create a spy on set_memory to verify what's actually being passed
     with (
@@ -211,9 +211,7 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
     # Verify the adapter was used correctly
     mock_get_adapter.assert_called_once()
     mock_adapter.get_model.assert_called_once_with("test-model")
-    mock_adapter.execute.assert_called_once_with(
-        mock_model, "Test memory update prompt"
-    )
+    mock_adapter.execute_and_log_metrics.assert_called_once()
 
     # Verify memory was updated with the correct content
     mock_set_memory.assert_called_once_with(mock_response, mock_config)

@@ -181,10 +181,10 @@ async def test_recovery_suggestions_should_update_memory(
     )
     # LLM execute needs to return the plan first, then recovery suggestions
     recovery_suggestion_text = "Oops: Pod not found. Try 'kubectl get pods -A'."
-    # Configure the adapter instance's execute method via the fixture
-    mock_get_adapter.execute.side_effect = [
-        expected_plan_json,
-        recovery_suggestion_text,  # LLM response for recovery
+    # Configure the adapter instance's execute_and_log_metrics method via the fixture
+    mock_get_adapter.execute_and_log_metrics.side_effect = [
+        expected_plan_json,  # Planning step returns JSON
+        recovery_suggestion_text,  # Recovery step returns text
     ]
     # _execute_command (kubectl) fails
     original_error = Error(error="Pod not found", exception=None)
@@ -248,8 +248,9 @@ async def test_recovery_suggestions_in_auto_mode(
     # }
     # second_plan_json = json.dumps(second_plan) # Unused
 
-    # Configure the adapter instance's execute method via the fixture
-    mock_get_adapter.execute.side_effect = [
+    # Configure the adapter instance's execute_and_log_metrics method via the fixture
+    # Side effect for: Plan (JSON), Recovery (Text)
+    mock_get_adapter.execute_and_log_metrics.side_effect = [
         initial_plan_json,
         recovery_suggestion_text,
         # second_plan_json, # Auto-mode retry logic not implemented/tested here yet

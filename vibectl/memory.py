@@ -4,12 +4,16 @@ This module provides functionality for managing and updating the memory
 that is maintained between vibectl commands.
 """
 
+import logging
 from collections.abc import Callable
 from typing import cast
 
 from .config import Config
 from .model_adapter import get_model_adapter
 from .prompt import memory_update_prompt
+from .types import RecoverableApiError
+
+logger = logging.getLogger(__name__)
 
 
 def get_memory(config: Config | None = None) -> str:
@@ -115,11 +119,19 @@ def update_memory(
 
     # Use model adapter instead of direct llm usage
     model_adapter = get_model_adapter(cfg)
-    model = model_adapter.get_model(model_name)
-    prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
-
-    updated_memory = model_adapter.execute(model, prompt)
-    set_memory(updated_memory, cfg)
+    try:
+        model = model_adapter.get_model(model_name)
+        prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
+        # Use the wrapper function to execute and handle metrics logging
+        updated_memory = model_adapter.execute_and_log_metrics(model, prompt)
+        set_memory(updated_memory, cfg)
+    except (RecoverableApiError, ValueError):
+        # For now, just ignore errors updating memory to avoid disrupting flow
+        pass
+    except Exception:
+        # Log unexpected errors if logger is available
+        # logger.exception("Unexpected error updating memory")
+        pass  # Ignore unexpected errors too for now
 
 
 def include_memory_in_prompt(

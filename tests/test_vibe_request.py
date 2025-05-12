@@ -74,7 +74,9 @@ async def test_handle_vibe_request_success(  # Added async
     }
     kubectl_output_data = "pod-a\npod-b"
     # Summary handling is now part of the mock_handle_output side effect
-    mock_llm.execute.return_value = json.dumps(plan_response)  # Planning returns JSON
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )  # Planning returns JSON
 
     # Patch _execute_command
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -125,7 +127,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
     """Test vibe request with empty string response from planner."""
     # Set up empty response
     malformed_response = ""
-    mock_llm.execute.return_value = malformed_response
+    mock_llm.execute_and_log_metrics.return_value = malformed_response
 
     # Empty string is handled before JSON parsing
     # It should return Error("LLM returned an empty response.") directly
@@ -183,7 +185,7 @@ async def test_handle_vibe_request_error_response(  # Added async
         "error": error_msg,
         "explanation": explanation_msg,
     }
-    mock_llm.execute.return_value = json.dumps(error_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(error_response)
 
     # Set show_kubectl to True (doesn't affect this path but good practice)
     mock_output_flags_for_vibe_request.show_kubectl = True
@@ -229,7 +231,7 @@ async def test_handle_vibe_request_invalid_format(  # Added async
     """Test vibe request with non-JSON format from planner."""
     # Set up invalid response
     non_json_response = "kubectl get pods # This is not JSON"
-    mock_llm.execute.return_value = non_json_response
+    mock_llm.execute_and_log_metrics.return_value = non_json_response
 
     # Configure the mock create_api_error to return a specific Error object
     # Need a dummy exception instance for the mock
@@ -293,7 +295,9 @@ async def test_handle_vibe_request_no_output(  # Added async
         "explanation": "Get pods",
     }
     # Summary not needed as handle_command_output is fully mocked
-    mock_llm.execute.return_value = json.dumps(plan_response)  # Return JSON string
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )  # Return JSON string
 
     # Create custom OutputFlags with no outputs
     no_output_flags = OutputFlags(
@@ -430,7 +434,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
         expect_api_error_call,
     ) in test_cases:
         print(f"Running test case: {desc}")
-        mock_llm.execute.return_value = llm_response
+        mock_llm.execute_and_log_metrics.return_value = llm_response
         mock_update_memory.reset_mock()
         mock_create_api_error.reset_mock()
 
@@ -492,7 +496,7 @@ async def test_handle_vibe_request_command_error(  # Added async
         "commands": ["nonexistent-resource"],  # <<< Args only
         "explanation": "Trying to get a resource that does not exist.",
     }
-    mock_llm.execute.return_value = json.dumps(plan_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
     # Patch _execute_command to return an error
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -501,9 +505,10 @@ async def test_handle_vibe_request_command_error(  # Added async
             error=error_message, exception=RuntimeError("simulated kubectl error")
         )
 
-        # Set up side_effect for model_adapter.execute: plan first, then recovery
+        # Set up side_effect for model_adapter.execute_and_log_metrics:
+        # plan first, then recovery
         expected_recovery_suggestion = "Recovery suggestion: Check pod status."
-        mock_llm.execute.side_effect = [
+        mock_llm.execute_and_log_metrics.side_effect = [
             json.dumps(plan_response),
             expected_recovery_suggestion,
         ]
@@ -563,7 +568,7 @@ async def test_handle_vibe_request_error(  # Added async
         "error": error_msg,
         "explanation": explanation_msg,
     }
-    mock_llm.execute.return_value = json.dumps(plan_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
     # Assert the result of handle_vibe_request
     with patch(
@@ -621,7 +626,7 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
         "action_type": ActionType.FEEDBACK.value,
         "explanation": "Test response",
     }
-    mock_llm.execute.side_effect = [
+    mock_llm.execute_and_log_metrics.side_effect = [
         json.dumps(expected_response_plan),
         json.dumps(summary_response),  # Summary after successful execution as JSON
     ]
@@ -680,7 +685,7 @@ async def test_handle_vibe_request_yaml_response(  # Added async
         "commands": ["-f", "-"],  # <<< Args only, verb comes from 'command' param
         "explanation": "Applying configuration from stdin.",
     }
-    mock_llm.execute.return_value = json.dumps(plan_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
     # Mock prompt for confirmation (apply requires confirmation)
     mock_prompt.return_value = "y"
@@ -755,7 +760,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
         "action_type": ActionType.FEEDBACK.value,
         "explanation": "Test response",
     }
-    mock_llm.execute.side_effect = [
+    mock_llm.execute_and_log_metrics.side_effect = [
         json.dumps(expected_response_plan),  # Planning step returns JSON
         json.dumps(summary_response),  # Summary step as JSON
     ]
@@ -815,7 +820,7 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
         "commands": [llm_verb, *llm_args],
         "explanation": llm_explanation,
     }
-    mock_llm.execute.return_value = json.dumps(plan_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
     # Define what the display string should look like
     expected_display_args_str = _create_display_command_for_test(llm_args)
@@ -831,7 +836,7 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
         # We need fresh mocks for patched functions inside the loop
 
         # Set the LLM response again for this iteration (if reset)
-        mock_llm.execute.return_value = json.dumps(plan_response)
+        mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
         # Create output flags for this iteration
         output_flags = OutputFlags(
@@ -992,7 +997,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
         "explanation": "Get the pods.",
     }
     kubectl_output_data = "pod-a\npod-b"
-    mock_llm.execute.return_value = json.dumps(plan_response)
+    mock_llm.execute_and_log_metrics.return_value = json.dumps(plan_response)
 
     # Patch _execute_command to return success
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -1076,7 +1081,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
         # First call (planning) returns the plan
         # Second call (recovery) raises a general Exception
         recovery_exception_message = "Unexpected LLM service outage"
-        mock_llm.execute.side_effect = [
+        mock_llm.execute_and_log_metrics.side_effect = [
             json.dumps(plan_response),
             Exception(recovery_exception_message),
         ]
@@ -1094,7 +1099,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
             )
 
             # Verify the LLM execute was called twice (plan + recovery attempt)
-            assert mock_llm.execute.call_count == 2
+            assert mock_llm.execute_and_log_metrics.call_count == 2
 
             # Verify update_memory was NOT called for the recovery failure itself
             # (it might be called for the *initial* error before recovery is attempted)

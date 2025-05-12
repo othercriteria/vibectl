@@ -56,17 +56,17 @@ async def test_vibe_command_with_request(
     #    won't use it. We just need get_model() to not fail.
     mock_adapter_instance.get_model.return_value = MagicMock()
 
-    # 3. The adapter's execute method is what _get_llm_plan and update_memory call.
-    #    This should directly return the sequence of strings.
-    mock_adapter_instance.execute.side_effect = [
+    # Mock the execute_and_log_metrics method which is called by _get_llm_plan,
+    # update_memory, and _get_llm_summary
+    mock_adapter_instance.execute_and_log_metrics.side_effect = [
         LLMCommandResponse(
             action_type=ActionType.COMMAND,
             commands=["create", "deployment", "nginx", "--image=nginx"],
             explanation="ok",
-        ).model_dump_json(),  # For _get_llm_plan
-        "Memory updated after execution.",  # For first update_memory call
-        "Deployment created successfully.",  # For _get_llm_summary call
-        "Memory updated after summary.",  # For second update_memory call
+        ).model_dump_json(),  # 1. For _get_llm_plan call
+        "Memory updated after execution.",  # 2. For first update_memory call
+        "Deployment created successfully.",  # 3. For _get_llm_summary call
+        "Memory updated after summary.",  # 4. For second update_memory call
     ]
 
     mock_run_kubectl.return_value = Success(data="deployment created")
@@ -86,7 +86,7 @@ async def test_vibe_command_with_request(
         mock_adapter_instance.get_model.call_count >= 1
     )  # get_model is called by _get_llm_plan and update_memory
     assert (
-        mock_adapter_instance.execute.call_count >= 2
+        mock_adapter_instance.execute_and_log_metrics.call_count >= 1
     )  # Plan + at least one memory/summary
 
 
@@ -149,13 +149,13 @@ async def test_vibe_command_with_yes_flag(
     # 2. Mock adapter's get_model
     mock_adapter_instance.get_model.return_value = MagicMock()
 
-    # 3. Mock adapter's execute method for sequential plan and feedback
+    # 3. Mock adapter's execute_and_log_metrics method for sequential plan and feedback
     plan_json = LLMCommandResponse(
         action_type=ActionType.COMMAND,
         commands=["create", "deployment", "my-deploy", "--image=nginx"],
         explanation="Create deploy",
     ).model_dump_json()
-    mock_adapter_instance.execute.side_effect = [
+    mock_adapter_instance.execute_and_log_metrics.side_effect = [
         plan_json,  # For _get_llm_plan
         '{"action_type": "FEEDBACK", "explanation": "kubectl failed"}',  # For recovery
         "Memory updated after initial plan.",  # For first update_memory
@@ -179,7 +179,9 @@ async def test_vibe_command_with_yes_flag(
     assert mock_ch_get_model_adapter.call_count >= 1
     assert mock_mem_get_model_adapter.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
-    assert mock_adapter_instance.execute.call_count >= 2  # Plan + recovery feedback
+    assert (
+        mock_adapter_instance.execute_and_log_metrics.call_count >= 2
+    )  # Plan + recovery feedback
     mock_run_kubectl.assert_called_once()
 
 
@@ -425,7 +427,7 @@ async def test_handle_vibe_with_unknown_model(
     # update_memory calls get_model then execute. Mock them.
     mock_mem_model_obj = MagicMock()
     mock_mem_adapter_instance.get_model.return_value = mock_mem_model_obj
-    mock_mem_adapter_instance.execute.return_value = (
+    mock_mem_adapter_instance.execute_and_log_metrics.return_value = (
         "Memory updated during error handling."
     )
 
@@ -445,7 +447,8 @@ async def test_handle_vibe_with_unknown_model(
     # Verify that update_memory (via memory.get_model_adapter) was also called
     mock_mem_get_model_adapter.assert_called_once()
     mock_mem_adapter_instance.get_model.assert_called_once()  # Called by update_memory
-    mock_mem_adapter_instance.execute.assert_called_once()  # Called by update_memory
+    # Assert execute_and_log_metrics was called, as update_memory now uses that
+    mock_mem_adapter_instance.execute_and_log_metrics.assert_called_once()
 
 
 @patch("vibectl.k8s_utils.subprocess.Popen")  # Mock Popen in k8s_utils
@@ -482,7 +485,7 @@ async def test_vibe_command_with_yaml_input(
         yaml_manifest=yaml_content_str,
     ).model_dump_json()
 
-    mock_adapter_instance.execute.side_effect = [
+    mock_adapter_instance.execute_and_log_metrics.side_effect = [
         plan_json,
         "Memory updated after execution.",
         "ConfigMap applied.",
@@ -527,7 +530,7 @@ async def test_vibe_command_with_yaml_input(
     assert mock_ch_get_model_adapter.call_count >= 1
     assert mock_mem_get_model_adapter.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
-    assert mock_adapter_instance.execute.call_count >= 2
+    assert mock_adapter_instance.execute_and_log_metrics.call_count >= 2
     # Assert Config.get was called for "kubeconfig"
     mock_config_instance_ch.get.assert_any_call("kubeconfig")
 
@@ -562,7 +565,7 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
         explanation="Delete a pod",
     ).model_dump_json()
 
-    mock_adapter_instance.execute.side_effect = [
+    mock_adapter_instance.execute_and_log_metrics.side_effect = [
         plan_json,  # For _get_llm_plan
         LLMCommandResponse(  # For recovery prompt in handle_command_output
             action_type=ActionType.FEEDBACK,
@@ -584,4 +587,6 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
     assert mock_ch_get_model_adapter.call_count >= 1
     assert mock_mem_get_model_adapter.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
-    assert mock_adapter_instance.execute.call_count >= 2  # Plan + recovery feedback
+    assert (
+        mock_adapter_instance.execute_and_log_metrics.call_count >= 2
+    )  # Plan + recovery feedback

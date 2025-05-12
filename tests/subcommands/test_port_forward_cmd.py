@@ -372,7 +372,10 @@ async def test_handle_vibe_request_port_forward_clean(
         "commands": expected_args,
         "explanation": "Port forwarding nginx.",
     }
-    mock_model_adapter_for_pf.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter_for_pf.execute_and_log_metrics.return_value = json.dumps(
+        expected_response
+    )
+    mock_model_adapter_for_pf.get_model.return_value = Mock()
 
     # Call handle_vibe_request (needs output_flags)
     output_flags = OutputFlags(
@@ -423,7 +426,10 @@ async def test_handle_vibe_request_port_forward_with_flags(
         "commands": expected_args,
         "explanation": "Port forwarding nginx in default namespace.",
     }
-    mock_model_adapter_for_pf.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter_for_pf.execute_and_log_metrics.return_value = json.dumps(
+        expected_response
+    )
+    mock_model_adapter_for_pf.get_model.return_value = Mock()
 
     # Call handle_vibe_request (needs output_flags)
     output_flags = OutputFlags(
@@ -477,7 +483,10 @@ async def test_handle_vibe_request_port_forward_multiple_ports(
         "commands": expected_args,
         "explanation": "Port forwarding multiple ports for nginx.",
     }
-    mock_model_adapter_for_pf.execute.return_value = json.dumps(expected_response)
+    mock_model_adapter_for_pf.execute_and_log_metrics.return_value = json.dumps(
+        expected_response
+    )
+    mock_model_adapter_for_pf.get_model.return_value = Mock()
 
     # Call handle_vibe_request (needs output_flags)
     output_flags = OutputFlags(

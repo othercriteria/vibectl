@@ -207,7 +207,9 @@ def test_fuzzy_memory_update(
     mock_model_instance = Mock()
     mock_get_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model_instance
-    mock_adapter_instance.execute.return_value = "Updated memory context"
+    mock_adapter_instance.execute_and_log_metrics.return_value = (
+        "Updated memory context"
+    )
     mock_prompt_func.return_value = "Fuzzy update prompt"
 
     # Simulate user input for the update text
@@ -222,7 +224,7 @@ def test_fuzzy_memory_update(
     )
     mock_get_adapter.assert_called_once_with(mock_cfg_instance)
     mock_adapter_instance.get_model.assert_called_once_with("test-model")
-    mock_adapter_instance.execute.assert_called_once_with(
+    mock_adapter_instance.execute_and_log_metrics.assert_called_once_with(
         mock_model_instance, "Fuzzy update prompt"
     )
     mock_set_memory.assert_called_once_with("Updated memory context", mock_cfg_instance)

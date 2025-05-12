@@ -23,7 +23,9 @@ def mock_llm() -> Generator[MagicMock, None, None]:
             "action_type": ActionType.FEEDBACK.value,
             "explanation": "Default test response.",
         }
-        mock.return_value.execute.return_value = json.dumps(default_response)
+        mock.return_value.execute_and_log_metrics.return_value = json.dumps(
+            default_response
+        )
         yield mock
 
 
@@ -156,7 +158,9 @@ async def test_vibe_delete_with_confirmation(
         "commands": ["pod", "my-pod"],  # Args only
         "explanation": "Deleting pod my-pod as requested.",
     }
-    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
+    mock_llm.return_value.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )
 
     # Patch _execute_command and click.prompt directly
     with (
@@ -209,8 +213,10 @@ async def test_vibe_delete_with_confirmation_cancelled(
         "commands": ["pod", "nginx"],  # Args only
         "explanation": "Deleting pod nginx as requested.",
     }
-    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
-    mock_llm.return_value.execute.side_effect = None
+    mock_llm.return_value.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )
+    mock_llm.return_value.execute_and_log_metrics.side_effect = None
 
     # Patch _execute_command (it should NOT be called)
     with (
@@ -266,8 +272,10 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
         "commands": ["pod", "my-pod"],  # Args only
         "explanation": "Deleting pod my-pod as requested.",
     }
-    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
-    mock_llm.return_value.execute.side_effect = None
+    mock_llm.return_value.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )
+    mock_llm.return_value.execute_and_log_metrics.side_effect = None
 
     # Patch _execute_command
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -319,9 +327,11 @@ async def test_vibe_non_delete_commands_skip_confirmation(
     }
 
     # <<< FIX: Set return_value on the mocked adapter instance returned by the patch >>>
-    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
+    mock_llm.return_value.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )
     # Ensure side_effect is cleared if set elsewhere
-    mock_llm.return_value.execute.side_effect = None
+    mock_llm.return_value.execute_and_log_metrics.side_effect = None
 
     # Patch _execute_command to check it's called and returns success
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -378,7 +388,9 @@ async def test_vibe_delete_confirmation_memory_option(
         "commands": ["pod", "mem-test"],
         "explanation": "Deleting pod mem-test.",
     }
-    mock_llm.return_value.execute.return_value = json.dumps(plan_response)
+    mock_llm.return_value.execute_and_log_metrics.return_value = json.dumps(
+        plan_response
+    )
 
     # Mock get_memory return value
     mock_get_memory.return_value = "Current memory content."
@@ -451,10 +463,11 @@ async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
     mock_get_memory.return_value = "Existing memory"
 
     # Mock the *single* adapter instance provided by the mock_get_adapter fixture
-    # Make its execute method have a side effect: first success, then failure
+    # Make its execute_and_log_metrics method have a side effect:
+    # first success, then failure
     mock_fuzzy_adapter = mock_get_adapter.return_value  # Get the mock adapter instance
     fuzzy_update_exception = ConnectionError("Fuzzy LLM unavailable")
-    mock_fuzzy_adapter.execute.side_effect = [
+    mock_fuzzy_adapter.execute_and_log_metrics.side_effect = [
         planning_response_str,  # First call (planning) succeeds
         fuzzy_update_exception,  # Second call (fuzzy update) raises error
     ]
@@ -481,7 +494,7 @@ async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
         # Verify get_memory was called for the update
         mock_get_memory.assert_called_once()
         # Verify the fuzzy update LLM call was attempted (execute called twice total)
-        assert mock_fuzzy_adapter.execute.call_count == 2
+        assert mock_fuzzy_adapter.execute_and_log_metrics.call_count == 2
         # Verify set_memory was NOT called because the update failed
         mock_set_memory.assert_not_called()
         # Verify original command was NOT executed

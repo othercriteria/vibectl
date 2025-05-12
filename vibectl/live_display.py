@@ -793,7 +793,9 @@ async def _execute_port_forward_with_live_display(
             )
 
             logger.debug(f"Vibe Port-forward Summary Prompt:\n{prompt}")
-            vibe_output = model_adapter.execute(model, prompt)
+            # Unpack the tuple returned by execute, we only need the text
+            response_text, _ = model_adapter.execute(model, prompt)
+            vibe_output = response_text  # Assign the text part to vibe_output
 
             if vibe_output:
                 console_manager.print_vibe(vibe_output)

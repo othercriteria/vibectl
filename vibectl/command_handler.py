@@ -267,7 +267,9 @@ def handle_command_output(
                     try:
                         model_adapter = get_model_adapter()
                         model = model_adapter.get_model(output_flags.model_name)
-                        vibe_output = model_adapter.execute(model, prompt_str)
+                        vibe_output = model_adapter.execute_and_log_metrics(
+                            model, prompt_str
+                        )
                         suggestions_generated = True
                     except Exception as llm_exc:
                         # Handle LLM execution errors during recovery appropriately
@@ -535,7 +537,7 @@ def _get_llm_summary(
     model = model_adapter.get_model(model_name)
     # Format the prompt string with the output
     final_prompt = summary_prompt_str.format(output=processed_output)
-    return model_adapter.execute(model, final_prompt)
+    return model_adapter.execute_and_log_metrics(model, final_prompt)
 
 
 def _display_vibe_output(vibe_output: str) -> None:
@@ -954,7 +956,7 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
 
         # Get the response
         console_manager.print_processing("Updating memory...")
-        updated_memory = model_adapter.execute(model, prompt)
+        updated_memory = model_adapter.execute_and_log_metrics(model, prompt)
 
         # Set the updated memory
         set_memory(updated_memory, cfg)
@@ -1336,7 +1338,7 @@ def _get_llm_plan(
     logger.debug(f"Final planning prompt:\n{final_plan_prompt}")
 
     try:
-        llm_response_text = model_adapter.execute(
+        llm_response_text = model_adapter.execute_and_log_metrics(
             model=model,
             prompt_text=final_plan_prompt,
             response_model=response_model_type,

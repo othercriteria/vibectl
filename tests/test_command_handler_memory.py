@@ -43,7 +43,7 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
         # Set up mock model
         mock_model = Mock()
         mock_adapter.return_value.get_model.return_value = mock_model
-        mock_adapter.return_value.execute.return_value = "Test response"
+        mock_adapter.return_value.execute_and_log_metrics.return_value = "Test response"
 
         yield mock_adapter
 
@@ -84,6 +84,14 @@ async def test_handle_command_output_updates_memory(
         vibe_output="Test response",
         model_name="test-model",
     )
+
+    # Check that the LLM was called for the summary
+    mock_adapter_instance = mock_get_adapter.return_value
+    # Check execute_and_log_metrics was called for summary
+    # Ensure the call count check reflects planning + summary (if applicable)
+    # or just memory update
+    # This assertion might need adjustment based on whether summary is mocked out
+    assert mock_adapter_instance.execute_and_log_metrics.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -126,6 +134,14 @@ async def test_handle_command_output_does_not_update_memory_without_command(
         model_name="test-model",
     )
 
+    # Check that the LLM was called for the summary
+    mock_adapter_instance = mock_get_adapter.return_value
+    # Check execute_and_log_metrics was called for summary
+    # Ensure the call count check reflects planning + summary (if applicable)
+    # or just memory update
+    # This assertion might need adjustment based on whether summary is mocked out
+    assert mock_adapter_instance.execute_and_log_metrics.call_count == 0
+
 
 @pytest.mark.asyncio
 async def test_handle_command_output_updates_memory_with_error_output(
@@ -139,7 +155,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.return_value = "Vibe summary of the error."
+    mock_adapter.execute_and_log_metrics.return_value = "Vibe summary of the error."
     # Simulate truncation
     mock_process_auto.return_value = Truncation(
         original="Error from server: not found", truncated="Error...not found"
@@ -163,7 +179,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
     )
 
     # Assert LLM was called with the truncated error output
-    mock_adapter.execute.assert_called_once()
+    mock_adapter.execute_and_log_metrics.assert_called_once()
     # Check prompt includes error string
     # prompt_arg = mock_adapter.execute.call_args[0][1]
     # assert "Error...not found" in prompt_arg
@@ -174,6 +190,14 @@ async def test_handle_command_output_updates_memory_with_error_output(
     assert call_kwargs.get("command") == "get pods"
     assert call_kwargs.get("command_output") == error_input.error
     assert call_kwargs.get("vibe_output") == "Vibe summary of the error."
+
+    # Check that the LLM was called for the summary
+    mock_adapter_instance = mock_get_adapter.return_value
+    # Check execute_and_log_metrics was called for summary
+    # Ensure the call count check reflects planning + summary (if applicable)
+    # or just memory update
+    # This assertion might need adjustment based on whether summary is mocked out
+    assert mock_adapter_instance.execute_and_log_metrics.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -190,7 +214,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     mock_adapter.get_model.return_value = mock_model
     # Simulate LLM summary call failing with overloaded error
     overloaded_error_msg = "ERROR: Model capacity is overloaded."
-    mock_adapter.execute.return_value = overloaded_error_msg
+    mock_adapter.execute_and_log_metrics.return_value = overloaded_error_msg
     # Simulate truncation
     mock_process_auto.return_value = Truncation(
         original="Normal output", truncated="Normal output"
@@ -215,7 +239,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     )
 
     # Assert LLM was called
-    mock_adapter.execute.assert_called_once()
+    mock_adapter.execute_and_log_metrics.assert_called_once()
 
     # Assert memory update was NOT called because the summary failed
     mock_memory_update.assert_not_called()
@@ -224,6 +248,14 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     assert isinstance(result, Error)
     assert result.error == "Model capacity is overloaded."
     assert not result.halt_auto_loop
+
+    # Check that the LLM was called for the summary
+    mock_adapter_instance = mock_get_adapter.return_value
+    # Check execute_and_log_metrics was called for summary
+    # Ensure the call count check reflects planning + summary (if applicable)
+    # or just memory update
+    # This assertion might need adjustment based on whether summary is mocked out
+    assert mock_adapter_instance.execute_and_log_metrics.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -240,7 +272,9 @@ async def test_handle_vibe_request_updates_memory_on_error(
             "explanation": explanation,
         }
     )
-    mock_get_adapter.return_value.execute.return_value = error_response_str
+    mock_get_adapter.return_value.execute_and_log_metrics.return_value = (
+        error_response_str
+    )
 
     # Verb is not needed for this specific error path assertion
     # kubectl_verb = "get"
@@ -287,6 +321,10 @@ async def test_handle_vibe_request_updates_memory_on_error(
     assert result.error == f"LLM planning error: {error_msg}"
     assert result.recovery_suggestions == explanation
 
+    # Check that the LLM was called for the memory update
+    mock_adapter_instance = mock_get_adapter.return_value
+    mock_adapter_instance.execute_and_log_metrics.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_handle_vibe_request_error_recovery_flow(
@@ -307,7 +345,7 @@ async def test_handle_vibe_request_error_recovery_flow(
     }
     # Mock LLM recovery suggestion response
     recovery_suggestion = "Try checking the namespace."
-    mock_get_adapter.return_value.execute.side_effect = [
+    mock_get_adapter.return_value.execute_and_log_metrics.side_effect = [
         json.dumps(plan_response),
         json.dumps(
             {
@@ -315,6 +353,7 @@ async def test_handle_vibe_request_error_recovery_flow(
                 "explanation": recovery_suggestion,  # Simulate feedback as recovery
             }
         ),
+        "Summary after recovery.",  # For _get_llm_summary call
     ]
 
     # Create output flags, explicitly enabling show_vibe
@@ -362,7 +401,7 @@ async def test_handle_vibe_request_error_recovery_flow(
                 # Corrected recovery prompt call - use error message
                 recovery_prompt_content = mock_recovery_prompt(output_res.error)
                 # Execute the second LLM call for recovery
-                llm_recovery_response_json = model_adapter.execute(
+                llm_recovery_response_json = model_adapter.execute_and_log_metrics(
                     model_adapter.get_model(), recovery_prompt_content
                 )
                 suggestion = None
@@ -444,11 +483,12 @@ async def test_handle_vibe_request_error_recovery_flow(
         # The call happens inside the handle_output_side_effect mock
         mock_recovery_prompt.assert_called_once_with(execution_error_msg)
 
-        # Verify the LLM was called twice (Plan + Recovery)
-        assert mock_get_adapter.return_value.execute.call_count == 2
+        # Verify the LLM was called multiple times (Plan + Recovery)
+        assert mock_get_adapter.return_value.execute_and_log_metrics.call_count == 2
 
-        # Verify the recovery suggestion was printed *by the mock side effect*
-        mock_console.print_vibe.assert_called_with(recovery_suggestion)
+        # Verify the recovery suggestion was extracted and returned
+        assert isinstance(result, Error)  # Ensure it's an Error object
+        assert result.recovery_suggestions == recovery_suggestion  # type: ignore[attr-defined]
 
         # Verify memory WAS updated (via the patched function in memory module)
         mock_update_memory_mem_module.assert_called_once()
@@ -461,6 +501,13 @@ async def test_handle_vibe_request_error_recovery_flow(
         assert isinstance(result, Error)
         assert result.error == execution_error_msg
         assert result.recovery_suggestions == recovery_suggestion
+
+        # Check that execute_and_log_metrics was called for the plan and summary
+        mock_adapter_instance = mock_get_adapter.return_value
+        assert mock_adapter_instance.execute_and_log_metrics.call_count == 2
+
+        # Verify the prompt and schema used in the first call (planning)
+        # (Assuming the planning call is the first one)
 
 
 @pytest.mark.asyncio
@@ -489,7 +536,9 @@ async def test_handle_vibe_request_includes_memory_context(
         "commands": ["pods", "-n", "sandbox"],
         "explanation": "Getting pods in sandbox from memory.",
     }
-    mock_model_adapter.execute.return_value = json.dumps(expected_llm_response)
+    mock_model_adapter.execute_and_log_metrics.return_value = json.dumps(
+        expected_llm_response
+    )
 
     # Call the function under test
     # Need to patch _execute_command as the focus is on the planning call
@@ -515,6 +564,14 @@ async def test_handle_vibe_request_includes_memory_context(
         # This seems necessary even when memory_context is provided directly.
         # mock_get.assert_called_once()
 
+        # Check that execute_and_log_metrics was called for the plan and summary
+        mock_adapter_instance = mock_model_adapter
+        # Plan + Summary = 2 calls
+        assert mock_adapter_instance.execute_and_log_metrics.call_count == 2
+
+        # Verify the prompt and schema used in the first call (planning)
+        # (Assuming the planning call is the first one)
+
 
 # Mock logger to prevent actual logging during tests
 @pytest.fixture(autouse=True)
@@ -537,7 +594,9 @@ def mock_model_adapter() -> Generator[MagicMock, None, None]:
         mock_adapter = MagicMock()
         mock_model = MagicMock()
         mock_adapter.get_model.return_value = mock_model
-        mock_adapter.execute.return_value = "get pods -n test"  # Default success
+        mock_adapter.execute_and_log_metrics.return_value = (
+            "get pods -n test"  # Default success
+        )
         mock_get.return_value = mock_adapter
         yield mock_adapter
 

@@ -622,9 +622,7 @@ def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     mock_model = MagicMock()
     mock_get_model_adapter.return_value = mock_model_adapter
     mock_model_adapter.get_model.return_value = mock_model
-    mock_model_adapter.execute.return_value = (
-        "Mocked LLM Summary"  # This is returned by _get_llm_summary
-    )
+    mock_model_adapter.execute_and_log_metrics.return_value = "Mocked LLM Summary"
 
     # Mock the output processor return value
     mock_output_processor.process_auto.return_value = Truncation(
@@ -647,10 +645,11 @@ def test_process_vibe_output_with_autonomous_prompt_no_index_error(
         assert isinstance(result, Success)
         assert result.message == "Mocked LLM Summary"
 
-        # Verify the LLM execute was called (meaning formatting succeeded)
-        mock_model_adapter.execute.assert_called_once()
+        # Verify the LLM execute_and_log_metrics was called
+        mock_model_adapter.execute_and_log_metrics.assert_called_once()
         # Check the formatted prompt passed to the LLM execute call
-        call_args, _ = mock_model_adapter.execute.call_args
+        # The arguments are (self, model, prompt_text, response_model)
+        call_args, _ = mock_model_adapter.execute_and_log_metrics.call_args
         final_prompt_used = call_args[1]  # Second argument is the prompt text
 
         # Check that the output was correctly inserted
@@ -776,7 +775,7 @@ def test_handle_command_output_error_input_with_vibe_recovery(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.return_value = "Try restarting the pod."
+    mock_adapter.execute_and_log_metrics.return_value = "Try restarting the pod."
 
     result = handle_command_output(
         output=error_input,
@@ -790,7 +789,7 @@ def test_handle_command_output_error_input_with_vibe_recovery(
     assert result is error_input
     assert result.recovery_suggestions == "Try restarting the pod."
     # Verify LLM was called (for recovery)
-    mock_adapter.execute.assert_called_once()
+    mock_adapter.execute_and_log_metrics.assert_called_once()
     # Verify memory was updated with error and suggestion
     mock_update_memory.assert_called_once_with(
         command="test-command",
@@ -833,7 +832,7 @@ def test_handle_command_output_error_input_with_vibe_recoverable_api_error(
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
     api_error = RecoverableApiError("API Overloaded")
-    mock_adapter.execute.side_effect = api_error
+    mock_adapter.execute_and_log_metrics.side_effect = api_error
 
     result = handle_command_output(
         output=error_input,
@@ -888,7 +887,7 @@ def test_handle_command_output_error_input_with_vibe_generic_error(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.side_effect = generic_exception
+    mock_adapter.execute_and_log_metrics.side_effect = generic_exception
 
     result = handle_command_output(
         output=error_input,
