@@ -20,6 +20,7 @@ async def run_wait_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     live_display: bool = True,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'wait' subcommand logic, including logging and error handling.
@@ -35,6 +36,7 @@ async def run_wait_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

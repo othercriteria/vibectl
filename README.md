@@ -219,6 +219,7 @@ Note:
 ```zsh
 # Basic operations with AI-powered summaries
 vibectl get pods                                  # List pods with summary
+vibectl get pods --no-show-metrics               # List pods without LLM metrics
 vibectl describe deployment my-app                # Get detailed info
 vibectl logs pod/my-pod -f                       # Follow pod logs interactively
 vibectl scale deployment/nginx --replicas=3      # Scale a deployment
@@ -300,6 +301,7 @@ vibectl config set model_key_files.openai ~/.config/vibectl/keys/openai
 # Control output display
 vibectl config set show_raw_output true    # Always show raw kubectl output
 vibectl config set show_kubectl true       # Show kubectl commands being executed
+vibectl config set show_metrics false     # Hide LLM metrics (latency, tokens)
 
 # Set visual theme
 vibectl theme set dark

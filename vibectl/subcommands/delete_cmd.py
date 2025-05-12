@@ -21,6 +21,7 @@ async def run_delete_command(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -32,7 +33,11 @@ async def run_delete_command(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output, show_vibe=show_vibe, model=model
+            show_raw_output=show_raw_output,
+            show_vibe=show_vibe,
+            model=model,
+            show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)

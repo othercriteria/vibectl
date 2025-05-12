@@ -17,12 +17,12 @@ DEFAULT_CONFIG = {
     "kubeconfig": None,  # Will use default kubectl config location if None
     "kubectl_command": "kubectl",
     "theme": "dark",
-    "use_emoji": True,
     "show_raw_output": False,
     "show_vibe": True,
     "show_kubectl": False,  # Show kubectl commands when they are executed
     "show_memory": False,  # Show memory content before each auto/semiauto iteration
     "show_iterations": False,  # Show iteration count in auto/semiauto mode
+    "show_metrics": False,  # Show LLM metrics (latency, tokens)
     "model": "claude-3.7-sonnet",
     "memory_enabled": True,
     "memory_max_chars": 500,
@@ -60,12 +60,12 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "kubeconfig": (str, type(None)),
     "kubectl_command": str,
     "theme": str,
-    "use_emoji": bool,
     "show_raw_output": bool,
     "show_vibe": bool,
     "show_kubectl": bool,
     "show_memory": bool,  # Show memory before each iteration in auto/semiauto mode
     "show_iterations": bool,  # Show iteration count and limit in auto/semiauto mode
+    "show_metrics": bool,  # Show LLM metrics
     "warn_no_output": bool,
     "warn_no_proxy": bool,
     "model": str,

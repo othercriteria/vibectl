@@ -219,6 +219,7 @@ async def test_wait_with_flags(
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-haiku",
+        show_metrics=True,
     )
 
     # Set up mock kubectl output

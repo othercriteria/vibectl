@@ -40,10 +40,10 @@ async def test_vibe_command_with_request(
     mock_ch_get_model_adapter: Mock,
     mock_mem_get_model_adapter: Mock,
     mock_run_kubectl: Mock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with a request and OutputFlags."""
-    mock_configure_flags.return_value = standard_output_flags
+    mock_configure_flags.return_value = default_output_flags
     mock_vibe_cmd_get_memory.return_value = ""
 
     # 1. Mock get_model_adapter factory to return our mock adapter instance
@@ -122,7 +122,11 @@ async def test_vibe_command_without_request(
     assert kwargs["request"] == ""  # Should be empty string
     # Check flags passed to handle_vibe_request were configured correctly
     mock_configure_flags.assert_called_once_with(
-        show_raw_output=True, show_vibe=None, model=None, show_kubectl=None
+        show_raw_output=True,
+        show_vibe=None,
+        model=None,
+        show_kubectl=None,
+        show_metrics=None,
     )
 
 
@@ -138,10 +142,10 @@ async def test_vibe_command_with_yes_flag(
     mock_ch_get_model_adapter: Mock,
     mock_mem_get_model_adapter: Mock,
     mock_run_kubectl: Mock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test the main vibe command with the yes flag, mocking network calls."""
-    mock_configure_flags.return_value = standard_output_flags
+    mock_configure_flags.return_value = default_output_flags
     mock_vibe_cmd_get_memory.return_value = ""
 
     # 1. Mock get_model_adapter factory
@@ -337,6 +341,14 @@ async def test_vibe_command_logs_and_console_for_empty_request(
         "No request provided; using memory context for planning."
     )
     mock_handle_vibe.assert_called_once()
+    mock_configure_output.assert_called_once_with(
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        show_kubectl=None,
+        show_metrics=None,
+    )
+    mock_configure_memory.assert_called_once()
 
 
 @patch("vibectl.subcommands.vibe_cmd.logger")
@@ -471,10 +483,10 @@ async def test_vibe_command_with_yaml_input(
     mock_mem_get_model_adapter: Mock,
     mock_ch_config: Mock,  # New mock for command_handler.Config
     mock_k8s_popen: Mock,  # New mock for k8s_utils.subprocess.Popen
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe command when LLM plan includes YAML content and kubeconfig handling."""
-    mock_configure_flags.return_value = standard_output_flags
+    mock_configure_flags.return_value = default_output_flags
     mock_vibe_cmd_get_memory.return_value = ""
 
     # --- Mock LLM and Memory Adapters ---
@@ -553,10 +565,10 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
     mock_ch_get_model_adapter: Mock,
     mock_mem_get_model_adapter: Mock,
     mock_run_kubectl: Mock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe command when kubectl fails and LLM provides no recovery plan."""
-    mock_configure_flags.return_value = standard_output_flags
+    mock_configure_flags.return_value = default_output_flags
     mock_vibe_cmd_get_memory.return_value = ""
 
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)

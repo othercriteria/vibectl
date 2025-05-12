@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
+from pytest_mock import MockerFixture
 from rich.console import Console
 
 from vibectl.command_handler import OutputFlags
@@ -150,21 +151,23 @@ def mock_subprocess(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 
 @pytest.fixture
-def mock_configure_output_flags() -> Generator[Mock, None, None]:
+def mock_configure_output_flags(mocker: MockerFixture) -> Generator[Mock, None, None]:
     """Mock the configure_output_flags function for control over flags.
 
     Returns:
         Mock: Mocked configure_output_flags function that returns OutputFlags instance.
     """
-    with patch("vibectl.command_handler.configure_output_flags") as mock:
-        # Return an OutputFlags instance instead of a tuple
-        mock.return_value = OutputFlags(
-            show_raw=False,
-            show_vibe=True,
-            warn_no_output=True,
-            model_name="claude-3.7-sonnet",
-        )
-        yield mock
+    mock = mocker.patch("vibectl.command_handler.configure_output_flags")
+    mock.return_value = OutputFlags(
+        show_vibe=True,
+        show_metrics=True,
+        show_raw=False,
+        show_kubectl=False,
+        warn_no_output=True,
+        model_name="test-model",
+        warn_no_proxy=True,
+    )
+    yield mock
 
 
 @pytest.fixture
@@ -365,35 +368,31 @@ def mock_kubectl_output() -> str:
     return "test output"
 
 
-@pytest.fixture
-def standard_output_flags() -> "OutputFlags":
-    """Provide a standard set of OutputFlags for tests.
-
-    Returns:
-        OutputFlags: Standard output flags configuration for testing.
-    """
+@pytest.fixture(scope="session")
+def default_output_flags() -> OutputFlags:
+    """Provides a default OutputFlags instance for tests."""
     return OutputFlags(
-        show_raw=True,
         show_vibe=True,
-        warn_no_output=True,
-        model_name="claude-3.7-sonnet",
+        show_metrics=True,
+        show_raw=False,
         show_kubectl=False,
+        warn_no_output=True,
+        model_name="test-model",
+        warn_no_proxy=True,
     )
 
 
-@pytest.fixture
-def mock_output_flags_for_vibe_request() -> "OutputFlags":
-    """Provide OutputFlags specifically for vibe request tests.
-
-    Returns:
-        OutputFlags: Output flags configuration for vibe request tests.
-    """
+@pytest.fixture(scope="session")
+def no_vibe_output_flags() -> OutputFlags:
+    """Provides an OutputFlags instance with show_vibe=False."""
     return OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=True,
-        model_name="claude-3.7-sonnet",
+        show_vibe=False,
+        show_metrics=True,
+        show_raw=True,
         show_kubectl=False,
+        warn_no_output=True,
+        model_name="test-model",
+        warn_no_proxy=True,
     )
 
 

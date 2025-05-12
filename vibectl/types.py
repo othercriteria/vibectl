@@ -39,6 +39,7 @@ class OutputFlags:
     show_vibe: bool
     warn_no_output: bool
     model_name: str
+    show_metrics: bool  # Added flag for controlling metrics display
     show_kubectl: bool = False  # Flag to control showing kubectl commands
     warn_no_proxy: bool = (
         True  # Flag to control warnings about missing proxy configuration
@@ -61,6 +62,7 @@ class OutputFlags:
         show_vibe = self.show_vibe
         warn_no_output = self.warn_no_output
         model_name = self.model_name
+        show_metrics = self.show_metrics
         show_kubectl = self.show_kubectl
         warn_no_proxy = self.warn_no_proxy
 
@@ -74,6 +76,8 @@ class OutputFlags:
                 warn_no_output = value
             elif key == "model_name":
                 model_name = value
+            elif key == "show_metrics":
+                show_metrics = value
             elif key == "show_kubectl":
                 show_kubectl = value
             elif key == "warn_no_proxy":
@@ -85,6 +89,7 @@ class OutputFlags:
             show_vibe=show_vibe,
             warn_no_output=warn_no_output,
             model_name=model_name,
+            show_metrics=show_metrics,
             show_kubectl=show_kubectl,
             warn_no_proxy=warn_no_proxy,
         )

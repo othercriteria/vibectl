@@ -41,6 +41,7 @@ def test_handle_standard_command_logs(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
+        show_metrics=True,
     )
 
     # Test handling the logs command
@@ -83,8 +84,9 @@ def test_handle_standard_command_logs(
 def test_handle_standard_command_error_with_exception(
     mock_handle_output: MagicMock,
     mock_run_kubectl: MagicMock,
+    default_output_flags: OutputFlags,
+    mock_memory: tuple[MagicMock, MagicMock],
     mock_console: Mock,
-    standard_output_flags: OutputFlags,
     mock_summary_prompt: Callable[[], str],
 ) -> None:
     """Test handle_standard_command when run_kubectl returns Error with exception."""
@@ -98,7 +100,7 @@ def test_handle_standard_command_error_with_exception(
         command="get",
         resource="pods",
         args=("mypod",),
-        output_flags=standard_output_flags,  # Flags don't matter much here
+        output_flags=default_output_flags,  # Flags don't matter much here
         summary_prompt_func=mock_summary_prompt,
     )
 
@@ -121,7 +123,7 @@ def test_handle_standard_command_empty_output(
     mock_handle_output: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console: Mock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_summary_prompt: Callable[[], str],
 ) -> None:
     """Test handle_standard_command if run_kubectl returns Success with empty output."""
@@ -132,7 +134,7 @@ def test_handle_standard_command_empty_output(
         command="get",
         resource="pods",
         args=(),
-        output_flags=standard_output_flags,
+        output_flags=default_output_flags,
         summary_prompt_func=mock_summary_prompt,
     )
 

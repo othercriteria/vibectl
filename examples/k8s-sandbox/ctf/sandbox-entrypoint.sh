@@ -192,10 +192,12 @@ if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode enabled: showing raw output and kubectl commands"
   vibectl config set show_raw_output true
   vibectl config set show_kubectl true
+  vibectl config set show_metrics true
   export VIBECTL_TRACEBACK=1
 else
   vibectl config set show_raw_output false
   vibectl config set show_kubectl false
+  vibectl config set show_metrics false
 fi
 
 echo "🏆 Starting challenge - setting up Kubernetes environment..."

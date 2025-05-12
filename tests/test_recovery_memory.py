@@ -71,6 +71,8 @@ def output_flags() -> OutputFlags:
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,  # Ensure kubectl command is shown if generated
+        warn_no_proxy=True,
+        show_metrics=True,
     )
 
 

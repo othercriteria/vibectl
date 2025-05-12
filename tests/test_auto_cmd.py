@@ -68,6 +68,14 @@ async def test_run_auto_command_basic(monkeypatch: pytest.MonkeyPatch) -> None:
         mock_sleep.call_count == 2
     )  # Sleep should be called after each successful iteration except the last
 
+    mock_configure_output.assert_called_once_with(
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        show_kubectl=None,
+        show_metrics=None,  # Expect None when flag not explicitly passed
+    )
+
 
 @pytest.mark.asyncio
 async def test_run_auto_command_with_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -476,6 +484,7 @@ async def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         semiauto=True,  # Should be True for semiauto
         exit_on_error=False,  # Should be False by default now
         limit=None,  # Should pass through as None by default
+        show_metrics=None,  # Add missing show_metrics expectation
     )
 
     # Test with exit_on_error explicitly set to True

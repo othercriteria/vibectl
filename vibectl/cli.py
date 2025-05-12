@@ -56,6 +56,7 @@ def common_command_options(
     include_show_kubectl: bool = False,
     include_live_display: bool = False,
     include_yes: bool = False,
+    include_show_metrics: bool = True,
 ) -> Callable:
     """Decorator to DRY out common CLI options for subcommands."""
 
@@ -99,6 +100,15 @@ def common_command_options(
             options.append(
                 click.option(
                     "--yes", "-y", is_flag=True, help="Skip confirmation prompt"
+                )
+            )
+        if include_show_metrics:
+            options.append(
+                click.option(
+                    "--show-metrics/--no-show-metrics",
+                    is_flag=True,
+                    default=None,
+                    help="Show LLM latency and token usage metrics",
                 )
             )
         for option in reversed(options):
@@ -184,18 +194,20 @@ async def get(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
     # Await the call to the now-async runner function
     result = await run_get_command(
-        resource,
-        args,
-        show_raw_output,
-        show_vibe,
-        show_kubectl,
-        model,
-        freeze_memory,
-        unfreeze_memory,
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -213,17 +225,19 @@ async def describe(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     result = await run_describe_command(
-        resource,
-        args,
-        show_raw_output,
-        show_vibe,
-        show_kubectl,
-        model,
-        freeze_memory,
-        unfreeze_memory,
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -241,17 +255,19 @@ async def logs(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
     result = await run_logs_command(
-        resource,
-        args,
-        show_raw_output,
-        show_vibe,
-        show_kubectl,
-        model,
-        freeze_memory,
-        unfreeze_memory,
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -266,18 +282,20 @@ def _create_command_logic(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> Result:
     """Handles the logic for standard (non-vibe) create commands."""
     # Call the synchronous runner function from the subcommand module
     return run_create_command(
-        resource,
-        args,
-        show_raw_output,
-        show_vibe,
-        show_kubectl,
-        model,
-        freeze_memory,
-        unfreeze_memory,
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
     )
 
 
@@ -294,6 +312,7 @@ async def create(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
     if resource == "vibe":
@@ -312,6 +331,7 @@ async def create(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
+            show_metrics=show_metrics,
         )
     else:
         # Call the helper function for standard create logic
@@ -325,6 +345,7 @@ async def create(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
+            show_metrics=show_metrics,
         )
     handle_result(result)
 
@@ -343,6 +364,7 @@ async def delete(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
+    show_metrics: bool | None = None,
 ) -> None:
     """Delete a resource.
 
@@ -361,6 +383,7 @@ async def delete(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         yes=yes,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -609,6 +632,7 @@ async def auto(
     interval: int = 5,
     limit: int | None = None,
     yes: bool = False,
+    show_metrics: bool | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -625,6 +649,7 @@ async def auto(
             interval=interval,
             semiauto=False,
             limit=limit,
+            show_metrics=show_metrics,
         )
         handle_result(result)
     except Exception as e:
@@ -654,6 +679,7 @@ def semiauto(
     freeze_memory: bool,
     unfreeze_memory: bool,
     limit: int | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Run vibe command in semiauto mode with manual confirmation.
 
@@ -710,6 +736,7 @@ async def events(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """List events in the cluster."""
     result = await run_events_command(
@@ -720,13 +747,52 @@ async def events(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    handle_result(result)
+
+
+@cli.command()
+@click.argument("request", required=False)
+@common_command_options(include_show_kubectl=True, include_yes=True)
+@click.option(
+    "--show-metrics/--no-show-metrics",
+    is_flag=True,
+    default=None,
+    help="Show LLM latency and token usage metrics",
+)
+async def vibe(
+    request: str | None,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    yes: bool = False,
+    show_metrics: bool | None = None,
+) -> None:
+    """LLM interprets natural language request and runs fitting kubectl command."""
+    # Call run_vibe_command instead of handle_vibe_request directly
+    result = await run_vibe_command(
+        request=request,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        yes=yes,
+        semiauto=False,  # Vibe command is never called in semiauto loop directly
+        exit_on_error=False,  # Let handle_result manage exit
+        show_metrics=show_metrics,  # Pass show_metrics
     )
     handle_result(result)
 
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(include_show_kubectl=True, include_yes=True)
 async def version(
     args: tuple,
     show_raw_output: bool | None = None,
@@ -735,16 +801,19 @@ async def version(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+    yes: bool = False,
 ) -> None:
     """Show Kubernetes version information."""
     result = await run_version_command(
-        args,
+        args=args,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -760,6 +829,7 @@ async def cluster_info(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> int | None:
     """Display cluster info."""
     # Await run_cluster_info_command
@@ -771,6 +841,7 @@ async def cluster_info(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        show_metrics=show_metrics,
     )
     handle_result(result)
     # Return 0 for success consistency if needed, but handle_result exits on error
@@ -949,6 +1020,7 @@ async def scale(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Scale resources.
 
@@ -971,6 +1043,7 @@ async def scale(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -988,10 +1061,12 @@ def rollout(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     """Manage rollouts of deployments, statefulsets, and daemonsets."""
     if ctx.invoked_subcommand is not None:
         return
+
     console_manager.print_error(
         "Missing subcommand for rollout. "
         "Use one of: status, history, undo, restart, pause, resume"
@@ -1010,6 +1085,7 @@ async def _rollout_common(
     unfreeze_memory: bool,
     show_kubectl: bool | None,
     yes: bool = False,
+    show_metrics: bool | None = None,
 ) -> None:
     # Await run_rollout_command
     result = await run_rollout_command(
@@ -1023,6 +1099,7 @@ async def _rollout_common(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         yes=yes,
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -1040,6 +1117,7 @@ async def status(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="status",
@@ -1051,6 +1129,8 @@ async def status(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        yes=False,
+        show_metrics=show_metrics,
     )
 
 
@@ -1067,6 +1147,7 @@ async def history(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="history",
@@ -1078,6 +1159,8 @@ async def history(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        yes=False,
+        show_metrics=show_metrics,
     )
 
 
@@ -1096,6 +1179,7 @@ async def undo(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="undo",
@@ -1108,6 +1192,7 @@ async def undo(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         yes=yes,
+        show_metrics=show_metrics,
     )
 
 
@@ -1124,6 +1209,7 @@ async def restart(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="restart",
@@ -1135,6 +1221,8 @@ async def restart(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        yes=False,
+        show_metrics=show_metrics,
     )
 
 
@@ -1151,6 +1239,7 @@ async def pause(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="pause",
@@ -1162,6 +1251,8 @@ async def pause(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        yes=False,
+        show_metrics=show_metrics,
     )
 
 
@@ -1178,6 +1269,7 @@ async def resume(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="resume",
@@ -1189,6 +1281,8 @@ async def resume(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
+        yes=False,
+        show_metrics=show_metrics,
     )
 
 
@@ -1211,6 +1305,12 @@ if hasattr(rollout, "add_command"):
     default=True,
     help="Show a live spinner with elapsed time during waiting",
 )
+@click.option(
+    "--show-metrics/--no-show-metrics",
+    is_flag=True,
+    default=None,
+    help="Show LLM latency and token usage metrics",
+)
 async def wait(
     resource: str,
     args: tuple,
@@ -1221,6 +1321,7 @@ async def wait(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
+    show_metrics: bool | None = None,
 ) -> None:
     """Wait for a specific condition on one or more resources.
 
@@ -1238,6 +1339,7 @@ async def wait(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
+        show_metrics=show_metrics,
     )
     # Pass the awaited result to handle_result
     handle_result(cmd_result)
@@ -1253,6 +1355,12 @@ async def wait(
     default=True,
     help="Show a live display with connection status during port forwarding",
 )
+@click.option(
+    "--show-metrics/--no-show-metrics",
+    is_flag=True,
+    default=None,
+    help="Show LLM latency and token usage metrics",
+)
 async def port_forward(
     resource: str,
     args: tuple,
@@ -1263,6 +1371,7 @@ async def port_forward(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
+    show_metrics: bool | None = None,
 ) -> None:
     """Forward one or more local ports to a pod, service, or deployment.
 
@@ -1280,39 +1389,10 @@ async def port_forward(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
+        show_metrics=show_metrics,
     )
     # Pass the awaited result to handle_result
     handle_result(cmd_result)
-
-
-@cli.command()
-@click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True, include_yes=True)
-async def vibe(
-    request: str | None,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    yes: bool = False,
-) -> None:
-    """LLM interprets natural language request and runs fitting kubectl command."""
-    # Call run_vibe_command instead of handle_vibe_request directly
-    result = await run_vibe_command(
-        request=request,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        yes=yes,
-        semiauto=False,  # Vibe command is never called in semiauto loop directly
-        exit_on_error=False,  # Let handle_result manage exit
-    )
-    handle_result(result)
 
 
 # --- Helper Function to handle Result ---

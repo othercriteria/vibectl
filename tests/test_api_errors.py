@@ -94,6 +94,7 @@ def test_handle_command_output_api_error_marked_non_halting(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
+        show_metrics=True,
         # Explicitly cast to string to satisfy mypy
         model_name=str(DEFAULT_CONFIG["model"]),
     )

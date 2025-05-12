@@ -57,6 +57,7 @@ def test_handle_command_output_with_raw_output_only(
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with only raw output enabled
@@ -88,6 +89,7 @@ def test_handle_command_output_with_vibe_only(
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Mock output processor to avoid any real processing
@@ -128,7 +130,11 @@ def test_handle_command_output_both_outputs(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=True,
+        model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Mock output processor to avoid any real processing
@@ -162,6 +168,7 @@ def test_handle_command_output_no_output(
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with no outputs enabled and warning enabled
@@ -196,6 +203,7 @@ def test_handle_command_output_empty_response(
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with vibe enabled - mock everything
@@ -239,6 +247,7 @@ def test_handle_command_output_with_command(
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with command parameter
@@ -274,6 +283,7 @@ def test_configure_output_flags_no_flags() -> None:
     assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
+    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
 
 
 def test_configure_output_flags_raw_only() -> None:
@@ -288,6 +298,7 @@ def test_configure_output_flags_raw_only() -> None:
     assert output_flags.show_vibe is False
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
+    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
 
 
 def test_configure_output_flags_vibe_only() -> None:
@@ -302,6 +313,7 @@ def test_configure_output_flags_vibe_only() -> None:
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
+    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
 
 
 def test_configure_output_flags_both_flags() -> None:
@@ -316,6 +328,7 @@ def test_configure_output_flags_both_flags() -> None:
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
+    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
 
 
 def test_configure_output_flags_with_show_kubectl() -> None:
@@ -371,6 +384,7 @@ def test_handle_command_output_model_name_from_config(
         show_vibe=True,
         warn_no_output=True,
         model_name="model-from-config",
+        show_metrics=True,
     )
 
     # Call the function with model name from config
@@ -399,6 +413,7 @@ def test_handle_command_output_model_name_from_env(
         show_vibe=True,
         warn_no_output=True,
         model_name="model-from-env",
+        show_metrics=True,
     )
 
     # Call the function with model name from env
@@ -430,6 +445,7 @@ def test_handle_command_output_model_name_from_default(
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with vibe enabled - ensure complete mocking
@@ -478,6 +494,7 @@ def test_handle_command_output_basic(
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model",
+        show_metrics=True,
     )
 
     # Call the function with vibe enabled - mock console and memory update
@@ -514,6 +531,7 @@ def test_handle_command_output_raw(
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with raw only and processor
@@ -545,6 +563,7 @@ def test_handle_command_output_no_vibe(
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function
@@ -587,6 +606,7 @@ def test_process_vibe_output_with_autonomous_prompt_no_index_error(
         show_vibe=True,  # Need vibe to trigger the code path
         warn_no_output=True,  # Standard default
         model_name="test-model",
+        show_metrics=True,
     )
     # Use the actual vibe_autonomous_prompt function
     summary_prompt_func = vibe_autonomous_prompt
@@ -675,7 +695,11 @@ def test_handle_command_output_llm_error(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True, show_vibe=True, warn_no_output=True, model_name=DEFAULT_MODEL
+        show_raw=True,
+        show_vibe=True,
+        warn_no_output=True,
+        model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Call the function with both outputs enabled
@@ -711,6 +735,7 @@ def test_handle_command_output_error_input_no_vibe(
         show_vibe=False,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     result = handle_command_output(
@@ -749,6 +774,7 @@ def test_handle_command_output_error_input_with_vibe_recovery(
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Mock the LLM call for recovery
@@ -808,6 +834,7 @@ def test_handle_command_output_error_input_with_vibe_recoverable_api_error(
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Mock the LLM call for recovery to raise RecoverableApiError
@@ -864,6 +891,7 @@ def test_handle_command_output_error_input_with_vibe_generic_error(
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
 
     # Mock the LLM call for recovery to raise generic Exception
@@ -922,6 +950,7 @@ def test_handle_command_output_success_input_with_vibe_recoverable_api_error(
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
     mock_output_processor.process_auto.return_value = Truncation(
         original="Good output", truncated="Processed good output"
@@ -973,6 +1002,7 @@ def test_handle_command_output_success_input_with_vibe_generic_error(
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
+        show_metrics=True,
     )
     mock_output_processor.process_auto.return_value = Truncation(
         original="Good output", truncated="Processed good output"

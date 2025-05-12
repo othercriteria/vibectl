@@ -70,6 +70,7 @@ async def test_handle_command_output_updates_memory(
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
+        show_metrics=True,
     )
 
     # Call handle_command_output with a command
@@ -116,6 +117,7 @@ async def test_handle_command_output_does_not_update_memory_without_command(
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
+        show_metrics=True,
     )
 
     # Call handle_command_output without a command
@@ -180,6 +182,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
+        show_metrics=True,
     )
     error_input = Error(error="Error from server: not found")
 
@@ -239,6 +242,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
+        show_metrics=True,
     )
     success_input = Success(data="Normal output")
 
@@ -299,6 +303,7 @@ async def test_handle_vibe_request_updates_memory_on_error(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
+        show_metrics=True,
     )
 
     request_text = "Do something silly"
@@ -380,6 +385,7 @@ async def test_handle_vibe_request_error_recovery_flow(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
+        show_metrics=True,
     )
 
     # Mock dependencies within handle_vibe_request
@@ -468,6 +474,7 @@ async def test_handle_vibe_request_error_recovery_flow(
                             warn_no_output=False,
                             model_name="default-model",
                             show_kubectl=False,
+                            show_metrics=False,
                         ),
                     ).model_name,
                 )
@@ -653,4 +660,5 @@ DEFAULT_OUTPUT_FLAGS = OutputFlags(
     warn_no_output=False,
     model_name="test-model",
     show_kubectl=False,
+    show_metrics=True,
 )

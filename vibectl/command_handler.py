@@ -436,7 +436,7 @@ def handle_command_output(
         # Display only the metrics from the current result (summary/recovery)
         current_metrics = result_metrics  # Already extracted from output
 
-        if current_metrics:
+        if current_metrics and output_flags.show_metrics:
             console_manager.print_metrics(
                 latency_ms=current_metrics.latency_ms,
                 tokens_in=current_metrics.token_input,
@@ -540,7 +540,7 @@ def _process_vibe_output(
     # Get LLM summary
     try:
         # Get both text and metrics from the summary call
-        vibe_output_text, summary_metrics = _get_llm_summary(
+        vibe_output_text, vibe_metrics = _get_llm_summary(
             processed_output,
             output_flags.model_name,
             summary_prompt_str,
@@ -555,7 +555,7 @@ def _process_vibe_output(
             # Treat LLM-reported errors as potentially recoverable API errors
             # Pass the error message without the ERROR: prefix
             # Attach metrics from the failed call to the Error object
-            return create_api_error(error_message, metrics=summary_metrics)
+            return create_api_error(error_message, metrics=vibe_metrics)
 
         _display_vibe_output(vibe_output_text)  # Display only the text
 
@@ -566,7 +566,7 @@ def _process_vibe_output(
             vibe_output=vibe_output_text,  # Store summary text
             model_name=output_flags.model_name,
         )
-        if memory_update_metrics and output_flags.show_vibe:
+        if memory_update_metrics and output_flags.show_metrics:
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
@@ -576,7 +576,7 @@ def _process_vibe_output(
             )
 
         # Return Success with the summary text and its metrics
-        return Success(message=vibe_output_text, metrics=summary_metrics)
+        return Success(message=vibe_output_text, metrics=vibe_metrics)
     except RecoverableApiError as api_err:
         # Catch specific recoverable errors from _get_llm_summary
         logger.warning(
@@ -698,7 +698,7 @@ async def handle_vibe_request(
     if (
         isinstance(plan_result, Success)
         and plan_result.metrics
-        and output_flags.show_vibe
+        and output_flags.show_metrics
     ):
         plan_metrics = plan_result.metrics
         console_manager.print_metrics(
@@ -915,14 +915,14 @@ async def _confirm_and_execute_plan(
             model_name=output_flags.model_name,
         )
         logger.info("Memory updated after command execution.")
-        # Display memory update metrics if available and requested
-        if memory_update_metrics and output_flags.show_vibe:
+        # Display main LLM output processing metrics if available and requested
+        if memory_update_metrics and output_flags.show_metrics:
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
                 tokens_out=memory_update_metrics.token_output,
                 cache_hit=memory_update_metrics.cache_hit,
-                source="LLM Memory Update (Execution)",
+                source="LLM Output Processing",
             )
     except Exception as mem_e:
         logger.error(f"Failed to update memory after command execution: {mem_e}")
@@ -1228,6 +1228,7 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,  # Add parameter for metrics flag
 ) -> OutputFlags:
     """Configure output flags based on config.
 
@@ -1239,6 +1240,7 @@ def configure_output_flags(
         show_vibe: Optional override for showing vibe output
         model: Optional override for LLM model
         show_kubectl: Optional override for showing kubectl commands
+        show_metrics: Optional override for showing metrics
 
     Returns:
         OutputFlags instance containing the configured flags
@@ -1277,6 +1279,13 @@ def configure_output_flags(
         else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
     )
 
+    # Get show_metrics setting - default to True
+    show_metrics_output = (
+        show_metrics
+        if show_metrics is not None
+        else config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
+    )
+
     return OutputFlags(
         show_raw=show_raw,
         show_vibe=show_vibe_output,
@@ -1284,6 +1293,7 @@ def configure_output_flags(
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
         warn_no_proxy=warn_no_proxy,
+        show_metrics=show_metrics_output,  # Pass the configured value
     )
 
 

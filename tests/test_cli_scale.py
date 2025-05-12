@@ -53,6 +53,7 @@ async def test_scale_vibe_no_request() -> None:
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     assert isinstance(result, Error)

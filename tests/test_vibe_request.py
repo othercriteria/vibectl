@@ -60,7 +60,7 @@ async def test_handle_vibe_request_success(  # Added async
     mock_llm: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
 ) -> None:
     """Test successful vibe request handling."""
@@ -97,7 +97,7 @@ async def test_handle_vibe_request_success(  # Added async
             command="vibe",  # <<< Original vibectl command is 'vibe'
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             yes=True,  # Assuming confirmation bypassed for simplicity
         )
 
@@ -133,7 +133,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
     mock_memory: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request with empty string response from planner."""
     # Set up empty response
@@ -155,7 +155,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             memory_context="empty-json-context",
         )
 
@@ -169,7 +169,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
     assert call_args.get("command") == "system"
     assert call_args.get("command_output") == "LLM Error: Empty response."
     assert call_args.get("vibe_output") == "LLM Error: Empty response."
-    assert call_args.get("model_name") == mock_output_flags_for_vibe_request.model_name
+    assert call_args.get("model_name") == default_output_flags.model_name
 
     mock_create_api_error.assert_not_called()
 
@@ -182,7 +182,7 @@ async def test_handle_vibe_request_error_response(  # Added async
     mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -199,7 +199,7 @@ async def test_handle_vibe_request_error_response(  # Added async
     mock_llm.execute_and_log_metrics.return_value = (json.dumps(error_response), None)
 
     # Set show_kubectl to True (doesn't affect this path but good practice)
-    mock_output_flags_for_vibe_request.show_kubectl = True
+    default_output_flags.show_kubectl = True
 
     # Assert the result of handle_vibe_request
     with patch(
@@ -210,7 +210,7 @@ async def test_handle_vibe_request_error_response(  # Added async
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
         )
 
     # Assert handle_vibe_request returned an Error object
@@ -237,7 +237,7 @@ async def test_handle_vibe_request_invalid_format(  # Added async
     mock_console: Mock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request with non-JSON format from planner."""
     # Set up invalid response
@@ -264,7 +264,7 @@ async def test_handle_vibe_request_invalid_format(  # Added async
             command="get",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             memory_context="invalid-json-context",
         )
 
@@ -278,10 +278,7 @@ async def test_handle_vibe_request_invalid_format(  # Added async
         assert "System Error: Failed to parse LLM response:" in call_kwargs.get(
             "vibe_output", ""
         )
-        assert (
-            call_kwargs.get("model_name")
-            == mock_output_flags_for_vibe_request.model_name
-        )
+        assert call_kwargs.get("model_name") == default_output_flags.model_name
 
         # Verify create_api_error was called (now happens in _get_llm_plan)
         mock_create_api_error.assert_called_once()
@@ -318,6 +315,7 @@ async def test_handle_vibe_request_no_output(  # Added async
         warn_no_output=True,
         model_name="model-xyz-1.2.3",
         show_kubectl=False,
+        show_metrics=False,
     )
 
     # Mock console_manager directly for this test to add print_raw
@@ -370,7 +368,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
     mock_create_api_error: MagicMock,
     mock_llm: MagicMock,
     mock_run_kubectl: Mock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request handles different JSON parsing/validation errors."""
     from json import JSONDecodeError
@@ -455,7 +453,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
             command="vibe",  # Use vibe command to allow LLM to specify verb
             plan_prompt="Plan this",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             memory_context=f"ctx-{desc.replace(' ', '-')}",
         )
 
@@ -497,7 +495,7 @@ async def test_handle_vibe_request_command_error(  # Added async
     mock_llm: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -533,7 +531,7 @@ async def test_handle_vibe_request_command_error(  # Added async
                 command="get",  # Actual verb being executed
                 plan_prompt="Plan this",
                 summary_prompt_func=get_test_summary_prompt,
-                output_flags=standard_output_flags,  # Assumes show_vibe=True
+                output_flags=default_output_flags,  # Assumes show_vibe=True
                 yes=True,  # Bypass confirmation
             )
 
@@ -566,7 +564,7 @@ async def test_handle_vibe_request_error(  # Added async
     mock_run_kubectl: Mock,
     mock_console: Mock,
     prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -591,7 +589,7 @@ async def test_handle_vibe_request_error(  # Added async
             command="error",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
         )
 
     # Assert handle_vibe_request returned an Error object
@@ -616,11 +614,11 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
     mock_console: Mock,
     mock_confirm: MagicMock,
     prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request with YAML creation."""
     # Disable vibe summary to prevent extra LLM call/timeout
-    mock_output_flags_for_vibe_request.show_vibe = False
+    default_output_flags.show_vibe = False
 
     # Construct expected JSON for planning
     expected_response_plan = {
@@ -666,7 +664,7 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
             command="create",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             yes=True,  # Bypass the interactive prompt
         )
 
@@ -685,7 +683,7 @@ async def test_handle_vibe_request_yaml_response(  # Added async
     mock_console: Mock,
     mock_prompt: MagicMock,
     prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
 ) -> None:
     """Test handling of commands that might involve YAML (basic case)."""
@@ -717,7 +715,7 @@ async def test_handle_vibe_request_yaml_response(  # Added async
                 command="apply",
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
-                output_flags=mock_output_flags_for_vibe_request,
+                output_flags=default_output_flags,
                 yes=False,  # Ensure confirmation is triggered
             )
 
@@ -740,7 +738,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
     mock_console: Mock,
     mock_confirm: MagicMock,
     prevent_exit: MagicMock,
-    mock_output_flags_for_vibe_request: OutputFlags,
+    default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request that specifically creates multiple pods using a YAML manifest.
 
@@ -748,7 +746,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
     doesn't happen again.
     """
     # Disable vibe summary to prevent extra LLM call/timeout
-    mock_output_flags_for_vibe_request.show_vibe = False
+    default_output_flags.show_vibe = False
 
     # Construct expected JSON for planning
     expected_response_plan = {
@@ -800,7 +798,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
             command="create",
             plan_prompt="Plan this: {request}",
             summary_prompt_func=get_test_summary_prompt,
-            output_flags=mock_output_flags_for_vibe_request,
+            output_flags=default_output_flags,
             yes=True,  # Bypass the interactive prompt
         )
 
@@ -860,6 +858,7 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
             warn_no_output=False,
             model_name="test",
             show_kubectl=show_flag_value,  # Set based on loop
+            show_metrics=True,
         )
 
         # Mock _execute_command and handle_command_output within the loop
@@ -993,7 +992,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
     mock_llm: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1003,7 +1002,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
     be caught, logged, and returned as a non-halting API error.
     """
     caplog.set_level("WARNING")
-    standard_output_flags.show_vibe = True  # Ensure Vibe processing is enabled
+    default_output_flags.show_vibe = True  # Ensure Vibe processing is enabled
 
     # Mock the planning response (successful)
     plan_response = {
@@ -1037,7 +1036,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
                 command="vibe",
                 plan_prompt="Plan this: {request}",
                 summary_prompt_func=get_test_summary_prompt,
-                output_flags=standard_output_flags,
+                output_flags=default_output_flags,
                 yes=True,
             )
 
@@ -1064,7 +1063,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
     mock_llm: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
-    standard_output_flags: OutputFlags,
+    default_output_flags: OutputFlags,
     mock_memory: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1075,7 +1074,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
     combined with the recovery failure message.
     """
     caplog.set_level("ERROR")
-    standard_output_flags.show_vibe = True  # Ensure Vibe recovery is attempted
+    default_output_flags.show_vibe = True  # Ensure Vibe recovery is attempted
 
     # Mock the planning response (successful plan initially)
     plan_response = {
@@ -1109,7 +1108,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
                 command="get",  # Actual verb being executed
                 plan_prompt="Plan this",
                 summary_prompt_func=get_test_summary_prompt,
-                output_flags=standard_output_flags,  # Assumes show_vibe=True
+                output_flags=default_output_flags,  # Assumes show_vibe=True
                 yes=True,  # Bypass confirmation
             )
 

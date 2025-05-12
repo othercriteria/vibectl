@@ -19,6 +19,7 @@ async def run_cluster_info_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'cluster-info' subcommand logic, including logging and error
@@ -34,6 +35,7 @@ async def run_cluster_info_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         # Configure memory flags (for consistency, even if not used)
         configure_memory_flags(freeze_memory, unfreeze_memory)

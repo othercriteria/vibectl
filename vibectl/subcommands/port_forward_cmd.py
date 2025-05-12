@@ -20,6 +20,7 @@ async def run_port_forward_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
+    show_metrics: bool | None = None,
     exit_on_error: bool = True,
 ) -> Result:
     """
@@ -37,6 +38,7 @@ async def run_port_forward_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

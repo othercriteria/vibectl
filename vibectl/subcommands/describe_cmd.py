@@ -18,13 +18,14 @@ from vibectl.types import Error, Result, Success
 
 async def run_describe_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_metrics: bool | None,
 ) -> Result:
     """
     Implements the 'describe' subcommand logic, including logging and error handling.
@@ -41,6 +42,7 @@ async def run_describe_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
     except Exception as e:

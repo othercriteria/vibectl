@@ -27,6 +27,7 @@ async def run_get_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_metrics: bool | None,
 ) -> Result:
     """
     Implements the 'get' subcommand logic, including logging and error handling.
@@ -39,6 +40,7 @@ async def run_get_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
