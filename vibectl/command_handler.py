@@ -8,6 +8,7 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
+import json
 import time
 from collections.abc import Callable
 from json import JSONDecodeError
@@ -33,7 +34,7 @@ from .live_display import (
 from .live_display_watch import _execute_watch_with_live_display
 from .logutil import logger as _logger
 from .memory import get_memory, set_memory, update_memory
-from .model_adapter import RecoverableApiError, get_model_adapter
+from .model_adapter import LLMMetrics, RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompt import (
     memory_fuzzy_update_prompt,
@@ -192,7 +193,11 @@ def _handle_standard_command_error(
     return Error(error=f"Unexpected error: {exception}", exception=exception)
 
 
-def create_api_error(error_message: str, exception: Exception | None = None) -> Error:
+def create_api_error(
+    error_message: str,
+    exception: Exception | None = None,
+    metrics: LLMMetrics | None = None,
+) -> Error:
     """
     Create an Error object for API failures, marking them as non-halting for auto loops.
 
@@ -202,11 +207,17 @@ def create_api_error(error_message: str, exception: Exception | None = None) -> 
     Args:
         error_message: The error message
         exception: Optional exception that caused the error
+        metrics: Optional metrics associated with the error
 
     Returns:
-        Error object with halt_auto_loop=False
+        Error object with halt_auto_loop=False and optional metrics
     """
-    return Error(error=error_message, exception=exception, halt_auto_loop=False)
+    return Error(
+        error=error_message,
+        exception=exception,
+        halt_auto_loop=False,
+        metrics=metrics,
+    )
 
 
 def handle_command_output(
@@ -220,8 +231,6 @@ def handle_command_output(
     Args:
         output: The command output string or a Result object.
         output_flags: Flags controlling the output format.
-        max_token_limit: Max token limit for LLM input.
-        truncation_ratio: Ratio for truncating long output.
         command: The original kubectl command type (e.g., get, describe).
 
     Returns:
@@ -231,26 +240,28 @@ def handle_command_output(
 
     original_error_object: Error | None = None
     output_str: str | None = None
+    result_metrics: LLMMetrics | None = (
+        None  # Metrics from this result (summary/recovery)
+    )
 
     if isinstance(output, Error):
         original_error_object = output
         console_manager.print_error(original_error_object.error)
-        # Even if it's an error, we might get recovery suggestions if show_vibe is true
-        # Extract the error string for potential Vibe processing
         output_str = original_error_object.error
+        result_metrics = original_error_object.metrics  # Get metrics from Error
     elif isinstance(output, Success):
         output_str = output.data
+        result_metrics = output.metrics  # Get metrics from Success
     else:  # Plain string input
         output_str = output
 
     _display_kubectl_command(output_flags, command)
 
-    # Display raw output (if available and requested)
-    # For errors, display the error string itself if raw is requested.
     if output_str is not None:
         _display_raw_output(output_flags, output_str)
 
-    # Determine if Vibe processing (summary or recovery) is needed
+    # --- Vibe Processing --- #
+    vibe_result: Result | None = None
     if output_flags.show_vibe:
         if output_str is not None:
             try:
@@ -267,8 +278,9 @@ def handle_command_output(
                     try:
                         model_adapter = get_model_adapter()
                         model = model_adapter.get_model(output_flags.model_name)
-                        vibe_output = model_adapter.execute_and_log_metrics(
-                            model, prompt_str
+                        # Get text and metrics from the recovery call
+                        vibe_output_text, recovery_metrics = (
+                            model_adapter.execute_and_log_metrics(model, prompt_str)
                         )
                         suggestions_generated = True
                     except Exception as llm_exc:
@@ -277,18 +289,46 @@ def handle_command_output(
                             f"Error getting recovery suggestions from LLM: {llm_exc}",
                             exc_info=True,
                         )
-                        # Re-raise to be caught by the outer exception handler
                         # If suggestions fail, we don't mark as recoverable
                         suggestions_generated = False
-                        vibe_output = f"Failed to get recovery suggestions: {llm_exc}"
+                        # Store the error message as the text output
+                        vibe_output_text = (
+                            f"Failed to get recovery suggestions: {llm_exc}"
+                        )
+                        recovery_metrics = None  # No metrics if call failed
                         # Don't raise here, let the function return the original error
-                        # possibly annotated with the failure message.
-                        # raise llm_exc
 
-                    logger.info(f"LLM recovery suggestion: {vibe_output}")
-                    console_manager.print_vibe(vibe_output)
-                    # Update the original error object with suggestion/failure message
-                    original_error_object.recovery_suggestions = vibe_output
+                    logger.info(f"LLM recovery suggestion: {vibe_output_text}")
+                    # Display only the text part of the suggestion/error
+                    console_manager.print_vibe(vibe_output_text)
+                    # Update the original error object with suggestion/failure text
+                    # If there was an original error, update its recovery suggestions
+                    try:
+                        # Try parsing the vibe output as JSON (expected for recovery)
+                        parsed_vibe = json.loads(vibe_output_text)
+                        if (
+                            isinstance(parsed_vibe, dict)
+                            and "explanation" in parsed_vibe
+                        ):
+                            original_error_object.recovery_suggestions = parsed_vibe[
+                                "explanation"
+                            ]
+                        else:
+                            # If not JSON or no explanation key, use raw string
+                            original_error_object.recovery_suggestions = (
+                                vibe_output_text
+                            )
+                    except (JSONDecodeError, TypeError):
+                        # If parsing fails, use the raw string
+                        logger.warning(
+                            "Failed to parse vibe output as JSON "
+                            "for recovery suggestion.",
+                            exc_info=True,
+                        )
+                        original_error_object.recovery_suggestions = vibe_output_text
+
+                    # Attach metrics (if any) from the recovery call
+                    original_error_object.metrics = recovery_metrics
 
                     # If suggestions were generated, mark as non-halting for auto mode
                     if suggestions_generated:
@@ -305,7 +345,7 @@ def handle_command_output(
                         update_memory(
                             command=command or "Unknown",
                             command_output=original_error_object.error,
-                            vibe_output=vibe_output,
+                            vibe_output=vibe_output_text,
                             model_name=output_flags.model_name,
                         )
                     except Exception as mem_err:
@@ -313,10 +353,14 @@ def handle_command_output(
                             f"Failed to update memory during error recovery: {mem_err}"
                         )
 
-                    return original_error_object  # Return the modified error
+                    # The recovery path returns the modified original_error_object
+                    # which now contains recovery_metrics in its .metrics field.
+                    # We use result_metrics extracted earlier.
+                    pass  # No change needed here, metrics handled above
                 else:
                     # If we started with success, generate a summary prompt
                     summary_prompt_str = summary_prompt_func()
+                    # _process_vibe_output returns Success with summary_metrics
                     vibe_result = _process_vibe_output(
                         output_str,
                         output_flags,
@@ -324,7 +368,12 @@ def handle_command_output(
                         command=command,
                         original_error_object=original_error_object,
                     )
-                    return vibe_result
+                    if isinstance(vibe_result, Success):
+                        result_metrics = vibe_result.metrics  # Get metrics from summary
+                    elif isinstance(vibe_result, Error):
+                        result_metrics = (
+                            vibe_result.metrics
+                        )  # Get metrics from API error
             except RecoverableApiError as api_err:
                 # Catch specific recoverable errors from _get_llm_summary
                 logger.warning(
@@ -333,7 +382,7 @@ def handle_command_output(
                 )
                 console_manager.print_error(f"API Error: {api_err}")
                 # Create a non-halting error with the formatted message
-                return create_api_error(f"API Error: {api_err}", api_err)
+                return create_api_error(f"API Error: {api_err}", api_err, metrics=None)
             except Exception as e:
                 logger.error(f"Error during Vibe processing: {e}", exc_info=True)
                 error_str = str(e)
@@ -341,7 +390,7 @@ def handle_command_output(
                 console_manager.print_error(formatted_error_msg)
                 # Create a standard halting error for Vibe summary failures
                 # using the formatted message
-                vibe_error = Error(error=formatted_error_msg, exception=e)
+                vibe_error = Error(error=formatted_error_msg, exception=e, metrics=None)
 
                 if original_error_object:
                     # Combine the original error with the Vibe failure
@@ -352,10 +401,9 @@ def handle_command_output(
                     )
                     exc = original_error_object.exception or vibe_error.exception
                     # Return combined error, keeping original exception if possible
-                    return Error(error=combined_error_msg, exception=exc)
-                else:
-                    # If there was no original error, just return the Vibe error
-                    return vibe_error
+                    combined_error = Error(error=combined_error_msg, exception=exc)
+
+                    return combined_error or vibe_error  # Return combined/vibe error
         else:
             # Handle case where output was None but Vibe was requested
             logger.warning("Cannot process Vibe output because input was None.")
@@ -373,12 +421,34 @@ def handle_command_output(
                     error="Input command output was None, cannot generate Vibe summary."
                 )
 
-    else:  # No Vibe processing requested
-        # If we started with an error, return it directly
-        if original_error_object:
-            return original_error_object
-        # Otherwise, return Success with the output string
+    # --- Combine and Display Metrics --- #
+    if output_flags.show_vibe:
+        # Display only the metrics from the current result (summary/recovery)
+        current_metrics = result_metrics  # Already extracted from output
+
+        if current_metrics:
+            console_manager.print_metrics(
+                latency_ms=current_metrics.latency_ms,
+                tokens_in=current_metrics.token_input,
+                tokens_out=current_metrics.token_output,
+                cache_hit=current_metrics.cache_hit,
+                # Source should ideally be more specific here
+                source="LLM Output Processing",
+            )
+    # --- End Metrics Display --- #
+
+    # --- Final Return Value --- #
+    # If vibe processing occurred and resulted in a Success/Error, return that.
+    # Otherwise, return the original result (or Success if only raw was shown).
+    if vibe_result:
+        return vibe_result
+    elif original_error_object:
+        # Return original error if vibe wasn't shown or only recovery happened
+        return original_error_object
+    else:
+        # Return Success with the original output string if no vibe processing
         return Success(message=output_str if output_str is not None else "")
+    # --- End Final Return Value --- #
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -459,36 +529,39 @@ def _process_vibe_output(
 
     # Get LLM summary
     try:
-        vibe_output = _get_llm_summary(
+        # Get both text and metrics from the summary call
+        vibe_output_text, summary_metrics = _get_llm_summary(
             processed_output,
             output_flags.model_name,
             summary_prompt_str,
         )
 
-        # Check if the LLM returned an error string
-        if vibe_output.startswith("ERROR:"):
-            error_message = vibe_output[7:].strip()
+        # Check if the LLM returned an error string in the text part
+        if vibe_output_text.startswith("ERROR:"):
+            error_message = vibe_output_text[7:].strip()
             logger.error(f"LLM summary error: {error_message}")
-            console_manager.print_error(vibe_output)  # Display the full ERROR: string
+            # Display the full ERROR: text string
+            console_manager.print_error(vibe_output_text)
             # Treat LLM-reported errors as potentially recoverable API errors
             # Pass the error message without the ERROR: prefix
-            return create_api_error(error_message)
+            # Attach metrics from the failed call to the Error object
+            return create_api_error(error_message, metrics=summary_metrics)
 
-        _display_vibe_output(vibe_output)
+        _display_vibe_output(vibe_output_text)  # Display only the text
 
-        # Update memory only if Vibe summary succeeded (and wasn't an error string)
+        # Update memory only if Vibe summary succeeded
         update_memory(
             command=command or "Unknown",
             command_output=output,  # Store original full output in memory
-            vibe_output=vibe_output,
+            vibe_output=vibe_output_text,  # Store summary text
             model_name=output_flags.model_name,
         )
-        return Success(message=vibe_output)
+        # Return Success with the summary text and its metrics
+        return Success(message=vibe_output_text, metrics=summary_metrics)
     except RecoverableApiError as api_err:
         # Catch specific recoverable errors from _get_llm_summary
         logger.warning(
-            f"Recoverable API error during Vibe processing: {api_err}",
-            exc_info=True,
+            f"Recoverable API error during Vibe processing: {api_err}", exc_info=True
         )
         console_manager.print_error(f"API Error: {api_err}")
         # Create a non-halting error with the formatted message
@@ -521,22 +594,22 @@ def _get_llm_summary(
     processed_output: str,
     model_name: str,
     summary_prompt_str: str,
-) -> str:
+) -> tuple[str, LLMMetrics | None]:
     """Gets the LLM summary for the processed output.
 
     Args:
         processed_output: The processed (potentially truncated) output.
         model_name: Name of the LLM model to use.
         summary_prompt_str: The formatted prompt string for the LLM.
-        command: The original kubectl command type.
 
     Returns:
-        The summary generated by the LLM.
+        A tuple containing the summary text generated by the LLM and its metrics.
     """
     model_adapter = get_model_adapter()
     model = model_adapter.get_model(model_name)
     # Format the prompt string with the output
     final_prompt = summary_prompt_str.format(output=processed_output)
+    # Return the tuple directly
     return model_adapter.execute_and_log_metrics(model, final_prompt)
 
 
@@ -601,6 +674,23 @@ async def handle_vibe_request(
         # or handled by the caller based on halt_auto_loop.
         return plan_result
 
+    # --- Display LLM Planning Metrics --- #
+    plan_metrics: LLMMetrics | None = None
+    if (
+        isinstance(plan_result, Success)
+        and plan_result.metrics
+        and output_flags.show_vibe
+    ):
+        plan_metrics = plan_result.metrics
+        console_manager.print_metrics(
+            latency_ms=plan_metrics.latency_ms,
+            tokens_in=plan_metrics.token_input,
+            tokens_out=plan_metrics.token_output,
+            cache_hit=plan_metrics.cache_hit,
+            source="LLM Planner",  # Indicate source is planning phase
+        )
+    # --- End Planning Metrics Display --- #
+
     # Plan succeeded, get the validated response object
     response = plan_result.data
     # Add check to satisfy linter and handle potential (though unlikely) None case
@@ -613,9 +703,12 @@ async def handle_vibe_request(
         f"Matching action_type: {response.action_type} "
         f"(Type: {type(response.action_type)})"
     )
+    logger.info(
+        f"[DEBUG] Type of response.action_type IS: {type(response.action_type)}"
+    )
     # Replace match with if/elif/else
     action = response.action_type
-    if action == ActionType.ERROR:
+    if action == ActionType.ERROR.value:
         if not response.error:
             logger.error("ActionType is ERROR but no error message provided.")
             return Error(error="Internal error: LLM sent ERROR action without message.")
@@ -638,7 +731,7 @@ async def handle_vibe_request(
             or "Check the request or try rephrasing.",
         )
 
-    elif action == ActionType.WAIT:
+    elif action == ActionType.WAIT.value:
         if response.wait_duration_seconds is None:
             logger.error("ActionType is WAIT but no duration provided.")
             return Error(error="Internal error: LLM sent WAIT action without duration.")
@@ -652,7 +745,7 @@ async def handle_vibe_request(
         time.sleep(duration)
         return Success(message=f"Waited for {duration} seconds.")
 
-    elif action == ActionType.FEEDBACK:
+    elif action == ActionType.FEEDBACK.value:
         logger.info("LLM issued FEEDBACK without command.")
         if response.explanation:
             console_manager.print_note(f"AI Explanation: {response.explanation}")
@@ -661,7 +754,7 @@ async def handle_vibe_request(
             console_manager.print_note("Received feedback from AI.")
         return Success(message="Received feedback from AI.")
 
-    elif action == ActionType.COMMAND:
+    elif action == ActionType.COMMAND.value:
         if not response.commands and not response.yaml_manifest:
             logger.error(
                 "LLM returned COMMAND action but no commands or YAML provided."
@@ -682,19 +775,41 @@ async def handle_vibe_request(
         if kubectl_verb is None:
             return Error(error="LLM planning failed: Could not determine command verb.")
 
-        # Confirm and execute the plan using a helper function
-        return await _confirm_and_execute_plan(
-            kubectl_verb,
-            kubectl_args,
-            response.yaml_manifest,
-            response.explanation,
-            semiauto,
-            yes,
-            autonomous_mode,
-            live_display,
-            output_flags,
-            summary_prompt_func,
-        )
+        # >>> ADDED: Check for port-forward with live display
+        if kubectl_verb == "port-forward" and live_display:
+            logger.info("Dispatching 'port-forward' command to live display handler.")
+            # Extract resource and args for the live handler
+            # kubectl_args includes the resource as the first element
+            resource = kubectl_args[0] if kubectl_args else ""
+            pf_args = tuple(kubectl_args[1:]) if len(kubectl_args) > 1 else ()
+
+            # Validate resource is present
+            if not resource:
+                logger.error("Port-forward live display requires a resource name.")
+                return Error(error="Missing resource name for port-forward.")
+
+            # Call the live display handler directly
+            return await handle_port_forward_with_live_display(
+                resource=resource,
+                args=pf_args,
+                output_flags=output_flags,
+                summary_prompt_func=summary_prompt_func,
+            )
+        else:
+            # <<< END ADDED BLOCK
+            # Confirm and execute the plan using a helper function
+            return await _confirm_and_execute_plan(
+                kubectl_verb,
+                kubectl_args,
+                response.yaml_manifest,
+                response.explanation,
+                semiauto,
+                yes,
+                autonomous_mode,
+                live_display,
+                output_flags,
+                summary_prompt_func,
+            )
 
     else:  # Default case (Unknown ActionType)
         logger.error(f"Internal error: Unknown ActionType: {response.action_type}")
@@ -956,17 +1071,18 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
 
         # Get the response
         console_manager.print_processing("Updating memory...")
-        updated_memory = model_adapter.execute_and_log_metrics(model, prompt)
+        # Get text and metrics, but we only use text here for now
+        updated_memory_text, _ = model_adapter.execute_and_log_metrics(model, prompt)
 
-        # Set the updated memory
-        set_memory(updated_memory, cfg)
+        # Set the updated memory (only text)
+        set_memory(updated_memory_text, cfg)
         console_manager.print_success("Memory updated")
 
-        # Display the updated memory
+        # Display the updated memory (only text)
         console_manager.safe_print(
             console_manager.console,
             Panel(
-                updated_memory,
+                updated_memory_text,  # Display only text
                 title="Updated Memory Content",
                 border_style="blue",
                 expand=False,
@@ -1250,7 +1366,7 @@ async def handle_port_forward_with_live_display(
     )
 
     # Call the worker function in live_display.py
-    return await _execute_port_forward_with_live_display(
+    pf_result = await _execute_port_forward_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
@@ -1259,6 +1375,15 @@ async def handle_port_forward_with_live_display(
         remote_port=remote_port,
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
+    )
+
+    # >>> ADDED: Process the result using handle_command_output <<<
+    command_str = f"port-forward {resource} {' '.join(args)}"
+    return handle_command_output(
+        output=pf_result,  # Pass the Result object directly
+        output_flags=output_flags,
+        summary_prompt_func=summary_prompt_func,
+        command=command_str,
     )
 
 
@@ -1335,15 +1460,16 @@ def _get_llm_plan(
         return create_api_error(error_msg, e)
 
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
-    logger.debug(f"Final planning prompt:\n{final_plan_prompt}")
+    logger.debug(f"Final planning prompt:\\n{final_plan_prompt}")
 
     try:
-        llm_response_text = model_adapter.execute_and_log_metrics(
+        # Get response text and metrics
+        llm_response_text, metrics = model_adapter.execute_and_log_metrics(
             model=model,
             prompt_text=final_plan_prompt,
             response_model=response_model_type,
         )
-        logger.info(f"Raw LLM response text:\n{llm_response_text}")
+        logger.info(f"Raw LLM response text:\\n{llm_response_text}")
 
         if not llm_response_text or llm_response_text.strip() == "":
             logger.error("LLM returned an empty response.")
@@ -1357,11 +1483,9 @@ def _get_llm_plan(
 
         response = LLMCommandResponse.model_validate_json(llm_response_text)
         logger.debug(f"Parsed LLM response object: {response}")
-        # Add back explicit type check/conversion
-        if isinstance(response.action_type, str):
-            response.action_type = ActionType(response.action_type)
         logger.info(f"Validated ActionType: {response.action_type}")
-        return Success(data=response)  # Return validated response object
+        # Attach metrics to the Success result
+        return Success(data=response, metrics=metrics)
 
     except (JSONDecodeError, ValidationError) as e:
         logger.warning(

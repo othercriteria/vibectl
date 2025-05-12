@@ -123,8 +123,8 @@ def update_memory(
         model = model_adapter.get_model(model_name)
         prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
         # Use the wrapper function to execute and handle metrics logging
-        updated_memory = model_adapter.execute_and_log_metrics(model, prompt)
-        set_memory(updated_memory, cfg)
+        updated_memory_text, _ = model_adapter.execute_and_log_metrics(model, prompt)
+        set_memory(updated_memory_text, cfg)
     except (RecoverableApiError, ValueError):
         # For now, just ignore errors updating memory to avoid disrupting flow
         pass

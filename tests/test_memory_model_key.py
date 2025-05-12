@@ -101,7 +101,7 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             model: Mock,
             prompt_text: str,
             response_model: type[BaseModel] | None = None,
-        ) -> str:
+        ) -> tuple[str, LLMMetrics | None]:
             # Capture API key from environment here
             set_env_vars["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
 
@@ -109,7 +109,7 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             if "ANTHROPIC_API_KEY" in os.environ:
                 del os.environ["ANTHROPIC_API_KEY"]
 
-            return "Updated memory content"
+            return "Updated memory content", None
 
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
@@ -198,7 +198,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             model: Mock,
             prompt_text: str,
             response_model: type[BaseModel] | None = None,
-        ) -> str:
+        ) -> tuple[str, LLMMetrics | None]:
             # Capture API key from environment here
             set_env_vars["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")
 
@@ -206,7 +206,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             if "OPENAI_API_KEY" in os.environ:
                 del os.environ["OPENAI_API_KEY"]
 
-            return "Updated memory content"
+            return "Updated memory content", None
 
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()

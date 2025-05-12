@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from vibectl.command_handler import LLMCommandResponse, handle_vibe_request
+from vibectl.command_handler import handle_vibe_request
 from vibectl.types import ActionType, Error, OutputFlags
 
 
@@ -85,62 +85,37 @@ async def test_recovery_suggestions_not_in_memory(
 ) -> None:
     """Test that recovery suggestions are added to the Error result."""
     # Setup
-    # Configure the mock adapter instance returned by the fixture
-    mock_adapter_instance = mock_get_adapter.return_value
-    # Planning step returns JSON via LLMModelAdapter.execute
+    # Planning step returns JSON via LLMModelAdapter.execute_and_log_metrics
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["get", "pods"],  # Corrected: Include verb
+        "commands": ["get", "pods"],
         "explanation": "Get pods",
     }
     expected_plan_json = json.dumps(plan_response)
-    # LLM execute needs to return the plan first, then recovery suggestions
+    # Recovery step (called by handle_command_output) also returns JSON
     recovery_suggestion_text = "Error occurred: Pod not found"
-    # The second LLM call should return an ERROR action JSON with suggestions
     recovery_response_json = json.dumps(
         {
-            "action_type": ActionType.ERROR.value,
-            "error": "Failed to get pods",  # Optional: Can be more specific
-            "explanation": recovery_suggestion_text,  # Suggestions go here
+            "action_type": ActionType.FEEDBACK.value,
+            "explanation": recovery_suggestion_text,
         }
     )
 
-    mock_adapter_instance.execute.side_effect = [
-        expected_plan_json,
-        recovery_response_json,  # Return the JSON error response
+    # Mock execute_and_log_metrics directly on the adapter instance
+    mock_get_adapter.execute_and_log_metrics.side_effect = [
+        (expected_plan_json, None),
+        (recovery_response_json, None),
     ]
     # _execute_command (kubectl) fails
     mock_execute.return_value = Error(error="Pod not found", exception=None)
 
     # Mock recovery prompt generation and memory interaction
-    with (
-        patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt,
-        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory,
-        patch(
-            "vibectl.command_handler.LLMCommandResponse.model_validate_json"
-        ) as mock_validate_json,
-    ):
+    with patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt:
         mock_recovery_prompt.return_value = "Recovery prompt content"
-        mock_include_memory.side_effect = lambda p, **k: p  # Simple passthrough
-
-        # Configure model_validate_json mock
-        # First call (plan_response) should succeed
-        # Second call (recovery_response_json) should return the ERROR action
-        # This might need adjustment if the flow changes how parsing happens
-        mock_validate_json.side_effect = [
-            LLMCommandResponse(
-                **plan_response
-            ),  # Simulate successful validation of first call
-            LLMCommandResponse(
-                **json.loads(recovery_response_json)
-            ),  # Simulate successful validation of second call
-        ]
-
-        # Execute command
-        # Let the actual handle_command_output run to test recovery logic
+        # Let the actual handle_command_output run
         result = await handle_vibe_request(
             request="show the pods",
-            command="vibe",  # Corrected: Command verb is 'vibe'
+            command="vibe",
             plan_prompt="plan {request}",
             summary_prompt_func=lambda: "summarize {output}",
             output_flags=output_flags,
@@ -148,17 +123,22 @@ async def test_recovery_suggestions_not_in_memory(
 
     # Verify results
     assert isinstance(result, Error)
-    # Verify memory was NOT updated directly in this path (only via
-    # handle_command_output side effect if mocked)
-    # If handle_command_output is NOT mocked, update_memory SHOULD be called within it.
-    # Since we are patching update_memory at the top level, we check THAT mock.
-    # Expect 2 calls: 1 after error, 1 after recovery
+    # Check recovery suggestions were extracted
+    assert result.recovery_suggestions == recovery_suggestion_text
+
+    # Verify memory was updated ONCE after recovery attempt
     assert mock_update_memory.call_count == 2
     # Check the details of the memory update call
-    kwargs = mock_update_memory.call_args_list[1].kwargs  # Check second call
-    assert kwargs.get("command") == "get"  # Should be the extracted verb 'get'
-    assert "Pod not found" in kwargs.get("command_output", "")
-    assert kwargs.get("model_name") == "test-model"
+    # Check the SECOND call (index 1) for the recovery suggestion update
+    call_args_1, kwargs_1 = mock_update_memory.call_args_list[1]  # <<< Use index 1
+    # The command logged in the second call should be
+    # the verb passed to handle_command_output
+    assert kwargs_1.get("command") == "get"  # <<< Check verb
+    assert "Pod not found" in kwargs_1.get("command_output", "")
+    assert recovery_suggestion_text in kwargs_1.get(
+        "vibe_output", ""
+    )  # <<< Check recovery suggestion
+    assert kwargs_1.get("model_name") == "test-model"
 
 
 @pytest.mark.asyncio
@@ -183,8 +163,8 @@ async def test_recovery_suggestions_should_update_memory(
     recovery_suggestion_text = "Oops: Pod not found. Try 'kubectl get pods -A'."
     # Configure the adapter instance's execute_and_log_metrics method via the fixture
     mock_get_adapter.execute_and_log_metrics.side_effect = [
-        expected_plan_json,  # Planning step returns JSON
-        recovery_suggestion_text,  # Recovery step returns text
+        (expected_plan_json, None),  # Planning step returns JSON tuple
+        (recovery_suggestion_text, None),  # Recovery step returns text tuple
     ]
     # _execute_command (kubectl) fails
     original_error = Error(error="Pod not found", exception=None)
@@ -251,8 +231,8 @@ async def test_recovery_suggestions_in_auto_mode(
     # Configure the adapter instance's execute_and_log_metrics method via the fixture
     # Side effect for: Plan (JSON), Recovery (Text)
     mock_get_adapter.execute_and_log_metrics.side_effect = [
-        initial_plan_json,
-        recovery_suggestion_text,
+        (initial_plan_json, None),
+        (recovery_suggestion_text, None),
         # second_plan_json, # Auto-mode retry logic not implemented/tested here yet
     ]
 

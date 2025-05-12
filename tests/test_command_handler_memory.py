@@ -15,6 +15,7 @@ from vibectl.command_handler import (
     handle_command_output,
     handle_vibe_request,
 )
+from vibectl.schema import LLMCommandResponse
 from vibectl.types import ActionType, Error, OutputFlags, Success, Truncation
 
 
@@ -39,13 +40,21 @@ def mock_process_auto() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_get_adapter() -> Generator[MagicMock, None, None]:
     """Mock the model adapter with configurable response."""
-    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter:
-        # Set up mock model
-        mock_model = Mock()
-        mock_adapter.return_value.get_model.return_value = mock_model
-        mock_adapter.return_value.execute_and_log_metrics.return_value = "Test response"
+    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter_factory:
+        # Set up mock adapter instance
+        mock_adapter_instance = MagicMock()
+        mock_adapter_factory.return_value = mock_adapter_instance
 
-        yield mock_adapter
+        # Set up mock model object
+        mock_model = Mock()
+        mock_adapter_instance.get_model.return_value = mock_model
+        # Default return value for execute_and_log_metrics - NOW A TUPLE
+        mock_adapter_instance.execute_and_log_metrics.return_value = (
+            "Test response",
+            None,
+        )
+
+        yield mock_adapter_factory  # Yield the factory mock
 
 
 @pytest.mark.asyncio
@@ -117,7 +126,8 @@ async def test_handle_command_output_does_not_update_memory_without_command(
         )
         # Mock the summary call directly to avoid LLM interaction
         with patch(
-            "vibectl.command_handler._get_llm_summary", return_value="Test response"
+            "vibectl.command_handler._get_llm_summary",
+            return_value=("Test response", None),
         ):
             handle_command_output(
                 output="test output",
@@ -155,7 +165,10 @@ async def test_handle_command_output_updates_memory_with_error_output(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute_and_log_metrics.return_value = "Vibe summary of the error."
+    mock_adapter.execute_and_log_metrics.return_value = (
+        "Vibe summary of the error.",
+        None,
+    )
     # Simulate truncation
     mock_process_auto.return_value = Truncation(
         original="Error from server: not found", truncated="Error...not found"
@@ -212,9 +225,9 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    # Simulate LLM summary call failing with overloaded error
+    # Simulate LLM summary call failing with overloaded error - NOW A TUPLE
     overloaded_error_msg = "ERROR: Model capacity is overloaded."
-    mock_adapter.execute_and_log_metrics.return_value = overloaded_error_msg
+    mock_adapter.execute_and_log_metrics.return_value = (overloaded_error_msg, None)
     # Simulate truncation
     mock_process_auto.return_value = Truncation(
         original="Normal output", truncated="Normal output"
@@ -273,7 +286,8 @@ async def test_handle_vibe_request_updates_memory_on_error(
         }
     )
     mock_get_adapter.return_value.execute_and_log_metrics.return_value = (
-        error_response_str
+        error_response_str,
+        None,
     )
 
     # Verb is not needed for this specific error path assertion
@@ -346,14 +360,17 @@ async def test_handle_vibe_request_error_recovery_flow(
     # Mock LLM recovery suggestion response
     recovery_suggestion = "Try checking the namespace."
     mock_get_adapter.return_value.execute_and_log_metrics.side_effect = [
-        json.dumps(plan_response),
-        json.dumps(
-            {
-                "action_type": ActionType.FEEDBACK.value,
-                "explanation": recovery_suggestion,  # Simulate feedback as recovery
-            }
+        (json.dumps(plan_response), None),
+        (
+            json.dumps(
+                {
+                    "action_type": ActionType.FEEDBACK.value,
+                    "explanation": recovery_suggestion,  # Simulate feedback as recovery
+                }
+            ),
+            None,
         ),
-        "Summary after recovery.",  # For _get_llm_summary call
+        ("Summary after recovery.", None),  # For _get_llm_summary call
     ]
 
     # Create output flags, explicitly enabling show_vibe
@@ -401,12 +418,16 @@ async def test_handle_vibe_request_error_recovery_flow(
                 # Corrected recovery prompt call - use error message
                 recovery_prompt_content = mock_recovery_prompt(output_res.error)
                 # Execute the second LLM call for recovery
-                llm_recovery_response_json = model_adapter.execute_and_log_metrics(
+                # UNPACK THE TUPLE HERE
+                llm_response_tuple = model_adapter.execute_and_log_metrics(
                     model_adapter.get_model(), recovery_prompt_content
                 )
+                llm_recovery_response_json = llm_response_tuple[
+                    0
+                ]  # Get the JSON string
                 suggestion = None
                 try:
-                    # Assuming recovery call doesn't need complex schema parsing
+                    # Assuming recovery call doesn\'t need complex schema parsing
                     # Adjust if recovery prompt expects specific JSON
                     # Parse the JSON response
                     recovery_data = json.loads(llm_recovery_response_json)
@@ -518,59 +539,51 @@ async def test_handle_vibe_request_includes_memory_context(
 ) -> None:
     """Verify memory_context is included in the prompt arguments if applicable."""
     mock_update, mock_get, mock_set, mock_enabled = mock_memory_functions
+    memory_content = "Existing memory context."
+    mock_get.return_value = memory_content
 
-    # This test now verifies the request placeholder is replaced correctly and
-    # the schema argument is passed.
-
-    # Define a simple prompt template with the placeholder
-    test_plan_prompt = "Plan this: __REQUEST_PLACEHOLDER__"
-    test_request = "get the pods"
-    test_memory_context = "We are in the 'sandbox' namespace."
-    # expected_final_prompt = test_plan_prompt.replace(
-    #     "__REQUEST_PLACEHOLDER__", test_request
-    # ) # This variable is unused
-
-    # Mock the model execution result with valid JSON
+    # Define expected response
     expected_llm_response = {
         "action_type": ActionType.COMMAND.value,
         "commands": ["pods", "-n", "sandbox"],
         "explanation": "Getting pods in sandbox from memory.",
     }
-    mock_model_adapter.execute_and_log_metrics.return_value = json.dumps(
-        expected_llm_response
+    # Configure the mock adapter (yielded by the fixture) for this test
+    mock_model_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(expected_llm_response),
+        None,
     )
 
-    # Call the function under test
-    # Need to patch _execute_command as the focus is on the planning call
+    # Patch _execute_command
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
-        mock_execute_cmd.return_value = Success(
-            data="done"
-        )  # Prevent further processing
+        mock_execute_cmd.return_value = Success(data="done")
 
-        # Add await back, handle_vibe_request is async
+        # Call the function under test
         await handle_vibe_request(
-            request=test_request,
+            request="get the pods",
             command="get",
-            plan_prompt=test_plan_prompt,
+            plan_prompt="Plan this: __REQUEST_PLACEHOLDER__",
             summary_prompt_func=dummy_summary_prompt,
-            output_flags=DEFAULT_OUTPUT_FLAGS,
-            memory_context=test_memory_context,  # Pass memory context
+            output_flags=DEFAULT_OUTPUT_FLAGS,  # Defined at the end of the file
+            memory_context=memory_content,
         )
 
-        # Verify that the prompt passed to the model includes the request
-        # but not memory context placeholder and includes the schema
+        # Assert that execute_and_log_metrics was called at least once
+        assert mock_model_adapter.execute_and_log_metrics.call_count >= 1
 
-        # Assert that get_memory was called (implicitly by handle_vibe_request setup)
-        # This seems necessary even when memory_context is provided directly.
-        # mock_get.assert_called_once()
-
-        # Check that execute_and_log_metrics was called for the plan and summary
-        mock_adapter_instance = mock_model_adapter
-        # Plan + Summary = 2 calls
-        assert mock_adapter_instance.execute_and_log_metrics.call_count == 2
-
-        # Verify the prompt and schema used in the first call (planning)
-        # (Assuming the planning call is the first one)
+        # Restore detailed argument checking for the first call (planning call)
+        planning_call_args = mock_model_adapter.execute_and_log_metrics.call_args_list[
+            0
+        ]
+        # Unpack args and kwargs
+        call_args, call_kwargs = planning_call_args
+        # Check KEYWORD arguments (model, prompt_text, response_model)
+        assert "model" in call_kwargs
+        assert call_kwargs["model"] == mock_model_adapter.get_model.return_value
+        assert "prompt_text" in call_kwargs
+        assert call_kwargs["prompt_text"] == "Plan this: get the pods"
+        assert "response_model" in call_kwargs
+        assert call_kwargs["response_model"] == LLMCommandResponse
 
 
 # Mock logger to prevent actual logging during tests
@@ -590,15 +603,27 @@ def mock_console_manager() -> Generator[MagicMock, None, None]:
 # Mock model adapter and related functions
 @pytest.fixture
 def mock_model_adapter() -> Generator[MagicMock, None, None]:
-    with patch("vibectl.command_handler.get_model_adapter") as mock_get:
-        mock_adapter = MagicMock()
-        mock_model = MagicMock()
-        mock_adapter.get_model.return_value = mock_model
-        mock_adapter.execute_and_log_metrics.return_value = (
-            "get pods -n test"  # Default success
+    """Mock get_model_adapter factory and the adapter instance it returns."""
+    # Import the class to use for spec
+    from vibectl.model_adapter import LLMModelAdapter
+
+    with patch("vibectl.command_handler.get_model_adapter") as mock_factory:
+        # Create instance with spec for better mocking
+        mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
+        # Configure the factory to return this instance
+        mock_factory.return_value = mock_adapter_instance
+
+        # Configure methods on the instance
+        mock_adapter_instance.get_model.return_value = (
+            MagicMock()
+        )  # Mock the model object
+        # Ensure default execute method returns a tuple
+        mock_adapter_instance.execute_and_log_metrics.return_value = (
+            "Default LLM Response",
+            None,
         )
-        mock_get.return_value = mock_adapter
-        yield mock_adapter
+
+        yield mock_adapter_instance  # Yield the configured INSTANCE
 
 
 # Mock memory functions

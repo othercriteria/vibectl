@@ -61,6 +61,13 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     )
     vibe_output = "1 pod running: nginx-1"
 
+    # Configure the mock adapter to return the expected memory content and None metrics
+    expected_memory_text = "Updated memory content"
+    mock_model_adapter.execute_and_log_metrics.return_value = (
+        expected_memory_text,
+        None,
+    )
+
     # Call update_memory
     update_memory(
         command=command,
@@ -81,7 +88,7 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     assert vibe_output in prompt
 
     # Verify memory was updated
-    assert get_memory(test_config) == "Updated memory content"
+    assert get_memory(test_config) == expected_memory_text
 
     mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
@@ -118,7 +125,8 @@ def test_update_memory_with_error(
 
     # Configure mock to return error-focused memory
     mock_model_adapter.execute_and_log_metrics.return_value = (
-        "Error occurred: invalid resource type 'pod'"
+        "Error occurred: invalid resource type 'pod'",
+        None,
     )
 
     # Call update_memory
@@ -174,8 +182,11 @@ def test_update_memory_integration(test_config: Config) -> None:
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
     # Set the expected final memory content
-    expected_memory = "Cluster has 3 pods running in namespace default"
-    mock_adapter.execute_and_log_metrics.return_value = expected_memory
+    expected_memory_text = "Cluster has 3 pods running in namespace default"
+    mock_adapter.execute_and_log_metrics.return_value = (
+        expected_memory_text,
+        None,
+    )
 
     # Set our mock as the global adapter
     set_model_adapter(mock_adapter)
@@ -196,7 +207,7 @@ def test_update_memory_integration(test_config: Config) -> None:
         mock_adapter.execute_and_log_metrics.assert_called_once()
 
         # Verify memory was updated correctly
-        assert get_memory(test_config) == expected_memory
+        assert get_memory(test_config) == expected_memory_text
 
         # Verify memory is used in prompts (optional check)
         assert is_memory_enabled(test_config)

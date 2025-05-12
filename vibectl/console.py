@@ -257,6 +257,35 @@ class ConsoleManager:
         if show_vibe and vibe_output:
             self.print_vibe(vibe_output)
 
+    def print_metrics(
+        self,
+        latency_ms: float | None = None,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+        cache_hit: bool | None = None,
+        source: str | None = None,
+    ) -> None:
+        """Display LLM metrics in a formatted way."""
+        items = []
+        if source:
+            items.append(f"[dim]Source:[/] {source}")
+        if latency_ms is not None:
+            items.append(f"[dim]Latency:[/] {latency_ms:.2f} ms")
+        if tokens_in is not None and tokens_out is not None:
+            items.append(f"[dim]Tokens:[/] {tokens_in} in, {tokens_out} out")
+        if cache_hit is not None:
+            cache_status = "[green]HIT[/]" if cache_hit else "[yellow]MISS[/]"
+            items.append(f"[dim]Cache:[/] {cache_status}")
+
+        if items:
+            self.safe_print(
+                self.console, f"📊 [bold cyan]Metrics:[/bold cyan] {' | '.join(items)}"
+            )
+
+    def print_waiting(self, message: str = "Waiting...") -> None:
+        """Display a waiting message."""
+        self.safe_print(self.console, message, style="info")
+
 
 # Create global instance for easy import
 console_manager = ConsoleManager()

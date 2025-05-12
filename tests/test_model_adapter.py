@@ -259,8 +259,9 @@ def test_model_adapter_abc_methods() -> None:
             prompt_text: str,
             response_model: type[BaseModel] | None = None,
         ) -> tuple[str, LLMMetrics | None]:
-            # Dummy implementation returning text and None for metrics
-            return f"Executed {prompt_text} on {model}", None
+            # Dummy impl. calls execute, returns text & None metrics
+            response_text, _metrics = self.execute(model, prompt_text, response_model)
+            return response_text, None
 
         def validate_model_key(self, model_name: str) -> str | None:
             raise NotImplementedError()
@@ -273,10 +274,10 @@ def test_model_adapter_abc_methods() -> None:
             model: Any,
             prompt_text: str,
             response_model: type[BaseModel] | None = None,
-        ) -> str:
-            # Dummy implementation calls execute and returns only the text part
+        ) -> tuple[str, LLMMetrics | None]:
+            # Dummy implementation calls execute and returns text part and None metrics
             response_text, _metrics = self.execute(model, prompt_text, response_model)
-            return response_text
+            return response_text, None
 
     adapter = DummyAdapter()
     with pytest.raises(NotImplementedError):

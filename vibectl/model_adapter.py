@@ -86,8 +86,8 @@ class ModelAdapter(ABC):
         model: Any,
         prompt_text: str,
         response_model: type[BaseModel] | None = None,
-    ) -> str:
-        """Wraps execute, logs metrics, returns only response text."""
+    ) -> tuple[str, LLMMetrics | None]:
+        """Wraps execute, logs metrics, returns response text and metrics."""
         pass
 
     @abstractmethod
@@ -396,17 +396,15 @@ class LLMModelAdapter(ModelAdapter):
         model: Any,
         prompt_text: str,
         response_model: type[BaseModel] | None = None,
-    ) -> str:
-        """Wraps execute, logs metrics, returns only response text."""
+    ) -> tuple[str, LLMMetrics | None]:
+        """Wraps execute, logs metrics, returns response text and metrics."""
         response_text = ""
         metrics = None
         try:
             response_text, metrics = self.execute(model, prompt_text, response_model)
             # Successfully got response and metrics
-            if metrics:
-                # TODO: Replace print with proper logging/reporting later
-                print(f"[METRICS] LLM Call Latency: {metrics.latency_ms:.2f} ms")
-            return response_text
+            # No longer print metrics here
+            return response_text, metrics  # Return both
         except (RecoverableApiError, ValueError) as e:
             # execute already logs the error and latency
             # We need to re-raise the exception to maintain original behavior

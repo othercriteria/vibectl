@@ -208,7 +208,8 @@ def test_fuzzy_memory_update(
     mock_get_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model_instance
     mock_adapter_instance.execute_and_log_metrics.return_value = (
-        "Updated memory context"
+        "Updated memory context",
+        None,
     )
     mock_prompt_func.return_value = "Fuzzy update prompt"
 
@@ -229,9 +230,9 @@ def test_fuzzy_memory_update(
     )
     mock_set_memory.assert_called_once_with("Updated memory context", mock_cfg_instance)
 
-    # Check console output (optional, but good for verifying user feedback)
+    # Check console output - ignore ANSI codes for simplicity
     captured = capsys.readouterr()
-    assert "Updating memory..." in captured.out
+    assert "Updating memory" in captured.out  # Check substring without ellipsis
     assert "Memory updated" in captured.out
     assert "Updated Memory Content" in captured.out
     assert "Updated memory context" in captured.out
