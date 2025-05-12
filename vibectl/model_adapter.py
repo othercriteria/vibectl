@@ -363,8 +363,42 @@ class LLMModelAdapter(ModelAdapter):
                 # --- Metrics Calculation ---
                 end_time = time.monotonic()
                 latency_ms = (end_time - start_time) * 1000
-                # TODO: Extract token usage from response.usage() when implemented
-                metrics = LLMMetrics(latency_ms=latency_ms, call_count=1)
+                token_input = 0
+                token_output = 0
+                try:
+                    # Attempt to get token usage from the response object
+                    usage_obj = response.usage()  # type: ignore[attr-defined]
+                    if usage_obj:
+                        token_input = getattr(usage_obj, "input", 0)
+                        token_output = getattr(usage_obj, "output", 0)
+                        # Ensure they are ints, default to 0 if None or other type
+                        token_input = int(token_input) if token_input is not None else 0
+                        token_output = (
+                            int(token_output) if token_output is not None else 0
+                        )
+                    logger.debug(
+                        "Token usage - Input: %d, Output: %d",
+                        token_input,
+                        token_output,
+                    )
+                except AttributeError:
+                    logger.warning(
+                        "Model %s response object lacks usage() method.", model.model_id
+                    )
+                except Exception as usage_err:
+                    logger.warning(
+                        "Failed to get token usage for model %s: %s",
+                        model.model_id,
+                        usage_err,
+                    )
+
+                # Create metrics object with latency and token counts
+                metrics = LLMMetrics(
+                    latency_ms=latency_ms,
+                    token_input=token_input,
+                    token_output=token_output,
+                    call_count=1,
+                )
                 logger.debug("LLM call completed in %.2f ms", latency_ms)
                 # -------------------------
 

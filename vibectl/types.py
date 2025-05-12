@@ -194,3 +194,24 @@ class ActionType(Enum):
     ERROR = "ERROR"
     WAIT = "WAIT"
     FEEDBACK = "FEEDBACK"
+
+
+@runtime_checkable
+class ModelResponse(Protocol):
+    """Protocol defining the expected interface for model responses."""
+
+    def text(self) -> str:
+        """Get the text content of the response.
+
+        Returns:
+            str: The text content of the response
+        """
+        ...
+
+    def usage(self) -> Any:
+        """Get token usage information from the response.
+
+        Returns:
+            Any: Usage object (structure may vary by model/library version)
+        """
+        ...
