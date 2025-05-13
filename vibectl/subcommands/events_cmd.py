@@ -11,7 +11,6 @@ from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    get_memory,
 )
 from vibectl.prompt import (
     PLAN_EVENTS_PROMPT,
@@ -60,10 +59,9 @@ async def run_events_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="events",
-                    plan_prompt=PLAN_EVENTS_PROMPT,
+                    plan_prompt_func=lambda: PLAN_EVENTS_PROMPT,
                     summary_prompt_func=events_prompt,
                     output_flags=output_flags,
-                    memory_context=get_memory() or "",
                 )
                 logger.info("Completed 'events' subcommand for vibe request.")
                 return result_vibe

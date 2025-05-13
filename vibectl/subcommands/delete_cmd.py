@@ -6,7 +6,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, include_memory_in_prompt
+from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_DELETE_PROMPT, delete_resource_prompt
 from vibectl.types import Error, Result
 
@@ -58,7 +58,7 @@ async def run_delete_command(
                 result = await handle_vibe_request(
                     request=request,
                     command="delete",
-                    plan_prompt=include_memory_in_prompt(PLAN_DELETE_PROMPT),
+                    plan_prompt_func=lambda: PLAN_DELETE_PROMPT,
                     summary_prompt_func=delete_resource_prompt,
                     output_flags=output_flags,
                     yes=yes,

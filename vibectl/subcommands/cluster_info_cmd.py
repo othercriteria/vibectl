@@ -56,7 +56,7 @@ async def run_cluster_info_command(
                 vibe_result = await handle_vibe_request(
                     request=request,
                     command="cluster-info",
-                    plan_prompt=PLAN_CLUSTER_INFO_PROMPT,
+                    plan_prompt_func=lambda: PLAN_CLUSTER_INFO_PROMPT,
                     summary_prompt_func=cluster_info_prompt,
                     output_flags=output_flags,
                 )

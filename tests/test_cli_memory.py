@@ -4,6 +4,9 @@ This module tests the memory commands of vibectl.
 """
 
 from collections.abc import Generator
+
+# Import Any for type hinting
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -16,9 +19,14 @@ from vibectl.cli import cli
 def mock_config() -> Generator[Mock, None, None]:
     """Fixture providing a mocked Config instance."""
     with patch("vibectl.cli.Config") as mock_config_class:
-        mock_config = Mock()
-        mock_config_class.return_value = mock_config
-        yield mock_config
+        mock_config_instance = Mock()
+        # Default behavior for get_model_key to avoid TypeErrors with os.environ
+        mock_config_instance.get_model_key.return_value = None
+        # Default behavior for general .get() calls if needed,
+        # can be overridden in tests
+        # Example: mock_config_instance.get.return_value = "default-value"
+        mock_config_class.return_value = mock_config_instance
+        yield mock_config_instance
 
 
 # Fixture to mock console_manager (if needed, assuming it's used by the functions)
@@ -195,19 +203,31 @@ async def test_memory_update(mock_config: Mock, mock_console: Mock) -> None:
     with (
         patch("vibectl.cli.get_memory") as mock_get_memory,
         patch("vibectl.cli.set_memory") as mock_set_memory,
-        patch("vibectl.cli.llm.get_model") as mock_get_model,
+        # We patch get_model_adapter to control the adapter and its model
+        patch("vibectl.cli.get_model_adapter") as mock_get_adapter_class,
     ):
-        # Configure get_memory to return existing memory
+        # Configure mock_config specifically for this test
+        def mock_config_get_side_effect(key: str, default: Any = None) -> Any:
+            if key == "memory_max_chars":
+                return 500  # Expected by memory_fuzzy_update_prompt
+            elif key == "model":
+                return "test-cli-model"  # Original mock behavior for model
+            return default
+
+        mock_config.get.side_effect = mock_config_get_side_effect
+        # mock_config.get_model_key.return_value = None # Already set by fixture default
+
         mock_get_memory.return_value = "Existing memory content"
 
-        # Mock the model response
-        mock_model = Mock()
-        mock_response = Mock()
-        mock_response.text.return_value = "Updated memory content"
-        mock_model.prompt.return_value = (
-            mock_response  # Simulate the llm library structure
+        # Mock adapter and its methods
+        mock_adapter_instance = Mock()
+        mock_get_adapter_class.return_value = mock_adapter_instance
+        mock_model_instance = Mock()
+        mock_adapter_instance.get_model.return_value = mock_model_instance
+        mock_adapter_instance.execute_and_log_metrics.return_value = (
+            "Updated memory content",
+            None,  # Simulate no metrics
         )
-        mock_get_model.return_value = mock_model
 
         # Execute the command directly
         await update_cmd.main(
@@ -215,17 +235,40 @@ async def test_memory_update(mock_config: Mock, mock_console: Mock) -> None:
             standalone_mode=False,  # type: ignore[attr-defined]
         )
 
-        mock_get_memory.assert_called_once_with()
-        mock_get_model.assert_called_once()
-        mock_model.prompt.assert_called_once()
-        # Verify the prompt content
-        prompt_call_args = mock_model.prompt.call_args.args
-        assert "Existing memory content" in prompt_call_args[0]
-        assert "Additional context about deployment" in prompt_call_args[0]
+        mock_get_memory.assert_called_once_with(mock_config)
+        mock_get_adapter_class.assert_called_once_with(mock_config)
+        mock_adapter_instance.get_model.assert_called_once_with("test-cli-model")
 
-        mock_set_memory.assert_called_once_with(
-            "Updated memory content", mock_config
-        )  # Function likely accesses config internally
+        # Assert that execute_and_log_metrics was called on the adapter
+        mock_adapter_instance.execute_and_log_metrics.assert_called_once()
+        call_args = mock_adapter_instance.execute_and_log_metrics.call_args
+        assert call_args is not None
+
+        # Verify that "Existing memory content" is in one of the user_fragments,
+        # via fragment_memory_context
+        user_fragments_passed = call_args.kwargs.get("user_fragments", [])
+        found_existing_memory = False
+        for fragment in user_fragments_passed:
+            if "Previous Memory:\nExisting memory content" in fragment:
+                found_existing_memory = True
+                break
+        assert found_existing_memory, (
+            "'Existing memory content' not found in user_fragments via "
+            "fragment_memory_context"
+        )
+
+        # Verify that "Additional context about deployment" is in one
+        # of the user_fragments
+        found_additional_context = False
+        for fragment in user_fragments_passed:
+            if "User Update: Additional context about deployment" in fragment:
+                found_additional_context = True
+                break
+        assert found_additional_context, (
+            "'Additional context about deployment' not found in user_fragments"
+        )
+
+        mock_set_memory.assert_called_once_with("Updated memory content", mock_config)
         # mock_console.print_success.assert_called_once()
 
 
@@ -236,22 +279,26 @@ async def test_memory_update_error(mock_config: Mock) -> None:
     # Setup mocks with error
     with (
         patch("vibectl.cli.get_memory") as mock_get_memory,
-        patch("vibectl.cli.llm.get_model") as mock_get_model,
+        patch("vibectl.cli.set_memory") as mock_set_memory,
+        patch("vibectl.cli.get_model_adapter") as mock_get_adapter_class,
         patch("vibectl.cli.handle_exception") as mock_handle_exception,
     ):
         # Configure get_memory to return existing memory
         mock_get_memory.return_value = "Existing memory content"
         test_exception = Exception("Test LLM error")
         # Mock the model to raise an exception
-        mock_get_model.side_effect = test_exception
+        # Patch get_model_adapter now, as cli.py uses it
+        mock_adapter_instance = Mock()
+        mock_adapter_instance.get_model.side_effect = test_exception
+        mock_get_adapter_class.return_value = mock_adapter_instance
 
         # Execute the command directly
         await update_cmd.main(
             ["Additional context about deployment"], standalone_mode=False
         )  # type: ignore[attr-defined]
 
-        mock_get_memory.assert_called_once_with()
-        mock_get_model.assert_called_once()
+        mock_get_memory.assert_called_once_with(mock_config)
+        mock_set_memory.assert_not_called()  # Should not be called if LLM/adapter fails
         mock_handle_exception.assert_called_once_with(test_exception)
 
 
@@ -273,3 +320,28 @@ async def test_memory_set_stdin_accepted(
         test_input
     )  # Function likely accesses config internally
     # mock_console.print_success.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_memory_off_does_not_call_set_memory_on_clear(
+    mock_config: Mock, mock_console: Mock
+) -> None:
+    """Test that memory is off and does not call set_memory on clear."""
+    clear_cmd = cli.commands["memory"].commands["clear"]  # type: ignore[attr-defined]
+    # Setup direct mocks
+    with (
+        patch("vibectl.cli.clear_memory") as mock_clear,
+        patch("vibectl.cli.set_memory") as mock_set_memory,
+        patch("vibectl.cli.handle_exception") as mock_handle_exception,
+    ):
+        # Setup mock_config to return memory_off
+        mock_config.get.side_effect = (
+            lambda key, default=None: default if key == "memory_off" else None
+        )
+
+        # Execute directly
+        await clear_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
+
+        mock_clear.assert_called_once_with()
+        mock_set_memory.assert_not_called()
+        mock_handle_exception.assert_not_called()

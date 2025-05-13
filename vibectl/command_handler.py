@@ -8,7 +8,6 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-import json
 import time
 from collections.abc import Callable
 from json import JSONDecodeError
@@ -43,10 +42,15 @@ from .prompt import (
 from .schema import ActionType, LLMCommandResponse
 from .types import (
     Error,
+    Fragment,
     LLMMetrics,
     OutputFlags,
+    PromptFragments,
     Result,
     Success,
+    SummaryPromptFragmentFunc,
+    SystemFragments,
+    UserFragments,
 )
 from .utils import console_manager
 
@@ -65,7 +69,7 @@ def handle_standard_command(
     resource: str,
     args: tuple,
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
 ) -> Result:
     """Handle standard kubectl commands like get, describe, logs.
 
@@ -224,7 +228,7 @@ def create_api_error(
 def handle_command_output(
     output: Result | str,
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
 ) -> Result:
     """Processes and displays command output based on flags.
@@ -268,20 +272,36 @@ def handle_command_output(
             try:
                 if original_error_object:
                     # If we started with an error, generate a recovery prompt
-                    prompt_str = recovery_prompt(
-                        failed_command=command or "Unknown Command",
-                        error_output=output_str,
-                        original_explanation=None,
+                    # recovery_prompt now returns fragments
+                    recovery_system_fragments, recovery_user_fragments = (
+                        recovery_prompt(
+                            failed_command=command or "Unknown Command",
+                            error_output=output_str,
+                            original_explanation=None,
+                            current_memory=get_memory(),
+                            # Add config if needed by recovery_prompt
+                            config=Config(),
+                        )
                     )
-                    logger.info(f"Generated recovery prompt: {prompt_str}")
+                    logger.info(
+                        "Generated recovery fragments: "
+                        f"System={len(recovery_system_fragments)}, "
+                        f"User={len(recovery_user_fragments)}"
+                    )
 
                     # Call LLM adapter directly for recovery, bypassing _get_llm_summary
                     try:
                         model_adapter = get_model_adapter()
                         model = model_adapter.get_model(output_flags.model_name)
-                        # Get text and metrics from the recovery call
+                        # Get text and metrics from the recovery call using fragments
                         vibe_output_text, recovery_metrics = (
-                            model_adapter.execute_and_log_metrics(model, prompt_str)
+                            model_adapter.execute_and_log_metrics(
+                                model,
+                                system_fragments=SystemFragments(
+                                    recovery_system_fragments
+                                ),
+                                user_fragments=UserFragments(recovery_user_fragments),
+                            )
                         )
                         suggestions_generated = True
                     except Exception as llm_exc:
@@ -304,29 +324,8 @@ def handle_command_output(
                     console_manager.print_vibe(vibe_output_text)
                     # Update the original error object with suggestion/failure text
                     # If there was an original error, update its recovery suggestions
-                    try:
-                        # Try parsing the vibe output as JSON (expected for recovery)
-                        parsed_vibe = json.loads(vibe_output_text)
-                        if (
-                            isinstance(parsed_vibe, dict)
-                            and "explanation" in parsed_vibe
-                        ):
-                            original_error_object.recovery_suggestions = parsed_vibe[
-                                "explanation"
-                            ]
-                        else:
-                            # If not JSON or no explanation key, use raw string
-                            original_error_object.recovery_suggestions = (
-                                vibe_output_text
-                            )
-                    except (JSONDecodeError, TypeError):
-                        # If parsing fails, use the raw string
-                        logger.warning(
-                            "Failed to parse vibe output as JSON "
-                            "for recovery suggestion.",
-                            exc_info=True,
-                        )
-                        original_error_object.recovery_suggestions = vibe_output_text
+                    # The recovery suggestion is plain text, not JSON.
+                    original_error_object.recovery_suggestions = vibe_output_text
 
                     # Attach metrics (if any) from the recovery call
                     original_error_object.metrics = recovery_metrics
@@ -369,12 +368,18 @@ def handle_command_output(
                     pass  # No change needed here, metrics handled above
                 else:
                     # If we started with success, generate a summary prompt
-                    summary_prompt_str = summary_prompt_func()
+                    # Call with config
+                    cfg = Config()  # Instantiate config
+                    # Call WITH config argument as required by the type hint
+                    summary_system_fragments, summary_user_fragments = (
+                        summary_prompt_func(cfg)
+                    )
                     # _process_vibe_output returns Success with summary_metrics
                     vibe_result = _process_vibe_output(
                         output_str,
                         output_flags,
-                        summary_prompt_str=summary_prompt_str,
+                        summary_system_fragments=summary_system_fragments,
+                        summary_user_fragments=summary_user_fragments,
                         command=command,
                         original_error_object=original_error_object,
                     )
@@ -391,8 +396,10 @@ def handle_command_output(
                     exc_info=True,
                 )
                 console_manager.print_error(f"API Error: {api_err}")
-                # Create a non-halting error with the formatted message
-                return create_api_error(f"API Error: {api_err}", api_err, metrics=None)
+                # Create a non-halting error using the more detailed log message
+                return create_api_error(
+                    f"Recoverable API error during Vibe processing: {api_err}", api_err
+                )
             except Exception as e:
                 logger.error(f"Error during Vibe processing: {e}", exc_info=True)
                 error_str = str(e)
@@ -400,7 +407,7 @@ def handle_command_output(
                 console_manager.print_error(formatted_error_msg)
                 # Create a standard halting error for Vibe summary failures
                 # using the formatted message
-                vibe_error = Error(error=formatted_error_msg, exception=e, metrics=None)
+                vibe_error = Error(error=formatted_error_msg, exception=e)
 
                 if original_error_object:
                     # Combine the original error with the Vibe failure
@@ -518,7 +525,8 @@ def _display_raw_output(output_flags: OutputFlags, output: str) -> None:
 def _process_vibe_output(
     output: str,
     output_flags: OutputFlags,
-    summary_prompt_str: str,
+    summary_system_fragments: SystemFragments,
+    summary_user_fragments: UserFragments,
     command: str | None = None,
     original_error_object: Error | None = None,
 ) -> Result:
@@ -527,7 +535,8 @@ def _process_vibe_output(
     Args:
         output: The raw command output string.
         output_flags: Flags controlling output format.
-        summary_prompt_str: The formatted prompt string for the LLM.
+        summary_system_fragments: System prompt fragments for the summary.
+        summary_user_fragments: User prompt fragments for the summary.
         command: The original kubectl command type.
         original_error_object: The original error object if available
 
@@ -539,11 +548,26 @@ def _process_vibe_output(
 
     # Get LLM summary
     try:
-        # Get both text and metrics from the summary call
-        vibe_output_text, vibe_metrics = _get_llm_summary(
-            processed_output,
-            output_flags.model_name,
-            summary_prompt_str,
+        # Format the {output} placeholder in user fragments
+        formatted_user_fragments: UserFragments = UserFragments([])
+        for frag_template in summary_user_fragments:
+            try:
+                # Ensure formatted string is cast to Fragment
+                formatted_user_fragments.append(
+                    Fragment(frag_template.format(output=processed_output))
+                )
+            except KeyError:
+                # Keep fragments without the placeholder as they are (already Fragment)
+                formatted_user_fragments.append(frag_template)
+
+        # Get response text and metrics using fragments directly
+        model_adapter = get_model_adapter()
+        model = model_adapter.get_model(output_flags.model_name)
+        # Get text and metrics
+        vibe_output_text, metrics = model_adapter.execute_and_log_metrics(
+            model=model,
+            system_fragments=summary_system_fragments,
+            user_fragments=UserFragments(formatted_user_fragments),
         )
 
         # Check if the LLM returned an error string in the text part
@@ -555,7 +579,7 @@ def _process_vibe_output(
             # Treat LLM-reported errors as potentially recoverable API errors
             # Pass the error message without the ERROR: prefix
             # Attach metrics from the failed call to the Error object
-            return create_api_error(error_message, metrics=vibe_metrics)
+            return create_api_error(error_message, metrics=metrics)
 
         _display_vibe_output(vibe_output_text)  # Display only the text
 
@@ -576,15 +600,17 @@ def _process_vibe_output(
             )
 
         # Return Success with the summary text and its metrics
-        return Success(message=vibe_output_text, metrics=vibe_metrics)
+        return Success(message=vibe_output_text, metrics=metrics)
     except RecoverableApiError as api_err:
         # Catch specific recoverable errors from _get_llm_summary
         logger.warning(
             f"Recoverable API error during Vibe processing: {api_err}", exc_info=True
         )
         console_manager.print_error(f"API Error: {api_err}")
-        # Create a non-halting error with the formatted message
-        return create_api_error(f"API Error: {api_err}", api_err)
+        # Create a non-halting error using the more detailed log message
+        return create_api_error(
+            f"Recoverable API error during Vibe processing: {api_err}", api_err
+        )
     except Exception as e:
         logger.error(f"Error getting Vibe summary: {e}", exc_info=True)
         error_str = str(e)
@@ -609,29 +635,6 @@ def _process_vibe_output(
             return vibe_error
 
 
-def _get_llm_summary(
-    processed_output: str,
-    model_name: str,
-    summary_prompt_str: str,
-) -> tuple[str, LLMMetrics | None]:
-    """Gets the LLM summary for the processed output.
-
-    Args:
-        processed_output: The processed (potentially truncated) output.
-        model_name: Name of the LLM model to use.
-        summary_prompt_str: The formatted prompt string for the LLM.
-
-    Returns:
-        A tuple containing the summary text generated by the LLM and its metrics.
-    """
-    model_adapter = get_model_adapter()
-    model = model_adapter.get_model(model_name)
-    # Format the prompt string with the output
-    final_prompt = summary_prompt_str.format(output=processed_output)
-    # Return the tuple directly
-    return model_adapter.execute_and_log_metrics(model, final_prompt)
-
-
 def _display_vibe_output(vibe_output: str) -> None:
     """Display the vibe output.
 
@@ -645,46 +648,64 @@ def _display_vibe_output(vibe_output: str) -> None:
 async def handle_vibe_request(
     request: str,
     command: str,
-    plan_prompt: str,
-    summary_prompt_func: Callable[[], str],
+    plan_prompt_func: Callable[..., PromptFragments],
+    summary_prompt_func: SummaryPromptFragmentFunc,
     output_flags: OutputFlags,
     yes: bool = False,  # Add parameter to control confirmation bypass
     semiauto: bool = False,  # Add parameter for semiauto mode
     live_display: bool = True,  # Add parameter for live display
-    memory_context: str = "",  # Add parameter for memory context
     autonomous_mode: bool = False,  # Add parameter for autonomous mode
+    config: Config | None = None,  # Added config
 ) -> Result:
     """Handle a request that requires LLM interaction for command planning.
 
     Args:
         request: The user's natural language request.
         command: The base kubectl command (e.g., 'get', 'describe').
-        plan_prompt: The prompt template used for planning the command.
-        summary_prompt_func: Function to generate the summary prompt.
+        plan_prompt_func: Function returning system/user fragments for planning.
+        summary_prompt_func: Function returning system/user fragments for summary.
         output_flags: Flags controlling output format and verbosity.
         yes: Bypass confirmation prompts.
         semiauto: Enable semi-autonomous mode (confirm once).
         live_display: Show live output for background tasks.
-        memory_context: Context from fuzzy memory.
         autonomous_mode: Enable fully autonomous mode (no confirmations).
+        config: Optional Config instance.
 
     Returns:
         Result object with the outcome of the operation.
     """
+    cfg = config or Config()
     model_name = output_flags.model_name
 
-    # Get and validate the LLM plan
-    # Replace placeholders in the prompt template
-    final_plan_prompt = plan_prompt.replace(
-        "__MEMORY_CONTEXT_PLACEHOLDER__", memory_context or ""
-    )
-    final_plan_prompt = final_plan_prompt.replace(
-        "__REQUEST_PLACEHOLDER__", request or ""
-    )
+    # --- Get Planning Fragments and Prepare Prompt --- #
+    # Get fresh memory context
+    memory_context_str = get_memory(cfg)
 
+    # Call the provided function to get base system/user fragments
+    plan_system_fragments, plan_user_fragments_base = plan_prompt_func()
+
+    # Prepare the final list of user fragments
+    # Start with the base fragments from the prompt function
+    final_user_fragments = list(
+        plan_user_fragments_base
+    )  # Use list() to ensure mutable copy
+
+    # Prepend memory context if it exists
+    if memory_context_str:
+        final_user_fragments.insert(
+            0,
+            Fragment(f"Memory Context:\n{memory_context_str}"),
+        )
+
+    # Append the actual request if provided
+    if request:
+        final_user_fragments.append(Fragment(request))
+
+    # Get and validate the LLM plan using the fragments
     plan_result = _get_llm_plan(
         model_name,
-        final_plan_prompt,
+        plan_system_fragments,  # Pass system fragments
+        UserFragments(final_user_fragments),  # Pass final user fragments
         LLMCommandResponse,
     )
 
@@ -794,7 +815,6 @@ async def handle_vibe_request(
         if kubectl_verb is None:
             return Error(error="LLM planning failed: Could not determine command verb.")
 
-        # >>> ADDED: Check for port-forward with live display
         if kubectl_verb == "port-forward" and live_display:
             logger.info("Dispatching 'port-forward' command to live display handler.")
             # Extract resource and args for the live handler
@@ -815,13 +835,13 @@ async def handle_vibe_request(
                 summary_prompt_func=summary_prompt_func,
             )
         else:
-            # <<< END ADDED BLOCK
             # Confirm and execute the plan using a helper function
             return await _confirm_and_execute_plan(
                 kubectl_verb,
                 kubectl_args,
                 response.yaml_manifest,
                 response.explanation,
+                command,  # Pass original command verb
                 semiauto,
                 yes,
                 autonomous_mode,
@@ -843,12 +863,13 @@ async def _confirm_and_execute_plan(
     kubectl_args: list[str],
     yaml_content: str | None,
     explanation: str | None,
+    original_command_verb: str,  # Add original_command_verb
     semiauto: bool,
     yes: bool,
     autonomous_mode: bool,
     live_display: bool,
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
 ) -> Result:
     """Confirm and execute the kubectl command plan."""
     # Determine if YAML content is present for display formatting
@@ -860,9 +881,11 @@ async def _confirm_and_execute_plan(
     # Keep the logic for cmd_for_display as it was, focusing on args
     cmd_for_display = " ".join(_quote_args(kubectl_args))
 
-    needs_conf = _needs_confirmation(kubectl_verb, semiauto)
+    needs_conf = _needs_confirmation(
+        original_command_verb, semiauto
+    )  # Use original_command_verb
     logger.debug(
-        f"Confirmation check: command='{display_cmd}', verb='{kubectl_verb}', "
+        f"Confirmation check: command='{display_cmd}', verb='{original_command_verb}', "
         f"semiauto={semiauto}, needs_confirmation={needs_conf}, yes_flag={yes}"
     )
 
@@ -1089,26 +1112,47 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
     try:
         # Get the model name from config if not specified
         cfg = Config()
-        current_memory = get_memory(cfg)  # Pass cfg
+        current_memory = get_memory(cfg)  # Get current memory
 
         # Get the model
         model_adapter = get_model_adapter(cfg)  # Pass cfg
         model = model_adapter.get_model(model_name)
 
         # Create a prompt for the fuzzy memory update
-        # Pass context arguments explicitly to memory_fuzzy_update_prompt if required
-        # Assuming memory_fuzzy_update_prompt handles context internally via config
-        prompt = memory_fuzzy_update_prompt(
-            current_memory=current_memory,
-            update_text=update_text,
+        # Pass current_memory explicitly
+        system_fragments, user_fragments_template = memory_fuzzy_update_prompt(
+            current_memory=current_memory,  # Pass fetched memory
+            # update_text is formatted into the template later
+            config=cfg,  # Pass config if needed by the prompt function
         )
+
+        # Fill placeholders {prompt_details} (which holds the user's input)
+        filled_user_fragments: UserFragments = UserFragments([])
+        for frag_template in user_fragments_template:
+            try:
+                # Format ONLY with update_text (which holds the user's input)
+                # The template from memory_fuzzy_update_prompt uses {prompt_details}
+                filled_user_fragments.append(
+                    Fragment(frag_template.format(prompt_details=update_text))
+                )
+            except KeyError as e:
+                logger.warning(
+                    f"KeyError formatting fuzzy update template ({e}), "
+                    f"using raw: {frag_template}"
+                )
+                # Keep fragments without placeholders as they are
+                filled_user_fragments.append(frag_template)
 
         # Get the response
         console_manager.print_processing("Updating memory...")
-        # Get text and metrics, but we only use text here for now
-        updated_memory_text, _ = model_adapter.execute_and_log_metrics(model, prompt)
+        # Get text and metrics
+        updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
+            model,
+            system_fragments=system_fragments,
+            user_fragments=filled_user_fragments,
+        )
 
-        # Set the updated memory (only text)
+        # Set the updated memory
         set_memory(updated_memory_text, cfg)
         console_manager.print_success("Memory updated")
 
@@ -1315,7 +1359,7 @@ async def handle_wait_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
 ) -> Result:
     """Handles `kubectl wait` by preparing args and calling the live display worker.
 
@@ -1344,6 +1388,7 @@ async def handle_wait_with_live_display(
         output_flags=output_flags,
         condition=condition,
         display_text=display_text,
+        summary_prompt_func=summary_prompt_func,
     )
 
     # Process the result from the worker using handle_command_output
@@ -1362,7 +1407,7 @@ async def handle_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
 ) -> Result:
     """Handles `kubectl port-forward` by preparing args and invoking live display.
 
@@ -1421,7 +1466,7 @@ async def handle_watch_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,
 ) -> Result:
     """Handles commands with `--watch` by invoking the live display worker.
 
@@ -1440,9 +1485,8 @@ async def handle_watch_with_live_display(
 
     # Create the command description for the display
     display_args = [arg for arg in args if arg not in ("--watch", "-w")]
-    display_text = (
-        f"Watching [bold]{command} {resource} {''.join(display_args)}[/bold]..."
-    )
+    cmd_for_display = _create_display_command(command, display_args, False)
+    console_manager.print_processing(f"Watching {cmd_for_display}...")
 
     # Call the worker function in live_display_watch.py (corrected module name)
     watch_result = await _execute_watch_with_live_display(
@@ -1450,7 +1494,7 @@ async def handle_watch_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
-        display_text=display_text,
+        summary_prompt_func=summary_prompt_func,
     )
 
     # Process the result from the worker using handle_command_output
@@ -1467,7 +1511,8 @@ async def handle_watch_with_live_display(
 # Helper function for Vibe planning
 def _get_llm_plan(
     model_name: str,
-    final_plan_prompt: str,
+    plan_system_fragments: SystemFragments,
+    plan_user_fragments: UserFragments,
     response_model_type: type[LLMCommandResponse],
 ) -> Result:
     """Calls the LLM to get a command plan and validates the response."""
@@ -1488,13 +1533,16 @@ def _get_llm_plan(
         return create_api_error(error_msg, e)
 
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
-    logger.debug(f"Final planning prompt:\\n{final_plan_prompt}")
+    logger.debug(
+        f"Final planning prompt:\\n{plan_system_fragments} {plan_user_fragments}"
+    )
 
     try:
-        # Get response text and metrics
+        # Get response text and metrics using fragments
         llm_response_text, metrics = model_adapter.execute_and_log_metrics(
             model=model,
-            prompt_text=final_plan_prompt,
+            system_fragments=plan_system_fragments,
+            user_fragments=plan_user_fragments,
             response_model=response_model_type,
         )
         logger.info(f"Raw LLM response text:\\n{llm_response_text}")
@@ -1554,35 +1602,35 @@ def _get_llm_plan(
 def _extract_verb_args(
     original_command: str, raw_llm_commands: list[str]
 ) -> tuple[str | None, list[str]]:
-    """Determines the kubectl verb and arguments based on context."""
-    if original_command != "vibe":
-        # If original command wasn't 'vibe', the LLM was only asked for args.
-        kubectl_verb = original_command
-        kubectl_args = raw_llm_commands
-    elif raw_llm_commands:
-        # If the original command was 'vibe', the LLM determined the verb.
+    """
+    Determines the kubectl verb and arguments from the LLM's raw command list.
+    Assumes the LLM ALWAYS provides the verb as the first element.
+    """
+    if not raw_llm_commands:
+        logger.error("LLM failed to provide any command parts.")
+        return None, []
+
+    if original_command == "vibe":
         kubectl_verb = raw_llm_commands[0]
         kubectl_args = raw_llm_commands[1:]
-
-        # Check for heredoc separator '---' and adjust args
-        # The YAML content itself comes from response.yaml_manifest
-        if "---" in kubectl_args:
-            try:
-                separator_index = kubectl_args.index("---")
-                kubectl_args = kubectl_args[:separator_index]
-                logger.debug(f"Adjusted kubectl_args for heredoc: {kubectl_args}")
-            except ValueError:
-                # Should not happen if '---' is in the list, but handle defensively
-                logger.warning("'---' detected but index not found in kubectl_args.")
-
     else:
-        # COMMAND action type but empty commands list - LLM error.
-        logger.error("LLM failed to provide command verb for 'vibe' request.")
-        return None, []  # Indicate error by returning None for verb
+        kubectl_verb = original_command
+        kubectl_args = raw_llm_commands
+
+    # Check for heredoc separator '---' and adjust args
+    # The YAML content itself comes from response.yaml_manifest
+    if "---" in kubectl_args:
+        try:
+            separator_index = kubectl_args.index("---")
+            kubectl_args = kubectl_args[:separator_index]
+            logger.debug(f"Adjusted kubectl_args for heredoc: {kubectl_args}")
+        except ValueError:
+            # Should not happen if '---' is in the list, but handle defensively
+            logger.warning("'---' detected but index not found in kubectl_args.")
 
     # Safety check: Ensure determined verb is not empty
     if not kubectl_verb:
-        logger.error("Internal error: Could not determine kubectl verb.")
+        logger.error("Internal error: LLM provided an empty verb.")
         return None, []  # Indicate error
 
     return kubectl_verb, kubectl_args

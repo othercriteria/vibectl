@@ -44,10 +44,11 @@ async def run_scale_command(
             vibe_result = await handle_vibe_request(
                 request=request,
                 command="scale",
-                plan_prompt=PLAN_SCALE_PROMPT,
+                plan_prompt_func=lambda: PLAN_SCALE_PROMPT,
                 output_flags=output_flags,
                 summary_prompt_func=scale_resource_prompt,
                 semiauto=False,
+                config=None,
             )
             logger.info("Completed 'scale' command for vibe request.")
             return vibe_result

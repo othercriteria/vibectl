@@ -82,10 +82,24 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
     # Verify prompt contains command, output and vibe_output
-    prompt = mock_model_adapter.execute_and_log_metrics.call_args[0][1]
-    assert command in prompt
-    assert command_output in prompt
-    assert vibe_output in prompt
+    kwargs_passed = mock_model_adapter.execute_and_log_metrics.call_args[1]
+    user_fragments_passed = kwargs_passed["user_fragments"]
+
+    # The command, command_output, and vibe_output are now in the fragment
+    # created by fragment_interaction
+    # This is typically the third user fragment after current_time and memory_context
+    interaction_fragment_content = ""
+    for fragment in user_fragments_passed:
+        if "Interaction:" in fragment:
+            interaction_fragment_content = fragment
+            break
+
+    assert interaction_fragment_content, (
+        "Interaction fragment not found in user_fragments"
+    )
+    assert command in interaction_fragment_content
+    assert command_output in interaction_fragment_content
+    assert vibe_output in interaction_fragment_content
 
     # Verify memory was updated
     assert get_memory(test_config) == expected_memory_text
@@ -138,9 +152,36 @@ def test_update_memory_with_error(
     )
 
     # Verify prompt emphasizes the error
-    prompt = mock_model_adapter.execute_and_log_metrics.call_args[0][1]
-    assert "Error:" in prompt
-    assert "extremely important information" in prompt
+    kwargs_passed_error = mock_model_adapter.execute_and_log_metrics.call_args[1]
+    user_fragments_passed_error = kwargs_passed_error["user_fragments"]
+    system_fragments_passed_error = kwargs_passed_error["system_fragments"]
+    # Check user fragment for basic error content
+    # The error content is in the interaction fragment
+    interaction_fragment_content_error = ""
+    for fragment in user_fragments_passed_error:
+        if "Interaction:" in fragment:
+            interaction_fragment_content_error = fragment
+            break
+
+    assert interaction_fragment_content_error, (
+        "Interaction fragment not found in error user_fragments"
+    )
+    assert "Error:" in interaction_fragment_content_error
+    assert (
+        command_output in interaction_fragment_content_error
+    )  # Check for the raw error output
+
+    # Check system fragment for general memory assistant role
+    # FRAGMENT_MEMORY_ASSISTANT is the first system fragment usually.
+    # Its content starts with "You are an AI agent..."
+    found_memory_assistant_role = False
+    for fragment_str in system_fragments_passed_error:
+        if "You are an AI agent maintaining memory state" in fragment_str:
+            found_memory_assistant_role = True
+            break
+    assert found_memory_assistant_role, (
+        "Key phrase from FRAGMENT_MEMORY_ASSISTANT not found in system_fragments"
+    )
 
     # Verify memory captures the error
     assert "Error occurred" in get_memory(test_config)

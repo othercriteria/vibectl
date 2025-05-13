@@ -17,7 +17,17 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import handle_vibe_request
-from vibectl.types import ActionType, Error, OutputFlags
+from vibectl.config import Config
+from vibectl.prompt import plan_vibe_fragments
+from vibectl.schema import ActionType
+from vibectl.types import (
+    Error,
+    Fragment,
+    OutputFlags,
+    PromptFragments,
+    SystemFragments,
+    UserFragments,
+)
 
 
 @pytest.fixture
@@ -76,6 +86,19 @@ def output_flags() -> OutputFlags:
     )
 
 
+# Dummy summary prompt function that returns fragments
+def get_test_summary_fragments(
+    config: Config | None = None,
+) -> PromptFragments:
+    """Dummy summary prompt function for testing that returns fragments."""
+    return PromptFragments(
+        (
+            SystemFragments([Fragment("System fragment with {output}")]),
+            UserFragments([Fragment("User fragment with {output}")]),
+        )
+    )
+
+
 @pytest.mark.asyncio
 @patch("vibectl.command_handler.update_memory")
 async def test_recovery_suggestions_not_in_memory(
@@ -94,32 +117,29 @@ async def test_recovery_suggestions_not_in_memory(
         "explanation": "Get pods",
     }
     expected_plan_json = json.dumps(plan_response)
-    # Recovery step (called by handle_command_output) also returns JSON
+    # Recovery step (called by handle_command_output) should return plain text
     recovery_suggestion_text = "Error occurred: Pod not found"
-    recovery_response_json = json.dumps(
-        {
-            "action_type": ActionType.FEEDBACK.value,
-            "explanation": recovery_suggestion_text,
-        }
-    )
 
     # Mock execute_and_log_metrics directly on the adapter instance
     mock_get_adapter.execute_and_log_metrics.side_effect = [
-        (expected_plan_json, None),
-        (recovery_response_json, None),
+        (expected_plan_json, None),  # Planning response
+        (recovery_suggestion_text, None),  # Recovery response (plain text)
     ]
     # _execute_command (kubectl) fails
     mock_execute.return_value = Error(error="Pod not found", exception=None)
 
     # Mock recovery prompt generation and memory interaction
     with patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt:
-        mock_recovery_prompt.return_value = "Recovery prompt content"
+        mock_recovery_prompt.return_value = (
+            ["System recovery prompt"],
+            ["User recovery prompt with {error_output}"],
+        )
         # Let the actual handle_command_output run
         result = await handle_vibe_request(
             request="show the pods",
             command="vibe",
-            plan_prompt="plan {request}",
-            summary_prompt_func=lambda: "summarize {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=output_flags,
         )
 
@@ -183,8 +203,8 @@ async def test_recovery_suggestions_should_update_memory(
     result = await handle_vibe_request(
         request="show the pods",
         command="vibe",  # Command verb
-        plan_prompt="plan {request}",
-        summary_prompt_func=lambda: "summarize {output}",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=get_test_summary_fragments,
         output_flags=output_flags,
     )
 
@@ -258,9 +278,10 @@ async def test_recovery_suggestions_in_auto_mode(
     result1 = await handle_vibe_request(
         request="show the pods",
         command="vibe",  # Command verb
-        plan_prompt="plan {request}",
-        summary_prompt_func=lambda: "summarize {output}",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=get_test_summary_fragments,
         output_flags=output_flags,
+        autonomous_mode=True,
     )
 
     # Verify recovery suggestions on the first result

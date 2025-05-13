@@ -31,14 +31,14 @@ def mock_get_memory() -> Generator[Mock, None, None]:
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_with_request(
     mock_configure_flags: Mock,
     mock_vibe_cmd_get_memory: Mock,
     mock_ch_get_model_adapter: Mock,
-    mock_mem_get_model_adapter: Mock,
+    mock_mem_get_memory: Mock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
@@ -49,7 +49,7 @@ async def test_vibe_command_with_request(
     # 1. Mock get_model_adapter factory to return our mock adapter instance
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
     mock_ch_get_model_adapter.return_value = mock_adapter_instance
-    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_memory.return_value = mock_adapter_instance
 
     # 2. The adapter's get_model method will be called to get a model object.
     #    This model object is passed to adapter.execute(), but our mocked execute
@@ -83,7 +83,7 @@ async def test_vibe_command_with_request(
     mock_run_kubectl.assert_called_once()
     assert mock_ch_get_model_adapter.call_count >= 1
     assert (
-        mock_mem_get_model_adapter.call_count >= 1
+        mock_mem_get_memory.call_count >= 1
     )  # Ensure memory module's adapter was also called if memory updates happened
     assert (
         mock_adapter_instance.get_model.call_count >= 1
@@ -93,7 +93,7 @@ async def test_vibe_command_with_request(
     )  # Plan + at least one memory/summary
 
 
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.subcommands.vibe_cmd.configure_output_flags")
 @pytest.mark.asyncio
@@ -133,14 +133,14 @@ async def test_vibe_command_without_request(
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_with_yes_flag(
     mock_configure_flags: Mock,
     mock_vibe_cmd_get_memory: Mock,
     mock_ch_get_model_adapter: Mock,
-    mock_mem_get_model_adapter: Mock,
+    mock_mem_get_memory: Mock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
@@ -151,7 +151,7 @@ async def test_vibe_command_with_yes_flag(
     # 1. Mock get_model_adapter factory
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
     mock_ch_get_model_adapter.return_value = mock_adapter_instance
-    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_memory.return_value = mock_adapter_instance
 
     # 2. Mock adapter's get_model
     mock_adapter_instance.get_model.return_value = MagicMock()
@@ -187,7 +187,7 @@ async def test_vibe_command_with_yes_flag(
 
     # Verify mocks were called
     assert mock_ch_get_model_adapter.call_count >= 1
-    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_mem_get_memory.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
     assert (
         mock_adapter_instance.execute_and_log_metrics.call_count >= 2
@@ -195,7 +195,7 @@ async def test_vibe_command_with_yes_flag(
     mock_run_kubectl.assert_called_once()
 
 
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.subcommands.vibe_cmd.configure_output_flags")
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_vibe_command_with_no_arguments_plan_prompt(
     assert kwargs["request"] == ""
 
 
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.subcommands.vibe_cmd.configure_output_flags")
 @pytest.mark.asyncio
@@ -254,11 +254,10 @@ async def test_vibe_command_with_existing_memory_plan_prompt(
     mock_configure_flags.assert_called_once()
     args, kwargs = mock_handle_vibe.call_args
     assert kwargs["request"] == ""
-    assert kwargs["memory_context"] == memory_value
 
 
 # Tests calling run_vibe_command directly should be async and await
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_vibe_command_with_explicit_request_plan_prompt(
@@ -287,11 +286,10 @@ async def test_vibe_command_with_explicit_request_plan_prompt(
     mock_handle_vibe.assert_called_once()
     args, kwargs = mock_handle_vibe.call_args
     assert kwargs["request"] == request
-    assert kwargs["memory_context"] == "Working in namespace 'test'"
 
 
 @patch("vibectl.subcommands.vibe_cmd.logger")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch(
     "vibectl.subcommands.vibe_cmd.handle_vibe_request",
     new_callable=AsyncMock,
@@ -320,7 +318,7 @@ async def test_vibe_command_handle_vibe_request_exception(
 @patch("vibectl.subcommands.vibe_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.vibe_cmd.configure_output_flags")
 @patch("vibectl.subcommands.vibe_cmd.logger")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_vibe_command_logs_and_console_for_empty_request(
@@ -352,7 +350,7 @@ async def test_vibe_command_logs_and_console_for_empty_request(
 
 
 @patch("vibectl.subcommands.vibe_cmd.logger")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.subcommands.vibe_cmd.handle_vibe_request", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_vibe_command_logs_and_console_for_nonempty_request(
@@ -374,7 +372,7 @@ async def test_vibe_command_logs_and_console_for_nonempty_request(
 
 
 @patch("vibectl.subcommands.vibe_cmd.logger")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch(
     "vibectl.subcommands.vibe_cmd.handle_vibe_request",
     new_callable=AsyncMock,
@@ -399,7 +397,7 @@ async def test_vibe_command_handle_vibe_request_exception_exit_on_error_true(
 
 # Test for handling ValueError specifically (recoverable in auto mode)
 @patch("vibectl.subcommands.vibe_cmd.logger")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch(
     "vibectl.subcommands.vibe_cmd.handle_vibe_request",
     new_callable=AsyncMock,
@@ -428,7 +426,7 @@ async def test_vibe_command_handle_vibe_request_value_error(
 @pytest.mark.asyncio
 async def test_handle_vibe_with_unknown_model(
     mock_ch_get_model_adapter: Mock,
-    mock_mem_get_model_adapter: Mock,
+    mock_mem_get_memory: Mock,
 ) -> None:
     """Test that the vibe command properly reports errors for unknown model names."""
     # 1. Mock adapter instance for command_handler path
@@ -441,7 +439,7 @@ async def test_handle_vibe_with_unknown_model(
 
     # 2. Mock adapter instance for memory.update_memory path
     mock_mem_adapter_instance = MagicMock(spec=LLMModelAdapter)
-    mock_mem_get_model_adapter.return_value = mock_mem_adapter_instance
+    mock_mem_get_memory.return_value = mock_mem_adapter_instance
     # update_memory calls get_model then execute. Mock them.
     mock_mem_model_obj = MagicMock()
     mock_mem_adapter_instance.get_model.return_value = mock_mem_model_obj
@@ -463,7 +461,7 @@ async def test_handle_vibe_with_unknown_model(
     mock_ch_adapter_instance.get_model.assert_called_once_with("invalid-model-name")
 
     # Verify that update_memory (via memory.get_model_adapter) was also called
-    mock_mem_get_model_adapter.assert_called_once()
+    mock_mem_get_memory.assert_called_once()
     mock_mem_adapter_instance.get_model.assert_called_once()  # Called by update_memory
     # Assert execute_and_log_metrics was called, as update_memory now uses that
     mock_mem_adapter_instance.execute_and_log_metrics.assert_called_once()
@@ -473,14 +471,14 @@ async def test_handle_vibe_with_unknown_model(
 @patch("vibectl.command_handler.Config")  # Mock Config in command_handler
 @patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_with_yaml_input(
     mock_configure_flags: Mock,
     mock_vibe_cmd_get_memory: Mock,
     mock_ch_get_model_adapter: Mock,
-    mock_mem_get_model_adapter: Mock,
+    mock_mem_get_memory: Mock,
     mock_ch_config: Mock,  # New mock for command_handler.Config
     mock_k8s_popen: Mock,  # New mock for k8s_utils.subprocess.Popen
     default_output_flags: OutputFlags,
@@ -492,7 +490,7 @@ async def test_vibe_command_with_yaml_input(
     # --- Mock LLM and Memory Adapters ---
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
     mock_ch_get_model_adapter.return_value = mock_adapter_instance
-    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_memory.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = MagicMock()
 
     yaml_content_str = "apiVersion: v1\\nkind: ConfigMap\\nmetadata:\\n  name: my-cm"
@@ -546,7 +544,7 @@ async def test_vibe_command_with_yaml_input(
 
     # Assert LLM/memory mocks
     assert mock_ch_get_model_adapter.call_count >= 1
-    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_mem_get_memory.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
     assert mock_adapter_instance.execute_and_log_metrics.call_count >= 2
     # Assert Config.get was called for "kubeconfig"
@@ -556,14 +554,14 @@ async def test_vibe_command_with_yaml_input(
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.subcommands.vibe_cmd.get_memory")
+@patch("vibectl.memory.get_memory")
 @patch("vibectl.command_handler.configure_output_flags")
 @pytest.mark.asyncio
 async def test_vibe_command_kubectl_failure_no_recovery_plan(
     mock_configure_flags: Mock,
     mock_vibe_cmd_get_memory: Mock,
     mock_ch_get_model_adapter: Mock,
-    mock_mem_get_model_adapter: Mock,
+    mock_mem_get_memory: Mock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
@@ -573,7 +571,7 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
 
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
     mock_ch_get_model_adapter.return_value = mock_adapter_instance
-    mock_mem_get_model_adapter.return_value = mock_adapter_instance
+    mock_mem_get_memory.return_value = mock_adapter_instance
 
     mock_adapter_instance.get_model.return_value = MagicMock()
 
@@ -606,7 +604,7 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
     mock_run_kubectl.assert_called_once()
     # Should have called LLM for plan, then for feedback/recovery attempt
     assert mock_ch_get_model_adapter.call_count >= 1
-    assert mock_mem_get_model_adapter.call_count >= 1
+    assert mock_mem_get_memory.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
     assert (
         mock_adapter_instance.execute_and_log_metrics.call_count >= 2

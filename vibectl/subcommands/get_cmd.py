@@ -9,7 +9,6 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    get_memory,
 )
 from vibectl.prompt import (
     PLAN_GET_PROMPT,
@@ -53,16 +52,16 @@ async def run_get_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            logger.info("Planning how to: %s", request)
+            logger.info(f"Planning how to: {request}")
 
             # Await the async handler
             result = await handle_vibe_request(
                 request=request,
                 command="get",
-                plan_prompt=PLAN_GET_PROMPT,
+                plan_prompt_func=lambda: PLAN_GET_PROMPT,
                 summary_prompt_func=get_resource_prompt,
                 output_flags=output_flags,
-                memory_context=get_memory() or "",
+                yes=False,
             )
 
             # Forward the Result from handle_vibe_request

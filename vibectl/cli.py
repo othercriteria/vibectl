@@ -11,7 +11,6 @@ import sys
 from collections.abc import Callable
 
 import asyncclick as click
-import llm
 from rich.panel import Panel
 from rich.table import Table
 
@@ -42,9 +41,15 @@ from . import __version__
 from .config import DEFAULT_CONFIG, Config
 from .console import console_manager
 from .logutil import init_logging, logger
-from .model_adapter import validate_model_key_on_startup
+from .model_adapter import get_model_adapter, validate_model_key_on_startup
 from .prompt import memory_fuzzy_update_prompt
-from .types import Error, Result, Success
+from .types import (
+    Error,
+    Fragment,
+    Result,
+    Success,
+    UserFragments,
+)
 from .utils import handle_exception
 
 # Current datetime for version command
@@ -212,8 +217,8 @@ async def get(
     handle_result(result)
 
 
-@cli.command()
-@click.argument("resource")
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(include_show_kubectl=True)
 async def describe(
@@ -968,26 +973,49 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
     while preserving important existing context.
     """
     try:
+        cfg = Config()
+
         # Get the current memory
-        current_memory = get_memory()
+        current_memory = get_memory(cfg)
 
         # Join the text parts to handle multi-word input
         update_text_str = " ".join(update_text)
 
         # Get the model name from config if not specified
-        cfg = Config()
-        model_name = model or cfg.get("model", DEFAULT_CONFIG["model"])
+        # Use .get() for model, falling back to DEFAULT_CONFIG
+        model_name_to_use = model or cfg.get("model", DEFAULT_CONFIG["model"])
 
-        # Get the model
-        model_instance = llm.get_model(model_name)
+        # Get the model adapter and model instance
+        model_adapter = get_model_adapter(cfg)
+        model_instance = model_adapter.get_model(model_name_to_use)
 
-        # Create a prompt for the fuzzy memory update
-        prompt = memory_fuzzy_update_prompt(current_memory, update_text_str, cfg)
+        # Create fragments for the fuzzy memory update
+        system_fragments, user_fragments_template = memory_fuzzy_update_prompt(
+            current_memory=current_memory, update_text=update_text_str, config=cfg
+        )
 
-        # Get the response
-        console_manager.print_processing(f"Updating memory using {model_name}...")
-        response = model_instance.prompt(prompt)
-        updated_memory = response.text()
+        # ormat the user_fragments_template here.
+        filled_user_fragments = []
+        for template_str in user_fragments_template:
+            try:
+                # Try to format with update_text
+                filled_user_fragments.append(
+                    Fragment(template_str.format(update_text=update_text_str))
+                )
+            except KeyError:
+                # If {update_text} isn't in a particular template piece, use it as is.
+                filled_user_fragments.append(Fragment(template_str))
+
+        console_manager.print_processing(
+            f"Updating memory using {model_name_to_use}..."
+        )
+
+        # Execute using the model adapter
+        updated_memory, _ = model_adapter.execute_and_log_metrics(
+            model=model_instance,
+            system_fragments=system_fragments,
+            user_fragments=UserFragments(filled_user_fragments),
+        )
 
         # Set the updated memory
         set_memory(updated_memory, cfg)

@@ -7,7 +7,6 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    get_memory,
 )
 from vibectl.prompt import (
     PLAN_DESCRIBE_PROMPT,
@@ -77,10 +76,10 @@ async def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Resul
         result = await handle_vibe_request(
             request=request,
             command="describe",
-            plan_prompt=PLAN_DESCRIBE_PROMPT,
+            plan_prompt_func=lambda: PLAN_DESCRIBE_PROMPT,
             summary_prompt_func=describe_resource_prompt,
             output_flags=output_flags,
-            memory_context=get_memory() or "",
+            config=None,
         )
 
         # Return any error unchanged

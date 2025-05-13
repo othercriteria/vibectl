@@ -8,7 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add `--show-metrics`/`--no-show-metrics` flag to control display of LLM latency and token usage.
+- Plumb `show_metrics` flag through CLI options, `OutputFlags`, subcommands, and `command_handler`.
 - Planned: Instrument LLM calls to measure cost/latency and refactor to use fragments for potential caching (WIP)
+
+### Changed
+- Major refactor of prompt generation and handling (`vibectl/prompt.py`, `vibectl/command_handler.py`):
+    - Introduced `PromptFragments` (SystemFragments, UserFragments) for more structured and flexible prompt construction.
+    - Updated most planning and summarization prompts to use this new fragment-based system (e.g., `plan_vibe_fragments`, `memory_update_prompt`, `vibe_autonomous_prompt`).
+    - Replaced static `plan_prompt` strings in subcommand handlers with `plan_prompt_func` that return `PromptFragments`.
+    - Removed `memory_context` as a direct argument to `handle_vibe_request`; memory is now incorporated into prompt fragments by the caller or within specific prompt functions.
+    - Consolidated and clarified prompt examples and instructions.
+- Improved consistency in passing `Config` objects for prompt generation and other configurations.
+
+### Fixed
+- Resolve numerous test failures related to fixture names, patch targets, assertion logic (especially concerning `show_metrics`), async command handling, and command signatures.
+- Remove unnecessary `@pytest.mark.asyncio` decorator from non-async test function `test_rollout_commands_with_mocked_handler_async` to fix warnings.
+- Corrected various test assertions and mock setups in `tests/test_cli_describe.py`, `tests/test_cli_scale.py`, `tests/test_recovery_memory.py`, `tests/test_vibe_delete_confirm.py`, and `tests/test_vibe_request.py` to align with refactored command handling and prompt logic (e.g., `config=None` argument, expected command verbs in mocks).
+- Addressed Mypy "Cannot infer type of lambda" errors in `tests/test_command_output.py` and `tests/test_api_errors.py` by replacing lambdas with typed helper functions for `summary_prompt_func`.
 
 ## [0.6.3] - 2025-05-12
 

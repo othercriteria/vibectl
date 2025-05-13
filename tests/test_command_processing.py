@@ -299,7 +299,10 @@ def test_fuzzy_memory_update(
         "Updated memory context",
         None,
     )
-    mock_prompt_func.return_value = "Fuzzy update prompt"
+    mock_prompt_func.return_value = (
+        ["System: Fuzzy Update"],
+        ["User: Please integrate: {prompt_details}"],
+    )
 
     # Simulate user input for the update text
     with patch("click.prompt", return_value="User added this text"):
@@ -309,13 +312,15 @@ def test_fuzzy_memory_update(
     assert isinstance(result, Success)
     mock_get_memory.assert_called_once_with(mock_cfg_instance)
     mock_prompt_func.assert_called_once_with(
-        current_memory="Original memory context", update_text="User added this text"
+        current_memory="Original memory context", config=mock_cfg_instance
+    )
+    mock_adapter_instance.execute_and_log_metrics.assert_called_once_with(
+        mock_model_instance,
+        system_fragments=["System: Fuzzy Update"],
+        user_fragments=["User: Please integrate: User added this text"],
     )
     mock_get_adapter.assert_called_once_with(mock_cfg_instance)
     mock_adapter_instance.get_model.assert_called_once_with("test-model")
-    mock_adapter_instance.execute_and_log_metrics.assert_called_once_with(
-        mock_model_instance, "Fuzzy update prompt"
-    )
     mock_set_memory.assert_called_once_with("Updated memory context", mock_cfg_instance)
 
     # Check console output - ignore ANSI codes for simplicity

@@ -55,7 +55,7 @@ async def run_version_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="version",
-                    plan_prompt=PLAN_VERSION_PROMPT,
+                    plan_prompt_func=lambda: PLAN_VERSION_PROMPT,
                     summary_prompt_func=version_prompt,
                     output_flags=output_flags,
                 )

@@ -3,8 +3,8 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, get_memory
-from vibectl.prompt import PLAN_VIBE_PROMPT, vibe_autonomous_prompt
+from vibectl.memory import configure_memory_flags
+from vibectl.prompt import plan_vibe_fragments, vibe_autonomous_prompt
 from vibectl.types import Error, Result, Success
 
 
@@ -44,8 +44,6 @@ async def run_vibe_command(
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
-        memory_context = get_memory() or ""
-
         # Handle empty request case
         if not request:
             logger.info("No request provided; using memory context for planning.")
@@ -62,12 +60,11 @@ async def run_vibe_command(
             result = await handle_vibe_request(
                 request=request,
                 command="vibe",
-                plan_prompt=PLAN_VIBE_PROMPT,
+                plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=vibe_autonomous_prompt,
                 output_flags=output_flags,
                 yes=yes,
                 semiauto=semiauto,
-                memory_context=memory_context,
                 autonomous_mode=is_autonomous,
             )
 

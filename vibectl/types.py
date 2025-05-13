@@ -4,9 +4,25 @@ Type definitions for vibectl.
 Contains common type definitions used across the application.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import (
+    Any,
+    NewType,
+    Protocol,
+    runtime_checkable,
+)
+
+# Import Config for type hinting
+from .config import Config
+
+# For prompt construction
+Examples = NewType("Examples", list[tuple[str, dict[str, Any]]])
+Fragment = NewType("Fragment", str)
+SystemFragments = NewType("SystemFragments", list[Fragment])
+UserFragments = NewType("UserFragments", list[Fragment])
+PromptFragments = NewType("PromptFragments", tuple[SystemFragments, UserFragments])
 
 # Keywords indicating potentially recoverable API errors
 # Used to identify transient issues that shouldn't halt autonomous loops
@@ -118,6 +134,11 @@ class Error:
 
 # Union type for command results
 Result = Success | Error
+
+
+# --- Type Hints for Functions ---
+SummaryPromptFragmentFunc = Callable[[Config | None], PromptFragments]
+# -----------------------------
 
 
 @dataclass

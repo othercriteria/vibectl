@@ -190,8 +190,12 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
 
-    # Setup prompt template
-    mock_update_prompt.return_value = "Test memory update prompt"
+    # Setup prompt template for memory_update_prompt
+    # It should return (system_fragments, user_fragments_template)
+    mock_update_prompt.return_value = (
+        ["SysMemPrompt"],
+        ["UserMemTemplate {current_memory} {prompt_details}"],
+    )
 
     # Setup model response to be a tuple (text, metrics)
     mock_response_text = "Updated memory content"
@@ -214,16 +218,25 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
     # Verify the prompt was created
     mock_update_prompt.assert_called_once_with(
-        "kubectl get pods",
-        "pod1 Running\npod2 Error",
-        "Pods are in mixed state",
-        mock_config,
+        command="kubectl get pods",
+        command_output="pod1 Running\npod2 Error",
+        vibe_output="Pods are in mixed state",
+        current_memory="",  # get_memory would return '' if not otherwise mocked
+        config=mock_config,
     )
 
     # Verify the adapter was used correctly
     mock_get_adapter.assert_called_once()
     mock_adapter.get_model.assert_called_once_with("test-model")
-    mock_adapter.execute_and_log_metrics.assert_called_once()
+
+    # Verify the call to execute_and_log_metrics with the literal template
+    mock_adapter.execute_and_log_metrics.assert_called_once_with(
+        model=mock_model,
+        system_fragments=["SysMemPrompt"],  # From mock_update_prompt
+        user_fragments=[
+            "UserMemTemplate {current_memory} {prompt_details}"
+        ],  # Expect the literal template passed through
+    )
 
     # Verify memory was updated via the mock_config object
     # The real set_memory calls cfg.set()

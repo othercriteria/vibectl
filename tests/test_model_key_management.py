@@ -12,8 +12,11 @@ from vibectl.model_adapter import (
     LLMMetrics,
     LLMModelAdapter,
     ModelEnvironment,
+    SystemFragments,
+    UserFragments,
     validate_model_key_on_startup,
 )
+from vibectl.types import Fragment
 
 
 class TestModelKeyConfig:
@@ -285,7 +288,11 @@ class TestModelAdapterWithKeys:
                 patch.object(adapter, "get_model", return_value=mock_model),
             ):
                 # Execute
-                response_text, metrics = adapter.execute(mock_model, "Test prompt")
+                response_text, metrics = adapter.execute(
+                    mock_model,
+                    system_fragments=SystemFragments([]),
+                    user_fragments=UserFragments([Fragment("Test prompt")]),
+                )
 
                 # Verify response
                 assert response_text == "Test response"

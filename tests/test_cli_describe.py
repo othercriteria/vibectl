@@ -2,7 +2,7 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.prompt import PLAN_DESCRIBE_PROMPT, describe_resource_prompt
+from vibectl.prompt import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.types import Error, Success
 
@@ -207,10 +207,10 @@ async def test_describe_vibe_request(
     mock_handle_vibe.assert_called_once_with(
         request="show me the nginx pod",
         command="describe",
-        plan_prompt=PLAN_DESCRIBE_PROMPT,
+        plan_prompt_func=ANY,
         summary_prompt_func=describe_resource_prompt,
         output_flags=ANY,  # Check specific flags if needed
-        memory_context="",  # Add missing expected kwarg
+        config=None,  # Expect config to be None as it's not passed by caller
     )
 
 

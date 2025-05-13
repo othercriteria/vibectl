@@ -18,6 +18,7 @@ from vibectl.model_adapter import (
     ModelAdapter,
     set_model_adapter,
 )
+from vibectl.types import SystemFragments, UserFragments
 
 
 @pytest.fixture
@@ -74,7 +75,8 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
         def execute(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
         ) -> tuple[str, LLMMetrics | None]:
             """Execute with environment capture."""
@@ -99,7 +101,8 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
         def execute_and_log_metrics(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
         ) -> tuple[str, LLMMetrics | None]:
             # Capture API key from environment here
@@ -171,7 +174,8 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
         def execute(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
         ) -> tuple[str, LLMMetrics | None]:
             """Execute with environment capture."""
@@ -196,7 +200,8 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
         def execute_and_log_metrics(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
         ) -> tuple[str, LLMMetrics | None]:
             # Capture API key from environment here
@@ -306,3 +311,14 @@ def test_memory_update_with_environment_key(test_config: Config) -> None:
             os.environ["ANTHROPIC_API_KEY"] = original_env
         else:
             os.environ.pop("ANTHROPIC_API_KEY", None)
+
+
+# Helper function to set the global model adapter for testing
+# def set_model_adapter(adapter: ModelAdapter) -> None: # Removed conflicting definition
+#     """Sets the global model adapter for testing purposes."""
+#     # This assumes you have a way to override the global adapter,
+#     # e.g., by patching where get_model_adapter is imported and used.
+#     # For vibectl.memory, we patch 'vibectl.memory.get_model_adapter'
+#     # For other modules, similar patching might be needed.
+#     # This helper is more of a conceptual note for test setup.
+#     pass # Actual patching is done in the test functions

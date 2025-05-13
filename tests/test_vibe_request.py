@@ -4,7 +4,7 @@ import json
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any, NoReturn
-from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -12,17 +12,33 @@ from pytest_mock import MockerFixture
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
+from vibectl.config import Config
 from vibectl.model_adapter import LLMMetrics, LLMModelAdapter, RecoverableApiError
-from vibectl.types import ActionType, Error, Result, Success
+from vibectl.prompt import (
+    plan_vibe_fragments,
+)
+from vibectl.types import (
+    ActionType,
+    Error,
+    Fragment,
+    PromptFragments,
+    Result,
+    Success,
+    SystemFragments,
+    UserFragments,
+)
 
 
-def get_test_summary_prompt() -> str:
-    """Get a test summary prompt.
-
-    Returns:
-        str: The test summary prompt template
-    """
-    return "Summarize this: {output}"
+def get_test_summary_fragments(
+    config: Config | None = None,
+) -> PromptFragments:
+    """Dummy summary prompt function for testing that returns fragments."""
+    return PromptFragments(
+        (
+            SystemFragments([Fragment("System fragment with {output}")]),
+            UserFragments([Fragment("User fragment with {output}")]),
+        )
+    )
 
 
 @pytest.fixture
@@ -95,8 +111,8 @@ async def test_handle_vibe_request_success(  # Added async
         result = await handle_vibe_request(  # Added await
             request="show me the pods",
             command="vibe",  # <<< Original vibectl command is 'vibe'
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
             yes=True,  # Assuming confirmation bypassed for simplicity
         )
@@ -107,12 +123,13 @@ async def test_handle_vibe_request_success(  # Added async
             kubectl_args,
             None,  # yaml_content
             plan_explanation,
-            False,  # semiauto
-            True,  # yes
+            "vibe",  # command (was False, should be "vibe")
+            False,  # semiauto_mode (was True, should be False due to yes=True)
+            True,  # yes_flag
             False,  # autonomous_mode
-            True,  # live_display
-            ANY,  # output_flags
-            ANY,  # summary_prompt_func
+            True,  # live_display_flag (from handle_vibe_request live_display=True)
+            default_output_flags,  # output_flags (was ANY)
+            get_test_summary_fragments,  # summary_prompt_func (was ANY)
         )
 
         # Verify the final result is the Success object returned by the patched function
@@ -138,7 +155,10 @@ async def test_handle_vibe_request_empty_response(  # Added async
     """Test vibe request with empty string response from planner."""
     # Set up empty response
     malformed_response = ""
-    mock_llm.execute_and_log_metrics.return_value = (malformed_response, None)
+    mock_llm.execute_and_log_metrics.return_value = (
+        malformed_response,
+        MagicMock(spec=LLMMetrics),
+    )
 
     # Empty string is handled before JSON parsing
     # It should return Error("LLM returned an empty response.") directly
@@ -153,10 +173,9 @@ async def test_handle_vibe_request_empty_response(  # Added async
         result = await handle_vibe_request(  # Added await
             request="empty response test",
             command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            memory_context="empty-json-context",
         )
 
     # Assert that the specific error for empty response was returned
@@ -208,8 +227,8 @@ async def test_handle_vibe_request_error_response(  # Added async
         result = await handle_vibe_request(  # Added await
             request="ERROR: test error",
             command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
         )
 
@@ -242,7 +261,10 @@ async def test_handle_vibe_request_invalid_format(  # Added async
     """Test vibe request with non-JSON format from planner."""
     # Set up invalid response
     non_json_response = "kubectl get pods # This is not JSON"
-    mock_llm.execute_and_log_metrics.return_value = (non_json_response, None)
+    mock_llm.execute_and_log_metrics.return_value = (
+        non_json_response,
+        MagicMock(spec=LLMMetrics),
+    )
 
     # Configure the mock create_api_error to return a specific Error object
     # Need a dummy exception instance for the mock
@@ -262,10 +284,9 @@ async def test_handle_vibe_request_invalid_format(  # Added async
         result = await handle_vibe_request(  # Added await
             request="show me the pods invalid format",
             command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            memory_context="invalid-json-context",
         )
 
         # Verify update_memory and create_api_error were called due to parsing failure
@@ -341,8 +362,8 @@ async def test_handle_vibe_request_no_output(  # Added async
         await handle_vibe_request(  # Added await
             request="show me the pods",
             command="get",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=no_output_flags,
         )
 
@@ -451,10 +472,9 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
         result = await handle_vibe_request(
             request=f"test {desc}",
             command="vibe",  # Use vibe command to allow LLM to specify verb
-            plan_prompt="Plan this",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            memory_context=f"ctx-{desc.replace(' ', '-')}",
         )
 
         # General Assertions
@@ -503,9 +523,13 @@ async def test_handle_vibe_request_command_error(  # Added async
     caplog.set_level("ERROR")
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["nonexistent-resource"],  # <<< Args only
+        "commands": [
+            "nonexistent-resource"
+        ],  # Corrected: Verb is from command, LLM provides only args
         "explanation": "Trying to get a resource that does not exist.",
     }
+    # This first mock value will be overwritten by the side_effect below, but
+    # we keep it for clarity about the plan structure.
     mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
 
     # Patch _execute_command to return an error
@@ -529,10 +553,11 @@ async def test_handle_vibe_request_command_error(  # Added async
             result = await handle_vibe_request(  # Added await
                 request="run a command that fails",
                 command="get",  # Actual verb being executed
-                plan_prompt="Plan this",
-                summary_prompt_func=get_test_summary_prompt,
+                plan_prompt_func=plan_vibe_fragments,
+                summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,  # Assumes show_vibe=True
                 yes=True,  # Bypass confirmation
+                config=None,  # Added missing config argument
             )
 
     # Assertions (outside inner 'with' block, but _execute_cmd is from outer block)
@@ -587,8 +612,8 @@ async def test_handle_vibe_request_error(  # Added async
         result = await handle_vibe_request(  # Added await
             request="cause an llm error",
             command="error",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
         )
 
@@ -662,8 +687,8 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
         await handle_vibe_request(  # Added await
             request="create pod yaml",
             command="create",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
             yes=True,  # Bypass the interactive prompt
         )
@@ -692,7 +717,10 @@ async def test_handle_vibe_request_yaml_response(  # Added async
     # to _execute_command, even though YAML content isn't handled by the schema yet.
     plan_response = {
         "action_type": ActionType.COMMAND.value,
-        "commands": ["-f", "-"],  # <<< Args only, verb comes from 'command' param
+        "commands": [
+            "-f",
+            "-",
+        ],  # Corrected: Verb is from command, LLM provides only args
         "explanation": "Applying configuration from stdin.",
     }
     mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
@@ -713,10 +741,11 @@ async def test_handle_vibe_request_yaml_response(  # Added async
             await handle_vibe_request(  # Added await
                 request="apply this config",
                 command="apply",
-                plan_prompt="Plan this: {request}",
-                summary_prompt_func=get_test_summary_prompt,
+                plan_prompt_func=plan_vibe_fragments,
+                summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,
                 yes=False,  # Ensure confirmation is triggered
+                config=None,  # Added missing config argument
             )
 
             # Verify confirmation was prompted
@@ -796,8 +825,8 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
         await handle_vibe_request(  # Added await
             request="Create nginx demo 'hello, world' pods foo and bar.",
             command="create",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=get_test_summary_prompt,
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
             yes=True,  # Bypass the interactive prompt
         )
@@ -876,8 +905,8 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
             await handle_vibe_request(  # Added await
                 request="get pods in test-ns",
                 command="vibe",  # Original user command
-                plan_prompt="Plan this: {request}",
-                summary_prompt_func=get_test_summary_prompt,
+                plan_prompt_func=plan_vibe_fragments,
+                summary_prompt_func=get_test_summary_fragments,
                 output_flags=output_flags,
                 autonomous_mode=False,
                 yes=True,  # Bypass confirmation
@@ -1011,51 +1040,43 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
         "explanation": "Get the pods.",
     }
     kubectl_output_data = "pod-a\npod-b"
+    # This initial return value will be overwritten by the side_effect
     mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
 
     # Patch _execute_command to return success
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
         mock_execute_cmd.return_value = Success(data=kubectl_output_data)
 
-        # Patch _get_llm_summary to raise the recoverable error
-        with (
-            patch("vibectl.command_handler._get_llm_summary") as mock_get_summary,
-            patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
-        ):
-            # Configure the mock to raise RecoverableApiError
-            api_error_message = "LLM API rate limit exceeded"
-            mock_get_summary.side_effect = RecoverableApiError(api_error_message)
-            # Mock create_api_error to check its call without actually creating
-            mock_create_api_error.side_effect = lambda msg, exc: Error(
-                error=msg, exception=exc, halt_auto_loop=False
-            )
+        # Set up side_effect for the LLM calls: planning (success), summary (error)
+        mock_llm.execute_and_log_metrics.side_effect = [
+            (json.dumps(plan_response), None),  # First call for planning
+            RecoverableApiError("Rate limit hit"),  # Second call for summary
+        ]
 
-            # Call function
-            result = await handle_vibe_request(  # Added await
-                request="show me the pods",
-                command="vibe",
-                plan_prompt="Plan this: {request}",
-                summary_prompt_func=get_test_summary_prompt,
-                output_flags=default_output_flags,
-                yes=True,
-            )
+        # Call function
+        result = await handle_vibe_request(  # Added await
+            request="show me the pods",
+            command="vibe",  # This command parameter seems unused now for vibe requests
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
+            output_flags=default_output_flags,
+            yes=True,
+        )
 
-            # Verify _get_llm_summary was called (during _process_vibe_output)
-            mock_get_summary.assert_called_once()
+        # Verify _execute_command was called
+        mock_execute_cmd.assert_called_once()
 
-            # Verify create_api_error was called with the correct message
-            mock_create_api_error.assert_called_once()
-            create_args, _ = mock_create_api_error.call_args
-            assert api_error_message in create_args[0]
-            assert isinstance(create_args[1], RecoverableApiError)
+        # Verify the LLM was called twice (plan + summary attempt)
+        assert mock_llm.execute_and_log_metrics.call_count == 2
 
-            # Verify the final result is the non-halting Error
-            assert isinstance(result, Error)
-            assert api_error_message in result.error
-            assert result.halt_auto_loop is False
-
-            # Verify console output includes the API error message
-            mock_console.print_error.assert_any_call(f"API Error: {api_error_message}")
+        # Verify the final result is the non-halting Error constructed by the handler
+        assert isinstance(result, Error)
+        assert not result.halt_auto_loop  # Ensure it's non-halting
+        # Check that the error message contains the specific text from the exception
+        assert (
+            "Recoverable API error during Vibe processing: Rate limit hit"
+            in result.error
+        )
 
 
 @pytest.mark.asyncio  # Added
@@ -1106,8 +1127,8 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
             result = await handle_vibe_request(  # Added await
                 request="get a non-existent configmap",
                 command="get",  # Actual verb being executed
-                plan_prompt="Plan this",
-                summary_prompt_func=get_test_summary_prompt,
+                plan_prompt_func=plan_vibe_fragments,
+                summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,  # Assumes show_vibe=True
                 yes=True,  # Bypass confirmation
             )

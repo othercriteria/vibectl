@@ -26,6 +26,8 @@ from .types import (
     RECOVERABLE_API_ERROR_KEYWORDS,
     LLMMetrics,
     RecoverableApiError,
+    SystemFragments,
+    UserFragments,
 )
 
 
@@ -64,14 +66,16 @@ class ModelAdapter(ABC):
     def execute(
         self,
         model: Any,
-        prompt_text: str,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
         """Execute a prompt on the model and get a response.
 
         Args:
             model: The model instance to execute the prompt on
-            prompt_text: The prompt text to execute
+            system_fragments: List of system prompt fragments.
+            user_fragments: List of user prompt fragments.
             response_model: Optional Pydantic model for structured JSON response.
 
         Returns:
@@ -84,7 +88,8 @@ class ModelAdapter(ABC):
     def execute_and_log_metrics(
         self,
         model: Any,
-        prompt_text: str,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
         """Wraps execute, logs metrics, returns response text and metrics."""
@@ -287,14 +292,16 @@ class LLMModelAdapter(ModelAdapter):
     def execute(
         self,
         model: Any,
-        prompt_text: str,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
-        """Execute a prompt on the LLM package model and get a response.
+        """Execute a prompt using fragments on the LLM package model.
 
         Args:
             model: The model instance to execute the prompt on
-            prompt_text: The prompt text to execute
+            system_fragments: List of system prompt fragments
+            user_fragments: List of user prompt fragments (passed as 'fragments')
             response_model: Optional Pydantic model for structured JSON response.
 
         Returns:
@@ -306,22 +313,28 @@ class LLMModelAdapter(ModelAdapter):
             ValueError: If another error occurs during execution.
         """
         logger.debug(
-            "Executing prompt on model '%s' with response_model: %s",
+            "Executing fragments on model '%s' with response_model: %s",
             model.model_id,
             response_model is not None,
         )
-        # Use context manager for environment variable handling
         start_time = time.monotonic()
         latency_ms = 0.0
         metrics = None
         try:
             with ModelEnvironment(model.model_id, self.config):
-                kwargs = {}
+                kwargs_for_model_prompt: dict[str, Any] = {}
+                if system_fragments:
+                    kwargs_for_model_prompt["system"] = "\n\n".join(system_fragments)
+
+                fragments_list: UserFragments = (
+                    user_fragments if user_fragments else UserFragments([])
+                )
+                kwargs_for_model_prompt["fragments"] = fragments_list
+
                 if response_model:
                     try:
-                        # Generate schema dictionary from Pydantic model
-                        schema_dict = response_model.model_json_schema()
-                        kwargs["schema"] = schema_dict
+                        schema_dict: dict[str, Any] = response_model.model_json_schema()
+                        kwargs_for_model_prompt["schema"] = schema_dict
                         logger.debug("Generated schema for model: %s", schema_dict)
                     except Exception as schema_exc:
                         logger.error(
@@ -329,78 +342,151 @@ class LLMModelAdapter(ModelAdapter):
                             response_model.__name__,
                             schema_exc,
                         )
-                        # Decide if this should be a fatal error or just a warning
-                        # For now, log and continue without schema
+                        # Log and continue without schema
 
-                # Execute the prompt using the llm library
+                # Execute the prompt
                 try:
-                    response = model.prompt(prompt_text, **kwargs)
+                    # The model object type is Any, but we expect it
+                    # to have a .prompt method compatible with the
+                    # llm library's interface.
+                    response = model.prompt(**kwargs_for_model_prompt)  # type: ignore[misc]
+                    metrics_calculated_after_retry = (
+                        False  # Flag to check if metrics were set in fallback
+                    )
                 except AttributeError as attr_err:
-                    # Check if the error is specifically about the 'schema' attribute
-                    # and if we were actually trying to use a schema
-                    if "schema" in str(attr_err) and "schema" in kwargs:
+                    # Handle schema attribute error with fallback
+                    if (
+                        "schema" in str(attr_err)
+                        and "schema" in kwargs_for_model_prompt
+                    ):
                         logger.warning(
-                            "Model %s does not support 'schema' argument. "
-                            "Retrying without schema.",
+                            "Model %s does not support 'schema' argument. Retrying.",
                             model.model_id,
                         )
-                        # Remove schema from kwargs and retry
-                        kwargs.pop("schema")
-                        response = model.prompt(prompt_text, **kwargs)
+                        kwargs_for_model_prompt.pop("schema")
+                        try:
+                            # --- Retry execution ---
+                            start_retry_time = (
+                                time.monotonic()
+                            )  # Use a separate start time for retry latency?
+                            response = model.prompt(**kwargs_for_model_prompt)  # type: ignore[misc]
+                            end_retry_time = time.monotonic()
+                            latency_ms_retry = (
+                                end_retry_time - start_retry_time
+                            ) * 1000
+                            # --- Calculate metrics INLINE after successful retry ---
+                            token_input_retry = 0
+                            token_output_retry = 0
+                            try:
+                                usage_obj = response.usage()
+                                if usage_obj:
+                                    token_input_retry = getattr(usage_obj, "input", 0)
+                                    token_output_retry = getattr(usage_obj, "output", 0)
+                                    # Ensure tokens are ints
+                                    token_input_retry = (
+                                        int(token_input_retry)
+                                        if token_input_retry is not None
+                                        else 0
+                                    )
+                                    token_output_retry = (
+                                        int(token_output_retry)
+                                        if token_output_retry is not None
+                                        else 0
+                                    )
+                                logger.debug(
+                                    "Retry Token usage - Input: %d, Output: %d",
+                                    token_input_retry,
+                                    token_output_retry,
+                                )
+                            except AttributeError:
+                                logger.warning(
+                                    "Retry: Model %s response lacks usage() method.",
+                                    model.model_id,
+                                )
+                            except Exception as usage_err:
+                                logger.warning(
+                                    "Retry: Failed to get token usage: %s", usage_err
+                                )
+                            # Create metrics object for the retry
+                            metrics = LLMMetrics(
+                                latency_ms=latency_ms_retry,
+                                token_input=token_input_retry,
+                                token_output=token_output_retry,
+                                call_count=2,  # Set to 2 as this is the second attempt
+                            )
+                            # --------------------------------------------------------
+                            metrics_calculated_after_retry = (
+                                True  # Mark that metrics are set
+                            )
+                        except Exception as retry_exc:
+                            logger.error(
+                                "LLM Execution Error on retry: %s",
+                                retry_exc,
+                                exc_info=True,
+                            )
+                            raise ValueError(
+                                f"LLM Execution Error: {retry_exc}"
+                            ) from retry_exc
+                    # Handle fragments/system attribute error
+                    elif "fragments" in str(attr_err) or "system" in str(attr_err):
+                        logger.error(
+                            "Model %s does not support fragments/system API: %s",
+                            model.model_id,
+                            attr_err,
+                        )
+                        raise ValueError(
+                            f"Model {model.model_id} incompatible with fragments API."
+                        ) from attr_err
+                    # Handle other AttributeErrors
                     else:
-                        # Re-raise if it's a different AttributeError
-                        raise attr_err
+                        logger.error(f"LLM Execution Error: {attr_err}", exc_info=True)
+                        raise ValueError(
+                            f"LLM Execution Error: {attr_err}"
+                        ) from attr_err
 
-                # Ensure the response object is valid before proceeding
                 if not isinstance(response, ModelResponse):
                     raise TypeError(
                         f"Expected ModelResponse, got {type(response).__name__}"
                     )
 
-                # Get the response text (this blocks until completion for non-streaming)
                 response_text = response.text()
 
-                # --- Metrics Calculation ---
-                end_time = time.monotonic()
-                latency_ms = (end_time - start_time) * 1000
-                token_input = 0
-                token_output = 0
-                try:
-                    # Attempt to get token usage from the response object
-                    usage_obj = response.usage()  # type: ignore[attr-defined]
-                    if usage_obj:
-                        token_input = getattr(usage_obj, "input", 0)
-                        token_output = getattr(usage_obj, "output", 0)
-                        # Ensure they are ints, default to 0 if None or other type
-                        token_input = int(token_input) if token_input is not None else 0
-                        token_output = (
-                            int(token_output) if token_output is not None else 0
+                # --- Metrics Calculation (only if not calculated after retry) ---
+                if not metrics_calculated_after_retry:
+                    end_time = time.monotonic()
+                    latency_ms = (end_time - start_time) * 1000
+                    # --- Calculate metrics INLINE for the initial successful call ---
+                    token_input = 0
+                    token_output = 0
+                    try:
+                        usage_obj = response.usage()  # type: ignore[attr-defined]
+                        if usage_obj:
+                            token_input = getattr(usage_obj, "input", 0)
+                            token_output = getattr(usage_obj, "output", 0)
+                            token_input = (
+                                int(token_input) if token_input is not None else 0
+                            )
+                            token_output = (
+                                int(token_output) if token_output is not None else 0
+                            )
+                        logger.debug(
+                            "Token usage - Input: %d, Output: %d",
+                            token_input,
+                            token_output,
                         )
-                    logger.debug(
-                        "Token usage - Input: %d, Output: %d",
-                        token_input,
-                        token_output,
+                    except AttributeError:
+                        logger.warning(
+                            "Model %s response lacks usage() method.", model.model_id
+                        )
+                    except Exception as usage_err:
+                        logger.warning("Failed to get token usage: %s", usage_err)
+                    # Create metrics object
+                    metrics = LLMMetrics(
+                        latency_ms=latency_ms,
+                        token_input=token_input,
+                        token_output=token_output,
+                        call_count=1,  # Set call count to 1 for initial successful call
                     )
-                except AttributeError:
-                    logger.warning(
-                        "Model %s response object lacks usage() method.", model.model_id
-                    )
-                except Exception as usage_err:
-                    logger.warning(
-                        "Failed to get token usage for model %s: %s",
-                        model.model_id,
-                        usage_err,
-                    )
-
-                # Create metrics object with latency and token counts
-                metrics = LLMMetrics(
-                    latency_ms=latency_ms,
-                    token_input=token_input,
-                    token_output=token_output,
-                    call_count=1,
-                )
-                logger.debug("LLM call completed in %.2f ms", latency_ms)
-                # -------------------------
 
                 return response_text, metrics
 
@@ -411,44 +497,35 @@ class LLMModelAdapter(ModelAdapter):
             logger.warning(
                 "LLM call failed after %.2f ms: %s", latency_ms, e, exc_info=True
             )
-
-            # Create partial metrics even on error
             metrics = LLMMetrics(latency_ms=latency_ms, call_count=1)
-
-            # Check if the error is potentially recoverable
             if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
                 logger.warning("Recoverable API error detected: %s", e)
-                # Raise a specific exception for recoverable errors
                 raise RecoverableApiError(f"Recoverable API Error: {e}") from e
             else:
-                # Re-raise other exceptions as ValueError for consistent handling
                 raise ValueError(f"LLM Execution Error: {e}") from e
 
     # --- Wrapper Function for Metrics Logging --- #
     def execute_and_log_metrics(
         self,
         model: Any,
-        prompt_text: str,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
-        """Wraps execute, logs metrics, returns response text and metrics."""
+        """Wraps execute with fragments, logs metrics, returns response and metrics."""
         response_text = ""
         metrics = None
         try:
-            response_text, metrics = self.execute(model, prompt_text, response_model)
-            # Successfully got response and metrics
-            # No longer print metrics here
-            return response_text, metrics  # Return both
+            # Pass fragments to execute
+            response_text, metrics = self.execute(
+                model, system_fragments, user_fragments, response_model
+            )
+            return response_text, metrics
         except (RecoverableApiError, ValueError) as e:
-            # execute already logs the error and latency
-            # We need to re-raise the exception to maintain original behavior
             logger.debug("execute_and_log_metrics caught error: %s", e)
-            # TODO: Decide if/how to log metrics attached to exceptions?
-            raise e  # Re-raise the original error
+            raise e
         except Exception as e:
-            # Catch any unexpected errors not handled by execute's specific catches
             logger.exception("Unexpected error in execute_and_log_metrics wrapper")
-            # Re-raise to ensure it's handled upstream
             raise e
 
     # ------------------------------------------ #

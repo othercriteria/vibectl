@@ -73,7 +73,7 @@ async def run_rollout_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="rollout",
-                    plan_prompt=PLAN_ROLLOUT_PROMPT,
+                    plan_prompt_func=lambda: PLAN_ROLLOUT_PROMPT,
                     summary_prompt_func=rollout_general_prompt,
                     output_flags=output_flags,
                 )

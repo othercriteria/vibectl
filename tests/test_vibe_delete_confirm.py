@@ -8,9 +8,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibectl.command_handler import ActionType, OutputFlags, handle_vibe_request
+from vibectl.config import Config
 from vibectl.model_adapter import LLMMetrics
+from vibectl.prompt import (
+    plan_vibe_fragments,
+)
 from vibectl.schema import LLMCommandResponse
-from vibectl.types import Result, Success  # Import Result and Error
+from vibectl.types import (
+    Fragment,
+    PromptFragments,
+    Result,
+    Success,
+    SystemFragments,
+    UserFragments,
+)
 
 
 @pytest.fixture
@@ -144,6 +155,19 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
         yield mock
 
 
+# Dummy summary prompt function that returns fragments
+def get_test_summary_fragments(
+    config: Config | None = None,
+) -> PromptFragments:
+    """Dummy summary prompt function for testing that returns fragments."""
+    return PromptFragments(
+        (
+            SystemFragments([Fragment("System fragment with {output}")]),
+            UserFragments([Fragment("User fragment with {output}")]),
+        )
+    )
+
+
 @pytest.mark.asyncio
 @patch("vibectl.command_handler._get_llm_plan")
 async def test_vibe_delete_with_confirmation(
@@ -183,8 +207,8 @@ async def test_vibe_delete_with_confirmation(
         await handle_vibe_request(
             request="delete my pod",
             command="delete",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=lambda: "Summary prompt: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=False,
         )
@@ -194,6 +218,7 @@ async def test_vibe_delete_with_confirmation(
 
         # Assert downstream mocks were called
         mock_click_prompt.assert_called_once()
+        # Expect the original command verb "delete", and args from LLM plan
         mock_execute_cmd.assert_called_once_with("delete", ["pod", "my-pod"], None)
 
     # Verify memory was updated (using the mock_handle_output side effect)
@@ -201,8 +226,19 @@ async def test_vibe_delete_with_confirmation(
     # Expect 2 calls: 1 after exec, 1 from handle_output mock side effect
     assert mock_update_memory.call_count == 2
     # Check the second call args (from handle_output mock)
-    mem_call_args = mock_update_memory.call_args_list[1][0]
-    assert mem_call_args[0] == "delete"
+    # This call originates from handle_command_output(..., command=kubectl_verb)
+    # where kubectl_verb is from the LLM plan (e.g., "pod")
+    mem_call_args_tuple = mock_update_memory.call_args_list[1]
+    mem_call_args = mem_call_args_tuple.args  # If called with args
+
+    # Determine if called with args or kwargs for the command
+    # The side_effect in the mock_memory fixture calls it as:
+    #  mock_update_mem(kwargs["command"], ...)
+    # So it should be in args[0] of the actual mock_update_memory
+    actual_command_for_memory = mem_call_args[0]
+    assert (
+        actual_command_for_memory == "delete"
+    )  # Corrected: Should be the original command verb
 
     # Verify handle_command_output was called
     mock_handle_output.assert_called_once()
@@ -253,8 +289,8 @@ async def test_vibe_delete_with_confirmation_cancelled(
         result = await handle_vibe_request(
             request="delete nginx pod",
             command="delete",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=lambda: "Summary prompt: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=False,
         )
@@ -314,8 +350,8 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
         result = await handle_vibe_request(
             request="delete bypass-pod pod",
             command="delete",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=lambda: "Summary prompt: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=True,  # <<<< Bypass confirmation
         )
@@ -327,7 +363,15 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
         mock_prompt.assert_not_called()
 
         # Verify _execute_command WAS called
+        # Expect the original command verb "delete", and args from LLM plan
         mock_execute_cmd.assert_called_once_with("delete", ["pod", "bypass-pod"], None)
+        # Assert handle_command_output was called with the success result
+        mock_handle_output.assert_called_once_with(
+            mock_execute_cmd.return_value,
+            standard_output_flags,
+            get_test_summary_fragments,
+            command="delete",  # Expect the original command verb here
+        )
 
     # Verify result
     assert isinstance(result, Success)
@@ -371,8 +415,8 @@ async def test_vibe_non_delete_commands_skip_confirmation(
         result = await handle_vibe_request(
             request="get all pods",
             command="get",  # <<<< Non-delete command
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=lambda: "Summary prompt: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=False,  # <<<< Confirmation not bypassed by flag
         )
@@ -384,7 +428,15 @@ async def test_vibe_non_delete_commands_skip_confirmation(
         mock_prompt.assert_not_called()
 
         # Verify _execute_command WAS called
+        # Expect the original command verb "get", and args from LLM plan
         mock_execute_cmd.assert_called_once_with("get", ["pods", "-A"], None)
+        # Assert handle_command_output was called
+        mock_handle_output.assert_called_once_with(
+            mock_execute_cmd.return_value,
+            standard_output_flags,
+            get_test_summary_fragments,
+            command="get",  # Expect the original command verb here
+        )
 
     # Verify result
     assert isinstance(result, Success)
@@ -441,8 +493,8 @@ async def test_vibe_delete_confirmation_memory_option(
         result = await handle_vibe_request(
             request="delete nginx-mem pod",
             command="delete",
-            plan_prompt="Plan: {request}",
-            summary_prompt_func=lambda: "Summary: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=False,
         )
@@ -454,6 +506,7 @@ async def test_vibe_delete_confirmation_memory_option(
         # Verify memory content was printed (check console mock)
         mock_console.safe_print.assert_called_once()
         # Verify the command *was* executed after 'y'
+        # Expect the original command verb "delete", and args from LLM plan
         mock_execute_cmd.assert_called_once_with("delete", ["pod", "nginx-mem"], None)
 
         # Verify result is Success
@@ -517,8 +570,8 @@ async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
         result = await handle_vibe_request(
             request="delete nginx pod",
             command="delete",
-            plan_prompt="Plan this: {request}",
-            summary_prompt_func=lambda: "Summary prompt: {output}",
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
             yes=False,
         )

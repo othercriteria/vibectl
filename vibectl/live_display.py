@@ -4,7 +4,7 @@ import random
 
 # Ensure all necessary imports are present
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 from contextlib import suppress
 from typing import TypeVar
 
@@ -24,8 +24,22 @@ from .k8s_utils import run_kubectl
 from .memory import update_memory
 from .model_adapter import get_model_adapter
 from .proxy import TcpProxy, start_proxy_server, stop_proxy_server
-from .types import Error, OutputFlags, Result, StatsProtocol, Success
+
+# Import the updated type hint from types.py
+from .types import (
+    Error,
+    Fragment,
+    OutputFlags,
+    Result,
+    StatsProtocol,
+    Success,
+    SummaryPromptFragmentFunc,
+    UserFragments,
+)
 from .utils import console_manager
+
+# Removed imports from command_handler to break cycle
+# from .command_handler import handle_command_output, create_api_error
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +91,8 @@ async def _execute_wait_with_live_display(
     output_flags: OutputFlags,
     condition: str,  # Added parameter
     display_text: str,  # Added parameter
+    summary_prompt_func: SummaryPromptFragmentFunc,  # Updated type hint
+    config: Config | None = None,  # Added config
 ) -> Result:
     """Executes the core logic for `kubectl wait` with live progress display.
 
@@ -245,6 +261,19 @@ async def _execute_wait_with_live_display(
                 )
             )
 
+    # Ensure calls to handle_command_output within this func pass the config
+    # REMOVED call to handle_command_output
+    # final_result = handle_command_output(
+    #     full_output_str, # Use the actual variable holding the output
+    #     output_flags,
+    #     summary_prompt_func,
+    #     command="wait",
+    #     config=config
+    # )
+
+    # Return the raw result object
+    return result
+
 
 class ConnectionStats(StatsProtocol):
     """Track connection statistics for port-forward sessions."""
@@ -296,7 +325,8 @@ async def _execute_port_forward_with_live_display(
     local_port: str,  # Added parameter
     remote_port: str,  # Added parameter
     display_text: str,  # Added parameter
-    summary_prompt_func: Callable[[], str],
+    summary_prompt_func: SummaryPromptFragmentFunc,  # Updated type hint
+    config: Config | None = None,  # Added config
 ) -> Result:
     """Executes the core logic for `kubectl port-forward` with live traffic display.
 
@@ -769,11 +799,11 @@ async def _execute_port_forward_with_live_display(
             model_adapter = get_model_adapter()
             model = model_adapter.get_model(output_flags.model_name)
 
-            # Prepare context for prompt (for _execute_port_forward_with_live_display)
-            port_forward_context = {  # Renamed for clarity
+            # Prepare context for prompt
+            port_forward_context = {
                 "command": command_str,
                 "duration": f"{elapsed_time:.1f}s",
-                "status": stats.current_status,  # Uses stats object
+                "status": stats.current_status,
                 "traffic_monitoring_enabled": stats.traffic_monitoring_enabled,
                 "using_proxy": stats.using_proxy,
                 "bytes_sent": stats.bytes_sent,
@@ -786,16 +816,49 @@ async def _execute_port_forward_with_live_display(
                 port_forward_context, default_flow_style=False, sort_keys=False
             )
 
-            # Get and format the prompt
-            summary_prompt_template = summary_prompt_func()
-            prompt = summary_prompt_template.format(
-                output=context_yaml, command=command_str
+            # Get and format the prompt fragments
+            system_fragments, user_fragments_template = summary_prompt_func(config)
+
+            filled_user_fragments: list[
+                Fragment
+            ] = []  # Explicitly type as list[Fragment]
+            for frag_template in user_fragments_template:  # frag_template is a Fragment
+                if "{output}" in frag_template:
+                    try:
+                        # Ensure the formatted string is cast to Fragment
+                        filled_user_fragments.append(
+                            Fragment(frag_template.format(output=context_yaml))
+                        )
+                    except KeyError as e:
+                        logger.error(
+                            "Error formatting port-forward summary fragment "
+                            f"'{{output}}': {e}. Context was: {context_yaml}"
+                        )
+                        # Ensure this string is also cast to Fragment
+                        filled_user_fragments.append(
+                            Fragment(
+                                "Error formatting output. Raw context: {context_yaml}"
+                            )
+                        )
+                else:
+                    # frag_template is already a Fragment
+                    filled_user_fragments.append(frag_template)
+
+            logger.debug(
+                "Vibe Port-forward Summary System Fragments: {system_fragments}"
+            )
+            logger.debug(
+                "Vibe Port-forward Summary User Fragments: {filled_user_fragments}"
             )
 
-            logger.debug(f"Vibe Port-forward Summary Prompt:\n{prompt}")
-            # Unpack the tuple returned by execute, we only need the text
-            response_text, _ = model_adapter.execute(model, prompt)
-            vibe_output = response_text  # Assign the text part to vibe_output
+            response_text, _ = model_adapter.execute(
+                model,
+                system_fragments=system_fragments,
+                user_fragments=UserFragments(
+                    filled_user_fragments
+                ),  # Wrap with UserFragments()
+            )
+            vibe_output = response_text
 
             if vibe_output:
                 console_manager.print_vibe(vibe_output)
@@ -812,7 +875,10 @@ async def _execute_port_forward_with_live_display(
         forward_info,
         vibe_output,
         output_flags.model_name,
+        config=config,  # Pass config to update_memory
     )
+
+    # REMOVED call to handle_command_output
 
     # Return appropriate result based on whether an error occurred
     if has_error:
