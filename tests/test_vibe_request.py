@@ -395,7 +395,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
     from json import JSONDecodeError
 
     # Note: We expect create_api_error to return a basic Error for assertion comparison
-    mock_create_api_error.side_effect = lambda msg, exc: Error(
+    mock_create_api_error.side_effect = lambda msg, exc, metrics=None: Error(
         error=msg, exception=exc, halt_auto_loop=False
     )
 

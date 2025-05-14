@@ -935,7 +935,7 @@ async def _confirm_and_execute_plan(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
                 tokens_out=memory_update_metrics.token_output,
-                source="LLM Output Processing",
+                source="LLM Memory Update (Execution Record)",
                 total_duration=memory_update_metrics.total_processing_duration_ms,
             )
     except Exception as mem_e:
@@ -1514,7 +1514,7 @@ def _get_llm_plan(
             user_fragments=plan_user_fragments,
             response_model=response_model_type,
         )
-        logger.info(f"Raw LLM response text:\\n{llm_response_text}")
+        logger.info(f"Raw LLM response text:\n{llm_response_text}")
 
         if not llm_response_text or llm_response_text.strip() == "":
             logger.error("LLM returned an empty response.")
@@ -1541,7 +1541,7 @@ def _get_llm_plan(
         truncated_llm_response = output_processor.process_auto(
             llm_response_text, budget=100
         ).truncated
-        update_memory(
+        memory_update_metrics = update_memory(  # Capture metrics
             command="system",
             command_output=error_msg,
             vibe_output=(
@@ -1550,7 +1550,7 @@ def _get_llm_plan(
             ),
             model_name=model_name,
         )
-        return create_api_error(error_msg, e)
+        return create_api_error(error_msg, e, metrics=memory_update_metrics)
     except (
         RecoverableApiError
     ) as api_err:  # Catch recoverable API errors during execute
