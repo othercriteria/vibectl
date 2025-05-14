@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Planned: Implement `vibectl apply` subcommand with LLM-powered input fixing and vibe integration (WIP)
+- Planned: Implement `vibectl diff` subcommand with vibe integration and reusable diff logic (WIP)
+
 ## [0.7.0] - 2025-05-14
 
 ### Added
