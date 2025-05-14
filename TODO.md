@@ -22,6 +22,14 @@
 - Identify and optimize any remaining slow paths
 - Add benchmarking tests for model loading times
 - Implement metrics collection for model usage and performance
+- **Systematic LLM Call Instrumentation & Storage:**
+  - Expand current LLM call instrumentation to explicitly log all relevant parameters (e.g., model options like temperature, full prompt/fragment details).
+  - Implement a system for storing this detailed instrumentation data persistently (e.g., local SQLite DB, structured logs) to enable comprehensive analysis beyond real-time console output.
+- **LLM Metrics Analysis & Visualization:**
+  - Develop methods or tools to analyze the stored LLM call data to identify performance bottlenecks (high token/time cost), frequently/infrequently used prompts/fragments, and overall usage patterns.
+  - Explore and define a strategy for visualizing these collected metrics to aid in optimization efforts.
+- **(Future Consideration) Explicit LLM Caching Layers:**
+  - If `llm` library's fragment-based caching proves insufficient after further investigation, explore the feasibility and benefits of implementing an explicit caching layer for LLM responses.
 
 ## Port-Forward Enhanced Functionality
 

@@ -9,43 +9,30 @@ This document outlines the plan for optimizing the usage of the `llm` library wi
 3.  **Enhance Observability:** Gain better insight into how LLM prompts are constructed and used, specifically tracking fragment usage.
 4.  **Increase Reliability:** Identify and fix potential bugs or inconsistencies in prompt construction, memory updates, or state handling related to LLM interactions.
 
+**Note:** The primary refactoring to adopt fragments and improve metrics display has been completed. Remaining detailed instrumentation, systematic data storage/analysis, and deeper caching explorations have been moved to `TODO.md` under "Performance Optimization".
+
 ## Approach
 
 1.  **Instrumentation:**
-    *   Wrap LLM calls (`model.prompt`, `conversation.prompt`) to record:
-        *   Input prompt (potentially broken down by fragments).
-        *   System prompt.
-        *   Model used.
-        *   Options used (e.g., temperature).
-        *   `response.usage()` (input/output tokens).
-        *   Execution time (latency).
-        *   Whether the response came from a cache (if discoverable).
-        *   Fragments used (`fragments=`, `system_fragments=`).
-    *   Store this data (e.g., logs, temporary SQLite DB) for analysis.
+    *   LLM calls (`model.prompt`, `conversation.prompt`) have been wrapped to record key metrics (tokens, latency) and log fragment usage.
+    *   (Deferred to TODO.md) Store detailed instrumentation data persistently for broader analysis.
+    *   (Deferred to TODO.md) Explicitly log all LLM call options (e.g., temperature).
+    *   (Out of Scope for this phase) Detailed cache hit information from the `llm` library itself was not pursued further.
 
 2.  **Adopt Fragments:**
-    *   Refactor existing prompt construction logic (`vibectl/prompt.py`) to use the `fragments=` and `system_fragments=` arguments for `model.prompt()` and `conversation.prompt()`.
-    *   Break down prompts into logical fragments, ordered from least to most frequently changing to maximize potential caching benefits (e.g., static instructions, custom instructions, user request, memory, dynamic context like time or command output).
-    *   Identify static vs. dynamic parts within current prompt templates (`PLAN_*`, `*_prompt` functions).
-    *   Modify prompt generation functions to return lists of system and user fragments instead of monolithic strings.
-    *   Update the LLM call sites (likely in `vibectl/llm_utils.py` or similar) to pass these fragments correctly to the `llm` library.
-    *   Enhance instrumentation to track fragment usage and investigate if cache hit information is available via the `llm.Response` object (e.g., in `response.json()` or `response.usage().details`).
+    *   Prompt construction logic (`vibectl/prompt.py`) has been refactored to use `fragments=` and `system_fragments=`.
+    *   Prompts have been broken down into logical fragments.
+    *   Static vs. dynamic parts within prompt templates have been identified.
+    *   Prompt generation functions now return lists of system and user fragments.
+    *   LLM call sites have been updated to pass these fragments correctly.
 
 3.  **Analysis & Optimization:**
-    *   Analyze the collected data to identify:
-        *   High-cost operations (tokens, time).
-        *   Frequently used prompts/fragments (cache candidates).
-        *   Infrequently used or unexpectedly used fragments (potential bugs).
-        *   Latency bottlenecks.
-    *   Implement optimizations based on findings:
-        *   Refine prompts for conciseness.
-        *   Adjust model parameters (e.g., temperature, max tokens).
-        *   Explore explicit caching layers if `llm`'s fragment caching isn't sufficient.
-        *   Fix bugs in prompt/fragment logic.
+    *   (Deferred to TODO.md) Systematic analysis of collected data for high-cost operations, fragment usage, and bottlenecks.
+    *   (Deferred to TODO.md / Out of Scope for this phase) Exploration of explicit caching layers beyond `llm`'s fragment caching.
 
 4.  **Verification:**
-    *   Measure metrics again after optimizations to confirm improvements.
-    *   Ensure tests pass and functionality remains correct.
+    *   Metrics are displayed and can be manually checked after optimizations.
+    *   Tests pass and functionality remains correct.
 
 ## Tools & Libraries
 
@@ -55,11 +42,11 @@ This document outlines the plan for optimizing the usage of the `llm` library wi
 
 ## Open Questions
 
-*   How does `llm`'s fragment caching actually work, especially with different models (OpenAI vs. Anthropic)? Does it require specific logging/setup? (Need to investigate `llm` internals or docs further).
-*   What's the best way to store/visualize the collected metrics?
-*   Is cache hit information directly exposed by the `llm` library's `Response` object, or do we need to infer it (e.g., via token counts or latency)?
+*   (Deferred to TODO.md / Out of Scope for this phase) How does `llm`'s fragment caching actually work, especially with different models (OpenAI vs. Anthropic)? Does it require specific logging/setup?
+*   (Deferred to TODO.md) What's the best way to store/visualize the collected metrics?
+*   (Out of Scope for this phase) Is cache hit information directly exposed by the `llm` library's `Response` object, or do we need to infer it?
 
 ## Out of Scope (Initial Phase)
 
-*   Building a complex, persistent caching system beyond what `llm` might offer via fragments.
+*   Building a complex, persistent caching system beyond what `llm` might offer via fragments (deferred to `TODO.md` as a future consideration if needed).
 *   Major refactoring of core command logic unrelated to LLM calls.
