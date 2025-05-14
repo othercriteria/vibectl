@@ -32,6 +32,16 @@ from .types import (
 )
 
 
+# Protocol for the object returned by response.usage()
+@runtime_checkable
+class LLMUsage(Protocol):
+    """Protocol defining the expected interface for model usage details."""
+
+    input: int
+    output: int
+    details: dict[str, Any] | None
+
+
 # NEW TimedOperation Context Manager
 class TimedOperation:
     """Context manager to time an operation and log its duration."""
@@ -83,6 +93,22 @@ class ModelResponse(Protocol):
 
         Returns:
             str: The text content of the response
+        """
+        ...
+
+    def json(self) -> dict[str, Any]:
+        """Get the JSON content of the response.
+
+        Returns:
+            dict[str, Any]: The JSON content of the response as a dictionary.
+        """
+        ...
+
+    def usage(self) -> LLMUsage:
+        """Get the token usage information for the response.
+
+        Returns:
+            LLMUsage: An object containing token usage details.
         """
         ...
 
@@ -298,6 +324,11 @@ class LLMModelAdapter(ModelAdapter):
         try:
             usage_obj = response.usage()  # type: ignore[attr-defined]
             if usage_obj:
+                # Log the raw usage object at DEBUG level
+                logger.debug(
+                    "Raw LLM usage object for model %s: %s", model_id, usage_obj
+                )
+
                 raw_input = getattr(usage_obj, "input", None)
                 raw_output = getattr(usage_obj, "output", None)
 
@@ -652,6 +683,13 @@ class LLMModelAdapter(ModelAdapter):
             ) as text_timer:
                 response_text = response_obj.text()
             text_extraction_duration_ms = text_timer.duration_ms  # Store for metrics
+
+            # Log the raw response object at DEBUG level
+            logger.debug(
+                "Raw LLM response JSON for model %s: %s",
+                current_model_id_for_log,
+                response_obj.json(),
+            )
 
             with TimedOperation(
                 logger, current_model_id_for_log, "_get_token_usage() call"

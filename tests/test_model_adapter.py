@@ -13,6 +13,7 @@ from vibectl.model_adapter import (
     LLMAdaptationError,
     LLMMetrics,
     LLMModelAdapter,
+    LLMUsage,
     ModelAdapter,
     ModelEnvironment,
     ModelResponse,
@@ -310,9 +311,11 @@ class TestLLMModelAdapter:
     ) -> None:
         """Test _get_token_usage when response lacks usage() method."""
         mock_response = MagicMock(spec=ModelResponse)
-        # spec=ModelResponse ensures that mock_response.usage does not exist by default.
-        # Calling .usage() on it within the SUT will raise an AttributeError,
-        # which is the behavior this test intends to verify is handled.
+        # Make sure calling .usage() on this specific mock raises AttributeError
+        # to correctly test the except block in _get_token_usage.
+        mock_response.usage.side_effect = AttributeError(
+            "usage method explicitly mocked to fail"
+        )
 
         tokens_in, tokens_out = adapter_instance._get_token_usage(
             mock_response, "test-model-no-usage"
@@ -733,6 +736,18 @@ def test_model_response_protocol_runtime_check() -> None:
         def text(self) -> str:
             return "foo"
 
+        def json(self) -> dict[str, Any]:
+            return {"foo": "bar"}
+
+        def usage(self) -> LLMUsage:  # Assuming LLMUsage is importable or defined here
+            # A mock LLMUsage object or a simple class implementing it
+            class DummyUsage(LLMUsage):
+                input: int = 0
+                output: int = 0
+                details: dict[str, Any] | None = None
+
+            return DummyUsage()
+
     resp = DummyResponse()
     assert isinstance(resp, ModelResponse)
 
@@ -887,6 +902,22 @@ class TestLLMModelAdapterSchemaFallback:
 
         def text(self) -> str:
             return self._text
+
+        def json(self) -> dict[str, Any]:
+            # Return a simple dict, can be customized if needed per test
+            return {"text_content": self._text, "source": "mock"}
+
+        def usage(self) -> LLMUsage:
+            # Return a mock LLMUsage object
+            class MockUsage(LLMUsage):
+                input: int = 10  # Example value
+                output: int = 20  # Example value
+                # details: dict[str, Any] | None = {"mock_detail": True} # RUF012 issue
+
+                def __init__(self) -> None:
+                    self.details: dict[str, Any] | None = {"mock_detail": True}
+
+            return MockUsage()
 
     class DummySchema(BaseModel):
         field: str
