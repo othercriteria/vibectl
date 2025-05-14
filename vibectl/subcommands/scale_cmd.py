@@ -13,13 +13,14 @@ from vibectl.types import Error, Result, Success
 
 async def run_scale_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_metrics: bool | None,
 ) -> Result:
     """Executes the scale command logic."""
 
@@ -28,6 +29,8 @@ async def run_scale_command(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
         model=model,
+        show_kubectl=show_kubectl,
+        show_metrics=show_metrics,
         # freeze_memory and unfreeze_memory are handled separately
     )
 
@@ -41,10 +44,11 @@ async def run_scale_command(
             vibe_result = await handle_vibe_request(
                 request=request,
                 command="scale",
-                plan_prompt=PLAN_SCALE_PROMPT,
+                plan_prompt_func=lambda: PLAN_SCALE_PROMPT,
                 output_flags=output_flags,
                 summary_prompt_func=scale_resource_prompt,
                 semiauto=False,
+                config=None,
             )
             logger.info("Completed 'scale' command for vibe request.")
             return vibe_result

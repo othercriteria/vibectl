@@ -32,6 +32,7 @@ async def run_rollout_command(
     unfreeze_memory: bool = False,
     yes: bool = False,
     exit_on_error: bool = True,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'rollout' subcommands logic, including logging and error handling.
@@ -52,6 +53,7 @@ async def run_rollout_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -71,7 +73,7 @@ async def run_rollout_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="rollout",
-                    plan_prompt=PLAN_ROLLOUT_PROMPT,
+                    plan_prompt_func=lambda: PLAN_ROLLOUT_PROMPT,
                     summary_prompt_func=rollout_general_prompt,
                     output_flags=output_flags,
                 )

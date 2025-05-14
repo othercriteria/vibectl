@@ -5,6 +5,7 @@ allowing vibectl to maintain context across commands.
 """
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -172,7 +173,16 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
     """Test memory update with command and response."""
     # Setup mocks
     mock_config = Mock()
-    mock_config.get.return_value = True  # for is_memory_enabled check
+
+    # Configure mock_config.get to return specific values based on the key
+    def mock_config_get_side_effect(key: str, default: Any = None) -> Any:
+        if key == "memory_enabled":
+            return True
+        if key == "memory_max_chars":
+            return 500  # Sufficiently large limit
+        return default
+
+    mock_config.get.side_effect = mock_config_get_side_effect
 
     # Mock adapter and its model reference
     mock_adapter = Mock()
@@ -180,17 +190,23 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
 
-    # Setup prompt template
-    mock_update_prompt.return_value = "Test memory update prompt"
+    # Setup prompt template for memory_update_prompt
+    # It should return (system_fragments, user_fragments_template)
+    mock_update_prompt.return_value = (
+        ["SysMemPrompt"],
+        ["UserMemTemplate {current_memory} {prompt_details}"],
+    )
 
-    # Setup model response
-    mock_response = "Updated memory content"
-    mock_adapter.execute.return_value = mock_response
+    # Setup model response to be a tuple (text, metrics)
+    mock_response_text = "Updated memory content"
+    mock_adapter.execute_and_log_metrics.return_value = (
+        mock_response_text,
+        None,  # Metrics can be None for this test
+    )
 
     # Create a spy on set_memory to verify what's actually being passed
     with (
         patch("vibectl.memory.Config", return_value=mock_config),
-        patch("vibectl.memory.set_memory") as mock_set_memory,
     ):
         # Call update_memory
         update_memory(
@@ -202,21 +218,30 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
     # Verify the prompt was created
     mock_update_prompt.assert_called_once_with(
-        "kubectl get pods",
-        "pod1 Running\npod2 Error",
-        "Pods are in mixed state",
-        mock_config,
+        command="kubectl get pods",
+        command_output="pod1 Running\npod2 Error",
+        vibe_output="Pods are in mixed state",
+        current_memory="",  # get_memory would return '' if not otherwise mocked
+        config=mock_config,
     )
 
     # Verify the adapter was used correctly
     mock_get_adapter.assert_called_once()
     mock_adapter.get_model.assert_called_once_with("test-model")
-    mock_adapter.execute.assert_called_once_with(
-        mock_model, "Test memory update prompt"
+
+    # Verify the call to execute_and_log_metrics with the literal template
+    mock_adapter.execute_and_log_metrics.assert_called_once_with(
+        model=mock_model,
+        system_fragments=["SysMemPrompt"],  # From mock_update_prompt
+        user_fragments=[
+            "UserMemTemplate {current_memory} {prompt_details}"
+        ],  # Expect the literal template passed through
     )
 
-    # Verify memory was updated with the correct content
-    mock_set_memory.assert_called_once_with(mock_response, mock_config)
+    # Verify memory was updated via the mock_config object
+    # The real set_memory calls cfg.set()
+    mock_config.set.assert_called_once_with("memory", mock_response_text)
+    mock_config.save.assert_called_once()  # Also verify save was called
 
 
 @patch("vibectl.memory.is_memory_enabled")

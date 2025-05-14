@@ -23,8 +23,8 @@ def mock_model_adapter() -> Generator[Mock, None, None]:
     # Setup mock model
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
-    # Setup default response for execute
-    mock_adapter.execute.return_value = "Updated memory content"
+    # Setup default response for execute_and_log_metrics
+    mock_adapter.execute_and_log_metrics.return_value = "Updated memory content"
 
     # Save original adapter
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
@@ -61,6 +61,13 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     )
     vibe_output = "1 pod running: nginx-1"
 
+    # Configure the mock adapter to return the expected memory content and None metrics
+    expected_memory_text = "Updated memory content"
+    mock_model_adapter.execute_and_log_metrics.return_value = (
+        expected_memory_text,
+        None,
+    )
+
     # Call update_memory
     update_memory(
         command=command,
@@ -72,16 +79,32 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
 
     # Verify model adapter was called with correct parameters
     mock_model_adapter.get_model.assert_called_once_with("claude-3.7-sonnet")
-    mock_model_adapter.execute.assert_called_once()
+    mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
     # Verify prompt contains command, output and vibe_output
-    prompt = mock_model_adapter.execute.call_args[0][1]
-    assert command in prompt
-    assert command_output in prompt
-    assert vibe_output in prompt
+    kwargs_passed = mock_model_adapter.execute_and_log_metrics.call_args[1]
+    user_fragments_passed = kwargs_passed["user_fragments"]
+
+    # The command, command_output, and vibe_output are now in the fragment
+    # created by fragment_interaction
+    # This is typically the third user fragment after current_time and memory_context
+    interaction_fragment_content = ""
+    for fragment in user_fragments_passed:
+        if "Interaction:" in fragment:
+            interaction_fragment_content = fragment
+            break
+
+    assert interaction_fragment_content, (
+        "Interaction fragment not found in user_fragments"
+    )
+    assert command in interaction_fragment_content
+    assert command_output in interaction_fragment_content
+    assert vibe_output in interaction_fragment_content
 
     # Verify memory was updated
-    assert get_memory(test_config) == "Updated memory content"
+    assert get_memory(test_config) == expected_memory_text
+
+    mock_model_adapter.execute_and_log_metrics.assert_called_once()
 
 
 @patch("vibectl.memory.is_memory_enabled")
@@ -102,7 +125,7 @@ def test_update_memory_disabled(
 
     # Verify model adapter was not called
     mock_model_adapter.get_model.assert_not_called()
-    mock_model_adapter.execute.assert_not_called()
+    mock_model_adapter.execute_and_log_metrics.assert_not_called()
 
 
 def test_update_memory_with_error(
@@ -115,8 +138,9 @@ def test_update_memory_with_error(
     vibe_output = "Error: invalid resource type"
 
     # Configure mock to return error-focused memory
-    mock_model_adapter.execute.return_value = (
-        "Error occurred: invalid resource type 'pod'"
+    mock_model_adapter.execute_and_log_metrics.return_value = (
+        "Error occurred: invalid resource type 'pod'",
+        None,
     )
 
     # Call update_memory
@@ -128,9 +152,36 @@ def test_update_memory_with_error(
     )
 
     # Verify prompt emphasizes the error
-    prompt = mock_model_adapter.execute.call_args[0][1]
-    assert "Error:" in prompt
-    assert "extremely important information" in prompt
+    kwargs_passed_error = mock_model_adapter.execute_and_log_metrics.call_args[1]
+    user_fragments_passed_error = kwargs_passed_error["user_fragments"]
+    system_fragments_passed_error = kwargs_passed_error["system_fragments"]
+    # Check user fragment for basic error content
+    # The error content is in the interaction fragment
+    interaction_fragment_content_error = ""
+    for fragment in user_fragments_passed_error:
+        if "Interaction:" in fragment:
+            interaction_fragment_content_error = fragment
+            break
+
+    assert interaction_fragment_content_error, (
+        "Interaction fragment not found in error user_fragments"
+    )
+    assert "Error:" in interaction_fragment_content_error
+    assert (
+        command_output in interaction_fragment_content_error
+    )  # Check for the raw error output
+
+    # Check system fragment for general memory assistant role
+    # FRAGMENT_MEMORY_ASSISTANT is the first system fragment usually.
+    # Its content starts with "You are an AI agent..."
+    found_memory_assistant_role = False
+    for fragment_str in system_fragments_passed_error:
+        if "You are an AI agent maintaining memory state" in fragment_str:
+            found_memory_assistant_role = True
+            break
+    assert found_memory_assistant_role, (
+        "Key phrase from FRAGMENT_MEMORY_ASSISTANT not found in system_fragments"
+    )
 
     # Verify memory captures the error
     assert "Error occurred" in get_memory(test_config)
@@ -141,16 +192,24 @@ def test_update_memory_model_error(
 ) -> None:
     """Test handling when model adapter raises an exception."""
     # Setup model adapter to raise exception
-    mock_model_adapter.execute.side_effect = ValueError("Model execution failed")
+    mock_model_adapter.execute_and_log_metrics.side_effect = ValueError(
+        "Model execution failed"
+    )
 
-    # Call update_memory - should not raise exception
-    with pytest.raises(ValueError):
+    # Patch set_memory to verify it's not called
+    with patch("vibectl.memory.set_memory") as mock_set_mem:
+        # Call update_memory - should catch the exception internally
         update_memory(
             command="kubectl get pods",
             command_output="output",
             vibe_output="vibe",
             config=test_config,
         )
+
+        # Verify execute_and_log_metrics was called (and raised error)
+        mock_model_adapter.execute_and_log_metrics.assert_called_once()
+        # Verify set_memory was NOT called because of the error
+        mock_set_mem.assert_not_called()
 
 
 def test_update_memory_integration(test_config: Config) -> None:
@@ -163,8 +222,11 @@ def test_update_memory_integration(test_config: Config) -> None:
     mock_adapter = Mock(spec=ModelAdapter)
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.return_value = (
-        "Cluster has 3 pods running in namespace default"
+    # Set the expected final memory content
+    expected_memory_text = "Cluster has 3 pods running in namespace default"
+    mock_adapter.execute_and_log_metrics.return_value = (
+        expected_memory_text,
+        None,
     )
 
     # Set our mock as the global adapter
@@ -182,12 +244,13 @@ def test_update_memory_integration(test_config: Config) -> None:
             config=test_config,
         )
 
-        # Verify memory was updated
-        assert (
-            get_memory(test_config) == "Cluster has 3 pods running in namespace default"
-        )
+        # Verify execute_and_log_metrics was called
+        mock_adapter.execute_and_log_metrics.assert_called_once()
 
-        # Verify memory is used in prompts
+        # Verify memory was updated correctly
+        assert get_memory(test_config) == expected_memory_text
+
+        # Verify memory is used in prompts (optional check)
         assert is_memory_enabled(test_config)
     finally:
         # Clean up

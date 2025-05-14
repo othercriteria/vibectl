@@ -24,7 +24,9 @@ from rich.text import Text
 from .config import Config
 from .k8s_utils import create_async_kubectl_process
 from .live_display import _run_async_main
-from .types import Error, OutputFlags, Result, Success
+
+# Import type hint from types.py
+from .types import Error, OutputFlags, Result, Success, SummaryPromptFragmentFunc
 from .utils import console_manager
 
 logger = logging.getLogger(__name__)
@@ -453,7 +455,8 @@ async def _execute_watch_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
-    display_text: str,
+    summary_prompt_func: SummaryPromptFragmentFunc,
+    config: Config | None = None,
 ) -> Result:
     """Executes the core logic for commands with `--watch` using a live display.
 
@@ -466,7 +469,8 @@ async def _execute_watch_with_live_display(
         resource: The resource type (e.g., pod, deployment).
         args: Command arguments including resource name and conditions.
         output_flags: Flags controlling output format and LLM interaction.
-        display_text: The initial text/title for the live display panel.
+        summary_prompt_func: Function to generate a summary prompt based on the output.
+        config: Configuration object for the command.
 
     Returns:
         A Result object, either Success (with raw output) or Error.
@@ -520,7 +524,7 @@ async def _execute_watch_with_live_display(
     initial_overall_layout = Group(
         Panel(
             live_display_content,
-            title=display_text,
+            title=command_str,
             border_style="blue",
             height=live_display_max_lines + 2,
         ),

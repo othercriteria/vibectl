@@ -9,10 +9,14 @@ import pytest
 
 from tests.test_config import MockConfig  # Use MockConfig instead of real Config
 from vibectl.model_adapter import (
+    LLMMetrics,
     LLMModelAdapter,
     ModelEnvironment,
+    SystemFragments,
+    UserFragments,
     validate_model_key_on_startup,
 )
+from vibectl.types import Fragment
 
 
 class TestModelKeyConfig:
@@ -284,13 +288,17 @@ class TestModelAdapterWithKeys:
                 patch.object(adapter, "get_model", return_value=mock_model),
             ):
                 # Execute
-                response = adapter.execute(mock_model, "Test prompt")
+                response_text, metrics = adapter.execute(
+                    mock_model,
+                    system_fragments=SystemFragments([]),
+                    user_fragments=UserFragments([Fragment("Test prompt")]),
+                )
 
                 # Verify response
-                assert response == "Test response"
-
-                # Verify prompt was called
-                mock_model.prompt.assert_called_once_with("Test prompt")
+                assert response_text == "Test response"
+                assert isinstance(
+                    metrics, LLMMetrics
+                )  # Check metrics object is returned
 
             # Verify environment variable is still there (the core of this test)
             assert "ORIGINAL_VAR" in os.environ

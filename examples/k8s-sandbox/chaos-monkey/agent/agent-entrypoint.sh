@@ -168,10 +168,12 @@ if [ "$VERBOSE" = "true" ]; then
     echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Verbose mode enabled: showing raw output and kubectl commands${NO_COLOR}"
     vibectl config set show_raw_output true
     vibectl config set show_kubectl true
+    vibectl config set show_metrics true
     export VIBECTL_TRACEBACK=1 # Enable tracebacks for debugging
 else
     vibectl config set show_raw_output false
     vibectl config set show_kubectl false
+    vibectl config set show_metrics false
 fi
 
 # --- Custom Instructions Setup ---

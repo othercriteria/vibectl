@@ -31,6 +31,7 @@ async def run_auto_command(
     semiauto: bool = False,
     exit_on_error: bool = True,
     limit: int | None = None,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the auto subcommand logic, including looping
@@ -51,6 +52,7 @@ async def run_auto_command(
         exit_on_error: If True (default), errors will terminate the process.
            If False, errors are returned as Error objects for tests.
         limit: Maximum number of iterations to run (None for unlimited)
+        show_metrics: Whether to show metrics
 
     Returns:
         Result object (Success or Error)
@@ -97,6 +99,7 @@ async def run_auto_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -148,10 +151,9 @@ async def run_auto_command(
                     model=model,
                     freeze_memory=freeze_memory,
                     unfreeze_memory=unfreeze_memory,
-                    # Override yes flag in semiauto mode
+                    show_metrics=show_metrics,
                     yes=yes_to_pass_to_vibe,
                     semiauto=semiauto,
-                    # Handle errors here instead of in run_vibe_command
                     exit_on_error=False,
                 )
 
@@ -233,6 +235,7 @@ async def run_semiauto_command(
     unfreeze_memory: bool = False,
     exit_on_error: bool = False,
     limit: int | None = None,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the semiauto subcommand logic, which is sugar
@@ -252,6 +255,7 @@ async def run_semiauto_command(
            If False (default for semiauto), errors are handled gracefully
            and the loop continues.
         limit: Maximum number of iterations to run (None for unlimited)
+        show_metrics: Whether to show metrics
 
     Returns:
         Result object (Success or Error)
@@ -273,4 +277,5 @@ async def run_semiauto_command(
         semiauto=True,  # Set semiauto mode
         exit_on_error=exit_on_error,
         limit=limit,  # Pass the iteration limit
+        show_metrics=show_metrics,
     )

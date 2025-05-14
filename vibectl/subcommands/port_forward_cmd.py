@@ -5,7 +5,7 @@ from vibectl.command_handler import (
     handle_vibe_request,
 )
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, get_memory
+from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
 from vibectl.types import Error, Result
 
@@ -20,6 +20,7 @@ async def run_port_forward_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
+    show_metrics: bool | None = None,
     exit_on_error: bool = True,
 ) -> Result:
     """
@@ -37,6 +38,7 @@ async def run_port_forward_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -52,11 +54,10 @@ async def run_port_forward_command(
             result = await handle_vibe_request(
                 request=request,
                 command="port-forward",
-                plan_prompt=PLAN_PORT_FORWARD_PROMPT,
+                plan_prompt_func=lambda: PLAN_PORT_FORWARD_PROMPT,
                 summary_prompt_func=port_forward_prompt,
                 output_flags=output_flags,
                 live_display=live_display,
-                memory_context=get_memory() or "",
             )
             logger.info("Completed 'port-forward' subcommand for vibe request.")
             return result

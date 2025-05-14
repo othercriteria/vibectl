@@ -83,9 +83,8 @@ actions:
         fi
       fi
 
-      # Defer to commit-message rule for message formatting
-      # The placeholder values will be filled by the commit-message rule
-      git commit -m "{type}: {concise description}"
+      # The script below performs additional checks specific to this rule.
+      bash .cursor/rules/scripts/autonomous-commit-checks.sh && git commit -m "{type}: {concise description}"
 
   - type: reject
     conditions:

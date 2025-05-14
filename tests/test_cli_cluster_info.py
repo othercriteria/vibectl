@@ -104,7 +104,11 @@ async def test_cluster_info_with_flags(
     mock_run_kubectl.assert_called_once_with(["cluster-info"], capture=True)
     mock_handle_output.assert_called_once()
     mock_configure_flags.assert_called_once_with(
-        show_raw_output=True, show_vibe=False, model="custom-model", show_kubectl=None
+        show_raw_output=True,
+        show_vibe=False,
+        model="custom-model",
+        show_kubectl=None,
+        show_metrics=None,
     )
 
 

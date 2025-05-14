@@ -8,15 +8,30 @@ import pytest
 from vibectl.command_handler import (
     handle_standard_command,
 )
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import (
+    Config,
+    Error,
+    Fragment,
+    OutputFlags,
+    PromptFragments,
+    Success,
+    SystemFragments,
+    UserFragments,
+)
 
 # The test_config and mock_subprocess fixtures are now provided by conftest.py
 
 
 @pytest.fixture
-def mock_summary_prompt() -> Callable[[], str]:
-    """Mock summary prompt function."""
-    return lambda: "Test Prompt: {output}"
+def mock_summary_prompt() -> Callable[[Config | None], PromptFragments]:
+    """Mock summary prompt function that adheres to SummaryPromptFragmentFunc type."""
+
+    def _mock_summary_prompt_func(config: Config | None = None) -> PromptFragments:
+        return PromptFragments(
+            (SystemFragments([]), UserFragments([Fragment("Test Prompt: {output}")]))
+        )
+
+    return _mock_summary_prompt_func
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -41,12 +56,15 @@ def test_handle_standard_command_logs(
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
+        show_metrics=True,
     )
 
     # Test handling the logs command
     # Define summary function properly
-    def summary_func() -> str:
-        return "Summarize logs: {output}"
+    def summary_func(config: Config | None = None) -> PromptFragments:
+        return PromptFragments(
+            (SystemFragments([]), UserFragments([Fragment("Summarize logs: {output}")]))
+        )
 
     result = handle_standard_command(
         "logs", "pod/my-pod", ("-c", "my-container"), output_flags, summary_func
@@ -83,9 +101,10 @@ def test_handle_standard_command_logs(
 def test_handle_standard_command_error_with_exception(
     mock_handle_output: MagicMock,
     mock_run_kubectl: MagicMock,
+    default_output_flags: OutputFlags,
+    mock_memory: tuple[MagicMock, MagicMock],
     mock_console: Mock,
-    standard_output_flags: OutputFlags,
-    mock_summary_prompt: Callable[[], str],
+    mock_summary_prompt: Callable[[Config | None], PromptFragments],
 ) -> None:
     """Test handle_standard_command when run_kubectl returns Error with exception."""
     test_exception = ValueError("Test kubectl error")
@@ -98,7 +117,7 @@ def test_handle_standard_command_error_with_exception(
         command="get",
         resource="pods",
         args=("mypod",),
-        output_flags=standard_output_flags,  # Flags don't matter much here
+        output_flags=default_output_flags,  # Flags don't matter much here
         summary_prompt_func=mock_summary_prompt,
     )
 
@@ -121,8 +140,8 @@ def test_handle_standard_command_empty_output(
     mock_handle_output: MagicMock,
     mock_run_kubectl: MagicMock,
     mock_console: Mock,
-    standard_output_flags: OutputFlags,
-    mock_summary_prompt: Callable[[], str],
+    default_output_flags: OutputFlags,
+    mock_summary_prompt: Callable[[Config | None], PromptFragments],
 ) -> None:
     """Test handle_standard_command if run_kubectl returns Success with empty output."""
     mock_run_kubectl.return_value = Success(data="", message="")
@@ -132,7 +151,7 @@ def test_handle_standard_command_empty_output(
         command="get",
         resource="pods",
         args=(),
-        output_flags=standard_output_flags,
+        output_flags=default_output_flags,
         summary_prompt_func=mock_summary_prompt,
     )
 

@@ -9,7 +9,6 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    get_memory,
 )
 from vibectl.prompt import (
     PLAN_GET_PROMPT,
@@ -27,6 +26,7 @@ async def run_get_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_metrics: bool | None,
 ) -> Result:
     """
     Implements the 'get' subcommand logic, including logging and error handling.
@@ -39,6 +39,7 @@ async def run_get_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -51,16 +52,16 @@ async def run_get_command(
                 )
                 return Error(error=msg)
             request = " ".join(args)
-            logger.info("Planning how to: %s", request)
+            logger.info(f"Planning how to: {request}")
 
             # Await the async handler
             result = await handle_vibe_request(
                 request=request,
                 command="get",
-                plan_prompt=PLAN_GET_PROMPT,
+                plan_prompt_func=lambda: PLAN_GET_PROMPT,
                 summary_prompt_func=get_resource_prompt,
                 output_flags=output_flags,
-                memory_context=get_memory() or "",
+                yes=False,
             )
 
             # Forward the Result from handle_vibe_request

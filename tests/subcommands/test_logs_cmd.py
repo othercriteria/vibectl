@@ -78,6 +78,7 @@ async def test_logs_with_flags(
         model_name="test-model-foo",
         warn_no_output=True,
         show_kubectl=False,
+        show_metrics=True,
     )
     mock_configure_flags.return_value = mock_flags
     mock_configure_flags.model_name_check = "test-model-bar"
@@ -108,6 +109,7 @@ async def test_logs_with_flags(
         show_vibe=False,
         model="test-model-foo",
         show_kubectl=None,  # Assert None, as flag wasn't passed and default is None
+        show_metrics=None,  # Expect None when flag not explicitly passed
     )
     # Verify the original mock object attribute wasn't changed
     assert mock_configure_flags.model_name_check == "test-model-bar"
@@ -214,6 +216,7 @@ async def test_logs_error_handling(
         warn_no_output=False,
         model_name="model-xyz-1.2.3",
         show_kubectl=False,
+        show_metrics=True,
     )
 
     # Setup mock to return an Error
@@ -332,6 +335,7 @@ async def test_logs_follow_with_show_vibe_flag(
         model_name=default_model,  # Use default model (casted)
         show_kubectl=False,
         warn_no_output=True,
+        show_metrics=True,
     )
     mock_configure_output_flags.return_value = expected_flags
     mock_handle_watch_with_live_display.return_value = Success(
@@ -347,7 +351,11 @@ async def test_logs_follow_with_show_vibe_flag(
 
     # Verify configure_output_flags was called correctly by run_logs_command
     mock_configure_output_flags.assert_called_once_with(
-        show_raw_output=None, show_vibe=True, model=None, show_kubectl=None
+        show_raw_output=None,
+        show_vibe=True,
+        model=None,
+        show_kubectl=None,
+        show_metrics=None,  # Expect None when flag not explicitly passed
     )
 
     # Verify that the OutputFlags instance passed to handle_watch_with_live_display

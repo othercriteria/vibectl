@@ -7,7 +7,6 @@ from vibectl.command_handler import (
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
-    get_memory,
 )
 from vibectl.prompt import (
     PLAN_DESCRIBE_PROMPT,
@@ -18,13 +17,14 @@ from vibectl.types import Error, Result, Success
 
 async def run_describe_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    show_metrics: bool | None,
 ) -> Result:
     """
     Implements the 'describe' subcommand logic, including logging and error handling.
@@ -41,6 +41,7 @@ async def run_describe_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
     except Exception as e:
@@ -75,10 +76,10 @@ async def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Resul
         result = await handle_vibe_request(
             request=request,
             command="describe",
-            plan_prompt=PLAN_DESCRIBE_PROMPT,
+            plan_prompt_func=lambda: PLAN_DESCRIBE_PROMPT,
             summary_prompt_func=describe_resource_prompt,
             output_flags=output_flags,
-            memory_context=get_memory() or "",
+            config=None,
         )
 
         # Return any error unchanged

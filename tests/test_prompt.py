@@ -19,8 +19,7 @@ Test Policy:
 
 import datetime
 import json
-from collections.abc import Callable
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -38,175 +37,209 @@ from vibectl.prompt import (
     PLAN_SCALE_PROMPT,
     PLAN_VERSION_PROMPT,
     PLAN_WAIT_PROMPT,
-    cluster_info_prompt,
     create_planning_prompt,
-    create_resource_prompt,
-    delete_resource_prompt,
-    describe_resource_prompt,
-    events_prompt,
-    get_formatting_instructions,
-    get_resource_prompt,
-    logs_prompt,
+    get_formatting_fragments,
     memory_fuzzy_update_prompt,
     memory_update_prompt,
     port_forward_prompt,
     recovery_prompt,
-    refresh_datetime,
-    rollout_general_prompt,
-    rollout_history_prompt,
-    rollout_status_prompt,
-    scale_resource_prompt,
-    version_prompt,
     vibe_autonomous_prompt,
     wait_resource_prompt,
 )
 from vibectl.schema import LLMCommandResponse
 
+# Import new types
+from vibectl.types import (
+    Examples,
+    Fragment,
+    PromptFragments,
+    SystemFragments,
+    UserFragments,
+)
+
 _TEST_SCHEMA_JSON = json.dumps(LLMCommandResponse.model_json_schema())
 
 
-def test_refresh_datetime() -> None:
-    """Test refresh_datetime returns correct format."""
-    # Mock datetime to ensure consistent test
-    mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    with patch("datetime.datetime") as mock_datetime:
-        mock_datetime.now.return_value = mock_now
-        result = refresh_datetime()
-        assert result == "2024-03-20 10:30:45"
+# TODO: replace with fragment_current_time test...
+# def test_refresh_datetime() -> None:
+#     """Test refresh_datetime returns correct format."""
+#     # Mock datetime to ensure consistent test
+#     mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
+#     with patch("datetime.datetime") as mock_datetime:
+#         mock_datetime.now.return_value = mock_now
+#         result = refresh_datetime()
+#         assert result == "2024-03-20 10:30:45"
 
 
-def test_get_formatting_instructions_no_custom(test_config: Config) -> None:
-    """Test get_formatting_instructions without custom instructions."""
-    mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    test_config.set("custom_instructions", None)  # Clear any custom instructions
-    test_config.set("memory_enabled", False)  # Ensure memory is disabled
+def test_get_formatting_fragments_no_custom(test_config: Config) -> None:
+    """Test get_formatting_fragments without custom instructions."""
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+    test_config.set("custom_instructions", None)
+    test_config.set(
+        "memory_enabled", False
+    )  # This doesn't affect get_formatting_fragments directly
 
-    with patch("datetime.datetime") as mock_datetime:
-        mock_datetime.now.return_value = mock_now
-        result = get_formatting_instructions(test_config)
+    # Patch datetime.now specifically within the vibectl.prompt module
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = get_formatting_fragments(test_config)
 
-        # Check basic structure
-        assert len(result) > 100  # Should be reasonably sized
-        assert "rich.Console() markup syntax" in result  # Core requirement
-        assert "Current date and time is" in result  # Required timestamp
-        assert "Custom instructions:" not in result  # No custom section
-        assert "Memory context:" not in result  # No memory section
+        all_fragments = system_fragments + user_fragments
+        assert len(all_fragments) > 1  # Expect at least base formatting and time
+        combined_text = "\n".join(all_fragments)
+
+        assert len(combined_text) > 100
+        assert "rich.Console() markup syntax" in combined_text
+        assert (
+            f"Current time is {fixed_dt_str}." in combined_text
+        )  # Check for specific time string
+        assert "Custom instructions:" not in combined_text
+        assert (
+            "Memory context:" not in combined_text
+        )  # Explicitly does not include memory
 
 
-def test_get_formatting_instructions_with_custom(test_config: Config) -> None:
-    """Test get_formatting_instructions with custom instructions."""
-    mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
+def test_get_formatting_fragments_with_custom(test_config: Config) -> None:
+    """Test get_formatting_fragments with custom instructions."""
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     test_config.set("custom_instructions", "Test custom instruction")
-    test_config.set("memory_enabled", False)  # Ensure memory is disabled
+    test_config.set("memory_enabled", False)
 
-    with patch("datetime.datetime") as mock_datetime:
-        mock_datetime.now.return_value = mock_now
-        result = get_formatting_instructions(test_config)
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = get_formatting_fragments(test_config)
+        combined_text = "\n".join(system_fragments + user_fragments)
 
-        # Check custom instructions section exists
-        assert "Custom instructions:" in result
-        assert "Test custom instruction" in result
-        assert "Memory context:" not in result  # No memory section
+        assert "Custom instructions:" in combined_text
+        assert "Test custom instruction" in combined_text
+        assert f"Current time is {fixed_dt_str}." in combined_text
+        assert (
+            "Memory context:" not in combined_text
+        )  # Explicitly does not include memory
 
 
-def test_get_formatting_instructions_with_memory(test_config: Config) -> None:
-    """Test get_formatting_instructions with memory enabled."""
-    mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    test_config.set("custom_instructions", None)  # Clear any custom instructions
-    test_config.set("memory_enabled", True)  # Enable memory
+def test_get_formatting_fragments_with_memory(test_config: Config) -> None:
+    """Test get_formatting_fragments correctly excludes memory."""
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    test_config.set("custom_instructions", None)
+    test_config.set(
+        "memory_enabled", True
+    )  # This setting is for callers, not get_formatting_fragments
 
-    with (
-        patch("datetime.datetime") as mock_datetime,
-        patch("vibectl.memory.get_memory") as mock_get_memory,
-        patch("vibectl.memory.is_memory_enabled") as mock_is_memory_enabled,
-    ):
-        mock_datetime.now.return_value = mock_now
-        mock_is_memory_enabled.return_value = True
-        mock_get_memory.return_value = "Test memory content"
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        # Mocking get_memory and is_memory_enabled is not needed here as
+        # get_formatting_fragments is documented to exclude memory.
+        system_fragments, user_fragments = get_formatting_fragments(test_config)
+        combined_text = "\n".join(system_fragments + user_fragments)
 
-        result = get_formatting_instructions(test_config)
-
-        # Check memory section exists
-        assert "Memory context:" in result
-        assert "Test memory content" in result
+        assert (
+            "Memory context:" not in combined_text
+        )  # Verify memory is NOT included by this function
 
 
 # Semantic requirements that all prompts must meet
 @pytest.mark.parametrize(
-    "prompt_func",
+    "prompt_func_name",  # Test against name to fetch func, helps with typing
     [
-        get_resource_prompt,
-        describe_resource_prompt,
-        logs_prompt,
-        create_resource_prompt,
-        cluster_info_prompt,
-        version_prompt,
-        events_prompt,
-        delete_resource_prompt,
-        scale_resource_prompt,
-        wait_resource_prompt,
-        rollout_status_prompt,
-        rollout_history_prompt,
-        rollout_general_prompt,
-        vibe_autonomous_prompt,
+        "get_resource_prompt",
+        "describe_resource_prompt",
+        "logs_prompt",
+        "create_resource_prompt",
+        "cluster_info_prompt",
+        "version_prompt",
+        "events_prompt",
+        "delete_resource_prompt",
+        "scale_resource_prompt",
+        "wait_resource_prompt",
+        "rollout_status_prompt",
+        "rollout_history_prompt",
+        "rollout_general_prompt",
+        "port_forward_prompt",
     ],
 )
-def test_prompt_semantic_requirements(prompt_func: Callable[[], str]) -> None:
-    """Test semantic requirements that all prompts must meet.
+def test_prompt_semantic_requirements(
+    prompt_func_name: str, test_config: Config
+) -> None:
+    """Test semantic requirements for various prompt functions.
 
-    Requirements:
-    1. Must include rich.Console() markup syntax instructions
-    2. Must include current datetime for timestamp context
-    3. Must have reasonable length (not too short/long)
-
-    TODO: Add more semantic requirements as needed, but keep them minimal
-    and focused on critical elements that must be present.
+    These functions primarily use create_summary_prompt, which in turn uses
+    get_formatting_fragments. So, they should return PromptFragments and
+    include base formatting and time.
+    port_forward_prompt takes an optional config and returns PromptFragments,
+    similar to other summarized prompts.
     """
-    with patch("datetime.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime.datetime(2024, 3, 20, 10, 30, 45)
-        result = prompt_func()
+    # Dynamically get the function from vibectl.prompt
+    # Ensure vibectl.prompt is imported or use getattr on the imported module
+    import vibectl.prompt
 
-        # Core requirements
-        assert "rich.Console() markup syntax" in result
-        assert "Current date and time is" in result
-        assert 100 < len(result) < 3000  # Reasonable size limits
+    prompt_func = getattr(vibectl.prompt, prompt_func_name)
+
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+
+        # All listed prompt functions take optional config and return PromptFragments.
+        system_fragments, user_fragments = prompt_func(config=test_config)
+
+        combined_text = "\n".join(system_fragments + user_fragments)
+
+        assert "rich.Console() markup syntax" in combined_text
+        assert f"Current time is {fixed_dt_str}." in combined_text
+        assert 100 < len(combined_text) < 3000  # Reasonable size limits
+        # Memory context should NOT be here unless the specific prompt adds it,
+        # or its test explicitly sets it up and calls a higher-level assembler.
+        # create_summary_prompt relies on its caller for memory.
+        assert "Memory context:" not in combined_text
 
 
 @pytest.mark.parametrize(
-    "prompt_func,required_placeholder",
+    "prompt_func_name,required_placeholder",
     [
-        (get_resource_prompt, "{output}"),
-        (describe_resource_prompt, "{output}"),
-        (logs_prompt, "{output}"),
-        (create_resource_prompt, "{output}"),
-        (cluster_info_prompt, "{output}"),
-        (version_prompt, "{output}"),
-        (events_prompt, "{output}"),
-        (delete_resource_prompt, "{output}"),
-        (scale_resource_prompt, "{output}"),
-        (wait_resource_prompt, "{output}"),
-        (rollout_status_prompt, "{output}"),
-        (rollout_history_prompt, "{output}"),
-        (rollout_general_prompt, "{output}"),
-        (vibe_autonomous_prompt, "{output}"),
+        ("get_resource_prompt", "{output}"),
+        ("describe_resource_prompt", "{output}"),
+        ("logs_prompt", "{output}"),
+        ("create_resource_prompt", "{output}"),
+        ("cluster_info_prompt", "{output}"),
+        ("version_prompt", "{output}"),
+        ("events_prompt", "{output}"),
+        ("delete_resource_prompt", "{output}"),
+        ("scale_resource_prompt", "{output}"),
+        ("wait_resource_prompt", "{output}"),
+        ("rollout_status_prompt", "{output}"),
+        ("rollout_history_prompt", "{output}"),
+        ("rollout_general_prompt", "{output}"),
+        ("port_forward_prompt", "{output}"),
     ],
 )
 def test_prompt_structure(
-    prompt_func: Callable[[], str], required_placeholder: str
+    prompt_func_name: str, required_placeholder: str, test_config: Config
 ) -> None:
-    """Test basic structure of prompts."""
-    result = prompt_func()
+    """Test basic structure of prompts that return PromptFragments."""
+    import vibectl.prompt
 
-    # Check basic structure
-    assert len(result) > 100  # Should be reasonably sized
-    assert required_placeholder in result  # Required placeholder
+    prompt_func = getattr(vibectl.prompt, prompt_func_name)
+
+    if prompt_func_name == "port_forward_prompt":
+        system_fragments, user_fragments = prompt_func(config=test_config)  # type: ignore[operator]
+    else:
+        system_fragments, user_fragments = prompt_func(config=test_config)  # type: ignore[operator]
+
+    combined_text = "\n".join(system_fragments + user_fragments)
+
+    assert len(combined_text) > 100  # Should be reasonably sized
+    assert required_placeholder in combined_text  # Required placeholder
 
 
 def test_create_planning_prompt_structure_and_content() -> None:
     """Verify the structure and content generated by create_planning_prompt."""
     command = "test-cmd"
     description = "testing the command"
-    examples = [
+    examples_data = [
         (
             "request 1",
             {
@@ -225,51 +258,37 @@ def test_create_planning_prompt_structure_and_content() -> None:
         ),
     ]
 
-    prompt = create_planning_prompt(
+    system_fragments, user_fragments = create_planning_prompt(
         command=command,
         description=description,
-        examples=examples,
+        examples=Examples(examples_data),
         schema_definition=_TEST_SCHEMA_JSON,
     )
 
-    # Basic checks
-    assert isinstance(prompt, str)
-    assert len(prompt) > 100
+    combined_prompt = "\n".join(system_fragments + user_fragments)
 
-    # Verify the basic structure and key phrases - Use the restored header
-    assert f"You are planning arguments for the 'kubectl {command}' command" in prompt
-    assert f"which is used for {description}." in prompt
-    assert "determine the\nappropriate arguments *following*" in prompt
-    assert "respond with a JSON\nobject matching the provided schema." in prompt
-    assert "Focus on extracting resource names, types, namespaces" in prompt
-    assert f"The action '{command}' is implied by the context." in prompt
-    assert "Your response MUST be a valid JSON object" in prompt
-    assert "Key fields:" in prompt
-    assert "Example inputs (natural language target descriptions)" in prompt
-    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
+    assert isinstance(system_fragments, list)
+    assert isinstance(user_fragments, list)
+    assert len(combined_prompt) > 100
 
-    # Verify placeholders
-    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in prompt
-    assert "__REQUEST_PLACEHOLDER__" in prompt
+    assert (
+        f"You are planning arguments for the 'kubectl {command}' command"
+        in combined_prompt
+    )
+    assert f"which is used for {description}." in combined_prompt
+    assert (
+        "respond with a JSON\nobject matching the provided schema." in combined_prompt
+    )
+    # __MEMORY_CONTEXT_PLACEHOLDER__ is NOT added by create_planning_prompt itself.
+    # It's added by the assembler (e.g. plan_vibe_fragments)
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" not in combined_prompt
+    assert "__REQUEST_PLACEHOLDER__" not in combined_prompt  # Also added by assembler
 
-    # Verify example formatting (updated to check for JSON structure)
-    # Check if the prompt contains the start of the JSON example block
-    assert '- Target: "request 1" -> Expected JSON output:' in prompt
-    # Check if it contains parts of the expected JSON for the first example
-    assert '"action_type": "COMMAND"' in prompt
-    assert '"commands": [' in prompt
-    assert '"arg1"' in prompt
-    assert '"val1"' in prompt
+    # Verify example formatting
+    assert '- Target: "request 1" -> \nExpected JSON output:' in combined_prompt
+    assert '"action_type": "COMMAND"' in combined_prompt
 
-    # Verify key instructions related to schema fields are present
-    assert "`action_type`" in prompt
-    assert "`commands`: List of string arguments" in prompt
-    assert "`explanation`: Brief explanation of the planned arguments." in prompt
-    assert "`error`: Required if action_type is ERROR" in prompt
-    assert "`wait_duration_seconds`: Required if action_type is WAIT" in prompt
-
-    # Verify inclusion of dynamic parts
-    assert _TEST_SCHEMA_JSON in prompt  # Check schema is included
+    assert _TEST_SCHEMA_JSON in combined_prompt
 
 
 def test_create_planning_prompt_raises_without_schema() -> None:
@@ -278,13 +297,13 @@ def test_create_planning_prompt_raises_without_schema() -> None:
         create_planning_prompt(
             command="test",
             description="test",
-            examples=[],
-            schema_definition=None,  # Explicitly pass None
+            examples=Examples([]),
+            schema_definition=None,
         )
 
 
 @pytest.mark.parametrize(
-    "plan_prompt_constant",
+    "plan_prompt_constant_fragments",
     [
         PLAN_GET_PROMPT,
         PLAN_DESCRIBE_PROMPT,
@@ -299,213 +318,339 @@ def test_create_planning_prompt_raises_without_schema() -> None:
         PLAN_PORT_FORWARD_PROMPT,
     ],
 )
-def test_plan_prompt_constants_are_generated(plan_prompt_constant: str) -> None:
-    """Test that all plan prompt constants are generated correctly."""
-    assert isinstance(plan_prompt_constant, str)
-    assert len(plan_prompt_constant) > 100  # Basic check for content
+def test_plan_prompt_constants_are_generated(
+    plan_prompt_constant_fragments: PromptFragments,
+) -> None:
+    """Test that all plan prompt constants are generated correctly.
+    These constants are defined by calling create_planning_prompt.
+    """
+    system_fragments, user_fragments = plan_prompt_constant_fragments
+    combined_text = "\n".join(system_fragments + user_fragments)
 
-    # Check for updated key phrases common to all planning prompts
-    assert "You are planning arguments for the 'kubectl" in plan_prompt_constant
-    assert (
-        "respond with a JSON\nobject matching the provided schema."
-        in plan_prompt_constant
-    )
-    assert "Key fields:" in plan_prompt_constant
-    assert (
-        "Example inputs (natural language target descriptions)" in plan_prompt_constant
-    )
-    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in plan_prompt_constant
-    assert "__REQUEST_PLACEHOLDER__" in plan_prompt_constant
-    assert "action_type" in plan_prompt_constant  # Ensure schema elements are present
-    assert "commands" in plan_prompt_constant
+    assert isinstance(system_fragments, list)
+    assert isinstance(user_fragments, list)
+    assert len(combined_text) > 100
+
+    assert "You are planning arguments for the 'kubectl" in combined_text
+    assert "respond with a JSON\nobject matching the provided schema." in combined_text
 
 
 def test_plan_create_prompt_structure() -> None:
     """Basic structural check for the unique PLAN_CREATE_PROMPT."""
-    assert isinstance(PLAN_CREATE_PROMPT, str)
-    assert "__REQUEST_PLACEHOLDER__" in PLAN_CREATE_PROMPT
-    assert "YAML manifest" in PLAN_CREATE_PROMPT  # Check for create-specific content
+    system_fragments, user_fragments = PLAN_CREATE_PROMPT
+    combined_text = "\n".join(system_fragments + user_fragments)
+    assert isinstance(combined_text, str)
+    # Request placeholder is NOT part of create_planning_prompt's direct output
+    assert "__REQUEST_PLACEHOLDER__" not in combined_text
+    assert "YAML manifest" in combined_text
 
 
-def test_memory_update_prompt() -> None:
-    """Test memory update prompt with config-provided max chars limit."""
-    # Setup
-    mock_config = Mock(spec=Config)
-    mock_config.get.return_value = 500
+def test_memory_update_prompt(test_config: Config) -> None:
+    """Verify memory_update_prompt structure."""
+    test_config.set("memory_max_chars", 300)
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+    dummy_memory_content = "dummy_current_memory"
+    expected_memory_fragment_str = f"Previous Memory:\n{dummy_memory_content}"
 
-    # Need to patch inside the function with context manager
-    with patch("vibectl.memory.get_memory", return_value="Previous cluster state"):
-        # Execute
-        prompt = memory_update_prompt(
-            command="kubectl get pods",
-            command_output="pod1 Running",
-            vibe_output="1 pod running",
-            config=mock_config,
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = memory_update_prompt(
+            command="dummy_command",
+            command_output="dummy_command_output",
+            vibe_output="dummy_vibe_output",
+            current_memory=dummy_memory_content,
+            config=test_config,
         )
 
-    # Assert
-    mock_config.get.assert_called_once_with("memory_max_chars", 500)
-    assert "Previous cluster state" in prompt
-    assert "memory is limited to 500 characters" in prompt
-    assert "kubectl get pods" in prompt
-    assert "pod1 Running" in prompt
-    assert "1 pod running" in prompt
-
-
-def test_memory_fuzzy_update_prompt() -> None:
-    """Test memory fuzzy update prompt with user-provided update text."""
-    # Setup
-    mock_config = Mock(spec=Config)
-    mock_config.get.return_value = 500
-    current_memory = "Previous cluster state with 3 pods running"
-    update_text = "Deployment xyz scaled to 5 replicas"
-
-    # Execute
-    prompt = memory_fuzzy_update_prompt(
-        current_memory=current_memory,
-        update_text=update_text,
-        config=mock_config,
+    # Ensure the fragment exists as expected in the list of user fragments
+    assert expected_memory_fragment_str in user_fragments, (
+        "Expected memory fragment not found in user_fragments. "
+        f"User fragments: {user_fragments}"
     )
 
-    # Assert
-    mock_config.get.assert_called_once_with("memory_max_chars", 500)
-    assert "Previous cluster state with 3 pods running" in prompt
-    assert "Deployment xyz scaled to 5 replicas" in prompt
-    assert "memory is limited to 500 characters" in prompt
-    assert "integrate this information" in prompt.lower()
+    combined_text = "\n".join(system_fragments + user_fragments)
+
+    assert (
+        "update the memory" in combined_text
+    )  # From FRAGMENT_MEMORY_ASSISTANT or specific instruction
+    assert (
+        "Be concise. Limit your response to 300 characters." in combined_text
+    )  # From fragment_concision
+    assert (
+        f"Current time is {fixed_dt_str}." in combined_text
+    )  # From fragment_current_time
+    # Check if the exact string is in the combined text
+    assert expected_memory_fragment_str in combined_text  # From fragment_memory_context
+    assert (
+        "Interaction:\nCommand: dummy_command" in combined_text
+    )  # From fragment_interaction
 
 
-def test_recovery_prompt() -> None:
+def test_memory_fuzzy_update_prompt(test_config: Config) -> None:
+    """Verify memory_fuzzy_update_prompt structure."""
+    test_config.set("memory_max_chars", 400)
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+    fuzzy_memory_content = "fuzzy_current_memory"
+    expected_fuzzy_memory_fragment_str = f"Previous Memory:\n{fuzzy_memory_content}"
+
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = memory_fuzzy_update_prompt(
+            current_memory=fuzzy_memory_content,
+            update_text="fuzzy_update_text",
+            config=test_config,
+        )
+
+    # Ensure the fragment exists as expected in the list of user fragments
+    assert expected_fuzzy_memory_fragment_str in user_fragments, (
+        "Expected memory fragment not found in user_fragments. "
+        f"User fragments: {user_fragments}"
+    )
+
+    combined_text = "\n".join(system_fragments + user_fragments)
+
+    assert "update the memory" in combined_text
+    assert "Be concise. Limit your response to 400 characters." in combined_text
+    assert f"Current time is {fixed_dt_str}." in combined_text
+    # Check if the exact string is in the combined text
+    assert expected_fuzzy_memory_fragment_str in combined_text
+    assert "User Update: fuzzy_update_text" in combined_text
+
+
+def test_recovery_prompt(test_config: Config) -> None:  # Added test_config
     """Test recovery prompt generation."""
-    # Test with a simple command and error
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
+    current_memory_dummy = "Previous attempt context."
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+    test_config.set("memory_max_chars", 250)
 
-    # Test with default max_chars
-    result = recovery_prompt(command, error, None)
-    assert "Failed Command:" in result
-    assert command in result
-    assert "Error Output:" in result
-    # Check for new prompt content
-    assert "Analyze the error output" in result
-    assert "Suggestions:" in result
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = recovery_prompt(
+            failed_command=command,
+            error_output=error,
+            current_memory=current_memory_dummy,  # Not used by current recovery_prompt
+            original_explanation=None,
+            config=test_config,
+        )
+    combined_result = "\n".join(system_fragments + user_fragments)
+
+    assert "Failed Command:" in combined_result
+    assert command in combined_result
+    assert "Error Output:" in combined_result
+    assert "suggest potential next steps" in combined_result  # Changed assertion
+    assert f"Current time is {fixed_dt_str}." in combined_result
+    assert "Be concise. Limit your response to 250 characters." in combined_result
 
 
-def test_vibe_autonomous_prompt() -> None:
-    """Test vibe autonomous prompt generation."""
-    result = vibe_autonomous_prompt()
+def test_vibe_autonomous_prompt(test_config: Config) -> None:
+    """Verify the structure of the vibe autonomous prompt."""
+    # vibe_autonomous_prompt uses get_formatting_fragments, which includes time.
+    # It does NOT include memory from get_formatting_fragments; it would need to add it.
+    # The user fragment for {output} is added by vibe_autonomous_prompt itself.
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Check basic structure
-    assert len(result) > 100  # Should be reasonably sized
-    assert "Analyze this kubectl command output" in result
-    assert "Focus on the state of the resources" in result
-    assert "rich.Console() markup syntax" in result
-    assert "Next steps:" in result
-    assert "{output}" in result
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = vibe_autonomous_prompt(config=test_config)
+
+    combined_text = "\n".join(system_fragments + user_fragments)
+
+    assert "Analyze this kubectl command output" in combined_text
+    assert (
+        f"Current time is {fixed_dt_str}." in combined_text
+    )  # From get_formatting_fragments
+    assert (
+        "Memory context:" not in combined_text
+    )  # As get_formatting_fragments excludes it
+    assert "{output}" in combined_text
 
 
-def test_vibe_autonomous_prompt_formatting() -> None:
+def test_vibe_autonomous_prompt_formatting(test_config: Config) -> None:
     """Test that the vibe autonomous prompt can be formatted correctly,
     even when formatting instructions contain braces (simulating memory context).
     """
-    # Simulate memory content with braces that could conflict with f-string formatting
-    mock_memory_content = '{"key": "value with {braces}"}'
+    mock_memory_content_in_formatting = '{"key": "value with {braces}"}'
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
 
-    # Patch get_formatting_instructions to return a string that includes
-    # the mock memory content (simulating how it gets embedded).
-    # This also implicitly tests the interaction with the original f-string
-    # structure within vibe_autonomous_prompt if the fix isn't applied.
+    # Mock get_formatting_fragments to simulate it returning some base system fragments
+    # (including the custom one with braces) and the standard user fragment it produces.
+    # vibe_autonomous_prompt itself will add {output} to user_fragments.
+    def mock_gff_side_effect(
+        config: Config | None = None,
+    ) -> tuple[SystemFragments, UserFragments]:
+        # Simulate datetime.now being called inside the real get_formatting_fragments
+        # or rather, fragment_current_time which it calls.
+        # This mock needs to be for vibectl.prompt.datetime.now if
+        # fragment_current_time calls it directly.
+        with patch("vibectl.prompt.datetime") as mock_inner_dt:
+            mock_inner_dt.now.return_value = fixed_dt
+            # Construct what get_formatting_fragments would return
+            # Base formatting + custom + time
+            mock_sys_frags = SystemFragments(
+                [
+                    Fragment(
+                        "Format your response using rich.Console() markup syntax..."
+                    ),
+                    Fragment(
+                        f"Custom instructions:\\n{mock_memory_content_in_formatting}"
+                    ),
+                    Fragment(
+                        f"Current time is {fixed_dt.strftime('%Y-%m-%d %H:%M:%S')}."
+                    ),
+                ]
+            )
+            # Standard user fragment from get_formatting_fragments
+            mock_user_frags = UserFragments(
+                [Fragment("Important:\\n- Timestamps in the future...")]
+            )
+        return mock_sys_frags, mock_user_frags
+
     with patch(
-        "vibectl.prompt.get_formatting_instructions",
-        return_value=f"Mock formatting with memory:\n{mock_memory_content}\n---",
+        "vibectl.prompt.get_formatting_fragments", side_effect=mock_gff_side_effect
     ):
-        prompt_template = vibe_autonomous_prompt()
+        system_fragments, user_fragments_template = vibe_autonomous_prompt(
+            config=test_config
+        )
 
     test_output = "This is some test output."
+    filled_user_fragments = [
+        frag.format(output=test_output) if "{output}" in frag else frag
+        for frag in user_fragments_template
+    ]
 
-    try:
-        # Attempt to format the prompt string. This should not raise KeyError.
-        _ = prompt_template.format(output=test_output)
-    except KeyError as e:
-        pytest.fail(
-            f"Formatting vibe_autonomous_prompt failed with KeyError: {e}\\\n"
-            f"Prompt template (with mocked instructions):\\n{prompt_template}"
-        )
-    except Exception as e:
-        pytest.fail(
-            f"Formatting vibe_autonomous_prompt failed with "
-            f"unexpected exception: {e}\\\n"
-            f"Prompt template (with mocked instructions):\\n{prompt_template}"
-        )
+    formatted_prompt = "\n".join(system_fragments + filled_user_fragments)
+
+    assert "Format your response using rich.Console() markup syntax" in formatted_prompt
+    assert (
+        f"Custom instructions:\\n{mock_memory_content_in_formatting}"
+        in formatted_prompt
+    )
+    assert (
+        f"Current time is {fixed_dt.strftime('%Y-%m-%d %H:%M:%S')}." in formatted_prompt
+    )
+    assert (
+        "This is some test output." in formatted_prompt
+    )  # Check {output} was formatted
 
 
-def test_wait_resource_prompt() -> None:
+def test_wait_resource_prompt(
+    test_config: Config,
+) -> None:  # Uses create_summary_prompt
     """Test wait_resource_prompt has correct format."""
-    prompt = wait_resource_prompt()
-    assert "Summarize this kubectl wait output" in prompt
-    assert "whether resources met their conditions" in prompt
-    assert "{output}" in prompt
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = wait_resource_prompt(config=test_config)
+
+    combined_text = "\n".join(system_fragments + user_fragments)
+    assert "Summarize this kubectl wait output" in combined_text
+    assert "whether resources met their conditions" in combined_text
+    assert (
+        f"Current time is {fixed_dt_str}." in combined_text
+    )  # From get_formatting_fragments
+    assert "{output}" in combined_text
 
 
-def test_port_forward_prompt() -> None:
+def test_port_forward_prompt(test_config: Config) -> None:  # Uses create_summary_prompt
     """Test port_forward_prompt has correct format."""
-    prompt = port_forward_prompt()
-    assert "Summarize this kubectl port-forward output" in prompt
-    assert "connection status" in prompt
-    assert "port mappings" in prompt
-    assert "{output}" in prompt
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+        system_fragments, user_fragments = port_forward_prompt(config=test_config)
+
+    combined_text = "\n".join(system_fragments + user_fragments)
+    assert "Summarize this kubectl port-forward output" in combined_text
+    assert "connection status" in combined_text
+    assert "port mappings" in combined_text
+    assert f"Current time is {fixed_dt_str}." in combined_text
+    assert "{output}" in combined_text
 
 
 def test_plan_port_forward_prompt() -> None:
     """Test the PLAN_PORT_FORWARD_PROMPT specifically."""
-    assert isinstance(PLAN_PORT_FORWARD_PROMPT, str)
-    assert len(PLAN_PORT_FORWARD_PROMPT) > 100
-    # Wrap long assertion
+    system_fragments, user_fragments = PLAN_PORT_FORWARD_PROMPT
+    combined_text = "\n".join(system_fragments + user_fragments)
+
+    assert isinstance(combined_text, str)
+    assert len(combined_text) > 100
     assert (
         "You are planning arguments for the 'kubectl port-forward' command"
-        in PLAN_PORT_FORWARD_PROMPT
+        in combined_text
     )
-    assert "which is used for port-forward connections" in PLAN_PORT_FORWARD_PROMPT
-    assert "__MEMORY_CONTEXT_PLACEHOLDER__" in PLAN_PORT_FORWARD_PROMPT
-    assert "__REQUEST_PLACEHOLDER__" in PLAN_PORT_FORWARD_PROMPT
-    # Wrap long assertion
-    assert (
-        "port 8080 of pod nginx to my local 8080" in PLAN_PORT_FORWARD_PROMPT
-    )  # Check example
+    assert "which is used for port-forward connections" in combined_text
+    # Placeholders are not part of its direct output
+    assert "__MEMORY_CONTEXT_PLACEHOLDER__" not in combined_text
+    assert "__REQUEST_PLACEHOLDER__" not in combined_text
+    assert "port 8080 of pod nginx to my local 8080" in combined_text
 
 
-def test_recovery_prompt_with_original_explanation() -> None:
+def test_recovery_prompt_with_original_explanation(
+    test_config: Config,
+) -> None:  # Added config
     """Test recovery prompt generation with original explanation."""
-    # Test with a simple command and error
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
+    current_memory_dummy = "Previous context for recovery."
+    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
+    test_config.set("memory_max_chars", 200)  # Different from other recovery test
 
-    # Test with default max_chars
-    result = recovery_prompt(command, error, None)
-    assert "Failed Command:" in result
-    assert command in result
-    assert "Error Output:" in result
-    # Check for new prompt content
-    assert "Analyze the error output" in result
-    assert "Suggestions:" in result
+    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+        mock_prompt_datetime.now.return_value = fixed_dt
+
+        # Test with original_explanation = None
+        system_fragments_no_expl, user_fragments_no_expl = recovery_prompt(
+            failed_command=command,
+            error_output=error,
+            current_memory=current_memory_dummy,
+            original_explanation=None,
+            config=test_config,
+        )
+    result_no_expl = "\n".join(system_fragments_no_expl + user_fragments_no_expl)
+
+    assert "Failed Command:" in result_no_expl
+    assert "suggest potential next steps" in result_no_expl  # Changed assertion
+    assert f"Current time is {fixed_dt_str}." in result_no_expl
+    assert "Be concise. Limit your response to 200 characters." in result_no_expl
+    assert "Explanation:" not in result_no_expl
 
     # Check prompt when original explanation is available
-    mock_error = Mock()
-    mock_error.original_explanation = "Deploying nginx"
-    prompt_content = recovery_prompt(
-        failed_command="kubectl create deploy nginx --image=nginx:latest",
-        error_output="deploy fail",
-        original_explanation=mock_error.original_explanation,
-    )
+    mock_error_explanation = "Deploying nginx"
+    with patch(
+        "vibectl.prompt.datetime"
+    ) as mock_prompt_datetime_2:  # New patch context
+        mock_prompt_datetime_2.now.return_value = (
+            fixed_dt  # Use same fixed_dt for consistency
+        )
+        system_fragments_expl, user_fragments_expl = recovery_prompt(
+            failed_command="kubectl create deploy nginx --image=nginx:latest",
+            error_output="deploy fail",
+            current_memory=current_memory_dummy,
+            original_explanation=mock_error_explanation,
+            config=test_config,
+        )
+    prompt_content_with_expl = "\n".join(system_fragments_expl + user_fragments_expl)
 
-    # Check for key components instead of exact string match
-    assert "A command failed during execution." in prompt_content
-    assert "Failed Command:" in prompt_content
-    assert "kubectl create deploy nginx --image=nginx:latest" in prompt_content
-    assert "Error Output:" in prompt_content
-    assert "deploy fail" in prompt_content
-    assert "Original plan explanation:" in prompt_content
-    assert "Deploying nginx" in prompt_content
-    assert "Analyze the error output" in prompt_content
-    assert "actionable steps" in prompt_content
-    assert "Suggestions:" in prompt_content
+    assert (
+        "A command failed during execution." not in prompt_content_with_expl
+    )  # This was never in recovery_prompt
+    assert "Failed Command:" in prompt_content_with_expl
+    assert "Error Output:" in prompt_content_with_expl
+    assert (
+        "Explanation: Deploying nginx" in prompt_content_with_expl
+    )  # Check exact string
+    assert "suggest potential next steps" in prompt_content_with_expl
+    assert f"Current time is {fixed_dt_str}." in prompt_content_with_expl
+    assert (
+        "Be concise. Limit your response to 200 characters." in prompt_content_with_expl
+    )

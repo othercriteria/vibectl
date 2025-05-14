@@ -4,12 +4,16 @@ This module provides functionality for managing and updating the memory
 that is maintained between vibectl commands.
 """
 
+import logging
 from collections.abc import Callable
-from typing import cast
+from typing import cast  # Added List, Tuple
 
 from .config import Config
 from .model_adapter import get_model_adapter
-from .prompt import memory_update_prompt
+from .prompt import memory_update_prompt  # Import the fragment-based prompt function
+from .types import LLMMetrics, RecoverableApiError
+
+logger = logging.getLogger(__name__)
 
 
 def get_memory(config: Config | None = None) -> str:
@@ -93,33 +97,58 @@ def update_memory(
     command: str,
     command_output: str,
     vibe_output: str,
-    model_name: str = "claude-3.7-sonnet",
+    model_name: str | None = None,
     config: Config | None = None,
-) -> None:
-    """Update memory with new command execution context.
-
-    This function takes a command, its output, and the AI's interpretation
-    and uses them to update the memory content via an LLM call.
-
-    Args:
-        command: The command that was executed
-        command_output: The raw output from the command
-        vibe_output: The AI's interpretation of the command output
-        model_name: Model name to use for memory update
-        config: Optional Config instance to use
-    """
-    if not is_memory_enabled(config):
-        return
-
+) -> LLMMetrics | None:
+    """Update memory with the latest interaction using LLM-based summarization."""
     cfg = config or Config()
+    if not is_memory_enabled(cfg):
+        logger.debug("Memory is disabled, skipping update.")
+        return None
 
-    # Use model adapter instead of direct llm usage
-    model_adapter = get_model_adapter(cfg)
-    model = model_adapter.get_model(model_name)
-    prompt = memory_update_prompt(command, command_output, vibe_output, cfg)
+    try:
+        model_adapter = get_model_adapter(cfg)
+        model_name = model_name or cfg.get("model")
+        model = model_adapter.get_model(model_name)
 
-    updated_memory = model_adapter.execute(model, prompt)
-    set_memory(updated_memory, cfg)
+        # Get current memory BEFORE calling memory_update_prompt
+        current_memory_text = get_memory(cfg)
+
+        # Get fragments for memory update, now passing current_memory
+        system_fragments, user_fragments = memory_update_prompt(
+            command=command,
+            command_output=command_output,
+            vibe_output=vibe_output,
+            current_memory=current_memory_text,
+            config=cfg,
+        )
+
+        # Use the wrapper function to execute and handle metrics logging
+        # Pass system_fragments and the filled user_fragments list
+        updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
+            model=model,
+            system_fragments=system_fragments,
+            user_fragments=user_fragments,
+        )
+
+        if updated_memory_text:
+            set_memory(updated_memory_text.strip(), cfg)  # Pass the stripped text
+            logger.info("Memory updated successfully.")
+            if metrics:
+                logger.debug(f"Memory update LLM metrics: {metrics}")
+            return metrics  # Return the metrics from the LLM call
+        else:
+            logger.warning("Memory update LLM call returned empty.")
+            return None
+
+    except (RecoverableApiError, ValueError) as e:
+        # For now, just ignore errors updating memory to avoid disrupting flow
+        logger.warning(f"Ignoring memory update error: {e}")
+        return None
+    except Exception:
+        # Log unexpected errors if logger is available
+        logger.exception("Unexpected error updating memory")
+        return None  # Ignore unexpected errors too for now
 
 
 def include_memory_in_prompt(

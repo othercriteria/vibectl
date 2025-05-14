@@ -6,8 +6,33 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import handle_command_output
-from vibectl.config import DEFAULT_CONFIG
-from vibectl.types import Error, OutputFlags, RecoverableApiError, Success
+from vibectl.config import DEFAULT_CONFIG, Config
+from vibectl.types import (
+    Error,
+    Fragment,
+    OutputFlags,
+    PromptFragments,
+    RecoverableApiError,
+    Success,
+    SystemFragments,
+    UserFragments,
+)
+
+# Import the helper from the other test file (or define it here if preferred)
+# For simplicity in this example, let's assume it can be defined/imported.
+# If it's in test_command_output.py, you might need to adjust imports
+# or duplicate the helper if direct import is problematic for test structure.
+
+
+# Re-defining for clarity here, or ensure it's importable
+def get_dummy_prompt_fragments(config: Config | None = None) -> PromptFragments:
+    """Returns a dummy PromptFragments object for testing."""
+    return PromptFragments(
+        (
+            SystemFragments([Fragment("System dummy")]),
+            UserFragments([Fragment("User dummy: {output}")]),
+        )
+    )
 
 
 def create_api_error(error_type: str, error_message: str) -> Exception:
@@ -94,6 +119,7 @@ def test_handle_command_output_api_error_marked_non_halting(
         show_raw=False,
         show_vibe=True,
         warn_no_output=True,
+        show_metrics=True,
         # Explicitly cast to string to satisfy mypy
         model_name=str(DEFAULT_CONFIG["model"]),
     )
@@ -111,7 +137,7 @@ def test_handle_command_output_api_error_marked_non_halting(
     result = handle_command_output(
         output="test output",
         output_flags=output_flags,
-        summary_prompt_func=lambda: "Test prompt {output}",
+        summary_prompt_func=get_dummy_prompt_fragments,
     )
 
     # Verify result is as expected

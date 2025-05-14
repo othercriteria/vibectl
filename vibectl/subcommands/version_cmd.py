@@ -21,6 +21,7 @@ async def run_version_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'version' subcommand logic, including logging and error handling.
@@ -35,6 +36,7 @@ async def run_version_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         # Configure memory flags (for consistency, even if not used)
         configure_memory_flags(freeze_memory, unfreeze_memory)
@@ -53,7 +55,7 @@ async def run_version_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="version",
-                    plan_prompt=PLAN_VERSION_PROMPT,
+                    plan_prompt_func=lambda: PLAN_VERSION_PROMPT,
                     summary_prompt_func=version_prompt,
                     output_flags=output_flags,
                 )

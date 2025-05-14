@@ -3,7 +3,7 @@ Tests for coverage gaps in memory functionality.
 """
 
 from collections.abc import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -95,30 +95,47 @@ async def test_memory_set_with_editor(
 
 
 @pytest.mark.asyncio
-@patch("vibectl.cli.llm")
+# @patch("vibectl.cli.llm") # Old patch, no longer correct
+@patch("vibectl.cli.get_model_adapter")  # Patch get_model_adapter at the CLI level
 async def test_memory_update(
-    mock_llm: MagicMock, setup_and_cleanup_memory: Generator[None, None, None]
+    mock_get_model_adapter: MagicMock,  # New mock argument
+    setup_and_cleanup_memory: Generator[None, None, None],
 ) -> None:
     """Test memory update functionality."""
     update_cmd = memory_group.commands["update"]  # Get the update command object
 
-    # Set up mock response
-    mock_model = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text.return_value = "Updated memory with new information"
-    mock_model.prompt.return_value = mock_response
-    mock_llm.get_model.return_value = mock_model
+    # Configure the mock model adapter
+    mock_adapter_instance = (
+        Mock()
+    )  # spec=ModelAdapter can be added if ModelAdapter is importable here
+    mock_get_model_adapter.return_value = mock_adapter_instance
+
+    # Mock the model that the adapter will return
+    mock_model_instance = MagicMock()
+    mock_adapter_instance.get_model.return_value = mock_model_instance
+
+    # Configure the response from execute_and_log_metrics
+    expected_updated_memory = "Updated memory with new information"
+    mock_adapter_instance.execute_and_log_metrics.return_value = (
+        expected_updated_memory,
+        None,  # No metrics for this test
+    )
 
     # Run the memory_update command directly
+    # The command itself is synchronous, but called via async click runner
+    # Mock config within the command if needed, or assume default config is used
     with patch("vibectl.cli.console_manager"):  # Mock console if needed by command
-        await update_cmd.main(
-            ["Add", "new", "information"], standalone_mode=False
-        )  # Use await and call main
+        # It seems memory_update in cli.py is synchronous, so no await here on main.
+        # However, the test is marked asyncio, and calls it via await.
+        # Assuming async main.
+        await update_cmd.main(["Add", "new", "information"], standalone_mode=False)
 
     # Verify memory was updated
-    assert get_memory() == "Updated memory with new information"
+    assert get_memory() == expected_updated_memory
 
-    # Verify mock was called
-    mock_llm.get_model.assert_called_once()
-    mock_model.prompt.assert_called_once()
-    mock_response.text.assert_called_once()
+    # Verify mocks
+    mock_get_model_adapter.assert_called_once()  # Check an adapter was requested
+    # The CLI command will get a default model name from Config if not specified.
+    # For this test, we assume it gets a model, e.g., the default.
+    mock_adapter_instance.get_model.assert_called_once()  # TODO: Add model name
+    mock_adapter_instance.execute_and_log_metrics.assert_called_once()

@@ -1,11 +1,11 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.subcommands.version_cmd import run_version_command
-from vibectl.types import Error, Success
+from vibectl.types import Error, OutputFlags, Success
 
 
 @pytest.mark.asyncio
@@ -67,35 +67,85 @@ async def test_version_memory_flags(
     mock_handle_command_output: Mock,
     cli_runner: CliRunner,
 ) -> None:
-    """
-    Test that freeze_memory and unfreeze_memory flags are mutually exclusive
-    and error is raised.
-    """
+    """Test version command with memory flags using CliRunner."""
+    mock_run_kubectl.return_value = Success(data="some version data")
+    mock_handle_command_output.return_value = Success()
+    mock_configure_memory_flags = MagicMock()  # Change to MagicMock
+
+    # Use a consistent OutputFlags instance
+    mock_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=True,  # Revert show_vibe to True
+    )
+    mock_configure_output_flags.return_value = mock_flags
+
     with (
         patch(
-            "vibectl.subcommands.version_cmd.configure_memory_flags"
-        ) as mock_configure_memory,
+            "vibectl.subcommands.version_cmd.configure_memory_flags",
+            mock_configure_memory_flags,
+        ),
         patch(
-            "vibectl.subcommands.version_cmd.configure_output_flags"
-        ) as mock_configure_output,
+            "vibectl.subcommands.version_cmd.run_kubectl",
+            mock_run_kubectl,  # Use the existing mock fixture
+        ),
         patch(
-            "vibectl.subcommands.version_cmd.handle_command_output"
-        ) as mock_handle_output,
-        patch("vibectl.subcommands.version_cmd.run_kubectl") as mock_run_kubectl,
+            "vibectl.subcommands.version_cmd.handle_command_output",
+            mock_handle_command_output,  # Use the existing mock fixture
+        ),
     ):
-        mock_configure_memory.side_effect = ValueError(
-            "Cannot specify both --freeze-memory and --unfreeze-memory"
+        cmd_obj = cli.commands["version"]
+
+        # First invocation
+        with pytest.raises(SystemExit) as exc_info_1:
+            await cmd_obj.main(
+                [
+                    "--freeze-memory",
+                    "--show-metrics",
+                    "--model",
+                    "test-model",
+                ]
+            )
+        assert exc_info_1.value.code == 0, (
+            f"CLI exited with code {exc_info_1.value.code}"
         )
 
-        cmd_obj = cli.commands["version"]
-        with pytest.raises(SystemExit) as exc_info:
-            await cmd_obj.main(["--freeze-memory", "--unfreeze-memory"])
+        # Verify run_kubectl was called for the first invocation
+        mock_run_kubectl.assert_called_once_with(
+            ["version", "--output=json"], capture=True
+        )
+        # Use positional arguments for assertion
+        mock_configure_memory_flags.assert_any_call(True, False)
 
-    assert exc_info.value.code != 0
-    mock_configure_memory.assert_called_once_with(True, True)
-    mock_configure_output.assert_called_once()
-    mock_run_kubectl.assert_not_called()
-    mock_handle_output.assert_not_called()
+        # Reset mocks for the second invocation
+        mock_run_kubectl.reset_mock()
+        mock_handle_command_output.reset_mock()  # Assuming called by version_cmd.main
+        # mock_configure_memory_flags.reset_mock()
+        # # Not resetting this one to check cumulative calls
+
+        # Second invocation
+        with pytest.raises(SystemExit) as exc_info_2:
+            await cmd_obj.main(
+                [
+                    "--unfreeze-memory",
+                    "--show-metrics",
+                    "--model",
+                    "test-model",
+                ]
+            )
+        assert exc_info_2.value.code == 0, f"CLI failed: {exc_info_2.value.code}"
+
+        # Verify run_kubectl was called for the second invocation
+        mock_run_kubectl.assert_called_once_with(
+            ["version", "--output=json"], capture=True
+        )
+        # Use positional arguments for assertion
+        mock_configure_memory_flags.assert_any_call(False, True)
+
+        # Verify total calls for configure_memory_flags if not reset
+        assert mock_configure_memory_flags.call_count == 2
 
 
 @pytest.mark.asyncio

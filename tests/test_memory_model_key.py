@@ -14,9 +14,11 @@ from pydantic import BaseModel
 from vibectl.config import Config
 from vibectl.memory import update_memory
 from vibectl.model_adapter import (
+    LLMMetrics,
     ModelAdapter,
     set_model_adapter,
 )
+from vibectl.types import SystemFragments, UserFragments
 
 
 @pytest.fixture
@@ -73,9 +75,10 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
         def execute(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
-        ) -> str:
+        ) -> tuple[str, LLMMetrics | None]:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -84,7 +87,7 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
             if "ANTHROPIC_API_KEY" in os.environ:
                 del os.environ["ANTHROPIC_API_KEY"]
 
-            return "Updated memory content"
+            return "Updated memory content", None
 
         def validate_model_key(self, model_name: str) -> str | None:
             """Mock implementation of validate_model_key."""
@@ -93,6 +96,23 @@ def test_memory_with_anthropic_api_key(test_config: Config) -> None:
         def validate_model_name(self, model_name: str) -> str | None:
             """Mock implementation for the new abstract method."""
             return None
+
+        # Add mock implementation for the abstract method
+        def execute_and_log_metrics(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> tuple[str, LLMMetrics | None]:
+            # Capture API key from environment here
+            set_env_vars["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
+
+            # Simulate cleanup (like the real adapter)
+            if "ANTHROPIC_API_KEY" in os.environ:
+                del os.environ["ANTHROPIC_API_KEY"]
+
+            return "Updated memory content", None
 
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
@@ -154,9 +174,10 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
         def execute(
             self,
             model: Mock,
-            prompt_text: str,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
             response_model: type[BaseModel] | None = None,
-        ) -> str:
+        ) -> tuple[str, LLMMetrics | None]:
             """Execute with environment capture."""
             # Capture API key from environment
             set_env_vars["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")
@@ -165,7 +186,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             if "OPENAI_API_KEY" in os.environ:
                 del os.environ["OPENAI_API_KEY"]
 
-            return "Updated memory content"
+            return "Updated memory content", None
 
         def validate_model_key(self, model_name: str) -> str | None:
             """Mock implementation of validate_model_key."""
@@ -174,6 +195,23 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
         def validate_model_name(self, model_name: str) -> str | None:
             """Mock implementation for the new abstract method."""
             return None
+
+        # Add mock implementation for the abstract method
+        def execute_and_log_metrics(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> tuple[str, LLMMetrics | None]:
+            # Capture API key from environment here
+            set_env_vars["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")
+
+            # Simulate cleanup (like the real adapter)
+            if "OPENAI_API_KEY" in os.environ:
+                del os.environ["OPENAI_API_KEY"]
+
+            return "Updated memory content", None
 
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
@@ -203,28 +241,30 @@ def test_memory_update_missing_api_key(test_config: Config) -> None:
     mock_adapter = Mock(spec=ModelAdapter)
     mock_model = Mock()
 
-    # Configure the adapter to raise an appropriate error
+    # Configure the adapter to raise an appropriate error via execute_and_log_metrics
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute.side_effect = ValueError(
+    mock_adapter.execute_and_log_metrics.side_effect = ValueError(
         "Failed to get model 'claude-3.7-sonnet': API key for anthropic not found."
     )
 
-    # Apply the mocked adapter
+    # Apply the mocked adapter and patch set_memory
     with (
         patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
-        pytest.raises(ValueError) as excinfo,
+        patch("vibectl.memory.set_memory") as mock_set_mem,
     ):
-        # Call update_memory with a model that requires an API key
+        # Call update_memory - should catch the exception internally
         update_memory(
             command="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
-            model_name="claude-3.7-sonnet",
+            model_name="claude-3.7-sonnet",  # Ensure model name matches error
             config=test_config,
         )
 
-    # Verify the error message contains information about the missing API key
-    assert "API key for anthropic not found" in str(excinfo.value)
+        # Verify execute_and_log_metrics was called (and raised error)
+        mock_adapter.execute_and_log_metrics.assert_called_once()
+        # Verify set_memory was NOT called because of the error
+        mock_set_mem.assert_not_called()
 
 
 def test_memory_update_with_environment_key(test_config: Config) -> None:
@@ -243,13 +283,13 @@ def test_memory_update_with_environment_key(test_config: Config) -> None:
         mock_adapter = Mock(spec=ModelAdapter)
         mock_model = Mock()
 
-        def verify_env(*args: str, **kwargs: str) -> str:
+        def verify_env(*args: str, **kwargs: str) -> tuple[str, None]:
             """Capture the API key during execution."""
             used_key[0] = os.environ.get("ANTHROPIC_API_KEY")
-            return "Updated memory from environment key"
+            return ("Updated memory from environment key", None)
 
         mock_adapter.get_model.return_value = mock_model
-        mock_adapter.execute.side_effect = verify_env
+        mock_adapter.execute_and_log_metrics.side_effect = verify_env
 
         # Apply the mocked adapter
         with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
@@ -271,3 +311,14 @@ def test_memory_update_with_environment_key(test_config: Config) -> None:
             os.environ["ANTHROPIC_API_KEY"] = original_env
         else:
             os.environ.pop("ANTHROPIC_API_KEY", None)
+
+
+# Helper function to set the global model adapter for testing
+# def set_model_adapter(adapter: ModelAdapter) -> None: # Removed conflicting definition
+#     """Sets the global model adapter for testing purposes."""
+#     # This assumes you have a way to override the global adapter,
+#     # e.g., by patching where get_model_adapter is imported and used.
+#     # For vibectl.memory, we patch 'vibectl.memory.get_model_adapter'
+#     # For other modules, similar patching might be needed.
+#     # This helper is more of a conceptual note for test setup.
+#     pass # Actual patching is done in the test functions

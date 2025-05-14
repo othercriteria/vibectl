@@ -2,7 +2,7 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.prompt import PLAN_DESCRIBE_PROMPT, describe_resource_prompt
+from vibectl.prompt import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.types import Error, Success
 
@@ -32,6 +32,7 @@ async def test_describe_basic(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     # Assert the result and mock calls
@@ -82,6 +83,7 @@ async def test_describe_args_variants(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     if should_succeed:
@@ -123,12 +125,17 @@ async def test_describe_with_flags(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     assert isinstance(result, Success)
     mock_handle_standard.assert_called_once()
     mock_configure_output.assert_called_once_with(
-        show_raw_output=True, show_vibe=True, model=None, show_kubectl=True
+        show_raw_output=True,
+        show_vibe=True,
+        model=None,
+        show_kubectl=True,
+        show_metrics=True,
     )
     mock_configure_memory.assert_called_once()
 
@@ -158,6 +165,7 @@ async def test_describe_error_handling(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     # Assert Error is returned and mock was called
@@ -190,6 +198,7 @@ async def test_describe_vibe_request(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     # Assert Success is returned
@@ -198,10 +207,10 @@ async def test_describe_vibe_request(
     mock_handle_vibe.assert_called_once_with(
         request="show me the nginx pod",
         command="describe",
-        plan_prompt=PLAN_DESCRIBE_PROMPT,
+        plan_prompt_func=ANY,
         summary_prompt_func=describe_resource_prompt,
         output_flags=ANY,  # Check specific flags if needed
-        memory_context="",  # Add missing expected kwarg
+        config=None,  # Expect config to be None as it's not passed by caller
     )
 
 
@@ -225,6 +234,7 @@ async def test_describe_vibe_no_request(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     # Assert an Error is returned with the correct message
@@ -264,7 +274,7 @@ async def test_run_describe_command_normal(monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "pod", ("my-pod",), None, None, None, None, False, False
+        "pod", ("my-pod",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Success)
     assert called["flags"] and called["mem"] and called["std"]
@@ -297,7 +307,7 @@ async def test_run_describe_command_vibe(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "vibe", ("foo",), None, None, None, None, False, False
+        "vibe", ("foo",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Success)
     assert "vibe" in called
@@ -324,7 +334,7 @@ async def test_run_describe_command_vibe_no_args(
         fake_configure_memory_flags,
     )
     result = await run_describe_command(
-        "vibe", (), None, None, None, None, False, False
+        "vibe", (), None, None, None, None, False, False, True
     )
     assert isinstance(result, Error)
     assert "Missing request after 'vibe'" in result.error
@@ -358,7 +368,7 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception(
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "vibe", ("foo",), None, None, None, None, False, False
+        "vibe", ("foo",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Error)
 
@@ -392,7 +402,7 @@ async def test_run_describe_command_standard_command_exception(
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "pod", ("my-pod",), None, None, None, None, False, False
+        "pod", ("my-pod",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Error)
 
@@ -412,7 +422,7 @@ async def test_run_describe_command_configure_output_flags_exception(
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "pod", ("my-pod",), None, None, None, None, False, False
+        "pod", ("my-pod",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Error)
 
@@ -439,6 +449,6 @@ async def test_run_describe_command_configure_memory_flags_exception(
     )
     monkeypatch.setattr("vibectl.subcommands.describe_cmd.logger", Mock())
     result = await run_describe_command(
-        "pod", ("my-pod",), None, None, None, None, False, False
+        "pod", ("my-pod",), None, None, None, None, False, False, True
     )
     assert isinstance(result, Error)

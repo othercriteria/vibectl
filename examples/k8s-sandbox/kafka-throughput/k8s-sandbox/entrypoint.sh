@@ -360,10 +360,12 @@ EOF
         echo "Verbose mode enabled: showing raw output and kubectl commands"
         vibectl config set show_raw_output true
         vibectl config set show_kubectl true
+        vibectl config set show_metrics true
         export VIBECTL_TRACEBACK=1 # Enable tracebacks for debugging
     else
         vibectl config set show_raw_output false
         vibectl config set show_kubectl false
+        vibectl config set show_metrics false
     fi
 
     # Use model provided by environment variable AFTER key is set

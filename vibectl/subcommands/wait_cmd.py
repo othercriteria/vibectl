@@ -4,8 +4,9 @@ from vibectl.command_handler import (
     handle_vibe_request,
     handle_wait_with_live_display,
 )
+from vibectl.config import Config
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, include_memory_in_prompt
+from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt
 from vibectl.types import Error, Result, Success
 
@@ -20,6 +21,7 @@ async def run_wait_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     live_display: bool = True,
+    show_metrics: bool | None = None,
 ) -> Result:
     """
     Implements the 'wait' subcommand logic, including logging and error handling.
@@ -35,6 +37,7 @@ async def run_wait_command(
             show_vibe=show_vibe,
             model=model,
             show_kubectl=show_kubectl,
+            show_metrics=show_metrics,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -54,9 +57,10 @@ async def run_wait_command(
             result = await handle_vibe_request(
                 request=request,
                 command="wait",
-                plan_prompt=include_memory_in_prompt(PLAN_WAIT_PROMPT),
+                plan_prompt_func=lambda: PLAN_WAIT_PROMPT,
                 summary_prompt_func=wait_resource_prompt,
                 output_flags=output_flags,
+                config=Config(),
             )
 
             # Forward any errors from handle_vibe_request

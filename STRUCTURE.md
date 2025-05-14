@@ -69,6 +69,7 @@ This document provides an overview of the project's structure and organization.
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
   - `rules/` - Project-specific Cursor rules (see `RULES.md` for a complete description of all rules)
+  - `scripts/` - Helper shell scripts used by Cursor rules to enable complex, multi-step actions or to work around tool limitations with multi-line commands. Scripts in this directory are typically called by the `command` field in a rule's action block.
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
 - `Makefile` - Build and development automation
@@ -119,10 +120,14 @@ This document provides an overview of the project's structure and organization.
 3. `command_handler.py` - Standardized command execution
 
 ### Prompt System
-1. `prompt.py` - Command-specific prompt templates
-   - Resource-specific prompts for each command
-   - Memory integration templates
-   - System messages and context
+1. `prompt.py` - Manages prompt construction for LLM interactions.
+   - Defines functions that return `PromptFragments` (tuples of `SystemFragments` and `UserFragments`).
+   - Examples: `plan_vibe_fragments()`, `memory_update_prompt()`, `vibe_autonomous_prompt()`.
+   - These fragments are assembled and formatted by the calling functions in `command_handler.py` or `memory.py` before being sent to the LLM.
+   - Incorporates helper functions (e.g., `get_formatting_fragments`) and constants for building prompts.
+   - `Config` objects are passed to prompt functions to allow for configuration-driven prompt variations.
+   - Resource-specific summary prompts (e.g., `describe_resource_prompt`) also follow this fragment-based approach.
+   - Memory integration is handled by including memory content within relevant fragments.
 
 ### Common Command Patterns
 1. `command_handler.py` - Generic command execution patterns
@@ -135,6 +140,13 @@ This document provides an overview of the project's structure and organization.
    - Executes kubectl commands safely (standard sync, YAML input)
    - Creates async kubectl processes for live display commands.
    - Handles errors specific to kubectl
+3. `prompt.py` - Memory integration in prompts
+   - `memory_update_prompt` for creating memory from command execution (returns `PromptFragments`).
+   - `memory_fuzzy_update_prompt` for manually updating memory (returns `PromptFragments`).
+   - Memory context is now generally passed into prompt-generating functions or included directly within specific fragment definitions rather than via a separate `include_memory_in_prompt` utility for all prompts.
+4. `command_handler.py` - Memory updates after command execution
+   - Updates memory with command context
+   - Tracks command execution flow
 
 ### Memory System
 1. `memory.py` - Core memory management with functions for:
@@ -147,15 +159,12 @@ This document provides an overview of the project's structure and organization.
    - Stores memory content as a string
    - Manages memory settings like max length and enabled state
 3. `prompt.py` - Memory integration in prompts
-   - `memory_update_prompt` for creating memory from command execution
-   - `memory_fuzzy_update_prompt` for manually updating memory
-   - `include_memory_in_prompt` inserts memory context into prompts intelligently
+   - `memory_update_prompt` for creating memory from command execution (returns `PromptFragments`).
+   - `memory_fuzzy_update_prompt` for manually updating memory (returns `PromptFragments`).
+   - Memory context is now generally passed into prompt-generating functions or included directly within specific fragment definitions rather than via a separate `include_memory_in_prompt` utility for all prompts.
 4. `command_handler.py` - Memory updates after command execution
    - Updates memory with command context
    - Tracks command execution flow
-5. Subcommands - Memory integration in commands
-   - Memory flags in all main commands
-   - Configuration for memory behavior
 
 ### Model Key Management System
 1. `model_adapter.py` - Manages model API keys and validation
@@ -217,63 +226,10 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Updates memory context based on command execution
    - Uses model adapter instead of direct LLM calls
 4. `prompt.py` - Defines prompt templates used by model adapters
-   - Command-specific prompt templates (e.g., `create_planning_prompt`)
-   - Includes instructions for generating JSON output matching defined schemas
-   - Formatting instructions
-   - Consistent prompt structure for all LLM interactions
+   - Command-specific prompt template functions (e.g., `create_planning_prompt()`, `plan_vibe_fragments()`) now return `PromptFragments`.
+   - Includes instructions for generating JSON output matching defined schemas.
+   - Formatting instructions are managed via fragment helper functions.
+   - Consistent prompt structure for all LLM interactions, built from fragments.
 5. Schema Integration (`schema.py`, `types.py`, `command_handler.py`)
    - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure.
-   - `model_adapter.py` passes the generated schema dictionary to the LLM.
-   - `command_handler.py` parses the JSON response, validates it against the Pydantic model, and handles actions based on `ActionType`.
-
-### Proxy Support
-1. `proxy.py` - Proxy handling for model requests
-   - Environment variable detection and configuration
-   - HTTP/HTTPS proxy support
-   - SSL certificate verification options
-
-## Development Workflow
-
-1. Git worktrees for parallel feature development
-   - Feature branches created from main
-   - Worktrees placed in `../worktrees/` directory
-   - One feature per worktree for isolated development
-   - **Always use the improved worktree workflow in `.cursor/rules/feature-worktrees.mdc` for all new features.**
-2. Nix/direnv for reproducible development environments
-3. pre-commit hooks for code quality
-4. pytest for testing with coverage requirements
-   - Performance-optimized test execution with parallel options
-   - Fast test markers for quick development feedback
-   - See [tests/TESTING.md](tests/TESTING.md) for details
-5. MyPy for type checking
-6. Ruff for linting
-7. VS Code/Cursor as recommended IDEs
-
-## Build and Deployment
-
-The project is structured as a Python package with:
-- Source code in `vibectl/`
-- Development tools configured in project root
-- Tests separated in `tests/` directory
-- Type information in `typings/`
-- Documentation in `docs/` directory
-- Examples and demos in `examples/` directory
-
-Installation options:
-1. Standard pip installation for users (`pip install vibectl`)
-2. Development installation with Flake/Nix
-
-Dependencies are managed through:
-1. `pyproject.toml` for Python dependencies
-2. `flake.nix` for development environment
-3. Virtual environment in `.venv/`
-4. Distribution managed via PyPI (see `DISTRIBUTION.md`)
-
-#### Type Hinting and Language Features
-
-- Extensive type annotations throughout codebase (`types.py` and inline)
-- Generic type parameters and TypeVar for flexible interfaces
-- Requires Python 3.11+, uses modern features like `asyncio.TaskGroup`, `asyncio.timeout`, etc.
-- PEP 561 compliance with `py.typed` marker
-
-#### Key Dependencies
+   - `model_adapter.py`

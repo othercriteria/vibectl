@@ -22,6 +22,7 @@ def standard_output_flags() -> OutputFlags:
         warn_no_output=True,
         model_name="claude-3.7-sonnet",
         warn_no_proxy=True,
+        show_metrics=True,
     )
 
 
@@ -277,6 +278,7 @@ def test_no_proxy_warning_condition() -> None:
             warn_no_output=True,
             model_name="claude-3.7-sonnet",
             warn_no_proxy=True,
+            show_metrics=True,
         )
 
         # Test the condition and action
@@ -309,6 +311,7 @@ def test_no_proxy_warning_suppressed_condition() -> None:
             warn_no_output=True,
             model_name="claude-3.7-sonnet",
             warn_no_proxy=False,
+            show_metrics=True,
         )
 
         # Test the condition and action

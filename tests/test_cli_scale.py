@@ -33,8 +33,10 @@ async def test_scale_vibe_request() -> None:
         _, kwargs = mock_handle_vibe.call_args
         assert kwargs["request"] == "scale the frontend deployment to 5 replicas"
         assert kwargs["command"] == "scale"
-        assert kwargs["plan_prompt"] == PLAN_SCALE_PROMPT
+        assert callable(kwargs["plan_prompt_func"])
+        assert kwargs["plan_prompt_func"]() == PLAN_SCALE_PROMPT
         assert kwargs["summary_prompt_func"] == scale_resource_prompt
+        assert kwargs["config"] is None
         mock_handle_result.assert_called_once_with(mock_handle_vibe.return_value)
 
 
@@ -53,6 +55,7 @@ async def test_scale_vibe_no_request() -> None:
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
+        show_metrics=True,
     )
 
     assert isinstance(result, Error)
