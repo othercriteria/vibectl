@@ -69,6 +69,7 @@ This document provides an overview of the project's structure and organization.
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
   - `rules/` - Project-specific Cursor rules (see `RULES.md` for a complete description of all rules)
+  - `scripts/` - Helper shell scripts used by Cursor rules to enable complex, multi-step actions or to work around tool limitations with multi-line commands. Scripts in this directory are typically called by the `command` field in a rule's action block.
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
 - `Makefile` - Build and development automation
