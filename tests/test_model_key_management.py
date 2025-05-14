@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from vibectl.model_adapter import (
     LLMMetrics,
     LLMModelAdapter,
     ModelEnvironment,
-    ModelResponse,
     SystemFragments,
     UserFragments,
     validate_model_key_on_startup,
@@ -265,15 +264,16 @@ class TestModelAdapterWithKeys:
         """Test that execute preserves the environment."""
         # Setup mock model and response
         mock_model = Mock()
-        mock_response = MagicMock(spec=ModelResponse)
+        mock_response = Mock()
         # Explicitly make .text a callable mock
-        mock_response.text.return_value = "Test response"
-        # Add mock for .json() and .usage() methods to satisfy ModelResponse protocol
-        mock_response.json.return_value = {"result": "Test response JSON"}
-        mock_usage = Mock()
-        mock_usage.input = 10
-        mock_usage.output = 20
-        mock_response.usage.return_value = mock_usage
+        mock_response.text = Mock(return_value="Test response")
+        # Add .usage attribute (common structure, adjust if llm library
+        # has specific needs)
+        mock_response.usage = {"prompt_tokens": 10, "completion_tokens": 20}
+        # Add .json() method (common structure)
+        mock_response.json = Mock(
+            return_value={"raw_response_key": "raw_response_value"}
+        )
 
         mock_model.prompt.return_value = mock_response
 

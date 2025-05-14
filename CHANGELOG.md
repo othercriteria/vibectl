@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-05-14
+
 ### Added
 - **LLM Interaction Optimization & Observability:**
   - Refactored prompt construction to use a fragment-based system (`PromptFragments` in `vibectl/prompt.py`, `vibectl/types.py`) for better structure, potential caching by the underlying `llm` library, and improved maintainability.
@@ -28,9 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Enhanced error logging with more context (attempt counts, latencies).
     - Made `_determine_provider_from_model` more robust for Ollama models.
 - Updated `LLMMetrics` in `vibectl/types.py` (removed `cache_hit`, added `total_processing_duration_ms`) and adjusted `command_handler.py` and `console.py` for consistent metrics display.
-
-### Fixed
-- Fix test failure in `test_handle_vibe_request_llm_output_parsing` by updating mock for `create_api_error` to correctly handle `metrics` argument.
 
 ## [0.6.3] - 2025-05-12
 

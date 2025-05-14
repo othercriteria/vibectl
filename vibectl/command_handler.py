@@ -1105,28 +1105,11 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
 
         # Create a prompt for the fuzzy memory update
         # Pass current_memory explicitly
-        system_fragments, user_fragments_template = memory_fuzzy_update_prompt(
+        system_fragments, user_fragments = memory_fuzzy_update_prompt(
             current_memory=current_memory,  # Pass fetched memory
-            # update_text is formatted into the template later
+            update_text=update_text,
             config=cfg,  # Pass config if needed by the prompt function
         )
-
-        # Fill placeholders {prompt_details} (which holds the user's input)
-        filled_user_fragments: UserFragments = UserFragments([])
-        for frag_template in user_fragments_template:
-            try:
-                # Format ONLY with update_text (which holds the user's input)
-                # The template from memory_fuzzy_update_prompt uses {prompt_details}
-                filled_user_fragments.append(
-                    Fragment(frag_template.format(prompt_details=update_text))
-                )
-            except KeyError as e:
-                logger.warning(
-                    f"KeyError formatting fuzzy update template ({e}), "
-                    f"using raw: {frag_template}"
-                )
-                # Keep fragments without placeholders as they are
-                filled_user_fragments.append(frag_template)
 
         # Get the response
         console_manager.print_processing("Updating memory...")
@@ -1134,7 +1117,7 @@ def _handle_fuzzy_memory_update(option: str, model_name: str) -> Result:
         updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
             model,
             system_fragments=system_fragments,
-            user_fragments=filled_user_fragments,
+            user_fragments=user_fragments,
         )
 
         # Set the updated memory

@@ -301,7 +301,7 @@ def test_fuzzy_memory_update(
     )
     mock_prompt_func.return_value = (
         ["System: Fuzzy Update"],
-        ["User: Please integrate: {prompt_details}"],
+        ["User: Please integrate: User added this text"],
     )
 
     # Simulate user input for the update text
@@ -312,7 +312,9 @@ def test_fuzzy_memory_update(
     assert isinstance(result, Success)
     mock_get_memory.assert_called_once_with(mock_cfg_instance)
     mock_prompt_func.assert_called_once_with(
-        current_memory="Original memory context", config=mock_cfg_instance
+        current_memory="Original memory context",
+        update_text="User added this text",
+        config=mock_cfg_instance,
     )
     mock_adapter_instance.execute_and_log_metrics.assert_called_once_with(
         mock_model_instance,
