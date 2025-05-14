@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add `--show-metrics`/`--no-show-metrics` flag to control display of LLM latency and token usage.
-- Plumb `show_metrics` flag through CLI options, `OutputFlags`, subcommands, and `command_handler`.
-- Planned: Instrument LLM calls to measure cost/latency and refactor to use fragments for potential caching (WIP)
-- Enhanced `LLMMetrics` to include `total_processing_duration_ms` for more comprehensive timing.
-- Introduced `TimedOperation` context manager in `model_adapter.py` to standardize and simplify timing of internal operations.
+- **LLM Interaction Optimization & Observability:**
+  - Refactored prompt construction to use a fragment-based system (`PromptFragments` in `vibectl/prompt.py`, `vibectl/types.py`) for better structure, potential caching by the underlying `llm` library, and improved maintainability.
+  - Enhanced LLM call instrumentation in `model_adapter.py` and `command_handler.py` to record and display metrics for token usage (input/output) and latency, including total processing duration for LLM-related operations.
+  - Added `--show-metrics`/`--no-show-metrics` flag and corresponding configuration (`show_metrics`) to control the display of these LLM metrics.
+  - Introduced `TimedOperation` context manager in `model_adapter.py` for standardized internal timing.
 
 ### Changed
 - Major refactor of prompt generation and handling (`vibectl/prompt.py`, `vibectl/command_handler.py`):
@@ -156,50 +156,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Python producer/consumer applications generating load and reporting P99 latency.
   - A `vibectl` agent configured with the goal to maximize throughput and minimize latency by tuning Kafka broker environment variables (`KAFKA_HEAP_OPTS`, `KAFKA_NUM_NETWORK_THREADS`, `KAFKA_NUM_IO_THREADS`).
   - Resource limits on the sandbox container and de-optimized Kafka defaults to create a clear optimization scenario.
-  - Makefile for easy management (`make up`, `make down`, `make logs`, etc.).
-- Added basic Flask web UI (`kafka-demo-ui`) to the Kafka throughput demo, displaying key metrics (latency, producer stats, component health) using SocketIO for real-time updates.
-
-### Changed
-- Updated root `STRUCTURE.md` to include Kafka demo.
-
-## [0.5.2] - 2025-04-26
-
-### Changed
-- Refactored output processing and truncation logic for better modularity and testability (`output_processor.py`, `truncation_logic.py`).
-- Implemented budget-aware YAML truncation, distributing character limits across top-level sections.
-- Improved log truncation to iteratively adjust lines kept based on character budget.
-- Enhanced YAML output processing (`OutputProcessor`) with budget-based secondary truncation for better LLM context management.
-- Improved robustness of `extract_yaml_sections` for various YAML structures, including multi-document files.
-- Refined iterative log truncation logic (`_truncate_logs_by_lines`) for improved character budget adherence.
-
-### Added
-- Increased test coverage for output processing, YAML section handling, and log truncation edge cases.
-- Extensive new unit tests for `OutputProcessor` focusing on YAML section extraction, budget calculation, and multi-document handling.
-- Additional test coverage for `truncation_logic` edge cases.
-
-### Fixed
-- Addressed previously failing/skipped tests related to output processing.
-
-## [0.5.1] - 2025-04-25
-
-### Added
-- New bootstrap demo in examples/k8s-sandbox featuring:
-  - Self-contained k3d (K3s in Docker) cluster with Ollama LLM
-  - Single-container setup with Docker-in-Docker
-  - Vibectl configured to use local Ollama instance via kubectl port-forward
-  - Support for installing from local source or stable PyPI packages
-  - Automated demonstration of vibectl K8s analysis capabilities
-  - Single-command unattended setup and execution
-
-### Changed
-- Improved feature-worktrees rule to prevent branch conflicts and enforce correct worktree-based feature development workflow
-
-### Fixed
-- Fixed handling of unknown model names with proper error messages
-- Fixed potential KeyError when prompt contains {memory_context} placeholder but memory_context is empty
-- Improved string format handling to handle malformed format strings in memory context
-
-## [0.5.0] - 2025-04-22
-
-### Added
-- New `vibectl auto` subcommand to reify the looping `vibectl vibe --yes`
+  - Makefile for easy management (`make up`, `make down`, `
