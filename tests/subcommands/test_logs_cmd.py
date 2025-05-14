@@ -30,7 +30,7 @@ async def test_logs_basic(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
     mock_handle_output.assert_called_once()
 
 
@@ -52,9 +52,7 @@ async def test_logs_with_args(
         await cmd_obj.main(["pod", "my-pod", "-n", "default"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(
-        ["logs", "pod", "my-pod", "-n", "default"], capture=True
-    )
+    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod", "-n", "default"])
     mock_handle_output.assert_called_once()
 
 
@@ -99,7 +97,7 @@ async def test_logs_with_flags(
         )
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
     mock_handle_output.assert_called_once()
 
     # Verify configure_output_flags called correctly by the subcommand's run function
@@ -133,7 +131,7 @@ async def test_logs_no_output(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
     mock_handle_output.assert_not_called()
 
 
@@ -157,7 +155,7 @@ async def test_logs_truncation_warning(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
     mock_handle_output.assert_called_once()
 
 
@@ -388,7 +386,5 @@ async def test_logs_no_follow_does_not_use_live_display(
 
     assert exc_info.value.code == 0
     mock_handle_watch_with_live_display.assert_not_called()
-    mock_run_kubectl.assert_called_once_with(
-        ["logs", "my-pod", "-n", "test-ns"], capture=True
-    )
+    mock_run_kubectl.assert_called_once_with(["logs", "my-pod", "-n", "test-ns"])
     mock_handle_command_output.assert_called_once()

@@ -82,7 +82,7 @@ async def test_scale_deployment_success() -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["scale", "deployment", "nginx", "--replicas=5"], capture=True
+            ["scale", "deployment", "nginx", "--replicas=5"]
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()
@@ -110,7 +110,7 @@ async def test_scale_integration_flow() -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["scale", "deployment", "nginx", "--replicas=5"], capture=True
+            ["scale", "deployment", "nginx", "--replicas=5"]
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()
@@ -138,7 +138,7 @@ async def test_scale_normal_execution() -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["scale", "deployment/nginx", "--replicas=3"], capture=True
+            ["scale", "deployment/nginx", "--replicas=3"]
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()
@@ -166,7 +166,7 @@ async def test_scale_no_output() -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["scale", "deployment/nginx", "--replicas=3"], capture=True
+            ["scale", "deployment/nginx", "--replicas=3"]
         )
         mock_handle_output.assert_not_called()
         mock_handle_result.assert_called_once()
@@ -219,7 +219,6 @@ async def test_scale_with_kubectl_flags() -> None:
 
         mock_run_kubectl.assert_called_once_with(
             ["scale", "deployment/nginx", "--replicas=3", "-n", "default", "--record"],
-            capture=True,
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()

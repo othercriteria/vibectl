@@ -6,11 +6,11 @@ This document provides an overview of the project's structure and organization.
 
 ### Core Package (`vibectl/`)
 - `cli.py` - Command-line interface implementation
-- `prompt.py` - Prompt templates and LLM interaction logic
+- `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`).
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
 - `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils` and live display to relevant modules.
-- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation.
+- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation. `run_kubectl` always captures output and can accept `allowed_exit_codes` to treat certain non-zero exits as success.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
@@ -19,7 +19,7 @@ This document provides an overview of the project's structure and organization.
 - `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning)
 - `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait).
 - `live_display_watch.py` - Interactive live display implementation for watch/follow commands.
-- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema)
+- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema, `Success` and `Error` result types. `Success` objects include `original_exit_code`).
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 - `logutil.py` - Logging setup and configuration
@@ -39,6 +39,7 @@ This document provides an overview of the project's structure and organization.
   - `events_cmd.py` - Events command implementation
   - `create_cmd.py` - Create command implementation
   - `cluster_info_cmd.py` - Cluster-info command implementation
+  - `diff_cmd.py` - Diff command implementation
 
 ### Testing (`tests/`)
 - Test files and test resources
@@ -112,6 +113,7 @@ This document provides an overview of the project's structure and organization.
    - `create_cmd.py` - Resource creation
    - `cluster_info_cmd.py` - Cluster information
    - `just_cmd.py` - Plain execution with memory
+   - `diff_cmd.py` - Diff configurations
    - `version_cmd.py` - Version information
 
 ### Console Management
@@ -126,7 +128,7 @@ This document provides an overview of the project's structure and organization.
    - These fragments are assembled and formatted by the calling functions in `command_handler.py` or `memory.py` before being sent to the LLM.
    - Incorporates helper functions (e.g., `get_formatting_fragments`) and constants for building prompts.
    - `Config` objects are passed to prompt functions to allow for configuration-driven prompt variations.
-   - Resource-specific summary prompts (e.g., `describe_resource_prompt`) also follow this fragment-based approach.
+   - Resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) also follow this fragment-based approach.
    - Memory integration is handled by including memory content within relevant fragments.
 
 ### Common Command Patterns

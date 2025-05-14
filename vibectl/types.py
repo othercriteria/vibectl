@@ -116,6 +116,7 @@ class OutputFlags:
 class Success:
     message: str = ""
     data: Any | None = None
+    original_exit_code: int | None = None
     continue_execution: bool = True  # Flag to control if execution flow should continue
     # When False, indicates a normal termination of a command sequence (like exit)
     metrics: "LLMMetrics | None" = None

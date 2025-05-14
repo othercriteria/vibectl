@@ -119,7 +119,7 @@ async def _execute_wait_with_live_display(
 
         # Execute the command in a separate thread to avoid blocking the event loop
         # We use asyncio.to_thread to run the blocking kubectl call in a thread pool
-        return await asyncio.to_thread(run_kubectl, cmd_args, capture=True)
+        return await asyncio.to_thread(run_kubectl, cmd_args)
 
     # Create a coroutine to update the progress display continuously
     async def update_progress(task_id: TaskID, progress: Progress) -> None:

@@ -28,9 +28,7 @@ async def test_version_error_handling(
             await cmd_obj.main([])
 
         assert exc_info.value.code != 0
-        mock_run_kubectl.assert_called_once_with(
-            ["version", "--output=json"], capture=True
-        )
+        mock_run_kubectl.assert_called_once_with(["version", "--output=json"])
         mock_handle_output.assert_not_called()
 
 
@@ -56,7 +54,7 @@ async def test_version_output_processing(
             await cmd_obj.main([])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["version", "--output=json"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["version", "--output=json"])
     mock_handle_output.assert_called_once()
 
 
@@ -113,9 +111,7 @@ async def test_version_memory_flags(
         )
 
         # Verify run_kubectl was called for the first invocation
-        mock_run_kubectl.assert_called_once_with(
-            ["version", "--output=json"], capture=True
-        )
+        mock_run_kubectl.assert_called_once_with(["version", "--output=json"])
         # Use positional arguments for assertion
         mock_configure_memory_flags.assert_any_call(True, False)
 
@@ -138,9 +134,7 @@ async def test_version_memory_flags(
         assert exc_info_2.value.code == 0, f"CLI failed: {exc_info_2.value.code}"
 
         # Verify run_kubectl was called for the second invocation
-        mock_run_kubectl.assert_called_once_with(
-            ["version", "--output=json"], capture=True
-        )
+        mock_run_kubectl.assert_called_once_with(["version", "--output=json"])
         # Use positional arguments for assertion
         mock_configure_memory_flags.assert_any_call(False, True)
 

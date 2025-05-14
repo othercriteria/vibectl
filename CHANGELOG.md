@@ -8,8 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `vibectl diff` subcommand to compare local configurations (files or stdin) against the live cluster state, with optional Vibe.AI summarization of changes.
 - Planned: Implement `vibectl apply` subcommand with LLM-powered input fixing and vibe integration (WIP)
-- Planned: Implement `vibectl diff` subcommand with vibe integration and reusable diff logic (WIP)
+
+### Changed
+- Refactored `run_kubectl` (in `vibectl/k8s_utils.py`):
+  - Now always captures stdout/stderr.
+  - Accepts `allowed_exit_codes` parameter to treat specific non-zero exit codes as success (e.g., for `kubectl diff`).
+  - `Success` result objects now include `original_exit_code`.
+- Updated numerous tests and subcommand implementations to align with the `run_kubectl` refactoring.
+
+### Removed
+- Removed `capture` parameter from `run_kubectl` and its call sites, as output is now always captured.
 
 ## [0.7.0] - 2025-05-14
 

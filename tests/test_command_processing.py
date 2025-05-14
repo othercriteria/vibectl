@@ -159,15 +159,13 @@ def test_execute_command_with_spaces(
     result = _execute_command(command=command, args=args, yaml_content=None)
 
     # Verify run_kubectl (mocked in command_handler) was called
-    mock_ch_run_kubectl.assert_called_once_with(
-        [
-            "create",
-            "configmap",
-            "nginx-config",
-            f"--from-literal=index.html={html_content}",
-        ],
-        capture=True,
-    )
+    expected_command_args = [
+        "create",
+        "configmap",
+        "nginx-config",
+        f"--from-literal=index.html={html_content}",
+    ]
+    mock_ch_run_kubectl.assert_called_once_with(expected_command_args)
     assert isinstance(result, Success)
     assert result.data == "configmap/test-map created"
 

@@ -1,10 +1,11 @@
+import asyncio
+
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
     handle_vibe_request,
     run_kubectl,
 )
-from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
@@ -67,17 +68,20 @@ async def run_cluster_info_command(
 
         # For standard cluster-info command
         try:
-            output = run_kubectl(["cluster-info", *args], capture=True)
+            # Build command list
+            cmd_list = ["cluster-info", *args]
+            logger.info(f"Running kubectl command: {' '.join(cmd_list)}")
 
-            if not output:
-                logger.info("No output from kubectl cluster-info.")
-                console_manager.print_note(
-                    "kubectl cluster-info information not available"
-                )
-                return Success(message="No output from kubectl cluster-info.")
+            # Run kubectl and get result (capture is always True in run_kubectl now)
+            output = await asyncio.to_thread(run_kubectl, cmd_list)
+
+            # Handle errors from kubectl
+            if isinstance(output, Error):
+                return output
 
             # Handle output display based on flags
-            handle_command_output(
+            await asyncio.to_thread(
+                handle_command_output,
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=cluster_info_prompt,

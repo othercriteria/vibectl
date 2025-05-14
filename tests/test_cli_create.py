@@ -25,13 +25,15 @@ from vibectl.types import Error, Success  # Import necessary types
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
 def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
     """Test basic _create_command_logic functionality."""
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output")
 
     # Mock handle_command_output
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output"
     ) as mock_handle_cmd_output:
-        result = _create_command_logic(
+        mock_handle_cmd_output.return_value = Success(message="handled")
+
+        result_from_logic = _create_command_logic(
             resource="pod",
             args=("my-pod",),
             show_raw_output=None,
@@ -40,11 +42,17 @@ def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
             show_kubectl=None,
         )
 
-    assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"], capture=True)
+    assert isinstance(result_from_logic, Success)
+    assert (
+        result_from_logic.message == "Completed 'create' subcommand for resource: pod"
+    )
+
+    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"])
+
     mock_handle_cmd_output.assert_called_once()
     call_args, call_kwargs = mock_handle_cmd_output.call_args
-    assert call_kwargs["output"] == "test output"
+    assert isinstance(call_kwargs["output"], Success)
+    assert call_kwargs["output"].data == "test output"
     assert isinstance(call_kwargs["output_flags"], OutputFlags)
     assert call_kwargs["output_flags"].show_vibe is True
     assert call_kwargs["summary_prompt_func"] == create_resource_prompt
@@ -53,49 +61,65 @@ def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
 def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:
     """Test _create_command_logic with additional arguments."""
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output with args")
 
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output"
     ) as mock_handle_cmd_output:
-        result = _create_command_logic(
+        mock_handle_cmd_output.return_value = Success(message="handled")
+        result_from_logic = _create_command_logic(
             resource="pod",
-            args=("my-pod", "--", "-n", "default"),  # Pass args directly
+            args=("my-pod", "--", "-n", "default"),
             show_raw_output=None,
             show_vibe=None,
             model=None,
             show_kubectl=None,
         )
 
-    assert isinstance(result, Success)
+    assert isinstance(result_from_logic, Success)
+    assert (
+        result_from_logic.message == "Completed 'create' subcommand for resource: pod"
+    )
+
     mock_run_kubectl.assert_called_once_with(
-        ["create", "pod", "my-pod", "--", "-n", "default"], capture=True
+        ["create", "pod", "my-pod", "--", "-n", "default"]
     )
     mock_handle_cmd_output.assert_called_once()
+    passed_output_to_handler = mock_handle_cmd_output.call_args.kwargs["output"]
+    assert isinstance(passed_output_to_handler, Success)
+    assert passed_output_to_handler.data == "test output with args"
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
 def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
     """Test _create_command_logic with output flags."""
-    mock_run_kubectl.return_value = "test output"
+    mock_run_kubectl.return_value = Success(data="test output with flags")
 
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output"
     ) as mock_handle_cmd_output:
-        result = _create_command_logic(
+        mock_handle_cmd_output.return_value = Success(message="handled")
+        result_from_logic = _create_command_logic(
             resource="pod",
-            args=("my-pod",),  # Pass args directly
+            args=("my-pod",),
             show_raw_output=True,
             show_vibe=False,
             model="test-model",
             show_kubectl=True,
         )
 
-    assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"], capture=True)
+    assert isinstance(result_from_logic, Success)
+    assert (
+        result_from_logic.message == "Completed 'create' subcommand for resource: pod"
+    )
+
+    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"])
+
     mock_handle_cmd_output.assert_called_once()
-    # Check flags passed to handle_command_output (via output_flags)
     call_args, call_kwargs = mock_handle_cmd_output.call_args
+    passed_output_to_handler = call_kwargs["output"]
+    assert isinstance(passed_output_to_handler, Success)
+    assert passed_output_to_handler.data == "test output with flags"
     output_flags = call_kwargs["output_flags"]
     assert output_flags.show_raw is True
     assert output_flags.show_vibe is False
@@ -106,12 +130,12 @@ def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
 def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:
     """Test _create_command_logic when kubectl returns no output."""
-    mock_run_kubectl.return_value = ""
+    mock_run_kubectl.return_value = Success(data=None)
 
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output"
     ) as mock_handle_cmd_output:
-        result = _create_command_logic(
+        result_from_logic = _create_command_logic(
             resource="pod",
             args=("my-pod",),
             show_raw_output=None,
@@ -120,19 +144,20 @@ def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:
             show_kubectl=None,
         )
 
-    assert isinstance(result, Success)
-    assert result.message == "No output from kubectl create command."
-    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"], capture=True)
+    assert isinstance(result_from_logic, Success)
+    assert result_from_logic.message == "No output from kubectl create command."
+
+    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"])
     mock_handle_cmd_output.assert_not_called()
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
 def test_create_logic_error_handling(mock_run_kubectl: Mock) -> None:
     """Test _create_command_logic error handling."""
-    test_exception = Exception("Kubectl error")
+    test_exception = ValueError("Kubectl execution failed badly")
     mock_run_kubectl.side_effect = test_exception
 
-    result = _create_command_logic(
+    result_from_logic = _create_command_logic(
         resource="pod",
         args=("my-pod",),
         show_raw_output=None,
@@ -141,10 +166,11 @@ def test_create_logic_error_handling(mock_run_kubectl: Mock) -> None:
         show_kubectl=None,
     )
 
-    assert isinstance(result, Error)
-    assert result.error == "Exception running kubectl"
-    assert result.exception == test_exception
-    mock_run_kubectl.assert_called_once()
+    assert isinstance(result_from_logic, Error)
+    assert result_from_logic.error == "Exception running kubectl"
+    assert result_from_logic.exception == test_exception
+
+    mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"])
 
 
 # --- Tests for vibe functionality using create --- #

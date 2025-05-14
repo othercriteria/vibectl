@@ -20,8 +20,8 @@ async def test_cluster_info_basic(
 ) -> None:
     """Test basic cluster-info command functionality."""
     # Setup
-    mock_run_kubectl.return_value = (
-        "Kubernetes control plane is running at https://example:6443"
+    mock_run_kubectl.return_value = Success(
+        data="Kubernetes control plane is running at https://example:6443"
     )
     mock_handle_output.return_value = Success()
 
@@ -38,7 +38,7 @@ async def test_cluster_info_basic(
 
     # Assert
     assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["cluster-info"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["cluster-info"])
     mock_handle_output.assert_called_once()
 
 
@@ -51,7 +51,7 @@ async def test_cluster_info_with_args(
 ) -> None:
     """Test cluster-info command with additional arguments."""
     # Setup
-    mock_run_kubectl.return_value = "Detailed cluster info"
+    mock_run_kubectl.return_value = Success(data="Detailed cluster info")
     mock_handle_output.return_value = Success()
 
     # Execute directly
@@ -67,7 +67,7 @@ async def test_cluster_info_with_args(
 
     # Assert
     assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["cluster-info", "dump"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["cluster-info", "dump"])
     mock_handle_output.assert_called_once()
 
 
@@ -83,8 +83,8 @@ async def test_cluster_info_with_flags(
     """Test cluster-info command with output flags."""
     # Setup
     mock_configure_flags.return_value = (True, False, False, "custom-model")
-    mock_run_kubectl.return_value = (
-        "Kubernetes control plane is running at https://example:6443"
+    mock_run_kubectl.return_value = Success(
+        data="Kubernetes control plane is running at https://example:6443"
     )
     mock_handle_output.return_value = Success()
 
@@ -101,7 +101,7 @@ async def test_cluster_info_with_flags(
 
     # Assert
     assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["cluster-info"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["cluster-info"])
     mock_handle_output.assert_called_once()
     mock_configure_flags.assert_called_once_with(
         show_raw_output=True,
@@ -121,7 +121,7 @@ async def test_cluster_info_no_output(
 ) -> None:
     """Test cluster-info command when kubectl returns no output."""
     # Setup
-    mock_run_kubectl.return_value = ""
+    mock_run_kubectl.return_value = Success(data="")
 
     # Execute directly
     result = await run_cluster_info_command(
@@ -136,8 +136,8 @@ async def test_cluster_info_no_output(
 
     # Assert
     assert isinstance(result, Success)
-    mock_run_kubectl.assert_called_once_with(["cluster-info"], capture=True)
-    assert not mock_handle_output.called
+    mock_run_kubectl.assert_called_once_with(["cluster-info"])
+    mock_handle_output.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -192,5 +192,5 @@ async def test_cluster_info_error_handling(
     # Assert
     assert isinstance(result, Error)
     assert result.exception is test_exception
-    mock_run_kubectl.assert_called_once_with(["cluster-info"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["cluster-info"])
     mock_handle_output.assert_not_called()

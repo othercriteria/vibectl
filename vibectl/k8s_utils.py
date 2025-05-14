@@ -77,81 +77,100 @@ def create_kubectl_error(
 
 
 def run_kubectl(
-    cmd: list[str], capture: bool = False, config: Config | None = None
+    cmd: list[str],
+    config: Config | None = None,
+    allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> Result:
     """Run kubectl command and capture output.
 
     Args:
-        cmd: List of command arguments
-        capture: Whether to capture and return output
-        config: Optional Config instance to use
+        cmd: List of command arguments (does not include "kubectl" itself)
+        config: Optional Config instance to use.
+        allowed_exit_codes: Tuple of exit codes that should be treated as success.
 
     Returns:
-        Success with command output if capture=True, or None otherwise
-        Error with error message on failure
+        Success with command output (stdout) and original_exit_code.
+        Error with error message on failure (if exit code not in allowed_exit_codes).
     """
     try:
-        # Get a Config instance if not provided
         cfg = config or Config()
-
-        # Get the kubeconfig path from config
         kubeconfig = cfg.get("kubeconfig")
-
-        # Build the full command
-        kubectl_cmd = ["kubectl"]
-
-        # Add the command arguments first, to ensure kubeconfig is AFTER the main
-        # command
-        kubectl_cmd.extend(cmd)
-
-        # Add kubeconfig AFTER the main command to avoid errors
+        kubectl_full_cmd = ["kubectl"]  # Renamed to avoid conflict with cmd parameter
+        kubectl_full_cmd.extend(cmd)  # cmd is the list of args for kubectl
         if kubeconfig:
-            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+            kubectl_full_cmd.extend(["--kubeconfig", str(kubeconfig)])
 
-        logger.info(f"Running kubectl command: {' '.join(kubectl_cmd)}")
+        logger.info(f"Running kubectl command: {' '.join(kubectl_full_cmd)}")
 
-        # Execute the command
-        result = subprocess.run(
-            kubectl_cmd,
-            capture_output=capture,
-            check=False,
+        process_result = subprocess.run(
+            kubectl_full_cmd,
+            capture_output=True,
+            check=False,  # We handle exit codes manually
             text=True,
             encoding="utf-8",
         )
 
-        # Check for errors
-        if result.returncode != 0:
-            error_message = result.stderr.strip() if capture else "Command failed"
-            if not error_message:
-                error_message = f"Command failed with exit code {result.returncode}"
-            logger.debug(f"kubectl command failed: {error_message}")
+        stdout_data = process_result.stdout.strip() if process_result.stdout else ""
+        stderr_data = process_result.stderr.strip() if process_result.stderr else ""
 
-            # Create error result, potentially marking some as non-halting
-            # TODO: Consider moving the actual create_kubectl_error logic here
+        if process_result.returncode in allowed_exit_codes:
+            # Log stderr if present for these "successful" non-zero exits
+            if stderr_data:
+                logger.debug(
+                    f"kubectl command (exit code {process_result.returncode}) "
+                    f"produced stderr: '{stderr_data[:500]}...'"
+                )
+            else:
+                logger.debug(
+                    "kubectl command successful with exit code "
+                    f"{process_result.returncode}. "
+                    f"Stdout: '{stdout_data[:200]}...'"
+                )
+
+            success_message = (
+                f"Command completed with exit code {process_result.returncode}."
+            )
+            if process_result.returncode == 0 and not stdout_data and not stderr_data:
+                success_message = "Command completed successfully with no output."
+
+            return Success(
+                data=stdout_data,
+                message=success_message,
+                original_exit_code=process_result.returncode,
+            )
+        else:
+            error_content = (
+                stderr_data or stdout_data or "Unknown error (no stdout/stderr)"
+            )
+            error_message = (
+                f"Command failed with exit code {process_result.returncode}: "
+                f"{error_content}"
+            )
+
+            logger.error(
+                f"kubectl command failed with exit code {process_result.returncode}. "
+                f"Stderr: '{stderr_data[:200]}...', Stdout: '{stdout_data[:200]}...'"
+            )
             return create_kubectl_error(error_message)
 
-        # Return output if capturing
-        if capture:
-            output = result.stdout.strip()
-            logger.debug(f"kubectl command output: {output}")
-            return Success(data=output)
-        return Success()
     except FileNotFoundError as e:
-        # Directly create Error with the exception
         logger.error("kubectl command failed: executable not found.", exc_info=False)
         return Error(
             error="kubectl not found. Please install it and try again.",
-            exception=e,  # Include the exception
+            exception=e,
             halt_auto_loop=True,
         )
-    except subprocess.CalledProcessError as e:
+    except (
+        subprocess.CalledProcessError
+    ) as e:  # Should not be reached due to check=False
         logger.error(
-            f"kubectl command failed with exit code {e.returncode}: {e.stderr}",
+            f"kubectl command failed unexpectedly (CalledProcessError) "
+            f"with exit code {e.returncode}: {e.stderr}",
             exc_info=True,
         )
-        return create_kubectl_error(e.stderr)
+        return create_kubectl_error(e.stderr or f"CalledProcessError: {e.returncode}")
     except Exception as e:
-        logger.debug(f"Exception running kubectl: {e}", exc_info=True)
+        logger.error(f"Exception running kubectl: {e}", exc_info=True)
         return Error(error=str(e), exception=e)
 
 

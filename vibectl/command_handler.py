@@ -144,7 +144,7 @@ def _run_standard_kubectl_command(command: str, resource: str, args: tuple) -> R
         cmd_args.extend(args)
 
     # Run kubectl and get result
-    kubectl_result = run_kubectl(cmd_args, capture=True)
+    kubectl_result = run_kubectl(cmd_args)
 
     # Handle errors from kubectl
     if isinstance(kubectl_result, Error):
@@ -248,6 +248,7 @@ def handle_command_output(
     result_metrics: LLMMetrics | None = (
         None  # Metrics from this result (summary/recovery)
     )
+    result_original_exit_code: int | None = None
 
     if isinstance(output, Error):
         original_error_object = output
@@ -256,7 +257,8 @@ def handle_command_output(
         result_metrics = original_error_object.metrics  # Get metrics from Error
     elif isinstance(output, Success):
         output_str = output.data
-        result_metrics = output.metrics  # Get metrics from Success
+        result_metrics = output.metrics
+        result_original_exit_code = output.original_exit_code
     else:  # Plain string input
         output_str = output
 
@@ -365,7 +367,7 @@ def handle_command_output(
                     # The recovery path returns the modified original_error_object
                     # which now contains recovery_metrics in its .metrics field.
                     # We use result_metrics extracted earlier.
-                    pass  # No change needed here, metrics handled above
+                    pass
                 else:
                     # If we started with success, generate a summary prompt
                     # Call with config
@@ -385,6 +387,7 @@ def handle_command_output(
                     )
                     if isinstance(vibe_result, Success):
                         result_metrics = vibe_result.metrics  # Get metrics from summary
+                        vibe_result.original_exit_code = result_original_exit_code
                     elif isinstance(vibe_result, Error):
                         result_metrics = (
                             vibe_result.metrics
@@ -460,7 +463,10 @@ def handle_command_output(
         return original_error_object
     else:
         # Return Success with the original output string if no vibe processing
-        return Success(message=output_str if output_str is not None else "")
+        return Success(
+            message=output_str if output_str is not None else "",
+            original_exit_code=result_original_exit_code,
+        )
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -1226,7 +1232,7 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
             cfg = Config()
             return run_kubectl_with_yaml(full_args, yaml_content, config=cfg)
         else:
-            return run_kubectl(full_args, capture=True)
+            return run_kubectl(full_args)
     except Exception as e:
         logger.error("Error dispatching command execution: %s", e, exc_info=True)
         return create_kubectl_error(f"Error executing command: {e}", exception=e)

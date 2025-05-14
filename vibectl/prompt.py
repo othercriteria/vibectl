@@ -1585,3 +1585,37 @@ def port_forward_prompt(
         ],
         config=config,
     )
+
+
+# Template for summarizing 'kubectl diff' output
+def diff_output_prompt(
+    config: Config | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for summarizing kubectl diff output.
+
+    Args:
+        config: Optional Config instance.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    return create_summary_prompt(
+        description="Summarize this kubectl diff output, highlighting changes.",
+        focus_points=[
+            "resources with detected differences",
+            "type of change (modified, added, deleted - infer from diff context)",
+            "key fields that were changed (e.g., image, replicas, data keys)",
+            "newly added or removed resources",
+        ],
+        example_format=[
+            "[bold]ConfigMap/foo[/bold] in [blue]bar[/blue] [yellow]modified[/yellow]:",
+            "  - Field [bold]data.key1[/bold] changed from 'old_value' to 'new_value'",
+            "  - Added field [bold]data.new_key[/bold]: 'some_value'",
+            "[bold]Deployment/baz[/bold] in [blue]qa[/blue] [green]added[/green]",
+            "  - Image: [bold]nginx:latest[/bold]",
+            "  - Replicas: [bold]3[/bold]",
+            "[bold]Secret/old[/bold] in [blue]dev[/blue] [red]removed[/red]",
+            "Summary: [bold]1 ConfigMap modified[/bold], ...",
+        ],
+        config=config,
+    )

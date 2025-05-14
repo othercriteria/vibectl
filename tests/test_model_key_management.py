@@ -57,8 +57,14 @@ class TestModelKeyConfig:
         key = config.get_model_key("openai")
         assert key == "test-openai-key-from-config"
 
-    def test_get_model_key_from_config_file(self) -> None:
+    def test_get_model_key_from_config_file(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test getting a model key from configuration key file."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY_FILE", raising=False)
+
         with TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
 
@@ -438,8 +444,14 @@ class TestModelKeyValidation:
         warning = adapter.validate_model_key("gpt-4")
         assert warning is None
 
-    def test_validate_model_key_with_invalid_format(self) -> None:
+    def test_validate_model_key_with_invalid_format(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test validation with an invalid key format."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY_FILE", raising=False)
+
         config = MockConfig()
         # The validation logic is warning = NOT(key.startswith("sk-") OR len(key) < 20)
         # So we need a key that doesn't start with sk- AND is NOT less than 20 chars

@@ -15,7 +15,7 @@ if [[ "$(git diff --cached --name-only)" =~ \\.py$ ]]; then
   echo "PASSED: Pytest coverage check."
 
   # Verify all coverage exclusions are documented
-  UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
+  UNDOCUMENTED=$(find . -name "*.py" -not -path "./.venv/*" -print0 | xargs -0 grep -H "pragma: no cover" | grep -v " - ")
   if [ -n "$UNDOCUMENTED" ]; then
     echo "Error: Undocumented coverage exclusions found (ran from coverage-commit-wrapper.sh):" >&2
     echo "$UNDOCUMENTED" >&2

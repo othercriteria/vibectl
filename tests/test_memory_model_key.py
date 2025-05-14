@@ -38,8 +38,18 @@ def test_config() -> Generator[Config, None, None]:
     yield config
 
 
-def test_memory_with_anthropic_api_key(test_config: Config) -> None:
+def test_memory_with_anthropic_api_key(
+    test_config: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test memory correctly uses Anthropic API key during updates."""
+    # Ensure no real env var interferes from any source
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY_FILE", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # For completeness
+    monkeypatch.delenv("VIBECTL_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("VIBECTL_OPENAI_API_KEY_FILE", raising=False)
+
     # Set a mock API key in the config
     test_config.set_model_key("anthropic", "test-anthropic-key")
 

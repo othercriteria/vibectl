@@ -106,13 +106,13 @@ def test_create_kubectl_error_unexpected_type() -> None:
 
 @patch("subprocess.run")
 def test_run_kubectl_success_no_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = MagicMock(returncode=0, stdout=" some output ")
     result = run_kubectl(["get", "pods"])
     assert isinstance(result, Success)
-    assert result.data is None
+    assert result.data == "some output"
     mock_run.assert_called_once_with(
         ["kubectl", "get", "pods"],
-        capture_output=False,
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",
@@ -122,7 +122,7 @@ def test_run_kubectl_success_no_capture(mock_run: MagicMock) -> None:
 @patch("subprocess.run")
 def test_run_kubectl_success_capture(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout=" pod1 \npod2 ")
-    result = run_kubectl(["get", "nodes"], capture=True)
+    result = run_kubectl(["get", "nodes"])
     assert isinstance(result, Success)
     assert result.data == "pod1 \npod2"
     mock_run.assert_called_once_with(
@@ -136,31 +136,35 @@ def test_run_kubectl_success_capture(mock_run: MagicMock) -> None:
 
 @patch("subprocess.run")
 def test_run_kubectl_failure_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr=" Error message ")
-    result = run_kubectl(["apply", "-f", "thing.yaml"], capture=True)
+    mock_run.return_value = MagicMock(returncode=1, stderr=" Error message ", stdout="")
+    result = run_kubectl(["apply", "-f", "thing.yaml"])
     assert isinstance(result, Error)
-    assert result.error == "Error message"
+    assert result.error == "Command failed with exit code 1: Error message"
     assert result.exception is None
-    # Check halt_auto_loop based on error message (default True)
     assert result.halt_auto_loop is True
 
 
 @patch("subprocess.run")
 def test_run_kubectl_failure_no_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1)
+    mock_run.return_value = MagicMock(returncode=1, stderr="", stdout="")
     result = run_kubectl(["delete", "pod", "my-pod"])
     assert isinstance(result, Error)
-    assert result.error == "Command failed"
+    assert (
+        result.error
+        == "Command failed with exit code 1: Unknown error (no stdout/stderr)"
+    )
     assert result.exception is None
     assert result.halt_auto_loop is True
 
 
 @patch("subprocess.run")
 def test_run_kubectl_failure_no_stderr(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr="")
-    result = run_kubectl(["delete", "pod", "my-pod"], capture=True)
+    mock_run.return_value = MagicMock(
+        returncode=1, stderr="", stdout="some stdout data"
+    )
+    result = run_kubectl(["delete", "pod", "my-pod"])
     assert isinstance(result, Error)
-    assert result.error == "Command failed with exit code 1"
+    assert result.error == "Command failed with exit code 1: some stdout data"
     assert result.exception is None
     assert result.halt_auto_loop is True
 
@@ -168,13 +172,17 @@ def test_run_kubectl_failure_no_stderr(mock_run: MagicMock) -> None:
 @patch("subprocess.run")
 def test_run_kubectl_failure_recoverable(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(
-        returncode=1, stderr="error from server (NotFound)"
+        returncode=1, stderr="error from server (NotFound)", stdout=""
     )
-    result = run_kubectl(["get", "pod", "nonexistent"], capture=True)
+    result = run_kubectl(["get", "pod", "nonexistent"])
     assert isinstance(result, Error)
-    assert result.error == "error from server (NotFound)"
+    assert (
+        result.error == "Command failed with exit code 1: error from server (NotFound)"
+    )
     assert result.exception is None
-    assert result.halt_auto_loop is False  # Recoverable error
+    created_error = create_kubectl_error("error from server (NotFound)")
+    assert created_error.halt_auto_loop is False
+    assert result.halt_auto_loop is False
 
 
 @patch("subprocess.run")
@@ -189,18 +197,22 @@ def test_run_kubectl_file_not_found(mock_run: MagicMock) -> None:
 
 @patch("vibectl.k8s_utils.Config")
 @patch("subprocess.run")
-def test_run_kubectl_with_config(mock_run: MagicMock, mock_config: MagicMock) -> None:
-    mock_config.return_value.get.return_value = "/path/to/my/kubeconfig"
+def test_run_kubectl_with_config(
+    mock_run: MagicMock, mock_config_class: MagicMock
+) -> None:
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.get.return_value = "/path/to/my/kubeconfig"
 
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = MagicMock(returncode=0, stdout=" success data ")
 
-    result = run_kubectl(["get", "svc"], config=mock_config.return_value)
+    result = run_kubectl(["get", "svc"], config=mock_config_instance)
 
     assert isinstance(result, Success)
-    mock_config.return_value.get.assert_called_once_with("kubeconfig")
+    assert result.data == "success data"
+    mock_config_instance.get.assert_called_once_with("kubeconfig")
     mock_run.assert_called_once_with(
         ["kubectl", "get", "svc", "--kubeconfig", "/path/to/my/kubeconfig"],
-        capture_output=False,
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",
@@ -210,20 +222,22 @@ def test_run_kubectl_with_config(mock_run: MagicMock, mock_config: MagicMock) ->
 @patch("vibectl.k8s_utils.Config")
 @patch("subprocess.run")
 def test_run_kubectl_without_config(
-    mock_run: MagicMock, mock_config: MagicMock
+    mock_run: MagicMock, mock_config_class: MagicMock
 ) -> None:
-    # Ensure Config() returns a mock that returns None for kubeconfig
-    mock_config.return_value.get.return_value = None
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.get.return_value = None
 
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = MagicMock(returncode=0, stdout=" more success data ")
 
-    result = run_kubectl(["get", "ns"])  # No config passed
+    result = run_kubectl(["get", "ns"])
 
     assert isinstance(result, Success)
-    mock_config.return_value.get.assert_called_once_with("kubeconfig")
+    assert result.data == "more success data"
+    mock_config_class.assert_called_once()
+    mock_config_instance.get.assert_called_once_with("kubeconfig")
     mock_run.assert_called_once_with(
-        ["kubectl", "get", "ns"],  # No --kubeconfig arg
-        capture_output=False,
+        ["kubectl", "get", "ns"],
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",

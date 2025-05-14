@@ -45,7 +45,7 @@ async def test_rollout_status(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "status", "deployment/nginx", "-n", "default"], capture=True
+            ["rollout", "status", "deployment/nginx", "-n", "default"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -84,7 +84,7 @@ async def test_rollout_history(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "history", "deployment/nginx"], capture=True
+            ["rollout", "history", "deployment/nginx"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -132,7 +132,7 @@ async def test_rollout_undo_with_confirmation(cli_runner: CliRunner) -> None:
 
         mock_confirm.assert_called_once()
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "undo", "deployment/nginx", "--to-revision=2"], capture=True
+            ["rollout", "undo", "deployment/nginx", "--to-revision=2"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -176,7 +176,7 @@ async def test_rollout_undo_with_yes_flag(cli_runner: CliRunner) -> None:
 
         mock_confirm.assert_not_called()
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "undo", "deployment/nginx", "--to-revision=2"], capture=True
+            ["rollout", "undo", "deployment/nginx", "--to-revision=2"]
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()
@@ -253,7 +253,7 @@ async def test_rollout_restart(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "restart", "deployment/nginx"], capture=True
+            ["rollout", "restart", "deployment/nginx"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -291,7 +291,7 @@ async def test_rollout_pause(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "pause", "deployment/nginx"], capture=True
+            ["rollout", "pause", "deployment/nginx"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -329,7 +329,7 @@ async def test_rollout_resume(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "resume", "deployment/nginx"], capture=True
+            ["rollout", "resume", "deployment/nginx"]
         )
         mock_handle_output.assert_called_once()
         _, kwargs = mock_handle_output.call_args
@@ -350,7 +350,9 @@ async def test_rollout_no_output(cli_runner: CliRunner) -> None:
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output"
         ) as mock_handle_output,
-        patch("vibectl.subcommands.rollout_cmd.console_manager") as mock_console,
+        patch(
+            "vibectl.subcommands.rollout_cmd.console_manager"
+        ) as mock_console_manager,
         patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
         mock_run_kubectl.return_value = Success(data="")
@@ -368,10 +370,10 @@ async def test_rollout_no_output(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "status", "deployment/nginx"], capture=True
+            ["rollout", "status", "deployment/nginx"]
         )
         mock_handle_output.assert_not_called()
-        mock_console.print_note.assert_called_once_with(
+        mock_console_manager.print_note.assert_called_once_with(
             "No output from kubectl rollout command."
         )
         mock_handle_result.assert_called_once()
@@ -408,7 +410,7 @@ async def test_rollout_error_handling(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "status", "deployment/nginx"], capture=True
+            ["rollout", "status", "deployment/nginx"]
         )
         mock_handle_output.assert_not_called()
         mock_handle_result.assert_called_once()
@@ -445,7 +447,7 @@ async def test_rollout_with_args(cli_runner: CliRunner) -> None:
         )
 
         mock_run_kubectl.assert_called_once_with(
-            ["rollout", "history", "deployment", "nginx", "-n", "default"], capture=True
+            ["rollout", "history", "deployment", "nginx", "-n", "default"]
         )
         mock_handle_output.assert_called_once()
         mock_handle_result.assert_called_once()

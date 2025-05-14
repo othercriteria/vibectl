@@ -111,7 +111,8 @@ async def run_rollout_command(
         cmd = ["rollout", kubectl_subcmd, resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
         try:
-            kubectl_result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+            # Run kubectl command in a separate thread
+            kubectl_result = await asyncio.to_thread(run_kubectl, cmd)
 
             if isinstance(kubectl_result, Error):
                 logger.error(f"Error running kubectl: {kubectl_result.error}")

@@ -19,45 +19,54 @@ from vibectl.types import Error, Success
 
 def test_run_kubectl_basic(mock_subprocess: MagicMock) -> None:
     """Test basic kubectl command execution."""
-    # Set up mock
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_subprocess.run.return_value = mock_result
+    # Set up mock for the return value of subprocess.run
+    mock_process_result = Mock()
+    mock_process_result.returncode = 0
+    mock_process_result.stdout = "test output"
+    mock_process_result.stderr = ""
+    mock_subprocess.return_value = (
+        mock_process_result  # mock_subprocess IS the mock of subprocess.run
+    )
 
-    result = run_kubectl(["get", "pods"], capture=True)
+    result = run_kubectl(["get", "pods"])
     assert isinstance(result, Success)
     assert result.data == "test output"
+    # Check that subprocess.run (which is mock_subprocess) was called correctly
+    mock_subprocess.assert_called_once_with(
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> None:
     """Test successful kubectl command execution."""
-    # Set test kubeconfig
     test_config.set("kubeconfig", "/test/kubeconfig")
 
-    # Configure mock to return success
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_subprocess.return_value = mock_result
+    mock_process_result = Mock()
+    mock_process_result.returncode = 0
+    mock_process_result.stdout = "test output"
+    mock_process_result.stderr = ""
+    mock_subprocess.return_value = mock_process_result
 
-    # Run command
-    output = run_kubectl(["get", "pods"], capture=True, config=test_config)
+    output = run_kubectl(["get", "pods"], config=test_config)
 
-    # Verify command construction
     mock_subprocess.assert_called_once()
-    cmd = mock_subprocess.call_args[0][0]
+    called_args = mock_subprocess.call_args[0][0]
+    assert "kubectl" in called_args
+    assert "get" in called_args
+    assert "pods" in called_args
+    assert "--kubeconfig" in called_args
+    assert "/test/kubeconfig" in called_args
 
-    # With our changes, the order of arguments is now different
-    # kubeconfig is placed after the command for kubernetes compatibility
-    # Just check that all necessary parts are there, not their exact order
-    assert "kubectl" in cmd
-    assert "get" in cmd
-    assert "pods" in cmd
-    assert "--kubeconfig" in cmd
-    assert "/test/kubeconfig" in cmd
+    called_kwargs = mock_subprocess.call_args.kwargs
+    assert called_kwargs.get("capture_output") is True
+    assert called_kwargs.get("check") is False
+    assert called_kwargs.get("text") is True
+    assert called_kwargs.get("encoding") == "utf-8"
 
-    # Verify the output is correct
     assert isinstance(output, Success)
     assert output.data == "test output"
 
@@ -66,106 +75,125 @@ def test_run_kubectl_no_kubeconfig(
     mock_subprocess: MagicMock, test_config: Any
 ) -> None:
     """Test kubectl command without kubeconfig."""
-    # Explicitly set kubeconfig to None
     test_config.set("kubeconfig", None)
+    mock_process_result = Mock()
+    mock_process_result.returncode = 0
+    mock_process_result.stdout = "test output"
+    mock_process_result.stderr = ""
+    mock_subprocess.return_value = mock_process_result
 
-    # Configure mock to return success
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = "test output"
-    mock_subprocess.return_value = mock_result
-
-    output = run_kubectl(["get", "pods"], capture=True, config=test_config)
-
-    # Verify command construction without kubeconfig
+    output = run_kubectl(["get", "pods"], config=test_config)
     mock_subprocess.assert_called_once()
-    cmd = mock_subprocess.call_args[0][0]
-    assert cmd == ["kubectl", "get", "pods"]
+    called_args = mock_subprocess.call_args[0][0]
+    assert called_args == ["kubectl", "get", "pods"]
 
-    # Verify the output is correct
+    called_kwargs = mock_subprocess.call_args.kwargs
+    assert called_kwargs.get("capture_output") is True
+
     assert isinstance(output, Success)
     assert output.data == "test output"
 
 
 def test_run_kubectl_error(mock_subprocess: MagicMock) -> None:
-    """Test kubectl command error handling."""
-    mock_subprocess.side_effect = Exception("test error")
+    """Test kubectl command error handling when subprocess.run raises an Exception."""
+    mock_subprocess.side_effect = Exception("test error from subprocess")
 
-    result = run_kubectl(["get", "pods"], capture=True)
+    result = run_kubectl(["get", "pods"])
     assert isinstance(result, Error)
-    assert "test error" in result.error
+    assert "test error from subprocess" in result.error
+    assert isinstance(result.exception, Exception)
+    # Ensure the mock was actually called, even if it raised an error
+    mock_subprocess.assert_called_once_with(
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_run_kubectl_not_found(mock_subprocess: MagicMock) -> None:
-    """Test kubectl not found error."""
-    mock_subprocess.side_effect = FileNotFoundError()
+    """Test kubectl not found error when subprocess.run raises FileNotFoundError."""
+    mock_subprocess.side_effect = FileNotFoundError("kubectl not found")
 
-    result = run_kubectl(["get", "pods"], capture=True)
+    result = run_kubectl(["get", "pods"])
     assert isinstance(result, Error)
     assert result.error == "kubectl not found. Please install it and try again."
     assert isinstance(result.exception, FileNotFoundError)
+    mock_subprocess.assert_called_once_with(
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_run_kubectl_called_process_error(
     mock_subprocess: MagicMock, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Test kubectl command error handling with CalledProcessError."""
-    # Create a mock result with error
-    mock_result = Mock()
-    mock_result.returncode = 1
-    mock_result.stderr = "test error"
-    mock_subprocess.return_value = mock_result
+    """Test kubectl command error handling on subprocess.run non-zero exit code."""
+    mock_process_result = Mock()
+    mock_process_result.returncode = 1
+    mock_process_result.stdout = "some stdout data"
+    mock_process_result.stderr = "specific test error from stderr"
+    mock_subprocess.return_value = mock_process_result
 
-    result = run_kubectl(["get", "pods"], capture=True)
+    result = run_kubectl(["get", "pods"])
     assert isinstance(result, Error)
-    assert "test error" in result.error
+    assert (
+        result.error
+        == "Command failed with exit code 1: specific test error from stderr"
+    )
+    mock_subprocess.assert_called_once_with(
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_run_kubectl_called_process_error_no_stderr(mock_subprocess: MagicMock) -> None:
-    """Test kubectl command error handling with CalledProcessError but no stderr."""
-    # Create a mock result with error but no stderr
-    mock_result = Mock()
-    mock_result.returncode = 1
-    mock_result.stderr = ""
-    mock_subprocess.return_value = mock_result
+    """Test kubectl command error handling with non-zero exit but no stderr."""
+    mock_process_result = Mock()
+    mock_process_result.returncode = 1
+    mock_process_result.stderr = ""
+    mock_process_result.stdout = "some stdout data on failure"
+    mock_subprocess.return_value = mock_process_result
 
-    result = run_kubectl(["get", "pods"], capture=True)
+    result = run_kubectl(["get", "pods"])
     assert isinstance(result, Error)
-    assert "Command failed with exit code 1" in result.error
+    assert (
+        result.error == "Command failed with exit code 1: some stdout data on failure"
+    )
+    mock_subprocess.assert_called_once_with(
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_run_kubectl_no_capture(mock_subprocess: MagicMock) -> None:
-    """Test kubectl command without output capture."""
-    # Create a successful mock result
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_subprocess.return_value = mock_result
+    """Test kubectl command - run_kubectl now always captures output."""
+    mock_process_result = Mock()
+    mock_process_result.returncode = 0
+    mock_process_result.stdout = "some data"
+    mock_process_result.stderr = ""
+    mock_subprocess.return_value = mock_process_result
 
-    output = run_kubectl(["get", "pods"], capture=False)
-
-    # Verify command was run without capture
-    mock_subprocess.assert_called_once()
-    assert isinstance(output, Success)
-    assert output.data is None
-
-
-def test_run_kubectl_called_process_error_no_capture(
-    mock_subprocess: MagicMock, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Test kubectl command error handling with CalledProcessError in non-capture mode.
-
-    Verifies proper error handling when subprocess raises a CalledProcessError.
-    """
-    # Create a mock result with error
-    mock_result = Mock()
-    mock_result.returncode = 1
-    mock_result.stderr = "test error"
-    mock_subprocess.return_value = mock_result
-
-    result = run_kubectl(["get", "pods"], capture=False)
-    assert isinstance(result, Error)
-    # In the refactored code, when capture=False, the error message is "Command failed"
-    assert result.error == "Command failed"
+    output_result = run_kubectl(["get", "pods"])
+    mock_subprocess.assert_called_once_with(  # Full check for completeness
+        ["kubectl", "get", "pods"],
+        capture_output=True,
+        check=False,
+        text=True,
+        encoding="utf-8",
+    )
+    assert isinstance(output_result, Success)
+    assert output_result.data == "some data"
 
 
 # Test the create_kubectl_error function specifically
