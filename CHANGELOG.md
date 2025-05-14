@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `vibectl diff` subcommand to compare local configurations (files or stdin) against the live cluster state, with optional Vibe.AI summarization of changes.
+- Added comprehensive tests for the `vibectl diff` subcommand, achieving 100% code coverage for `vibectl/subcommands/diff_cmd.py`.
 - Planned: Implement `vibectl apply` subcommand with LLM-powered input fixing and vibe integration (WIP)
 
 ### Changed
