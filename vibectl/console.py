@@ -262,8 +262,8 @@ class ConsoleManager:
         latency_ms: float | None = None,
         tokens_in: int | None = None,
         tokens_out: int | None = None,
-        cache_hit: bool | None = None,
         source: str | None = None,
+        total_duration: float | None = None,
     ) -> None:
         """Display LLM metrics in a formatted way."""
         items = []
@@ -271,11 +271,10 @@ class ConsoleManager:
             items.append(f"[dim]Source:[/] {source}")
         if latency_ms is not None:
             items.append(f"[dim]Latency:[/] {latency_ms:.2f} ms")
+        if total_duration is not None:
+            items.append(f"[dim]Total Duration:[/] {total_duration:.2f} ms")
         if tokens_in is not None and tokens_out is not None:
             items.append(f"[dim]Tokens:[/] {tokens_in} in, {tokens_out} out")
-        if cache_hit is not None:
-            cache_status = "[green]HIT[/]" if cache_hit else "[yellow]MISS[/]"
-            items.append(f"[dim]Cache:[/] {cache_status}")
 
         if items:
             self.safe_print(

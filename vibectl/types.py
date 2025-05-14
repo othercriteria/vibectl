@@ -182,23 +182,36 @@ class LLMMetrics:
 
     token_input: int = 0
     token_output: int = 0
-    latency_ms: float = 0.0
+    latency_ms: float = (
+        0.0  # Latency for the main LLM provider call (e.g., response_obj.text())
+    )
+    total_processing_duration_ms: float | None = None
     fragments_used: list[str] | None = None  # Track fragments if used
-    cache_hit: bool | None = None  # Track if response was cached (if possible)
     call_count: int = 0
 
     def __add__(self, other: "LLMMetrics") -> "LLMMetrics":
         """Allows adding metrics together, useful for aggregation."""
         if not isinstance(other, LLMMetrics):
             return NotImplemented
-        # Note: fragment/cache status isn\'t additive in a simple way
-        # Primarily summing counts and latency. Caller handles lists/bools if needed.
+
+        self_total_duration = self.total_processing_duration_ms or 0.0
+        other_total_duration = other.total_processing_duration_ms or 0.0
+        summed_total_duration = self_total_duration + other_total_duration
+        final_summed_total_duration: float | None
+        if (
+            self.total_processing_duration_ms is None
+            and other.total_processing_duration_ms is None
+        ):
+            final_summed_total_duration = None
+        else:
+            final_summed_total_duration = summed_total_duration
+
         return LLMMetrics(
             token_input=self.token_input + other.token_input,
             token_output=self.token_output + other.token_output,
             latency_ms=self.latency_ms + other.latency_ms,
+            total_processing_duration_ms=final_summed_total_duration,
             call_count=self.call_count + other.call_count,
-            # fragments_used and cache_hit are not directly additive
         )
 
 

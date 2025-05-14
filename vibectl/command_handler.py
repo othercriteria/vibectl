@@ -353,8 +353,8 @@ def handle_command_output(
                                 latency_ms=memory_update_metrics.latency_ms,
                                 tokens_in=memory_update_metrics.token_input,
                                 tokens_out=memory_update_metrics.token_output,
-                                cache_hit=memory_update_metrics.cache_hit,
                                 source="LLM Memory Update (Recovery)",
+                                total_duration=memory_update_metrics.total_processing_duration_ms,
                             )
 
                     except Exception as mem_err:
@@ -438,7 +438,6 @@ def handle_command_output(
                     error="Input command output was None, cannot generate Vibe summary."
                 )
 
-    # --- Combine and Display Metrics --- #
     if output_flags.show_vibe:
         # Display only the metrics from the current result (summary/recovery)
         current_metrics = result_metrics  # Already extracted from output
@@ -448,13 +447,10 @@ def handle_command_output(
                 latency_ms=current_metrics.latency_ms,
                 tokens_in=current_metrics.token_input,
                 tokens_out=current_metrics.token_output,
-                cache_hit=current_metrics.cache_hit,
-                # Source should ideally be more specific here
                 source="LLM Output Processing",
+                total_duration=current_metrics.total_processing_duration_ms,
             )
-    # --- End Metrics Display --- #
 
-    # --- Final Return Value --- #
     # If vibe processing occurred and resulted in a Success/Error, return that.
     # Otherwise, return the original result (or Success if only raw was shown).
     if vibe_result:
@@ -465,7 +461,6 @@ def handle_command_output(
     else:
         # Return Success with the original output string if no vibe processing
         return Success(message=output_str if output_str is not None else "")
-    # --- End Final Return Value --- #
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -595,8 +590,8 @@ def _process_vibe_output(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
                 tokens_out=memory_update_metrics.token_output,
-                cache_hit=memory_update_metrics.cache_hit,
                 source="LLM Memory Update (Summary)",
+                total_duration=memory_update_metrics.total_processing_duration_ms,
             )
 
         # Return Success with the summary text and its metrics
@@ -723,11 +718,11 @@ async def handle_vibe_request(
     ):
         plan_metrics = plan_result.metrics
         console_manager.print_metrics(
-            latency_ms=plan_metrics.latency_ms,
+            source="LLM Planner",
             tokens_in=plan_metrics.token_input,
             tokens_out=plan_metrics.token_output,
-            cache_hit=plan_metrics.cache_hit,
-            source="LLM Planner",  # Indicate source is planning phase
+            latency_ms=plan_metrics.latency_ms,
+            total_duration=plan_metrics.total_processing_duration_ms,
         )
     # --- End Planning Metrics Display --- #
 
@@ -878,9 +873,6 @@ async def _confirm_and_execute_plan(
     # Create the display command using the helper function
     display_cmd = _create_display_command(kubectl_verb, kubectl_args, has_yaml_content)
 
-    # Keep the logic for cmd_for_display as it was, focusing on args
-    cmd_for_display = " ".join(_quote_args(kubectl_args))
-
     needs_conf = _needs_confirmation(
         original_command_verb, semiauto
     )  # Use original_command_verb
@@ -892,7 +884,6 @@ async def _confirm_and_execute_plan(
     if needs_conf:
         confirmation_result = _handle_command_confirmation(
             display_cmd=display_cmd,
-            cmd_for_display=cmd_for_display,
             semiauto=semiauto,
             model_name=output_flags.model_name,
             explanation=explanation,
@@ -944,8 +935,8 @@ async def _confirm_and_execute_plan(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
                 tokens_out=memory_update_metrics.token_output,
-                cache_hit=memory_update_metrics.cache_hit,
                 source="LLM Output Processing",
+                total_duration=memory_update_metrics.total_processing_duration_ms,
             )
     except Exception as mem_e:
         logger.error(f"Failed to update memory after command execution: {mem_e}")
@@ -971,7 +962,6 @@ async def _confirm_and_execute_plan(
 
 def _handle_command_confirmation(
     display_cmd: str,
-    cmd_for_display: str,
     semiauto: bool,
     model_name: str,
     explanation: str | None = None,
@@ -981,7 +971,6 @@ def _handle_command_confirmation(
 
     Args:
         display_cmd: The command string (used for logging/memory).
-        cmd_for_display: The command arguments part for display.
         semiauto: Whether this is operating in semiauto mode.
         model_name: The model name used.
         explanation: Optional explanation from the AI.
@@ -1007,9 +996,6 @@ def _handle_command_confirmation(
 
     if explanation:
         console_manager.print_note(f"AI Explanation: {explanation}")
-
-    # Print the available options clearly, using print with info style
-    # console_manager.print(f"\n{prompt_options}{prompt_suffix}", style="info")
 
     while True:
         # Use lowercased prompt for consistency
@@ -1058,8 +1044,7 @@ def _handle_command_confirmation(
         if choice in ["n", "b"]:
             # No or No But - don't execute the command
             logger.info(
-                f"User cancelled execution of planned command: "
-                f"kubectl {cmd_for_display} {display_cmd}"
+                f"User cancelled execution of planned command: kubectl {display_cmd}"
             )
             console_manager.print_cancelled()
 
@@ -1249,7 +1234,6 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
     """
     try:
         # Prepend the command verb to the arguments list for execution
-        # Ensure command is not empty before prepending
         full_args = [command, *args] if command else args
 
         if yaml_content:
@@ -1262,7 +1246,6 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
             return run_kubectl(full_args, capture=True)
     except Exception as e:
         logger.error("Error dispatching command execution: %s", e, exc_info=True)
-        # Use create_kubectl_error for consistency if possible, otherwise generic Error
         return create_kubectl_error(f"Error executing command: {e}", exception=e)
 
 
@@ -1272,7 +1255,7 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,  # Add parameter for metrics flag
+    show_metrics: bool | None = None,
 ) -> OutputFlags:
     """Configure output flags based on config.
 
@@ -1337,21 +1320,8 @@ def configure_output_flags(
         model_name=model_name,
         show_kubectl=show_kubectl_commands,
         warn_no_proxy=warn_no_proxy,
-        show_metrics=show_metrics_output,  # Pass the configured value
+        show_metrics=show_metrics_output,
     )
-
-
-def parse_kubectl_command(command_string: str) -> tuple[str, list[str]]:
-    """Parses a kubectl command string into command and arguments."""
-    # Split the command string into command and arguments
-    parts = command_string.split(maxsplit=1)
-    if len(parts) > 1:
-        command = parts[0]
-        args = parts[1].split()
-    else:
-        command = parts[0]
-        args = []
-    return command, args
 
 
 # Wrapper for wait command live display
@@ -1450,10 +1420,9 @@ async def handle_port_forward_with_live_display(
         summary_prompt_func=summary_prompt_func,
     )
 
-    # >>> ADDED: Process the result using handle_command_output <<<
     command_str = f"port-forward {resource} {' '.join(args)}"
     return handle_command_output(
-        output=pf_result,  # Pass the Result object directly
+        output=pf_result,
         output_flags=output_flags,
         summary_prompt_func=summary_prompt_func,
         command=command_str,
@@ -1523,14 +1492,14 @@ def _get_llm_plan(
     except Exception as e:
         error_msg = f"Failed to get model '{model_name}': {e}"
         logger.error(error_msg, exc_info=True)
-        update_memory(
+        error_memory_metrics = update_memory(
             command="system",
             command_output=error_msg,
             vibe_output=f"System Error: Failed to get model '{model_name}'.",
             model_name=model_name,
         )
         # Use create_api_error to allow potential recovery if config changes
-        return create_api_error(error_msg, e)
+        return create_api_error(error_msg, e, error_memory_metrics)
 
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
     logger.debug(

@@ -675,7 +675,7 @@ async def auto(
 @click.option(
     "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
 )
-def semiauto(
+async def semiauto(
     request: str | None,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -693,7 +693,7 @@ def semiauto(
     This can be useful for learning or when working with complex requests.
     """
     try:
-        result = run_semiauto_command(
+        result = await run_semiauto_command(
             request=request,
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,

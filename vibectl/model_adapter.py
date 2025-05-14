@@ -10,6 +10,7 @@ from the details of model interaction.
 import os
 import time
 from abc import ABC, abstractmethod
+from contextlib import ExitStack
 from typing import Any, Protocol, runtime_checkable
 
 import llm
@@ -29,6 +30,48 @@ from .types import (
     SystemFragments,
     UserFragments,
 )
+
+
+# NEW TimedOperation Context Manager
+class TimedOperation:
+    """Context manager to time an operation and log its duration."""
+
+    def __init__(self, logger_instance: Any, identifier: str, operation_name: str):
+        self.logger = logger_instance
+        self.identifier = identifier
+        self.operation_name = operation_name
+        self.start_time: float = 0.0
+        self.duration_ms: float = 0.0
+
+    def __enter__(self) -> "TimedOperation":
+        self.start_time = time.monotonic()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        end_time = time.monotonic()
+        self.duration_ms = (end_time - self.start_time) * 1000
+        self.logger.info(
+            "%s for %s took: %.2f ms",
+            self.operation_name,
+            self.identifier,
+            self.duration_ms,
+        )
+
+
+# Custom Exception for Adaptation Failures
+class LLMAdaptationError(ValueError):
+    """Custom exception for when LLM adaptation strategies are exhausted."""
+
+    def __init__(
+        self,
+        message: str,
+        final_attempt_count: int,
+        all_attempt_latencies_ms: list[float],
+        *args: Any,
+    ) -> None:
+        super().__init__(message, *args)
+        self.final_attempt_count = final_attempt_count
+        self.all_attempt_latencies_ms = all_attempt_latencies_ms
 
 
 @runtime_checkable
@@ -154,7 +197,7 @@ class ModelEnvironment:
             return "openai"
         elif name_lower.startswith("anthropic/") or "claude-" in name_lower:
             return "anthropic"
-        elif name_lower.startswith("ollama:"):
+        elif "ollama" in name_lower and ":" in name_lower:
             return "ollama"
         # Default to None if we can't determine the provider
         return None
@@ -233,10 +276,227 @@ class LLMModelAdapter(ModelAdapter):
             return "openai"
         elif name_lower.startswith("anthropic/") or "claude-" in name_lower:
             return "anthropic"
-        elif name_lower.startswith("ollama:"):
+        elif "ollama" in name_lower and ":" in name_lower:
             return "ollama"
         # Default to None if we can't determine the provider
         return None
+
+    def _get_token_usage(
+        self, response: ModelResponse, model_id: str
+    ) -> tuple[int, int]:
+        """Safely extracts token usage from a model response.
+
+        Args:
+            response: The model response object.
+            model_id: The ID of the model, for logging purposes.
+
+        Returns:
+            A tuple containing (token_input, token_output).
+        """
+        token_input = 0
+        token_output = 0
+        try:
+            usage_obj = response.usage()  # type: ignore[attr-defined]
+            if usage_obj:
+                raw_input = getattr(usage_obj, "input", None)
+                raw_output = getattr(usage_obj, "output", None)
+
+                try:
+                    token_input = int(raw_input) if raw_input is not None else 0
+                except (TypeError, ValueError):
+                    token_input = 0  # Default to 0 if conversion fails or type is wrong
+
+                try:
+                    token_output = int(raw_output) if raw_output is not None else 0
+                except (TypeError, ValueError):
+                    token_output = (
+                        0  # Default to 0 if conversion fails or type is wrong
+                    )
+
+            logger.debug(
+                "Token usage for model %s - Input: %d, Output: %d",
+                model_id,
+                token_input,
+                token_output,
+            )
+        except AttributeError:
+            logger.warning(
+                "Model %s response lacks usage() method for token counting.", model_id
+            )
+        except Exception as usage_err:
+            logger.warning(
+                "Failed to get token usage for model %s: %s", model_id, usage_err
+            )
+        return token_input, token_output
+
+    def _execute_single_prompt_attempt(
+        self, model: Any, prompt_kwargs: dict[str, Any]
+    ) -> ModelResponse:
+        """Executes a single prompt attempt and returns the validated response object.
+
+        Args:
+            model: The model instance.
+            prompt_kwargs: Keyword arguments for the model's prompt method.
+
+        Returns:
+            The validated ModelResponse object.
+
+        Raises:
+            AttributeError: If model.prompt has an issue with arguments.
+            TypeError: If the response object is not of the expected type.
+            Other exceptions from model.prompt().
+        """
+        response = model.prompt(**prompt_kwargs)  # type: ignore[misc]
+        if not isinstance(response, ModelResponse):
+            raise TypeError(f"Expected ModelResponse, got {type(response).__name__}")
+        return response
+
+    def _handle_prompt_execution_with_adaptation(
+        self,
+        model: Any,
+        initial_prompt_kwargs: dict[str, Any],
+        max_attempts: int,
+        all_attempt_latencies_ms_ref: list[float],
+    ) -> tuple[ModelResponse, int]:
+        """
+        Handles LLM prompt execution with adaptive retries for AttributeError.
+
+        Tries to adapt to common AttributeErrors like schema or fragment issues.
+        Other exceptions from the LLM call are re-raised immediately.
+
+        Args:
+            model: The model instance.
+            initial_prompt_kwargs: Initial keyword arguments for the prompt.
+            max_attempts: Maximum number of attempts.
+            all_attempt_latencies_ms_ref: List to append latencies of each attempt
+
+        Returns:
+            A tuple: (ModelResponse, successful_attempt_number).
+
+        Raises:
+            LLMAdaptationError: If all adaptation attempts for AttributeError fail.
+            Any other Exception from model.prompt() if not an AttributeError.
+        """
+        current_kwargs = initial_prompt_kwargs.copy()
+        schema_adaptation_done = False
+        fragments_adaptation_done = False
+
+        for attempt_num in range(1, max_attempts + 1):
+            start_attempt_time = time.monotonic()
+            try:
+                response_obj = self._execute_single_prompt_attempt(
+                    model, current_kwargs
+                )
+                end_attempt_time = time.monotonic()
+                current_llm_lib_latency_ms = (
+                    end_attempt_time - start_attempt_time
+                ) * 1000
+                all_attempt_latencies_ms_ref.append(current_llm_lib_latency_ms)
+
+                logger.info(
+                    "LLM library call for model %s succeeded on attempt %d "
+                    "(llm_lib_latency: %.2f ms).",
+                    model.model_id,
+                    attempt_num,
+                    current_llm_lib_latency_ms,
+                )
+                return response_obj, attempt_num
+            except AttributeError as attr_err:
+                end_attempt_time = time.monotonic()
+                all_attempt_latencies_ms_ref.append(
+                    (end_attempt_time - start_attempt_time) * 1000
+                )
+                err_str = str(attr_err).lower()
+                logger.warning(
+                    "Model %s raised AttributeError on attempt %d: %s. Adapting...",
+                    model.model_id,
+                    attempt_num,
+                    attr_err,
+                )
+
+                adapted = False
+                if (
+                    "schema" in err_str
+                    and "schema" in current_kwargs
+                    and not schema_adaptation_done
+                ):
+                    logger.info(
+                        "Attempting to adapt by removing 'schema' for model %s.",
+                        model.model_id,
+                    )
+                    current_kwargs.pop("schema")
+                    schema_adaptation_done = True
+                    adapted = True
+                elif (
+                    ("fragments" in err_str or "system" in err_str)
+                    and ("fragments" in current_kwargs or "system" in current_kwargs)
+                    and not fragments_adaptation_done
+                ):
+                    logger.info(
+                        "Attempting to adapt by combining 'system' and 'fragments' "
+                        "into 'prompt' for model %s.",
+                        model.model_id,
+                    )
+                    system_prompt_parts = []
+                    if "system" in current_kwargs:
+                        system_val = current_kwargs.pop("system")
+                        if isinstance(system_val, str):
+                            system_prompt_parts.append(system_val)
+                        elif isinstance(system_val, list):  # Should be SystemFragments
+                            system_prompt_parts.extend(system_val)
+
+                    user_fragments_parts = []
+                    if "fragments" in current_kwargs:
+                        fragments_val = current_kwargs.pop("fragments")
+                        if isinstance(fragments_val, list):  # Should be UserFragments
+                            user_fragments_parts.extend(fragments_val)
+
+                    full_prompt_parts = system_prompt_parts + user_fragments_parts
+                    current_kwargs["prompt"] = "\n\n".join(
+                        str(p) for p in full_prompt_parts
+                    )
+                    fragments_adaptation_done = True
+                    adapted = True
+
+                if adapted and attempt_num < max_attempts:
+                    logger.info(
+                        "Adaptation applied for model %s. Proceeding to attempt %d.",
+                        model.model_id,
+                        attempt_num + 1,
+                    )
+                    continue  # To the next iteration of the loop
+                else:
+                    # Either no adaptation was made for this AttributeError,
+                    # or it was the last attempt.
+                    final_msg = (
+                        f"Failed for model {model.model_id} due to persistent "
+                        f"AttributeError after {attempt_num} attempts and "
+                        f"exhausting adaptation strategies. Last error: {attr_err}"
+                    )
+                    logger.error(final_msg)
+                    raise LLMAdaptationError(
+                        final_msg, attempt_num, list(all_attempt_latencies_ms_ref)
+                    ) from attr_err
+            except Exception as e:  # Non-AttributeError from LLM call
+                end_attempt_time = time.monotonic()
+                all_attempt_latencies_ms_ref.append(
+                    (end_attempt_time - start_attempt_time) * 1000
+                )
+                logger.warning(
+                    "LLM call to model %s failed on attempt %d with "
+                    "non-AttributeError: %s",
+                    model.model_id,
+                    attempt_num,
+                    e,
+                )
+                raise  # Re-raise for the main execute handler
+
+        # Logically, the loop should always exit via a return or raise.
+        # This assertion is to satisfy linters and as a failsafe.
+        raise AssertionError(
+            "Reached end of _handle_prompt_execution_with_adaptation for "
+            f"{model.model_id}, which should be unreachable."
+        )
 
     def get_model(self, model_name: str) -> Any:
         """Get an LLM model instance by name, with caching.
@@ -312,199 +572,216 @@ class LLMModelAdapter(ModelAdapter):
             RecoverableApiError: If a potentially recoverable API error occurs.
             ValueError: If another error occurs during execution.
         """
-        logger.debug(
-            "Executing fragments on model '%s' with response_model: %s",
-            model.model_id,
-            response_model is not None,
-        )
-        start_time = time.monotonic()
-        latency_ms = 0.0
-        metrics = None
+        overall_start_time = time.monotonic()
+        current_total_processing_duration_ms: float | None = None
+        metrics: LLMMetrics | None = None
+        all_attempt_latencies_ms_list: list[float] = []
+        num_attempts_final = 0
+        max_adaptation_attempts = 3
+        text_extraction_duration_ms = 0.0  # Initialize
+
         try:
-            with ModelEnvironment(model.model_id, self.config):
-                kwargs_for_model_prompt: dict[str, Any] = {}
+            current_model_id_for_log = getattr(model, "model_id", "Unknown")
+            logger.debug(
+                "Executing call to model '%s' with response_model: %s",
+                current_model_id_for_log,
+                response_model is not None,
+            )
+
+            with ExitStack() as stack:
+                stack.enter_context(
+                    TimedOperation(
+                        logger,
+                        current_model_id_for_log,
+                        "Pre-LLM call setup (ModelEnv, args, schema)",
+                    )
+                )
+                stack.enter_context(
+                    ModelEnvironment(current_model_id_for_log, self.config)
+                )
+
+                initial_kwargs_for_model_prompt: dict[str, Any] = {}
                 if system_fragments:
-                    kwargs_for_model_prompt["system"] = "\n\n".join(system_fragments)
+                    initial_kwargs_for_model_prompt["system"] = "\n\n".join(
+                        system_fragments
+                    )
 
                 fragments_list: UserFragments = (
                     user_fragments if user_fragments else UserFragments([])
                 )
-                kwargs_for_model_prompt["fragments"] = fragments_list
+                initial_kwargs_for_model_prompt["fragments"] = fragments_list
 
                 if response_model:
+                    schema_timer = stack.enter_context(
+                        TimedOperation(
+                            logger, current_model_id_for_log, "Schema generation"
+                        )
+                    )
                     try:
                         schema_dict: dict[str, Any] = response_model.model_json_schema()
-                        kwargs_for_model_prompt["schema"] = schema_dict
-                        logger.debug("Generated schema for model: %s", schema_dict)
+                        initial_kwargs_for_model_prompt["schema"] = schema_dict
+                        logger.debug(
+                            "Generated schema for model %s: %s",
+                            current_model_id_for_log,
+                            schema_dict,
+                        )
                     except Exception as schema_exc:
                         logger.error(
-                            "Failed to generate schema from model %s: %s",
-                            response_model.__name__,
+                            "Failed to generate schema for model %s: %s. "
+                            "Duration: %.2f ms",
+                            current_model_id_for_log,
                             schema_exc,
+                            schema_timer.duration_ms,
                         )
-                        # Log and continue without schema
 
-                # Execute the prompt
-                try:
-                    # The model object type is Any, but we expect it
-                    # to have a .prompt method compatible with the
-                    # llm library's interface.
-                    response = model.prompt(**kwargs_for_model_prompt)  # type: ignore[misc]
-                    metrics_calculated_after_retry = (
-                        False  # Flag to check if metrics were set in fallback
-                    )
-                except AttributeError as attr_err:
-                    # Handle schema attribute error with fallback
-                    if (
-                        "schema" in str(attr_err)
-                        and "schema" in kwargs_for_model_prompt
-                    ):
-                        logger.warning(
-                            "Model %s does not support 'schema' argument. Retrying.",
-                            model.model_id,
-                        )
-                        kwargs_for_model_prompt.pop("schema")
-                        try:
-                            # --- Retry execution ---
-                            start_retry_time = (
-                                time.monotonic()
-                            )  # Use a separate start time for retry latency?
-                            response = model.prompt(**kwargs_for_model_prompt)  # type: ignore[misc]
-                            end_retry_time = time.monotonic()
-                            latency_ms_retry = (
-                                end_retry_time - start_retry_time
-                            ) * 1000
-                            # --- Calculate metrics INLINE after successful retry ---
-                            token_input_retry = 0
-                            token_output_retry = 0
-                            try:
-                                usage_obj = response.usage()
-                                if usage_obj:
-                                    token_input_retry = getattr(usage_obj, "input", 0)
-                                    token_output_retry = getattr(usage_obj, "output", 0)
-                                    # Ensure tokens are ints
-                                    token_input_retry = (
-                                        int(token_input_retry)
-                                        if token_input_retry is not None
-                                        else 0
-                                    )
-                                    token_output_retry = (
-                                        int(token_output_retry)
-                                        if token_output_retry is not None
-                                        else 0
-                                    )
-                                logger.debug(
-                                    "Retry Token usage - Input: %d, Output: %d",
-                                    token_input_retry,
-                                    token_output_retry,
-                                )
-                            except AttributeError:
-                                logger.warning(
-                                    "Retry: Model %s response lacks usage() method.",
-                                    model.model_id,
-                                )
-                            except Exception as usage_err:
-                                logger.warning(
-                                    "Retry: Failed to get token usage: %s", usage_err
-                                )
-                            # Create metrics object for the retry
-                            metrics = LLMMetrics(
-                                latency_ms=latency_ms_retry,
-                                token_input=token_input_retry,
-                                token_output=token_output_retry,
-                                call_count=2,  # Set to 2 as this is the second attempt
-                            )
-                            # --------------------------------------------------------
-                            metrics_calculated_after_retry = (
-                                True  # Mark that metrics are set
-                            )
-                        except Exception as retry_exc:
-                            logger.error(
-                                "LLM Execution Error on retry: %s",
-                                retry_exc,
-                                exc_info=True,
-                            )
-                            raise ValueError(
-                                f"LLM Execution Error: {retry_exc}"
-                            ) from retry_exc
-                    # Handle fragments/system attribute error
-                    elif "fragments" in str(attr_err) or "system" in str(attr_err):
-                        logger.error(
-                            "Model %s does not support fragments/system API: %s",
-                            model.model_id,
-                            attr_err,
-                        )
-                        raise ValueError(
-                            f"Model {model.model_id} incompatible with fragments API."
-                        ) from attr_err
-                    # Handle other AttributeErrors
-                    else:
-                        logger.error(f"LLM Execution Error: {attr_err}", exc_info=True)
-                        raise ValueError(
-                            f"LLM Execution Error: {attr_err}"
-                        ) from attr_err
+            (
+                response_obj,
+                success_attempt_num,
+            ) = self._handle_prompt_execution_with_adaptation(
+                model,
+                initial_kwargs_for_model_prompt,
+                max_adaptation_attempts,
+                all_attempt_latencies_ms_list,
+            )
 
-                if not isinstance(response, ModelResponse):
-                    raise TypeError(
-                        f"Expected ModelResponse, got {type(response).__name__}"
-                    )
+            num_attempts_final = success_attempt_num
+            llm_lib_latency_ms = all_attempt_latencies_ms_list[-1]
 
-                response_text = response.text()
+            with TimedOperation(
+                logger, current_model_id_for_log, "response_obj.text() call"
+            ) as text_timer:
+                response_text = response_obj.text()
+            text_extraction_duration_ms = text_timer.duration_ms  # Store for metrics
 
-                # --- Metrics Calculation (only if not calculated after retry) ---
-                if not metrics_calculated_after_retry:
-                    end_time = time.monotonic()
-                    latency_ms = (end_time - start_time) * 1000
-                    # --- Calculate metrics INLINE for the initial successful call ---
-                    token_input = 0
-                    token_output = 0
-                    try:
-                        usage_obj = response.usage()  # type: ignore[attr-defined]
-                        if usage_obj:
-                            token_input = getattr(usage_obj, "input", 0)
-                            token_output = getattr(usage_obj, "output", 0)
-                            token_input = (
-                                int(token_input) if token_input is not None else 0
-                            )
-                            token_output = (
-                                int(token_output) if token_output is not None else 0
-                            )
-                        logger.debug(
-                            "Token usage - Input: %d, Output: %d",
-                            token_input,
-                            token_output,
-                        )
-                    except AttributeError:
-                        logger.warning(
-                            "Model %s response lacks usage() method.", model.model_id
-                        )
-                    except Exception as usage_err:
-                        logger.warning("Failed to get token usage: %s", usage_err)
-                    # Create metrics object
-                    metrics = LLMMetrics(
-                        latency_ms=latency_ms,
-                        token_input=token_input,
-                        token_output=token_output,
-                        call_count=1,  # Set call count to 1 for initial successful call
-                    )
+            with TimedOperation(
+                logger, current_model_id_for_log, "_get_token_usage() call"
+            ):
+                token_input, token_output = self._get_token_usage(
+                    response_obj, current_model_id_for_log
+                )
 
-                return response_text, metrics
+            overall_end_time = time.monotonic()
+            current_total_processing_duration_ms = (
+                overall_end_time - overall_start_time
+            ) * 1000
+
+            metrics = LLMMetrics(
+                latency_ms=text_extraction_duration_ms,  # Use stored duration
+                total_processing_duration_ms=current_total_processing_duration_ms,
+                token_input=token_input,
+                token_output=token_output,
+                call_count=num_attempts_final,
+            )
+            logger.info(
+                "LLM call to model %s completed. Primary Latency (text_extraction): "
+                "%.2f ms, llm_lib_latency: %.2f ms, Total Duration: %.2f ms, "
+                "Tokens In: %d, Tokens Out: %d",
+                current_model_id_for_log,
+                text_extraction_duration_ms,
+                llm_lib_latency_ms,
+                current_total_processing_duration_ms,
+                token_input,
+                token_output,
+            )
+            return response_text, metrics
+
+        except LLMAdaptationError as lae:
+            num_attempts_final = lae.final_attempt_count
+            llm_lib_latency_ms = lae.all_attempt_latencies_ms[
+                -1
+            ]  # Latency of the last failed attempt by llm lib
+
+            overall_end_time = time.monotonic()
+            current_total_processing_duration_ms = (
+                overall_end_time - overall_start_time
+            ) * 1000
+
+            logger.error(
+                "LLM call to model %s failed after %d adaptation attempts. "
+                "Last llm_lib_latency: %.2f ms, Total Duration: %.2f ms. "
+                "Error: %s",
+                current_model_id_for_log,
+                num_attempts_final,
+                llm_lib_latency_ms,
+                current_total_processing_duration_ms,
+                lae.args[0],
+            )
+
+            metrics = LLMMetrics(
+                latency_ms=0.0,
+                total_processing_duration_ms=current_total_processing_duration_ms,
+                token_input=0,
+                token_output=0,
+                call_count=num_attempts_final,
+            )
+            raise ValueError(
+                f"LLM execution failed for model {current_model_id_for_log} after "
+                f"{num_attempts_final} adaptation attempts: {lae.args[0]}"
+            ) from lae
 
         except Exception as e:
-            end_time = time.monotonic()
-            latency_ms = (end_time - start_time) * 1000
-            error_str = str(e).lower()
-            logger.warning(
-                "LLM call failed after %.2f ms: %s", latency_ms, e, exc_info=True
-            )
-            metrics = LLMMetrics(latency_ms=latency_ms, call_count=1)
-            if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
-                logger.warning("Recoverable API error detected: %s", e)
-                raise RecoverableApiError(f"Recoverable API Error: {e}") from e
-            else:
-                raise ValueError(f"LLM Execution Error: {e}") from e
+            overall_end_time = time.monotonic()
+            current_total_processing_duration_ms = (
+                overall_end_time - overall_start_time
+            ) * 1000
 
-    # --- Wrapper Function for Metrics Logging --- #
+            if all_attempt_latencies_ms_list:
+                num_attempts_final = len(all_attempt_latencies_ms_list)
+                llm_lib_latency_ms_for_error = all_attempt_latencies_ms_list[-1]
+            else:
+                num_attempts_final = 1
+                llm_lib_latency_ms_for_error = (
+                    current_total_processing_duration_ms  # Best guess
+                )
+
+            error_str = str(e).lower()
+            current_model_id_for_log = getattr(model, "model_id", "Unknown")
+
+            logger.warning(
+                "LLM call to model '%s' failed. Attempts (if adaptation stage): %d. "
+                "Last/Relevant llm_lib_latency: %.2f ms, Total Duration: %.2f ms. "
+                "Error: %s",
+                current_model_id_for_log,
+                int(num_attempts_final),
+                llm_lib_latency_ms_for_error
+                if llm_lib_latency_ms_for_error is not None
+                else -1.0,
+                current_total_processing_duration_ms,
+                e,
+                exc_info=True,
+            )
+            metrics = LLMMetrics(
+                latency_ms=0.0,
+                total_processing_duration_ms=current_total_processing_duration_ms,
+                call_count=num_attempts_final,
+                token_input=0,
+                token_output=0,
+            )
+            if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
+                logger.warning(
+                    "Recoverable API error detected for model '%s': %s",
+                    current_model_id_for_log,
+                    e,
+                )
+                raise RecoverableApiError(
+                    "Recoverable API Error during LLM call to "
+                    f"{current_model_id_for_log}: {e}"
+                ) from e
+            else:
+                raise ValueError(
+                    f"LLM Execution Error for model {current_model_id_for_log}: {e}"
+                ) from e
+        finally:
+            if current_total_processing_duration_ms is None:
+                overall_end_time_finally = time.monotonic()
+                current_total_processing_duration_ms = (
+                    overall_end_time_finally - overall_start_time
+                ) * 1000
+                if metrics is not None and metrics.total_processing_duration_ms is None:
+                    metrics.total_processing_duration_ms = (
+                        current_total_processing_duration_ms
+                    )
+
     def execute_and_log_metrics(
         self,
         model: Any,
@@ -527,8 +804,6 @@ class LLMModelAdapter(ModelAdapter):
         except Exception as e:
             logger.exception("Unexpected error in execute_and_log_metrics wrapper")
             raise e
-
-    # ------------------------------------------ #
 
     def validate_model_name(self, model_name: str) -> str | None:
         """Validate the model name using llm library helper."""
