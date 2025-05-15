@@ -1,0 +1,6 @@
+Please create a Kubernetes deployment for me.
+It should be named 'nlp-deployment'.
+Use the nginx image, latest version.
+Expose port 80.
+I need 2 replicas to start with.
+Make sure it has a label 'env: production'.

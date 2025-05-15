@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: NonExistentKind
+metadata:
+  name: invalid-logic-resource
+spec:
+  someField: someValue
+  anotherField:
+    nested: true

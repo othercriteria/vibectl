@@ -54,6 +54,9 @@ This document provides an overview of the project's structure and organization.
 
 ### Examples (`examples/`)
 - Example usage scenarios and demo environments
+- `manifests/` - Example Kubernetes manifest files for testing various `vibectl` features.
+  - `apply/` - Manifests for testing `vibectl apply vibe` intelligent features.
+  - `diff/` - Manifests for testing `vibectl diff` functionality.
 - `k8s-sandbox/` - Kubernetes sandbox environments:
   - `ctf/` - CTF-style Docker sandbox demonstrating vibectl autonomy. See [examples/k8s-sandbox/ctf/STRUCTURE.md](examples/k8s-sandbox/ctf/STRUCTURE.md) for details.
   - `chaos-monkey/` - Red team vs. blue team competitive scenario with vibectl agents. See [examples/k8s-sandbox/chaos-monkey/STRUCTURE.md](examples/k8s-sandbox/chaos-monkey/STRUCTURE.md) for details.

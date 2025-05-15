@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invalid-syntax-deployment
+  labels:
+    app: myapp-invalid
+spec:
+  replicas: 1 # This comment is fine
+  selector:
+    matchLabels:
+      app: myapp-invalid
+  template:
+    metadata:
+      labels:
+        app: myapp-invalid
+    spec:
+      containers:
+      - name: myapp-container
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+  bad-indentation: here
+    - also-here
