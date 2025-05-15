@@ -1704,3 +1704,97 @@ spec:
     ),
     schema_definition=_SCHEMA_DEFINITION_JSON,
 )
+
+# Template for planning kubectl apply commands
+PLAN_APPLY_PROMPT: PromptFragments = create_planning_prompt(
+    command="apply",
+    description="applying configurations to Kubernetes resources using YAML manifests",
+    examples=Examples(
+        [
+            (
+                "apply the deployment from my-deployment.yaml",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-f", "my-deployment.yaml"],
+                    "explanation": "Applying configuration from my-deployment.yaml.",
+                },
+            ),
+            (
+                "apply all yaml files in the ./manifests directory",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-f", "./manifests"],
+                    "explanation": "Applying YAML files in the ./manifests directory.",
+                },
+            ),
+            (
+                "apply the following nginx pod manifest",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-f", "-"],
+                    "yaml_manifest": (
+                        "---\n"
+                        "apiVersion: v1\n"
+                        "kind: Pod\n"
+                        "metadata:\n"
+                        "  name: nginx-applied\n"
+                        "spec:\n"
+                        "  containers:\n"
+                        "  - name: nginx\n"
+                        "    image: nginx:latest\n"
+                        "    ports:\n"
+                        "    - containerPort: 80"
+                    ),
+                    "explanation": "Applying an Nginx pod manifest from input.",
+                },
+            ),
+            (
+                "apply the kustomization in ./my-app",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-k", "./my-app"],
+                    "explanation": "Applying the kustomization in ./my-app.",
+                },
+            ),
+            (
+                "see what a standard nginx pod would look like",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
+                    "explanation": "Dry run apply an Nginx pod with YAML output.",
+                },
+            ),
+        ]
+    ),
+    schema_definition=_SCHEMA_DEFINITION_JSON,
+)
+
+
+# Template for summarizing 'kubectl apply' output
+def apply_output_prompt(
+    config: Config | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for summarizing kubectl apply output.
+
+    Args:
+        config: Optional Config instance.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    return create_summary_prompt(
+        description="Summarize kubectl apply results.",
+        focus_points=[
+            "resources configured, created, or unchanged",
+            "any warnings or errors",
+            "server-side apply information if present",
+        ],
+        example_format=[
+            "[bold]pod/nginx-applied[/bold] [green]configured[/green]",
+            "[bold]deployment/frontend[/bold] [yellow]unchanged[/yellow]",
+            "[bold]service/backend[/bold] [green]created[/green]",
+            "[red]Error: unable to apply service/broken-svc[/red]: invalid spec",
+            "[yellow]Warning: server-side apply conflict for deployment/app[/yellow]",
+        ],
+        config=config,
+    )

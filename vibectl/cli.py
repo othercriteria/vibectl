@@ -21,6 +21,7 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
+from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
@@ -1439,6 +1440,33 @@ async def diff(
     """Diff configurations between local files/stdin and the live cluster state."""
     result = await run_diff_command(
         resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@common_command_options(include_show_kubectl=True)
+async def apply(
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+) -> None:
+    """Apply a configuration to the live cluster from a file, directory, or stdin."""
+    result = await run_apply_command(
         args=args,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,

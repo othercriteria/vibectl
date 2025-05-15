@@ -48,6 +48,9 @@ This document provides an overview of the project's structure and organization.
 - `conftest.py` - Pytest fixtures and configuration
 - `fixtures.py` - Shared test fixtures
 - `TESTING.md` - Test documentation and guidelines
+- `subcommands/` - Test modules for individual subcommands
+  - `test_diff_cmd.py` - Tests for the `vibectl diff` subcommand.
+  - `test_apply_cmd.py` - Tests for the `vibectl apply` subcommand.
 
 ### Examples (`examples/`)
 - Example usage scenarios and demo environments
