@@ -78,8 +78,8 @@ def create_kubectl_error(
 
 def run_kubectl(
     cmd: list[str],
-    config: Config | None = None,
     allowed_exit_codes: tuple[int, ...] = (0,),
+    config: Config | None = None,
 ) -> Result:
     """Run kubectl command and capture output.
 
@@ -113,25 +113,16 @@ def run_kubectl(
         stdout_data = process_result.stdout.strip() if process_result.stdout else ""
         stderr_data = process_result.stderr.strip() if process_result.stderr else ""
 
-        if process_result.returncode in allowed_exit_codes:
-            # Log stderr if present for these "successful" non-zero exits
-            if stderr_data:
-                logger.debug(
-                    f"kubectl command (exit code {process_result.returncode}) "
-                    f"produced stderr: '{stderr_data[:500]}...'"
-                )
-            else:
-                logger.debug(
-                    "kubectl command successful with exit code "
-                    f"{process_result.returncode}. "
-                    f"Stdout: '{stdout_data[:200]}...'"
-                )
+        logger.debug(
+            f"kubectl command (exit code {process_result.returncode}) "
+            f"produced stdout: '{stdout_data[:200]}...'"
+            f"produced stderr: '{stderr_data[:200]}...'"
+        )
 
+        if process_result.returncode in allowed_exit_codes:
             success_message = (
                 f"Command completed with exit code {process_result.returncode}."
             )
-            if process_result.returncode == 0 and not stdout_data and not stderr_data:
-                success_message = "Command completed successfully with no output."
 
             return Success(
                 data=stdout_data,
@@ -147,10 +138,6 @@ def run_kubectl(
                 f"{error_content}"
             )
 
-            logger.error(
-                f"kubectl command failed with exit code {process_result.returncode}. "
-                f"Stderr: '{stderr_data[:200]}...', Stdout: '{stdout_data[:200]}...'"
-            )
             return create_kubectl_error(error_message)
 
     except FileNotFoundError as e:
@@ -175,13 +162,17 @@ def run_kubectl(
 
 
 def run_kubectl_with_yaml(
-    args: list[str], yaml_content: str, config: Config | None = None
+    args: list[str],
+    yaml_content: str,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+    config: Config | None = None,
 ) -> Result:
     """Execute a kubectl command with YAML content via stdin or temp file.
 
     Args:
         args: List of command arguments (e.g., ['apply', '-f', '-'])
         yaml_content: YAML content string
+        allowed_exit_codes: Tuple of exit codes that should be treated as success.
         config: Optional Config instance to use
 
     Returns:
@@ -203,10 +194,8 @@ def run_kubectl_with_yaml(
             for i, arg in enumerate(args)
         )
 
-        full_cmd_list = ["kubectl", *args]  # Use splat operator
+        full_cmd_list = ["kubectl", *args]
         if kubeconfig_path:
-            # Insert after 'kubectl' but before other args if possible,
-            # or append if simpler and still correct.
             # For consistency with run_kubectl, append it.
             full_cmd_list.extend(["--kubeconfig", str(kubeconfig_path)])
 
@@ -237,12 +226,12 @@ def run_kubectl_with_yaml(
             stdout = stdout_bytes.decode("utf-8").strip()
             stderr = stderr_bytes.decode("utf-8").strip()
 
-            if process.returncode != 0:
+            if process.returncode not in allowed_exit_codes:
                 error_msg = (
                     stderr or f"Command failed with exit code {process.returncode}"
                 )
                 return create_kubectl_error(error_msg)
-            return Success(data=stdout)
+            return Success(data=stdout, original_exit_code=process.returncode)
         else:
             # If not using stdin, check if -f <file> was provided alongside YAML content
             if any(arg == "-f" or arg.startswith("-f=") for arg in args):
@@ -271,13 +260,16 @@ def run_kubectl_with_yaml(
                     cmd_to_run, capture_output=True, text=True, check=False
                 )
 
-                if proc.returncode != 0:
+                if proc.returncode not in allowed_exit_codes:
                     error_msg = (
                         proc.stderr.strip()
                         or f"Command failed with exit code {proc.returncode}"
                     )
                     return create_kubectl_error(error_msg)
-                return Success(data=proc.stdout.strip())
+                return Success(
+                    data=proc.stdout.strip(),
+                    original_exit_code=proc.returncode,
+                )
             finally:
                 if temp_path and os.path.exists(temp_path):
                     try:

@@ -6,19 +6,19 @@ This document provides an overview of the project's structure and organization.
 
 ### Core Package (`vibectl/`)
 - `cli.py` - Command-line interface implementation
-- `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`).
+- `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) and planning prompts like `PLAN_DIFF_PROMPT`.
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils` and live display to relevant modules.
-- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation. `run_kubectl` always captures output and can accept `allowed_exit_codes` to treat certain non-zero exits as success.
+- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils` and live display to relevant modules. Manages `allowed_exit_codes` for commands, often derived from LLM plans.
+- `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation. `run_kubectl` always captures output and uses an `allowed_exit_codes` parameter (defaulting to `(0,)`) to treat certain non-zero exits as success.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
-- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning)
-- `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait).
-- `live_display_watch.py` - Interactive live display implementation for watch/follow commands.
+- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning, which can include `allowed_exit_codes`).
+- `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait), now also respects `allowed_exit_codes`.
+- `live_display_watch.py` - Interactive live display implementation for watch/follow commands, now also respects `allowed_exit_codes`.
 - `types.py` - Custom type definitions (e.g., `ActionType` enum for schema, `Success` and `Error` result types. `Success` objects include `original_exit_code`).
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
@@ -113,13 +113,17 @@ This document provides an overview of the project's structure and organization.
    - `create_cmd.py` - Resource creation
    - `cluster_info_cmd.py` - Cluster information
    - `just_cmd.py` - Plain execution with memory
-   - `diff_cmd.py` - Diff configurations
+   - `diff_cmd.py` - Diff configurations against live state or Vibe.AI plans.
    - `version_cmd.py` - Version information
 
 ### Console Management
 1. `console.py` - Typed output methods with theme support
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
+   - Process command output for user feedback
+   - Port-forwarding functionality (partially delegated to live_display)
+   - Memory integration
+   - Handles `allowed_exit_codes` for commands.
 
 ### Prompt System
 1. `prompt.py` - Manages prompt construction for LLM interactions.
@@ -139,16 +143,10 @@ This document provides an overview of the project's structure and organization.
    - Port-forwarding functionality (partially delegated to live_display)
    - Memory integration
 2. `k8s_utils.py` - Core Kubernetes utilities
-   - Executes kubectl commands safely (standard sync, YAML input)
+   - Executes kubectl commands safely (standard sync, YAML input), respecting `allowed_exit_codes`.
    - Creates async kubectl processes for live display commands.
    - Handles errors specific to kubectl
-3. `prompt.py` - Memory integration in prompts
-   - `memory_update_prompt` for creating memory from command execution (returns `PromptFragments`).
-   - `memory_fuzzy_update_prompt` for manually updating memory (returns `PromptFragments`).
-   - Memory context is now generally passed into prompt-generating functions or included directly within specific fragment definitions rather than via a separate `include_memory_in_prompt` utility for all prompts.
-4. `command_handler.py` - Memory updates after command execution
-   - Updates memory with command context
-   - Tracks command execution flow
+   - `Success` result objects now include `original_exit_code`.
 
 ### Memory System
 1. `memory.py` - Core memory management with functions for:
@@ -233,5 +231,5 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Formatting instructions are managed via fragment helper functions.
    - Consistent prompt structure for all LLM interactions, built from fragments.
 5. Schema Integration (`schema.py`, `types.py`, `command_handler.py`)
-   - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure.
+   - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure. `LLMCommandResponse` can specify `allowed_exit_codes` for planned commands.
    - `model_adapter.py`

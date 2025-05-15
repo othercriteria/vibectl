@@ -122,8 +122,8 @@ async def test_handle_vibe_request_command_execution(
         mock_model_adapter.execute_and_log_metrics.assert_called_once()
         # Verify the command execution function was called correctly
         mock_execute.assert_called_once_with(
-            "delete", ["pod", "my-pod"], None
-        )  # verb, args_list, yaml
+            "delete", ["pod", "my-pod"], None, allowed_exit_codes=(0,)
+        )  # verb, args_list, yaml, allowed_exit_codes
         mock_update_memory.assert_called_once()
 
     assert isinstance(result, Success)
@@ -176,8 +176,8 @@ async def test_handle_vibe_request_yaml_execution(
             # === Verification ===
             mock_model_adapter.execute_and_log_metrics.assert_called_once()
             mock_execute.assert_called_once_with(
-                "delete", ["pod", "my-pod"], None
-            )  # verb, args_list, yaml
+                "delete", ["pod", "my-pod"], None, allowed_exit_codes=(0,)
+            )  # verb, args_list, yaml, allowed_exit_codes
 
             assert isinstance(result, Success)
             # Check the final message (which comes from

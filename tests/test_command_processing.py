@@ -156,7 +156,9 @@ def test_execute_command_with_spaces(
     ]
     # Store output but not used in assertions
     # Pass command and args separately, and add yaml_content=None
-    result = _execute_command(command=command, args=args, yaml_content=None)
+    result = _execute_command(
+        command=command, args=args, yaml_content=None, allowed_exit_codes=(0,)
+    )
 
     # Verify run_kubectl (mocked in command_handler) was called
     expected_command_args = [
@@ -165,7 +167,9 @@ def test_execute_command_with_spaces(
         "nginx-config",
         f"--from-literal=index.html={html_content}",
     ]
-    mock_ch_run_kubectl.assert_called_once_with(expected_command_args)
+    mock_ch_run_kubectl.assert_called_once_with(
+        expected_command_args, allowed_exit_codes=(0,)
+    )
     assert isinstance(result, Success)
     assert result.data == "configmap/test-map created"
 
@@ -259,7 +263,9 @@ def test_execute_command(
         mock_run_yaml.return_value = None
 
     # Call the function
-    actual_result = _execute_command(command, args, yaml_content)
+    actual_result = _execute_command(
+        command, args, yaml_content, allowed_exit_codes=(0,)
+    )
 
     # Assertions
     assert actual_result == expected_result

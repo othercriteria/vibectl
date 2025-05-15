@@ -328,7 +328,6 @@ async def create(
             sys.exit(1)
             return
         vibe_request = " ".join(args)
-        # Call run_vibe_command directly and await it
         result = await run_vibe_command(
             request=vibe_request,
             show_raw_output=show_raw_output,
@@ -340,13 +339,11 @@ async def create(
             show_metrics=show_metrics,
         )
     else:
-        # Call the helper function for standard create logic
         result = _create_command_logic(
             resource=resource,
             args=args,
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            # Correct order: show_kubectl before model
             show_kubectl=show_kubectl,
             model=model,
             freeze_memory=freeze_memory,

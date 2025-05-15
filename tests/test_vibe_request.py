@@ -130,6 +130,7 @@ async def test_handle_vibe_request_success(  # Added async
             True,  # live_display_flag (from handle_vibe_request live_display=True)
             default_output_flags,  # output_flags (was ANY)
             get_test_summary_fragments,  # summary_prompt_func (was ANY)
+            allowed_exit_codes=(0,),  # Add default allowed_exit_codes
         )
 
         # Verify the final result is the Success object returned by the patched function
@@ -561,7 +562,9 @@ async def test_handle_vibe_request_command_error(  # Added async
             )
 
     # Assertions (outside inner 'with' block, but _execute_cmd is from outer block)
-    mock_execute_cmd.assert_called_once_with("get", ["nonexistent-resource"], None)
+    mock_execute_cmd.assert_called_once_with(
+        "get", ["nonexistent-resource"], None, allowed_exit_codes=(0,)
+    )
 
     # Assert the mock patched in the 'with' block was called TWICE
     assert mock_update_memory_ch.call_count == 2
@@ -752,7 +755,9 @@ async def test_handle_vibe_request_yaml_response(  # Added async
             mock_prompt.assert_called_once()
             # Verify _execute_command was called with correct verb/args, None
             # for yaml_content
-            mock_execute_cmd.assert_called_once_with("apply", ["-f", "-"], None)
+            mock_execute_cmd.assert_called_once_with(
+                "apply", ["-f", "-"], None, allowed_exit_codes=(0,)
+            )
 
             # Verify handle_command_output was called
             mock_handle_output.assert_called_once()
@@ -934,7 +939,9 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
                         )
 
             # 2. Verify _execute_command was called with the LLM-planned command
-            mock_execute_cmd.assert_called_once_with(llm_verb, llm_args, None)
+            mock_execute_cmd.assert_called_once_with(
+                llm_verb, llm_args, None, allowed_exit_codes=(0,)
+            )
 
             # 3. Verify handle_command_output was called with the LLM-planned verb
             mock_handle_output.assert_called_once()

@@ -8,16 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `vibectl diff` subcommand to compare local configurations (files or stdin) against the live cluster state, with optional Vibe.AI summarization of changes.
+- `vibectl diff` subcommand to compare local configurations (files or stdin) or Vibe.AI planned configurations against the live cluster state, with optional Vibe.AI summarization of changes.
+- `PLAN_DIFF_PROMPT` for Vibe.AI to intelligently plan `kubectl diff` commands, including setting `allowed_exit_codes` to `[0, 1]`.
 - Added comprehensive tests for the `vibectl diff` subcommand, achieving 100% code coverage for `vibectl/subcommands/diff_cmd.py`.
 - Planned: Implement `vibectl apply` subcommand with LLM-powered input fixing and vibe integration (WIP)
 
 ### Changed
+- Refactored `allowed_exit_codes` handling throughout the application:
+  - `LLMCommandResponse` schema now supports an optional `allowed_exit_codes` field, allowing Vibe.AI to specify which exit codes are considered successful for a planned command.
+  - `run_kubectl` (in `vibectl/k8s_utils.py`) now consistently uses the `allowed_exit_codes` parameter.
+  - `Success` result objects now include `original_exit_code` to preserve the actual exit code of the command.
+  - Command handlers (`command_handler.py`, `live_display.py`, `live_display_watch.py`) now propagate `allowed_exit_codes` to `run_kubectl` and `run_kubectl_with_yaml`.
 - Refactored `run_kubectl` (in `vibectl/k8s_utils.py`):
   - Now always captures stdout/stderr.
   - Accepts `allowed_exit_codes` parameter to treat specific non-zero exit codes as success (e.g., for `kubectl diff`).
   - `Success` result objects now include `original_exit_code`.
-- Updated numerous tests and subcommand implementations to align with the `run_kubectl` refactoring.
+- Updated numerous tests and subcommand implementations to align with the `run_kubectl` refactoring and `allowed_exit_codes` propagation.
 
 ### Removed
 - Removed `capture` parameter from `run_kubectl` and its call sites, as output is now always captured.

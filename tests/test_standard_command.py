@@ -74,7 +74,7 @@ def test_handle_standard_command_logs(
 
     # Verify run_kubectl was called with correct args (no capture kwarg)
     mock_run_kubectl.assert_called_once_with(
-        ["logs", "pod/my-pod", "-c", "my-container"]
+        ["logs", "pod/my-pod", "-c", "my-container"], allowed_exit_codes=(0,)
     )
 
     # Verify handle_command_output was called correctly
@@ -117,7 +117,9 @@ def test_handle_standard_command_error_with_exception(
         summary_prompt_func=mock_summary_prompt,
     )
 
-    mock_run_kubectl.assert_called_once_with(["get", "pods", "mypod"])
+    mock_run_kubectl.assert_called_once_with(
+        ["get", "pods", "mypod"], allowed_exit_codes=(0,)
+    )
     mock_handle_output.assert_not_called()
 
     assert isinstance(result, Error)
@@ -149,7 +151,7 @@ def test_handle_standard_command_empty_output(
         summary_prompt_func=mock_summary_prompt,
     )
 
-    mock_run_kubectl.assert_called_once_with(["get", "pods"])
+    mock_run_kubectl.assert_called_once_with(["get", "pods"], allowed_exit_codes=(0,))
     mock_handle_output.assert_not_called()
 
     assert isinstance(result, Success)

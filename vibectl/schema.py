@@ -42,6 +42,16 @@ class LLMCommandResponse(BaseModel):
         None,
         description="Duration in seconds to wait. Required if action_type is WAIT.",
     )
+    # TODO: Consider adding a validator for allowed_exit_codes to ensure unique entries,
+    # though unclear if non-unique entries should cause outright rejection.
+    allowed_exit_codes: list[int] | None = Field(
+        None,
+        description=(
+            "List of allowed exit codes for the planned command. If not provided, "
+            "the system may use a default (e.g., [0]) or infer based on the "
+            "command verb in specific contexts."
+        ),
+    )
 
     @field_validator("commands", mode="before")
     @classmethod

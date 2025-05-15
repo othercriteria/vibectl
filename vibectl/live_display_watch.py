@@ -456,6 +456,7 @@ async def _execute_watch_with_live_display(
     args: tuple[str, ...],
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
+    allowed_exit_codes: tuple[int, ...] = (0,),
     config: Config | None = None,
 ) -> Result:
     """Executes the core logic for commands with `--watch` using a live display.
@@ -470,6 +471,7 @@ async def _execute_watch_with_live_display(
         args: Command arguments including resource name and conditions.
         output_flags: Flags controlling output format and LLM interaction.
         summary_prompt_func: Function to generate a summary prompt based on the output.
+        allowed_exit_codes: Tuple of exit codes that should be treated as success.
         config: Configuration object for the command.
 
     Returns:
@@ -920,7 +922,7 @@ async def _execute_watch_with_live_display(
                     WatchReason.INTERNAL_ERROR,
                     final_detail or "Process ended without exit code.",
                 )
-            elif process.returncode != 0:
+            elif process.returncode not in allowed_exit_codes:
                 final_outcome, final_reason = (
                     WatchOutcome.ERROR,
                     WatchReason.PROCESS_EXIT_NONZERO,
@@ -933,7 +935,10 @@ async def _execute_watch_with_live_display(
             )
             if final_outcome == WatchOutcome.ERROR:
                 return Error(error=current_status_info.detail or "Unknown watch error.")
-            return Success(data=current_status_info)
+            return Success(
+                data=current_status_info,
+                original_exit_code=process.returncode,
+            )
 
         except asyncio.CancelledError as e_cancel:
             detail = str(e_cancel) if str(e_cancel) else "Operation cancelled."
@@ -1101,4 +1106,8 @@ async def _execute_watch_with_live_display(
         if final_status_info.detail and final_status_info.outcome != WatchOutcome.ERROR:
             success_msg_parts.append(f"Message: {final_status_info.detail[:100]}")
 
-        return Success(message=" ".join(success_msg_parts), data=raw_output_str)
+        return Success(
+            message=" ".join(success_msg_parts),
+            data=raw_output_str,
+            original_exit_code=final_status_info.exit_code,
+        )

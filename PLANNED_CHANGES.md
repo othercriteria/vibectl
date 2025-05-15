@@ -9,13 +9,6 @@
   - Operates on a per-file basis.
 - Add tests for common use cases.
 
-## Kubectl Diff Subcommand
-- Implement basic `vibectl diff -f <filename>` functionality.
-- Show differences between local files and cluster state.
-- Integrate with `vibe` for planning and summarization.
-- Design diff logic to be potentially reusable by other subcommands (e.g., `edit`, `patch`).
-- Add tests for common use cases.
-
 ## Shared Functionality
 - Develop common utilities for file handling and resource parsing.
 - Ensure consistent error handling and reporting.

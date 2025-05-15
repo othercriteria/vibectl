@@ -70,6 +70,7 @@ def handle_standard_command(
     args: tuple,
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
+    allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> Result:
     """Handle standard kubectl commands like get, describe, logs.
 
@@ -82,7 +83,12 @@ def handle_standard_command(
     Returns:
         Result object containing output or error
     """
-    result = _run_standard_kubectl_command(command, resource, args)
+    result = _run_standard_kubectl_command(
+        command,
+        resource,
+        args,
+        allowed_exit_codes=allowed_exit_codes,
+    )
 
     if isinstance(result, Error):
         # Handle API errors specifically if needed
@@ -127,7 +133,12 @@ def handle_standard_command(
         return _handle_standard_command_error(command, resource, args, e)
 
 
-def _run_standard_kubectl_command(command: str, resource: str, args: tuple) -> Result:
+def _run_standard_kubectl_command(
+    command: str,
+    resource: str,
+    args: tuple,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+) -> Result:
     """Run a standard kubectl command and handle basic error cases.
 
     Args:
@@ -144,7 +155,7 @@ def _run_standard_kubectl_command(command: str, resource: str, args: tuple) -> R
         cmd_args.extend(args)
 
     # Run kubectl and get result
-    kubectl_result = run_kubectl(cmd_args)
+    kubectl_result = run_kubectl(cmd_args, allowed_exit_codes=allowed_exit_codes)
 
     # Handle errors from kubectl
     if isinstance(kubectl_result, Error):
@@ -811,6 +822,7 @@ async def handle_vibe_request(
         # Extract verb and args using helper
         raw_llm_commands = response.commands or []
         kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
+        allowed_exit_codes: tuple[int, ...] = response.allowed_exit_codes or (0,)
 
         # Handle error from extraction helper
         if kubectl_verb is None:
@@ -834,6 +846,7 @@ async def handle_vibe_request(
                 args=pf_args,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
+                allowed_exit_codes=allowed_exit_codes,
             )
         else:
             # Confirm and execute the plan using a helper function
@@ -849,6 +862,7 @@ async def handle_vibe_request(
                 live_display,
                 output_flags,
                 summary_prompt_func,
+                allowed_exit_codes=allowed_exit_codes,
             )
 
     else:  # Default case (Unknown ActionType)
@@ -871,6 +885,7 @@ async def _confirm_and_execute_plan(
     live_display: bool,
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
+    allowed_exit_codes: tuple[int, ...],
 ) -> Result:
     """Confirm and execute the kubectl command plan."""
     # Determine if YAML content is present for display formatting
@@ -909,7 +924,12 @@ async def _confirm_and_execute_plan(
 
     # Execute the command
     logger.info(f"'{kubectl_verb}' command dispatched to standard handler.")
-    result = _execute_command(kubectl_verb, kubectl_args, yaml_content)
+    result = _execute_command(
+        kubectl_verb,
+        kubectl_args,
+        yaml_content,
+        allowed_exit_codes=allowed_exit_codes,
+    )
 
     logger.debug(
         f"Result type={type(result)}, result.data='{getattr(result, 'data', None)}'"
@@ -1210,14 +1230,19 @@ def _needs_confirmation(verb: str, semiauto: bool) -> bool:
     return needs_conf
 
 
-def _execute_command(command: str, args: list[str], yaml_content: str | None) -> Result:
+def _execute_command(
+    command: str,
+    args: list[str],
+    yaml_content: str | None,
+    allowed_exit_codes: tuple[int, ...],
+) -> Result:
     """Execute the kubectl command by dispatching to the appropriate utility function.
 
     Args:
         command: The kubectl command verb (e.g., 'get', 'delete')
         args: List of command arguments (e.g., ['pods', '-n', 'default'])
         yaml_content: YAML content if present
-
+        allowed_exit_codes: Tuple of exit codes that should be treated as success
     Returns:
         Result with Success containing command output or Error with error information
     """
@@ -1230,9 +1255,14 @@ def _execute_command(command: str, args: list[str], yaml_content: str | None) ->
             # Pass the combined args (command + original args)
             # Instantiate Config to pass to run_kubectl_with_yaml
             cfg = Config()
-            return run_kubectl_with_yaml(full_args, yaml_content, config=cfg)
+            return run_kubectl_with_yaml(
+                full_args,
+                yaml_content,
+                allowed_exit_codes=allowed_exit_codes,
+                config=cfg,
+            )
         else:
-            return run_kubectl(full_args)
+            return run_kubectl(full_args, allowed_exit_codes=allowed_exit_codes)
     except Exception as e:
         logger.error("Error dispatching command execution: %s", e, exc_info=True)
         return create_kubectl_error(f"Error executing command: {e}", exception=e)
@@ -1367,6 +1397,7 @@ async def handle_port_forward_with_live_display(
     args: tuple[str, ...],
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
+    allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> Result:
     """Handles `kubectl port-forward` by preparing args and invoking live display.
 
@@ -1374,7 +1405,7 @@ async def handle_port_forward_with_live_display(
         resource: The resource type (e.g., pod, service).
         args: Command arguments including resource name and port mappings.
         output_flags: Flags controlling output format.
-
+        allowed_exit_codes: Tuple of exit codes that should be treated as success
     Returns:
         Result from the live display worker function.
     """
@@ -1407,6 +1438,7 @@ async def handle_port_forward_with_live_display(
         remote_port=remote_port,
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
+        allowed_exit_codes=allowed_exit_codes,
     )
 
     command_str = f"port-forward {resource} {' '.join(args)}"

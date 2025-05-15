@@ -104,7 +104,9 @@ Key fields:
 - `yaml_manifest`: YAML content as a string (primarily for `create`).
 - `explanation`: Brief explanation of the planned arguments.
 - `error`: Required if action_type is ERROR (e.g., request is unclear).
-- `wait_duration_seconds`: Required if action_type is WAIT.""")
+- `wait_duration_seconds`: Required if action_type is WAIT.
+- `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
+  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.""")
     )
 
     # System: Formatted examples
@@ -1304,6 +1306,9 @@ Key fields reminder:
 - `error`: A description of why you will not plan a next command. Required if
   action_type is ERROR.
 - `explanation`: Brief explanation justifying the action taken.
+- `wait_duration_seconds`: Required if action_type is WAIT.
+- `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
+  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
 - `wait_duration_seconds`: Required if action_type is WAIT."""
         )
     )
@@ -1327,6 +1332,15 @@ Output:
 {  "action_type": "COMMAND",
     "commands": ["get", "pods", "-l", "app=health-check"],
     "explanation": "Describing the health-check pod. Database deployment next..."
+}
+
+Memory: ""
+Request: "What are the differences for my-deployment.yaml?"
+Output:
+{  "action_type": "COMMAND",
+    "commands": ["diff", "-f", "my-deployment.yaml"],
+    "explanation": "Diffing the local file my-deployment.yaml against the cluster.",
+    "allowed_exit_codes": [0, 1]
 }
 
 Memory: "We need to debug why the database pod keeps crashing."
@@ -1619,3 +1633,74 @@ def diff_output_prompt(
         ],
         config=config,
     )
+
+
+# Template for planning kubectl diff commands
+PLAN_DIFF_PROMPT: PromptFragments = create_planning_prompt(
+    command="diff",
+    description="diff'ing a specified configuration against the live cluster state",
+    examples=Examples(
+        [
+            (
+                "server-side diff for local file examples/my-app.yaml",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["--server-side=true", "-f", "my-app.yaml"],
+                    "explanation": "Diffing local file my-app.yaml server-side.",
+                    "allowed_exit_codes": [0, 1],
+                },
+            ),
+            (
+                "diff the manifest at https://foo.com/manifests/pod.yaml",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-f", "https://foo.com/manifests/pod.yaml"],
+                    "explanation": "Diffing remote manifest from URL foo.com.",
+                    "allowed_exit_codes": [0, 1],
+                },
+            ),
+            (
+                "diff a generated minimal nginx deployment in staging",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-n", "staging", "-f", "-"],
+                    "yaml_manifest": (
+                        """---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-minimal-diff
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-diff
+  template:
+    metadata:
+      labels:
+        app: nginx-diff
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80"""
+                    ),
+                    "explanation": "Diffing a generated minimal Nginx deployment.",
+                    "allowed_exit_codes": [0, 1],
+                },
+            ),
+            (
+                "diff file.yaml recursively in dir/",
+                {
+                    "action_type": "COMMAND",
+                    "commands": ["-f", "dir/file.yaml", "-R"],
+                    "explanation": "Recursively diffing from dir/file.yaml.",
+                    "allowed_exit_codes": [0, 1],
+                },
+            ),
+        ]
+    ),
+    schema_definition=_SCHEMA_DEFINITION_JSON,
+)

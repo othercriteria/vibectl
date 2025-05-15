@@ -219,7 +219,9 @@ async def test_vibe_delete_with_confirmation(
         # Assert downstream mocks were called
         mock_click_prompt.assert_called_once()
         # Expect the original command verb "delete", and args from LLM plan
-        mock_execute_cmd.assert_called_once_with("delete", ["pod", "my-pod"], None)
+        mock_execute_cmd.assert_called_once_with(
+            "delete", ["pod", "my-pod"], None, allowed_exit_codes=(0,)
+        )
 
     # Verify memory was updated (using the mock_handle_output side effect)
     mock_update_memory, _ = mock_memory
@@ -364,7 +366,9 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
 
         # Verify _execute_command WAS called
         # Expect the original command verb "delete", and args from LLM plan
-        mock_execute_cmd.assert_called_once_with("delete", ["pod", "bypass-pod"], None)
+        mock_execute_cmd.assert_called_once_with(
+            "delete", ["pod", "bypass-pod"], None, allowed_exit_codes=(0,)
+        )
         # Assert handle_command_output was called with the success result
         mock_handle_output.assert_called_once_with(
             mock_execute_cmd.return_value,
@@ -429,7 +433,9 @@ async def test_vibe_non_delete_commands_skip_confirmation(
 
         # Verify _execute_command WAS called
         # Expect the original command verb "get", and args from LLM plan
-        mock_execute_cmd.assert_called_once_with("get", ["pods", "-A"], None)
+        mock_execute_cmd.assert_called_once_with(
+            "get", ["pods", "-A"], None, allowed_exit_codes=(0,)
+        )
         # Assert handle_command_output was called
         mock_handle_output.assert_called_once_with(
             mock_execute_cmd.return_value,
@@ -507,7 +513,9 @@ async def test_vibe_delete_confirmation_memory_option(
         mock_console.safe_print.assert_called_once()
         # Verify the command *was* executed after 'y'
         # Expect the original command verb "delete", and args from LLM plan
-        mock_execute_cmd.assert_called_once_with("delete", ["pod", "nginx-mem"], None)
+        mock_execute_cmd.assert_called_once_with(
+            "delete", ["pod", "nginx-mem"], None, allowed_exit_codes=(0,)
+        )
 
         # Verify result is Success
         assert isinstance(result, Success)

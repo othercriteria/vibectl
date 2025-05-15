@@ -60,9 +60,11 @@ async def test_run_diff_command_success_no_differences(
     assert result.message == "Processed: no differences found"
     assert result.original_exit_code == 0
     assert not result.continue_execution  # Check the hack
-    mock_logger.info.assert_called_once_with(
+    mock_logger.info.assert_any_call(
         "Invoking 'diff' subcommand with resource: pod/my-pod, args: ('-n', 'default')"
     )
+    mock_logger.info.assert_any_call("Completed direct 'diff' subcommand execution.")
+    assert mock_logger.info.call_count == 2
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -140,10 +142,12 @@ async def test_run_diff_command_success_with_differences(
     assert result.message == "Processed: differences found"
     assert result.original_exit_code == 1
     assert not result.continue_execution  # Check the hack
-    mock_logger.info.assert_called_once_with(
+    mock_logger.info.assert_any_call(
         "Invoking 'diff' subcommand with resource: deployment/my-app, "
         "args: ('-n', 'prod', '-f', 'app.yaml')"
     )
+    mock_logger.info.assert_any_call("Completed direct 'diff' subcommand execution.")
+    assert mock_logger.info.call_count == 2
     mock_configure_memory_flags.assert_called_once_with(True, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=True,
@@ -259,15 +263,17 @@ async def test_run_diff_command_handle_output_error(
     mock_configure_output_flags.return_value = mock_output_flags
 
     # Mock run_kubectl to return Success
-    mock_kubectl_result = Success(message="kubectl success", original_exit_code=0)
+    mock_kubectl_result = Success(
+        message="diff output", original_exit_code=0, continue_execution=True
+    )
     # Mock handle_command_output to return Error
-    mock_handle_output_error = Error(error="handle_output failed")
+    mock_handle_output_error = Error(error="Failed to process diff output")
 
     mock_to_thread.side_effect = [mock_kubectl_result, mock_handle_output_error]
 
     result = await run_diff_command(
-        resource="configmap/my-cm",
-        args=(),
+        resource="configmap/my-config",
+        args=("-n", "test"),
         show_raw_output=False,
         show_vibe=True,
         show_kubectl=False,
@@ -278,13 +284,16 @@ async def test_run_diff_command_handle_output_error(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "handle_output failed"
-    mock_logger.info.assert_called_once_with(
-        "Invoking 'diff' subcommand with resource: configmap/my-cm, args: ()"
+    assert result.error == "Failed to process diff output"
+    # The first info log call happens before handle_command_output error
+    mock_logger.info.assert_any_call(
+        "Invoking 'diff' subcommand with resource: configmap/my-config, "
+        "args: ('-n', 'test')"
     )
-    # logger.error should NOT be called here, as the error is from
-    # handle_command_output, not kubectl
-    mock_logger.error.assert_not_called()
+    # The second info log "Completed direct 'diff' subcommand execution." also happens
+    mock_logger.info.assert_any_call("Completed direct 'diff' subcommand execution.")
+    assert mock_logger.info.call_count == 2
+    mock_logger.error.assert_not_called()  # No _kubectl_ error
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -298,7 +307,7 @@ async def test_run_diff_command_handle_output_error(
     assert mock_to_thread.call_count == 2
     mock_to_thread.assert_any_call(
         ANY,  # run_kubectl function
-        cmd=["diff", "configmap/my-cm"],
+        cmd=["diff", "configmap/my-config", "-n", "test"],
         config=mock_config_instance,
         allowed_exit_codes=(0, 1),
     )
@@ -310,8 +319,106 @@ async def test_run_diff_command_handle_output_error(
     )
 
 
-# Remove placeholder test
-# @pytest.mark.asyncio
-# async def test_placeholder():
-#    """Placeholder test."""
-#    assert True
+@pytest.mark.asyncio
+@patch("vibectl.subcommands.diff_cmd.configure_output_flags")
+@patch("vibectl.subcommands.diff_cmd.configure_memory_flags")
+async def test_run_diff_command_vibe_missing_request(
+    mock_configure_memory_flags: MagicMock,
+    mock_configure_output_flags: MagicMock,
+) -> None:
+    """Test run_diff_command with 'vibe' resource but no request args."""
+    mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_configure_output_flags.return_value = mock_output_flags
+
+    result = await run_diff_command(
+        resource="vibe",
+        args=(),  # No arguments provided
+        show_raw_output=False,
+        show_vibe=True,
+        show_kubectl=False,
+        model="test-model",
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_metrics=False,
+    )
+
+    assert isinstance(result, Error)
+    assert "Missing request after 'vibe' command" in result.error
+    mock_configure_memory_flags.assert_called_once_with(False, False)
+    mock_configure_output_flags.assert_called_once_with(
+        show_raw_output=False,
+        show_vibe=True,
+        model="test-model",
+        show_kubectl=False,
+        show_metrics=False,
+    )
+
+
+@pytest.mark.asyncio
+@patch("vibectl.subcommands.diff_cmd.handle_vibe_request")
+@patch("vibectl.subcommands.diff_cmd.PLAN_DIFF_PROMPT", new_callable=MagicMock)
+@patch("vibectl.subcommands.diff_cmd.configure_output_flags")
+@patch("vibectl.subcommands.diff_cmd.configure_memory_flags")
+@patch("vibectl.subcommands.diff_cmd.logger")
+async def test_run_diff_command_vibe_error_from_handler(
+    mock_logger: MagicMock,
+    mock_configure_memory_flags: MagicMock,
+    mock_configure_output_flags: MagicMock,
+    mock_plan_diff_prompt: MagicMock,
+    mock_handle_vibe_request: MagicMock,
+) -> None:
+    """Test run_diff_command with 'vibe' where handle_vibe_request returns Error."""
+    mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_configure_output_flags.return_value = mock_output_flags
+
+    mock_vibe_error_result = Error(error="Vibe diff failed badly")
+    mock_handle_vibe_request.return_value = mock_vibe_error_result
+
+    request_str = "this request will fail"
+    args = tuple(request_str.split(" "))
+
+    result = await run_diff_command(
+        resource="vibe",
+        args=args,
+        show_raw_output=False,
+        show_vibe=False,
+        show_kubectl=False,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=True,
+        show_metrics=False,
+    )
+
+    assert result is mock_vibe_error_result
+
+    mock_logger.info.assert_any_call(
+        f"Invoking 'diff' subcommand with resource: vibe, args: {args}"
+    )
+    mock_logger.info.assert_any_call(f"Planning how to: {request_str}")
+    mock_logger.error.assert_called_once_with(
+        f"Error from handle_vibe_request: {mock_vibe_error_result.error}"
+    )
+    # Ensure the "Completed" log is not called in error case
+    assert all(
+        "Completed 'diff' subcommand for vibe request." not in call.args[0]
+        for call in mock_logger.info.call_args_list
+    )
+    # Invoking and Planning logs = 2 calls
+    assert mock_logger.info.call_count == 2
+
+    mock_configure_memory_flags.assert_called_once_with(False, True)
+    mock_configure_output_flags.assert_called_once_with(
+        show_raw_output=False,
+        show_vibe=False,
+        model=None,
+        show_kubectl=False,
+        show_metrics=False,
+    )
+    mock_handle_vibe_request.assert_called_once()
+    call_args_hvr = mock_handle_vibe_request.call_args.kwargs
+    assert call_args_hvr["request"] == request_str
+    assert call_args_hvr["command"] == "diff"
+    assert call_args_hvr["plan_prompt_func"]() is mock_plan_diff_prompt
+    assert call_args_hvr["summary_prompt_func"] == diff_output_prompt
+    assert call_args_hvr["output_flags"] is mock_output_flags
+    assert call_args_hvr["yes"] is False

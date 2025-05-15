@@ -418,6 +418,11 @@ async def test_handle_vibe_request_error_recovery_flow(
         # Mock memory include to just return the prompt
         mock_include_memory.side_effect = lambda p, **k: p
 
+        # Corrected: Get the mock adapter instance that has the side_effect list
+        # This is the instance on which execute_and_log_metrics will be called
+        # and its call_count asserted later.
+        correct_mock_adapter_instance = mock_get_adapter.return_value
+
         # Mock handle_command_output to simulate its behavior on error
         # It should receive the Error, generate recovery, and return the Error
         def handle_output_side_effect(
@@ -433,13 +438,14 @@ async def test_handle_vibe_request_error_recovery_flow(
 
             if isinstance(output_res, Error):
                 # Simulate recovery suggestion logic within the mock
-                model_adapter = mock_get_adapter()
-                # Corrected recovery prompt call - use error message
+                # Use the correct_mock_adapter_instance captured from the outer scope
                 recovery_prompt_content = mock_recovery_prompt(output_res.error)
-                # Execute the second LLM call for recovery
-                # UNPACK THE TUPLE HERE
-                llm_response_tuple = model_adapter.execute_and_log_metrics(
-                    model_adapter.get_model(), recovery_prompt_content
+                # Execute the second LLM call for recovery using the correct instance
+                llm_response_tuple = (
+                    correct_mock_adapter_instance.execute_and_log_metrics(
+                        correct_mock_adapter_instance.get_model(),
+                        recovery_prompt_content,
+                    )
                 )
                 llm_recovery_response_json = llm_response_tuple[
                     0
@@ -511,7 +517,9 @@ async def test_handle_vibe_request_error_recovery_flow(
         )
 
         # Verify _execute_command was called with the correct verb and args
-        mock_execute_cmd.assert_called_once_with(kubectl_verb, kubectl_args, None)
+        mock_execute_cmd.assert_called_once_with(
+            kubectl_verb, kubectl_args, None, allowed_exit_codes=(0,)
+        )
 
         # Verify handle_command_output was called with the Error object
         mock_handle_output.assert_called_once()
