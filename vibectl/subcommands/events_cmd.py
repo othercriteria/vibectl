@@ -99,7 +99,7 @@ async def run_events_command(
         try:
             cmd = ["events", *args]
             logger.info(f"Running kubectl command: {' '.join(cmd)}")
-            kubectl_result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+            kubectl_result = await asyncio.to_thread(run_kubectl, cmd)
 
             if isinstance(kubectl_result, Error):
                 logger.error(f"Error running kubectl: {kubectl_result.error}")

@@ -68,33 +68,25 @@ async def run_version_command(
                 return Error(error="Exception in handle_vibe_request", exception=e)
 
         # Standard version command
-        cmd = ["version", "--output=json", *args]  # Prefer json for structured output
+        cmd = ["version", *args]  # Prefer json for structured output
+        if "--output=json" not in args:
+            cmd.append("--output=json")
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
 
         try:
-            # Use asyncio.to_thread for the sync kubectl call
-            # run_kubectl returns Result (Success or Error)
-            kubectl_result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+            # Run kubectl version in a separate thread to avoid blocking asyncio loop
+            output = await asyncio.to_thread(run_kubectl, cmd)
 
-            # Handle Error from run_kubectl
-            if isinstance(kubectl_result, Error):
-                logger.error(f"Error running kubectl: {kubectl_result.error}")
-                # Propagate the error object
-                return kubectl_result
+            if isinstance(output, Error):
+                return output
 
-            # Handle Success from run_kubectl
-            output_data = kubectl_result.data
-
-            if not output_data:
+            if not output.data:
                 logger.info("No output from kubectl version.")
-                # Print note to console as well
-                console_manager.print_note("No output from kubectl version.")
                 return Success(message="No output from kubectl version.")
 
-            # If we have output_data, process it
             await asyncio.to_thread(
                 handle_command_output,
-                output=output_data,
+                output=output,  # Pass the Success object
                 output_flags=output_flags,
                 summary_prompt_func=version_prompt,
             )

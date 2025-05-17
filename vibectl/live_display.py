@@ -119,7 +119,7 @@ async def _execute_wait_with_live_display(
 
         # Execute the command in a separate thread to avoid blocking the event loop
         # We use asyncio.to_thread to run the blocking kubectl call in a thread pool
-        return await asyncio.to_thread(run_kubectl, cmd_args, capture=True)
+        return await asyncio.to_thread(run_kubectl, cmd_args)
 
     # Create a coroutine to update the progress display continuously
     async def update_progress(task_id: TaskID, progress: Progress) -> None:
@@ -321,12 +321,13 @@ async def _execute_port_forward_with_live_display(
     resource: str,
     args: tuple[str, ...],
     output_flags: OutputFlags,
-    port_mapping: str,  # Added parameter
-    local_port: str,  # Added parameter
-    remote_port: str,  # Added parameter
-    display_text: str,  # Added parameter
-    summary_prompt_func: SummaryPromptFragmentFunc,  # Updated type hint
-    config: Config | None = None,  # Added config
+    port_mapping: str,
+    local_port: str,
+    remote_port: str,
+    display_text: str,
+    summary_prompt_func: SummaryPromptFragmentFunc,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+    config: Config | None = None,
 ) -> Result:
     """Executes the core logic for `kubectl port-forward` with live traffic display.
 
@@ -619,7 +620,7 @@ async def _execute_port_forward_with_live_display(
                     await process.wait()
 
                     # If we get here, the process completed or errored
-                    if process.returncode != 0:
+                    if process.returncode not in allowed_exit_codes:
                         # Read error output
                         stderr = await process.stderr.read() if process.stderr else b""
                         error_msg = stderr.decode("utf-8").strip()
@@ -680,7 +681,10 @@ async def _execute_port_forward_with_live_display(
             if error_detail:
                 return Error(error=error_detail)
             else:
-                return Success(data=(process, final_status))
+                return Success(
+                    data=(process, final_status),
+                    original_exit_code=process.returncode,
+                )
 
         # Use the new runner
         loop_result = await _run_async_main(
@@ -723,7 +727,7 @@ async def _execute_port_forward_with_live_display(
                 if (
                     process
                     and process.returncode is not None
-                    and process.returncode != 0
+                    and process.returncode not in allowed_exit_codes
                     and not stats.error_messages
                 ):
                     # Capture exit code if no stderr message was logged
@@ -875,10 +879,8 @@ async def _execute_port_forward_with_live_display(
         forward_info,
         vibe_output,
         output_flags.model_name,
-        config=config,  # Pass config to update_memory
+        config=config,
     )
-
-    # REMOVED call to handle_command_output
 
     # Return appropriate result based on whether an error occurred
     if has_error:
@@ -896,7 +898,10 @@ async def _execute_port_forward_with_live_display(
             if "Cancelled" in stats.current_status
             else f"{header} completed successfully ({elapsed_time:.1f}s)"
         )
-        return Success(
+        result = Success(
             message=success_message,
             data=vibe_output,
         )
+        if process:
+            result.original_exit_code = process.returncode
+        return result

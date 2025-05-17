@@ -122,8 +122,8 @@ async def test_handle_vibe_request_command_execution(
         mock_model_adapter.execute_and_log_metrics.assert_called_once()
         # Verify the command execution function was called correctly
         mock_execute.assert_called_once_with(
-            "delete", ["pod", "my-pod"], None
-        )  # verb, args_list, yaml
+            "delete", ["pod", "my-pod"], None, allowed_exit_codes=(0,)
+        )  # verb, args_list, yaml, allowed_exit_codes
         mock_update_memory.assert_called_once()
 
     assert isinstance(result, Success)
@@ -176,8 +176,8 @@ async def test_handle_vibe_request_yaml_execution(
             # === Verification ===
             mock_model_adapter.execute_and_log_metrics.assert_called_once()
             mock_execute.assert_called_once_with(
-                "delete", ["pod", "my-pod"], None
-            )  # verb, args_list, yaml
+                "delete", ["pod", "my-pod"], None, allowed_exit_codes=(0,)
+            )  # verb, args_list, yaml, allowed_exit_codes
 
             assert isinstance(result, Success)
             # Check the final message (which comes from
@@ -240,9 +240,9 @@ async def test_handle_vibe_request_llm_planning_error(
     mock_execute.assert_not_called()  # No command execution
     mock_handle_output.assert_not_called()  # No output handling
     mock_update_memory.assert_called_once_with(  # Memory updated with error
-        command="vibe",
+        command_message="command: vibe request: do something vague",
         command_output=why_str,
-        vibe_output=f"LLM Planning Error: do something vague -> {why_str}",
+        vibe_output=f"LLM Planning Error: vibe do something vague -> {why_str}",
         model_name=output_flags.model_name,
     )
     mock_console.print_note.assert_called_with(
@@ -538,7 +538,7 @@ async def test_handle_vibe_request_llm_empty_response(
     assert isinstance(result, Error)
     assert result.error == "LLM returned an empty response."
     mock_update_memory.assert_called_once_with(
-        command="system",
+        command_message="system",
         command_output="LLM Error: Empty response.",
         vibe_output="LLM Error: Empty response.",
         model_name=output_flags.model_name,

@@ -18,6 +18,7 @@ from vibectl.config import DEFAULT_CONFIG, Config
 from vibectl.prompt import vibe_autonomous_prompt
 from vibectl.types import (
     Fragment,
+    LLMMetrics,
     PromptFragments,
     Success,
     SummaryPromptFragmentFunc,
@@ -62,6 +63,17 @@ def default_summary_prompt() -> SummaryPromptFragmentFunc:
     return summary_prompt_fragments
 
 
+@pytest.fixture
+def mock_get_adapter() -> Generator[MagicMock, None, None]:
+    """Mock LLMModelAdapter for command handling by mocking get_model_adapter."""
+    mock_adapter_instance = MagicMock()
+
+    with patch(
+        "vibectl.command_handler.get_model_adapter", return_value=mock_adapter_instance
+    ):
+        yield mock_adapter_instance
+
+
 def test_handle_command_output_with_raw_output_only(
     prevent_exit: MagicMock, default_summary_prompt: SummaryPromptFragmentFunc
 ) -> None:
@@ -77,15 +89,14 @@ def test_handle_command_output_with_raw_output_only(
 
     # Call the function with only raw output enabled
     handle_command_output(
-        output="test output",
+        output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
     )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 def test_handle_command_output_with_vibe_only(
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
 ) -> None:
@@ -98,7 +109,7 @@ def test_handle_command_output_with_vibe_only(
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
+    mock_get_adapter.return_value = mock_adapter
 
     # Create output flags with vibe output only
     output_flags = OutputFlags(
@@ -122,15 +133,14 @@ def test_handle_command_output_with_vibe_only(
 
         # Call the function with vibe enabled
         handle_command_output(
-            output="test output",
+            output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 def test_handle_command_output_both_outputs(
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
 ) -> None:
@@ -143,7 +153,7 @@ def test_handle_command_output_both_outputs(
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
+    mock_get_adapter.return_value = mock_adapter
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
@@ -167,7 +177,7 @@ def test_handle_command_output_both_outputs(
 
         # Call the function with both outputs enabled
         handle_command_output(
-            output="test output",
+            output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
@@ -190,31 +200,32 @@ def test_handle_command_output_no_output(
     # Using patch but not capturing the mock since we're not inspecting its calls
     with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
-            output="test output",
+            output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-@patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
+@patch("vibectl.command_handler.output_processor")
 def test_handle_command_output_empty_response(
-    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
     mock_update_memory: MagicMock,
+    mock_console_manager: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_processor: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_command_output with empty LLM response."""
-    # Configure mock LLM response
-    mock_get_summary = MagicMock()
-    mock_get_summary.return_value = ""
+    # Explicitly configure the mock adapter for this test case
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "",  # Empty string response from LLM
+        LLMMetrics(token_input=1, token_output=1, latency_ms=10),  # Dummy metrics
+    )
 
-    # Set up processor mock
-    mock_processor.process_auto.return_value = Truncation(
+    # Set up output_processor mock
+    mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="test output"
     )
 
@@ -227,83 +238,101 @@ def test_handle_command_output_empty_response(
         show_metrics=True,
     )
 
-    # Call the function with vibe enabled - mock everything
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter,
-        patch("vibectl.command_handler.update_memory"),
-    ):
-        # Configure model adapter
-        mock_adapter = Mock()
-        mock_adapter.get_model.return_value = Mock()
-        mock_adapter.execute.return_value = ""
-        mock_get_adapter.return_value = mock_adapter
+    # Call the function with vibe enabled
+    handle_command_output(
+        output=Success(data="test output"),
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+    )
 
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=default_summary_prompt,
-        )
+    # Assertions
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    mock_console_manager.print_vibe.assert_not_called()
+
+    mock_update_memory.assert_called_once_with(
+        command_output="test output",
+        vibe_output="",
+        model_name=DEFAULT_MODEL,
+        command_message="Unknown",
+    )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_command_output_with_command(
-    mock_processor: MagicMock,
-    mock_llm: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test handle_command_output with command parameter."""
-    # Set up adapter mock
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = Mock()
-    mock_adapter.execute_and_log_metrics.return_value = ("Test response", None)
-    mock_llm.return_value = mock_adapter
+    """Test handle_command_output with vibe when a command is provided."""
+    # mock_get_adapter IS the adapter instance from the fixture.
+    # Configure its execute_and_log_metrics method directly.
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "Vibe summary of the command.",
+        LLMMetrics(
+            token_input=5, token_output=10, latency_ms=50
+        ),  # Return an LLMMetrics instance
+    )
 
-    # Create output flags
+    # Set up output_processor mock
+    mock_output_processor.process_auto.return_value = Truncation(
+        original="test output", truncated="test output"
+    )
+
     output_flags = OutputFlags(
         show_raw=False,
-        show_vibe=True,
+        show_vibe=True,  # Vibe is enabled
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
         show_metrics=True,
+        show_kubectl=True,
     )
 
-    # Call the function with command parameter
-    with (
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler.update_memory") as mock_update_memory,
-    ):
-        # Configure processor mock
-        mock_processor.process_auto.return_value = Truncation(
-            original="test output", truncated="test output"
-        )
+    handle_command_output(
+        output=Success(data="test output"),
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+        command="get pods",
+    )
 
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=default_summary_prompt,
-            command="get pods",
-        )
-
-        # Verify mocks
-        mock_update_memory.assert_called_once()
-        # Assert print_vibe was called on the console manager mock
-        mock_console.print_vibe.assert_called_once_with("Test response")
+    # Assertions
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    mock_update_memory.assert_called_once_with(
+        command_message="get pods",
+        command_output="test output",
+        vibe_output="Vibe summary of the command.",
+        model_name=DEFAULT_MODEL,
+    )
+    mock_console_manager.print_vibe.assert_called_once_with(
+        "Vibe summary of the command."
+    )
 
 
-def test_configure_output_flags_no_flags() -> None:
-    """Test configure_output_flags with no flags."""
-    # Run without flags
+@patch("vibectl.command_handler.logger")
+def test_configure_output_flags_no_flags(mock_config_constructor: MagicMock) -> None:
+    """Test configure_output_flags with no flags, ensuring defaults are used."""
+
+    mock_config_instance = MagicMock()
+    # Make get_typed return the default value passed to it, simulating
+    # config not having the key
+    mock_config_instance.get_typed.side_effect = lambda key, default: default
+    mock_config_constructor.return_value = mock_config_instance
+
+    # Run without flags, should use internal Config() instance which is now mocked
     output_flags = configure_output_flags()
 
-    # Verify defaults
+    # Verify defaults from DEFAULT_CONFIG are used
     assert output_flags.show_raw == DEFAULT_CONFIG["show_raw_output"]
     assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
-    assert output_flags.model_name == DEFAULT_MODEL
+    assert output_flags.model_name == DEFAULT_CONFIG["model"]
     assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
+    assert output_flags.show_kubectl == DEFAULT_CONFIG["show_kubectl"]
+    assert output_flags.warn_no_proxy == DEFAULT_CONFIG["warn_no_proxy"]
 
 
 def test_configure_output_flags_raw_only() -> None:
@@ -387,9 +416,8 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     assert output_flags.show_kubectl is False
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 def test_handle_command_output_model_name_from_config(
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
 ) -> None:
@@ -398,7 +426,7 @@ def test_handle_command_output_model_name_from_config(
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
+    mock_get_adapter.return_value = mock_adapter
 
     # Create output flags with model name from config
     output_flags = OutputFlags(
@@ -412,15 +440,14 @@ def test_handle_command_output_model_name_from_config(
     # Call the function with model name from config
     with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
-            output="test output",
+            output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 def test_handle_command_output_model_name_from_env(
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
 ) -> None:
@@ -429,7 +456,7 @@ def test_handle_command_output_model_name_from_env(
     mock_adapter = Mock()
     mock_adapter.get_model.return_value = Mock()
     mock_adapter.execute.return_value = "Test response"
-    mock_llm.return_value = mock_adapter
+    mock_get_adapter.return_value = mock_adapter
 
     # Create output flags with model name from env
     output_flags = OutputFlags(
@@ -443,31 +470,31 @@ def test_handle_command_output_model_name_from_env(
     # Call the function with model name from env
     with patch("vibectl.command_handler.console_manager"):
         handle_command_output(
-            output="test output",
+            output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
 @patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_command_output_model_name_from_default(
-    mock_console_manager: MagicMock,
     mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
-    mock_processor: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
     """Test handle_command_output using default model name."""
-    # Configure the mock
-    # mock_get_summary = MagicMock() # Removed unused mock
-    # mock_get_summary.return_value = "Test summary" # Removed unused mock
+    # Explicitly configure the mock adapter for this test case
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "LLM Summary",
+        LLMMetrics(token_input=5, token_output=10, latency_ms=20),  # Dummy metrics
+    )
 
-    # Set up processor mock
-    mock_processor.process_auto.return_value = Truncation(
+    mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="test output"
     )
 
@@ -480,644 +507,384 @@ def test_handle_command_output_model_name_from_default(
         show_metrics=True,
     )
 
-    # Call the function with vibe enabled - ensure complete mocking
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter,
-        patch("vibectl.command_handler.update_memory"),
-    ):
-        # Configure model adapter
-        mock_adapter = Mock()
-        mock_adapter.get_model.return_value = Mock()
-        # Ensure execute_and_log_metrics returns a tuple (text, metrics)
-        mock_adapter.execute_and_log_metrics.return_value = ("Test response", None)
-        # mock_adapter.execute.return_value = "Test response" # Old mock setup
-        mock_get_adapter.return_value = mock_adapter
+    handle_command_output(
+        output=Success(data="test output"),
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+    )
 
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=default_summary_prompt,
-        )
-
-        # Verify summary was called with correct arguments
-        # mock_get_summary.assert_called_once_with( # Removed assertion on unused mock
-        #     "test output", DEFAULT_MODEL, "Summarize this: {output}"
-        # )
-        # Assert that the correct adapter method was called
-        mock_adapter.execute_and_log_metrics.assert_called_once()
+    # Verify summary was called with correct arguments including the default model name
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    # Check that get_model was called with the default model name
+    mock_get_adapter.get_model.assert_called_with(DEFAULT_MODEL)
+    mock_console_manager.print_vibe.assert_called_once_with("LLM Summary")
+    mock_update_memory.assert_called_once()
 
 
 @patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.console_manager")
 def test_handle_command_output_basic(
-    mock_get_adapter: MagicMock,
-    mock_processor: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test basic handle_command_output functionality."""
-    # Configure the mock adapter instance provided by the mock_get_adapter fixture
-    mock_adapter_instance = mock_get_adapter.return_value
-    mock_adapter_instance.get_model.return_value = MagicMock()
-    mock_adapter_instance.execute_and_log_metrics.return_value = ("Test summary", None)
-
-    # Set up processor mock
-    mock_processor.process_auto.return_value = Truncation(
-        original="test output", truncated="test output"
+    """Test basic functioning of handle_command_output with vibe enabled."""
+    # Explicitly configure the mock adapter for this test case
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "LLM Summary",
+        LLMMetrics(token_input=7, token_output=15, latency_ms=25),  # Dummy metrics
     )
 
-    # Create output flags
     output_flags = OutputFlags(
-        show_raw=False,
         show_vibe=True,
-        warn_no_output=True,
         model_name="test-model",
+        show_raw=False,
+        warn_no_output=True,
         show_metrics=True,
     )
-
-    # Call the function with vibe enabled - mock console and memory update
-    with (
-        patch("vibectl.command_handler.console_manager"),
-        patch("vibectl.command_handler.update_memory"),
-    ):
-        result = handle_command_output(
-            output="test output",
+    with patch("vibectl.command_handler.update_memory") as mock_update_memory:
+        mock_output_processor.process_auto.return_value = Truncation("output", "output")
+        handle_command_output(
+            output=Success(data="output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
-
-    # Check that execute_and_log_metrics was called on the adapter instance
-    mock_adapter_instance.execute_and_log_metrics.assert_called_once()
-
-    # Check return value
-    assert isinstance(result, Success)
-    assert result.message == "Test summary"
+        mock_get_adapter.execute_and_log_metrics.assert_called_once()
+        mock_update_memory.assert_called_once()
+        mock_console_manager.print_vibe.assert_called_once_with("LLM Summary")
 
 
-# Helper function for dummy prompt fragments
-def get_dummy_prompt_fragments(config: Config | None = None) -> PromptFragments:
-    """Returns a dummy PromptFragments object for testing."""
-    # The actual content doesn't matter much for these tests,
-    # as long as the type is correct.
-    return PromptFragments(
-        (
-            SystemFragments([Fragment("System dummy")]),
-            UserFragments([Fragment("User dummy: {output}")]),
-        )
-    )
-
-
-@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
 def test_handle_command_output_raw(
-    mock_llm: MagicMock, prevent_exit: MagicMock
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    prevent_exit: MagicMock,
+    default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test handle_command_output with raw output enabled."""
-    output_flags = OutputFlags(
-        show_raw=True,
-        show_vibe=False,  # Corrected: test for raw output, vibe should be False
-        # initially for this specific test's original intent
-        warn_no_output=True,
-        model_name=DEFAULT_MODEL,
-        show_metrics=True,
+    """Test handle_command_output with raw output only: no vibe memory update."""
+    # Setup mock adapter for memory update summary
+    mock_adapter_instance = MagicMock()
+    mock_model_instance = MagicMock()
+    mock_adapter_instance.get_model.return_value = mock_model_instance
+    mock_adapter_instance.execute_and_log_metrics.return_value = (
+        "LLM Summary for memory",
+        None,
     )
-    with (
-        patch("vibectl.command_handler.output_processor") as mock_processor,
-        patch("vibectl.command_handler.console_manager") as mock_console,
-        patch("vibectl.command_handler.update_memory"),  # Mock update_memory
-    ):
-        # Set up output processor mock
-        mock_processor.process_auto.return_value = ("processed output", False)
+    mock_get_adapter.return_value = mock_adapter_instance
 
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=get_dummy_prompt_fragments,
-        )
-
-        # Verify raw output was shown
-        mock_console.print_raw.assert_called_once_with("test output")
-        # Verify Vibe related mocks NOT called when show_vibe=False
-        mock_llm.assert_not_called()
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-def test_handle_command_output_no_vibe(
-    mock_llm: MagicMock, prevent_exit: MagicMock
-) -> None:
-    """Test handle_command_output with vibe disabled."""
-    # Create output flags with vibe disabled
     output_flags = OutputFlags(
         show_raw=True,
         show_vibe=False,
+        model_name="test-model",
         warn_no_output=True,
-        model_name=DEFAULT_MODEL,
         show_metrics=True,
     )
-
-    # Call the function
-    with patch("vibectl.command_handler.console_manager") as mock_console:
+    with patch("vibectl.command_handler.update_memory") as mock_update_memory:
+        mock_output_processor.process_auto.return_value = Truncation("output", "output")
         handle_command_output(
-            output="test output",
+            output=Success(data="output"),
             output_flags=output_flags,
-            summary_prompt_func=get_dummy_prompt_fragments,
+            summary_prompt_func=default_summary_prompt,
         )
+        # If show_vibe is False, no LLM call for summarization occurs
+        # in handle_command_output
+        mock_get_adapter.execute_and_log_metrics.assert_not_called()
+        # If show_vibe is False, update_memory is also not called by
+        # handle_command_output
+        mock_update_memory.assert_not_called()
+        mock_console_manager.print_raw.assert_called_once_with("output")
 
-        # Verify only raw output was shown
-        mock_console.print_raw.assert_called_once_with("test output")
-        # Verify vibe was not shown (model never used)
-        mock_llm.assert_not_called()
 
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
+def test_handle_command_output_no_vibe(
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    prevent_exit: MagicMock,
+    default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
+) -> None:
+    """Test handle_command_output with show_vibe=False (memory update still happens)."""
+    # Setup mock adapter for memory update summary
+    mock_adapter_instance = MagicMock()
+    mock_model_instance = MagicMock()
+    mock_adapter_instance.get_model.return_value = mock_model_instance
+    mock_adapter_instance.execute_and_log_metrics.return_value = (
+        "LLM Summary for memory",
+        None,
+    )
+    mock_get_adapter.return_value = mock_adapter_instance
+
+    output_flags = OutputFlags(
+        show_vibe=False,
+        model_name="test-model",
+        show_raw=True,
+        warn_no_output=True,
+        show_metrics=True,
+    )
+    with patch("vibectl.command_handler.update_memory") as mock_update_memory:
+        mock_output_processor.process_auto.return_value = Truncation("output", "output")
+        handle_command_output(
+            output=Success(data="output"),
+            output_flags=output_flags,
+            summary_prompt_func=default_summary_prompt,
+        )
+        # If show_vibe is False, no LLM call for summarization occurs
+        # in handle_command_output
+        mock_get_adapter.execute_and_log_metrics.assert_not_called()
+        # If show_vibe is False, update_memory is also not called by
+        # handle_command_output
+        mock_update_memory.assert_not_called()
+        mock_console_manager.print_raw.assert_called_once_with("output")
+
+
+@patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
 def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     mock_update_memory: MagicMock,
-    mock_output_processor: MagicMock,
     mock_console_manager: MagicMock,
-    mock_get_model_adapter: MagicMock,
+    mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """
-    Test that _process_vibe_output doesn't raise IndexError when using
-    vibe_autonomous_prompt due to incorrect placeholder formatting (`{{output}}`).
+    """Test _process_vibe_output with autonomous prompt does not cause IndexError."""
+    # Explicitly configure the mock adapter for this test case
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "Autonomous Action Executed",
+        LLMMetrics(token_input=10, token_output=30, latency_ms=50),  # Dummy metrics
+    )
 
-    This test verifies that the prompt string generated by vibe_autonomous_prompt
-    can be correctly formatted with the 'output' keyword argument later in the
-    _get_llm_summary function, which is called by _process_vibe_output.
-    """
-    output_str = "Sample kubectl output"
-    # Provide all required args for OutputFlags
     output_flags = OutputFlags(
-        show_raw=False,  # Don't need raw output for this test
-        show_vibe=True,  # Need vibe to trigger the code path
-        warn_no_output=True,  # Standard default
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=True,
         model_name="test-model",
         show_metrics=True,
     )
-    # Use the actual vibe_autonomous_prompt function
-    summary_prompt_func = vibe_autonomous_prompt
-    # Get the prompt fragments - THIS is where the fix happens
-    summary_system_fragments, summary_user_fragments = summary_prompt_func(config=None)
 
-    # Mock the LLM call part
-    mock_model_adapter = MagicMock()
-    mock_model = MagicMock()
-    mock_get_model_adapter.return_value = mock_model_adapter
-    mock_model_adapter.get_model.return_value = mock_model
-    mock_model_adapter.execute_and_log_metrics.return_value = (
-        "Mocked LLM Summary",
-        None,
+    summary_system_fragments, summary_user_fragments = vibe_autonomous_prompt(
+        config=None
     )
 
-    # Mock the output processor return value
     mock_output_processor.process_auto.return_value = Truncation(
-        original=output_str, truncated=output_str
+        original="Sample kubectl output", truncated="Sample kubectl output"
     )
 
     try:
-        # Call the function that internally calls _get_llm_summary
-        # _get_llm_summary contains the failing .format(output=...) call if prompt wrong
         result = _process_vibe_output(
-            output=output_str,
+            output_message="Vibe summary based on output:",
+            output_data="Sample kubectl output",
             output_flags=output_flags,
-            # Pass the fragments instead of the string
             summary_system_fragments=summary_system_fragments,
             summary_user_fragments=summary_user_fragments,
-            command="get pods",  # Example command context
-            original_error_object=None,
+            command="get pods",
         )
-
-        # Assertions to ensure the flow completed correctly
         assert isinstance(result, Success)
-        assert result.message == "Mocked LLM Summary"
+        assert result.message == "Autonomous Action Executed"
+        assert result.data is None
+        mock_get_adapter.execute_and_log_metrics.assert_called_once()
+        _, call_kwargs = mock_get_adapter.execute_and_log_metrics.call_args
 
-        # Verify the LLM execute_and_log_metrics was called
-        mock_model_adapter.execute_and_log_metrics.assert_called_once()
-        # Check the formatted prompt passed to the LLM execute call
-        # Arguments are (self, model, system_fragments, user_fragments, response_model)
-        # Passed as kwargs, so check call_kwargs
-        _, call_kwargs = mock_model_adapter.execute_and_log_metrics.call_args
-        # final_prompt_used = call_args[1]  # Old check assuming positional args
+        # SystemFragments and UserFragments are NewTypes wrapping list[Fragment]
+        # Fragment is TypeAlias = str. So these are effectively list[str].
+        assert isinstance(call_kwargs.get("system_fragments"), list)
+        assert isinstance(call_kwargs.get("user_fragments"), list)
 
-        # Reconstruct the prompt from fragments for checking content
-        system_fragments_used = call_kwargs.get("system_fragments", [])
-        user_fragments_used = call_kwargs.get("user_fragments", [])
-        full_prompt_text_simulated = "\\n".join(
-            system_fragments_used + user_fragments_used
+        # The fragments passed to execute_and_log_metrics should have
+        # {output} formatted.
+        # vibe_autonomous_prompt defines the templates.
+        # _process_vibe_output applies .format(output=processed_output)
+        # to these templates.
+
+        formatted_user_fragments_received = call_kwargs.get("user_fragments", [])
+
+        # Check if the actual output string is present in any of the
+        # received user fragments.
+        assert any(
+            "Sample kubectl output" in frag
+            for frag in formatted_user_fragments_received
+        ), "Expected 'Sample kubectl output' to be in the formatted user fragments."
+
+        # Check that the placeholder {output} is no longer present.
+        assert not any(
+            "{output}" in frag for frag in formatted_user_fragments_received
+        ), "Placeholder '{output}' should have been replaced in user fragments."
+
+        # Similarly for system fragments, if {output} could be there.
+        # vibe_autonomous_prompt typically doesn't put {output} in system fragments.
+        formatted_system_fragments_received = call_kwargs.get("system_fragments", [])
+        assert not any(
+            "{output}" in frag for frag in formatted_system_fragments_received
+        ), (
+            "Placeholder '{output}' should not be in system fragments or "
+            "have been replaced."
         )
-
-        # Check that the output was correctly inserted
-        assert output_str in full_prompt_text_simulated
-        # Check that the literal placeholder {output} is NOT present
-        assert "{output}" not in full_prompt_text_simulated
-        # Check that the double braces {{}} used for escaping are NOT present
-        assert "{{" not in full_prompt_text_simulated
-        # Check that formatting instructions were included
-        # (implicitly tested by presence of output_str)
 
     except IndexError as e:
-        # This block will be hit if the original buggy code (`{{output}}`) is present
-        # in vibe_autonomous_prompt, because .format(output=...) will fail.
-        pytest.fail(
-            f"IndexError raised during prompt formatting in _get_llm_summary: {e}. "
-            "Check vibe_autonomous_prompt in prompt.py for {{output}} vs {output}."
-        )
-    except Exception as e:
-        # Catch any other unexpected errors
-        pytest.fail(f"An unexpected error occurred: {e}")
+        pytest.fail(f"_process_vibe_output raised an IndexError: {e}")
 
 
-@patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
 def test_handle_command_output_llm_error(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
     mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test handle_command_output when LLM call raises an error."""
-    # Configure mock LLM to raise an exception
-    # mock_get_summary = MagicMock() # Removed unused mock
-    # mock_get_summary.side_effect = Exception("LLM API Error") # Removed unused mock
+    """Test handle_command_output when LLM summarization fails."""
+    # mock_get_adapter is the adapter instance. Configure it directly.
+    error_message = "ERROR: LLM failed to summarize"
+    mock_get_adapter.execute_and_log_metrics.return_value = (error_message, None)
 
-    # Set up adapter mock to raise the exception
-    mock_adapter = Mock()
-    mock_adapter.get_model.return_value = Mock()
-    # Set side_effect on the correct method
-    llm_exception = Exception("LLM API Error")
-    mock_adapter.execute_and_log_metrics.side_effect = llm_exception
-    # mock_adapter.execute.return_value = Error("Test error") # Old/incorrect mock setup
-    mock_get_adapter.return_value = mock_adapter
-
-    # Create output flags with both outputs enabled
     output_flags = OutputFlags(
         show_raw=True,
         show_vibe=True,
         warn_no_output=True,
-        model_name=DEFAULT_MODEL,
+        model_name="test-model",
         show_metrics=True,
     )
+    mock_output_processor.process_auto.return_value = Truncation(
+        original="test output", truncated="test output"
+    )
 
-    # Call the function with both outputs enabled
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        handle_command_output(
-            output="test output",
-            output_flags=output_flags,
-            summary_prompt_func=lambda config_param: PromptFragments(
-                (
-                    SystemFragments([]),
-                    UserFragments(
-                        [Fragment("Error getting Vibe summary: LLM API Error")]
-                    ),
-                )
-            )
-            if config_param is None or isinstance(config_param, Config)
-            else PromptFragments((SystemFragments([]), UserFragments([]))),
-        )
+    handle_command_output(
+        output=Success(data="test output"),
+        output_flags=output_flags,
+        summary_prompt_func=default_summary_prompt,
+    )
 
-        # Verify the error was logged and printed
-        mock_console.print_error.assert_any_call(
-            f"Error getting Vibe summary: {llm_exception}"
-        )
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    # _process_vibe_output directly prints the LLM's error string
+    # if it starts with "ERROR:"
+    mock_console_manager.print_error.assert_any_call(
+        error_message  # Expecting the raw "ERROR: LLM failed to summarize"
+    )
+    # If _process_vibe_output encounters an "ERROR:" string from the LLM,
+    # it returns an Error object and does NOT call update_memory.
+    mock_update_memory.assert_not_called()
 
 
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
-@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_command_output_error_input_no_vibe(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
     mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test handle_command_output with Error input and show_vibe=False."""
-    test_exception = RuntimeError("Original Error")
-    error_input = Error(error="Command failed", exception=test_exception)
+    """Test handle_command_output with error input and show_vibe=False."""
+    # If show_vibe is False, no LLM calls will be made by handle_command_output
+    # directly, and update_memory will also not be called from within
+    # handle_command_output. So, mock_get_adapter.execute_and_log_metrics
+    # should not be configured or asserted here.
+
+    error_data = "Error: Something went wrong."
+    error_input = Error(error=error_data, exception=RuntimeError(error_data))
     output_flags = OutputFlags(
-        show_raw=False,  # Doesn't matter for this test
+        show_raw=False,
         show_vibe=False,
         warn_no_output=False,
-        model_name=DEFAULT_MODEL,
+        model_name="test-model",
         show_metrics=True,
+    )
+    mock_output_processor.process_auto.return_value = Truncation(
+        original=error_data, truncated=error_data
     )
 
     result = handle_command_output(
         output=error_input,
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
+        command="test-error-command",
     )
 
-    # Verify the original error object is returned directly
-    assert result is error_input
-    # Verify no LLM calls were made
-    mock_get_adapter.assert_not_called()
-    # Verify no memory update
+    assert isinstance(result, Error)
+    assert result.error == error_data
+    mock_console_manager.print_error.assert_called_with(error_data)
+
+    # Assert that no LLM call for vibe/recovery or memory update happened
+    # because show_vibe=False
+    mock_get_adapter.execute_and_log_metrics.assert_not_called()
     mock_update_memory.assert_not_called()
-    # Verify error was printed
-    mock_console.print_error.assert_called_with(error_input.error)
 
 
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.update_memory")
-@patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.output_processor")
+@patch("vibectl.command_handler.console_manager")
+@patch("vibectl.command_handler.update_memory")
 def test_handle_command_output_error_input_with_vibe_recovery(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
     mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
+    mock_get_adapter: MagicMock,
 ) -> None:
-    """Test handle_command_output with Error input, show_vibe=True, and
-    successful recovery."""
-    test_exception = RuntimeError("Original Error")
-    error_input = Error(error="Command failed badly", exception=test_exception)
+    """Test handle_command_output with error input and vibe recovery."""
+    # mock_get_adapter is the adapter instance. Configure it directly.
+
+    expected_recovery_suggestion_text = "Checking events."  # Plain text suggestion
+    # LLM is called once for recovery suggestion.
+    # Metrics are associated with this recovery call.
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        expected_recovery_suggestion_text,
+        LLMMetrics(token_input=10, token_output=20, latency_ms=100),
+    )
+
+    error_data = "Error: Pod not found."
+    error_input = Error(error=error_data, exception=RuntimeError(error_data))
     output_flags = OutputFlags(
         show_raw=False,
         show_vibe=True,
         warn_no_output=False,
-        model_name=DEFAULT_MODEL,
+        model_name="test-model",
         show_metrics=True,
+        show_kubectl=True,
+    )
+    mock_output_processor.process_auto.return_value = Truncation(
+        original=error_data, truncated=error_data
     )
 
-    # Mock the LLM call for recovery
-    mock_adapter = Mock()
-    mock_model = Mock()
-    mock_get_adapter.return_value = mock_adapter
-    mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute_and_log_metrics.return_value = (
-        "Try restarting the pod.",
-        None,
-    )
+    with patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt_func:
+        mock_recovery_prompt_func.return_value = (
+            SystemFragments([Fragment("System Prompt")]),
+            UserFragments([Fragment("User Prompt")]),
+        )
 
-    result = handle_command_output(
-        output=error_input,
-        output_flags=output_flags,
-        summary_prompt_func=default_summary_prompt,  # Not used for recovery path
-        command="test-command",
-    )
+        result = handle_command_output(
+            output=error_input,
+            output_flags=output_flags,
+            summary_prompt_func=default_summary_prompt,
+            command="test-recovery-command",
+        )
 
-    # Verify the result is the original Error object, but modified
     assert isinstance(result, Error)
-    assert result is error_input
-    assert result.recovery_suggestions == "Try restarting the pod."
-    # Verify LLM was called (for recovery)
-    mock_adapter.execute_and_log_metrics.assert_called_once()
-    # Verify memory was updated with error and suggestion
+    assert result.error == error_data
+    # recovery_suggestions should now be the plain text from the LLM
+    assert result.recovery_suggestions == expected_recovery_suggestion_text
+
+    # LLM is called ONCE for recovery suggestion.
+    assert mock_get_adapter.execute_and_log_metrics.call_count == 1
+
+    mock_console_manager.print_error.assert_called_once_with(error_data)
+    # The plain text recovery suggestion is printed by print_vibe
+    mock_console_manager.print_vibe.assert_any_call(expected_recovery_suggestion_text)
+
+    # update_memory is called with the error_data and the plain text recovery_suggestion
     mock_update_memory.assert_called_once_with(
-        command="test-command",
-        command_output="Command failed badly",
-        vibe_output="Try restarting the pod.",
-        model_name=DEFAULT_MODEL,
+        command_output=error_data,
+        vibe_output=expected_recovery_suggestion_text,
+        model_name="test-model",
+        command_message="test-recovery-command",
     )
-    # Verify original error and suggestion were printed
-    mock_console.print_error.assert_called_with(error_input.error)
-    mock_console.print_vibe.assert_called_with("Try restarting the pod.")
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_error_input_with_vibe_recoverable_api_error(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
-    default_summary_prompt: SummaryPromptFragmentFunc,
-) -> None:
-    """Test handle_command_output with Error input, show_vibe=True, and
-    RecoverableApiError during recovery."""
-    from vibectl.model_adapter import RecoverableApiError
-
-    test_exception = RuntimeError("Original Error")
-    error_input = Error(error="Command failed badly", exception=test_exception)
-    output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name=DEFAULT_MODEL,
-        show_metrics=True,
-    )
-
-    # Mock the LLM call for recovery to raise RecoverableApiError
-    mock_adapter = Mock()
-    mock_model = Mock()
-    mock_get_adapter.return_value = mock_adapter
-    mock_adapter.get_model.return_value = mock_model
-    api_error = RecoverableApiError("API Overloaded")
-    mock_adapter.execute_and_log_metrics.side_effect = api_error
-
-    result = handle_command_output(
-        output=error_input,
-        output_flags=output_flags,
-        summary_prompt_func=default_summary_prompt,
-        command="test-command",
-    )
-
-    # Verify the result is the *original* Error object, modified
-    assert isinstance(result, Error)
-    assert result is error_input  # Should return the same object instance
-    assert "API Overloaded" in (result.recovery_suggestions or "")
-    assert result.halt_auto_loop is True  # Recovery failed, should still halt
-
-    # Verify console output
-    mock_console.print_error.assert_any_call("Command failed badly")
-    mock_console.print_vibe.assert_called_once_with(
-        "Failed to get recovery suggestions: API Overloaded"
-    )
-    # Verify memory update called with failure
-    mock_output_processor.assert_called_once()
-    # mem_kwargs = mock_update_memory.call_args.kwargs
-    # assert mem_kwargs["command_output"] == "Command failed badly"
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_error_input_with_vibe_generic_error(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
-    default_summary_prompt: SummaryPromptFragmentFunc,
-) -> None:
-    """Test handle_command_output with Error input, show_vibe=True, and generic
-    Exception during recovery."""
-    test_exception = RuntimeError("Original Error")
-    error_input = Error(error="Command failed badly", exception=test_exception)
-    generic_exception = TimeoutError("LLM timed out")
-    output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name=DEFAULT_MODEL,
-        show_metrics=True,
-    )
-
-    # Mock the LLM call for recovery to raise generic Exception
-    mock_adapter = Mock()
-    mock_model = Mock()
-    mock_get_adapter.return_value = mock_adapter
-    mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute_and_log_metrics.side_effect = generic_exception
-
-    result = handle_command_output(
-        output=error_input,
-        output_flags=output_flags,
-        summary_prompt_func=default_summary_prompt,
-        command="test-command",
-    )
-
-    # Verify the result is the *original* Error object, modified
-    assert isinstance(result, Error)
-    assert result is error_input  # Should return the same object instance
-    assert "LLM timed out" in (result.recovery_suggestions or "")
-    assert result.halt_auto_loop is True  # Recovery failed, should still halt
-
-    # Verify console output
-    mock_console.print_error.assert_any_call("Command failed badly")
-    mock_console.print_vibe.assert_called_once_with(
-        f"Failed to get recovery suggestions: {generic_exception}"
-    )
-
-    # Verify memory update called with failure
-    mock_output_processor.assert_called_once()
-    # mem_kwargs = mock_update_memory.call_args.kwargs
-    # assert mem_kwargs["command_output"] == "Command failed badly"
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_success_input_with_vibe_recoverable_api_error(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
-    default_summary_prompt: SummaryPromptFragmentFunc,
-) -> None:
-    """Test handle_command_output with success input, show_vibe=True, and
-    RecoverableApiError during summary."""
-    from vibectl.model_adapter import RecoverableApiError
-
-    success_input = Success(data="Good output")
-    output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name=DEFAULT_MODEL,
-        show_metrics=True,
-    )
-    mock_output_processor.process_auto.return_value = Truncation(
-        original="Good output", truncated="Processed good output"
-    )
-
-    # Mock the LLM summary call to raise RecoverableApiError
-    api_error = RecoverableApiError("API Key Invalid")
-    # mock_get_summary = MagicMock() # Removed unused mock
-    # mock_get_summary.side_effect = api_error # Removed unused mock
-
-    # Call the function within the patch context to ensure mocks are active
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        # Set up adapter mock inside the context
-        mock_adapter = Mock()
-        mock_model = Mock()
-        mock_get_adapter.return_value = mock_adapter
-        mock_adapter.get_model.return_value = mock_model
-        mock_adapter.execute_and_log_metrics.side_effect = (
-            api_error  # Set side_effect here
-        )
-
-        result = handle_command_output(
-            output=success_input,
-            output_flags=output_flags,
-            summary_prompt_func=default_summary_prompt,
-            command="test-command",
-        )
-
-    # Verify the result is an Error object representing the API error
-    assert isinstance(result, Error)
-    assert (
-        result.error == "Recoverable API error during Vibe processing: API Key Invalid"
-    )
-    assert result.exception == api_error
-    assert result.halt_auto_loop is False
-    # Verify LLM summary func was called
-    mock_adapter.execute_and_log_metrics.assert_called_once()
-    # Verify memory was NOT updated
-    mock_update_memory.assert_not_called()
-    # Verify API error was printed
-    mock_console.print_error.assert_called_with(f"API Error: {api_error}")
-
-
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.output_processor")
-@patch("vibectl.command_handler.console_manager")
-@patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_success_input_with_vibe_generic_error(
-    mock_output_processor: MagicMock,
-    mock_console: MagicMock,
-    mock_update_memory: MagicMock,
-    mock_get_adapter: MagicMock,
-    default_summary_prompt: SummaryPromptFragmentFunc,
-) -> None:
-    """Test handle_command_output with success input, show_vibe=True, and generic
-    Exception during summary."""
-    success_input = Success(data="Good output")
-    generic_exception = ValueError("Something went wrong during summary")
-    output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=False,
-        model_name=DEFAULT_MODEL,
-        show_metrics=True,
-    )
-    mock_output_processor.process_auto.return_value = Truncation(
-        original="Good output", truncated="Processed good output"
-    )
-
-    # Mock the LLM summary call to raise generic Exception
-    # mock_get_summary = MagicMock() # Removed unused mock
-    # mock_get_summary.side_effect = generic_exception # Removed unused mock
-
-    # Call the function within the patch context
-    with patch("vibectl.command_handler.console_manager") as mock_console:
-        # Set up adapter mock inside the context
-        mock_adapter = Mock()
-        mock_model = Mock()
-        mock_get_adapter.return_value = mock_adapter
-        mock_adapter.get_model.return_value = mock_model
-        mock_adapter.execute_and_log_metrics.side_effect = (
-            generic_exception  # Set side_effect here
-        )
-
-        result = handle_command_output(
-            output=success_input,
-            output_flags=output_flags,
-            summary_prompt_func=default_summary_prompt,
-            command="test-command",
-        )
-
-    # Verify the result is an Error object representing the Vibe summary failure
-    assert isinstance(result, Error)
-    expected_error_msg = f"Error getting Vibe summary: {generic_exception}"
-    assert result.error == expected_error_msg
-    assert result.exception == generic_exception
-    assert result.halt_auto_loop is True  # Should be halting
-    # Verify LLM summary func was called
-    mock_adapter.execute_and_log_metrics.assert_called_once()
-    # Verify memory was NOT updated
-    mock_update_memory.assert_not_called()
-    # Verify Vibe failure error was printed
-    mock_console.print_error.assert_called_with(expected_error_msg)

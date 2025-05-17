@@ -42,6 +42,16 @@ class LLMCommandResponse(BaseModel):
         None,
         description="Duration in seconds to wait. Required if action_type is WAIT.",
     )
+    # TODO: Consider adding a validator for allowed_exit_codes to ensure unique entries,
+    # though unclear if non-unique entries should cause outright rejection.
+    allowed_exit_codes: list[int] | None = Field(
+        None,
+        description=(
+            "List of allowed exit codes for the planned command. If not provided, "
+            "the system may use a default (e.g., [0]) or infer based on the "
+            "command verb in specific contexts."
+        ),
+    )
 
     @field_validator("commands", mode="before")
     @classmethod
@@ -108,3 +118,42 @@ class LLMCommandResponse(BaseModel):
         "use_enum_values": True,
         "extra": "ignore",
     }
+
+
+class ApplyFileScopeResponse(BaseModel):
+    """Schema for LLM response when scoping files for kubectl apply."""
+
+    file_selectors: list[str] = Field(
+        ...,
+        description=(
+            "List of file paths, directory paths, or glob patterns identified for "
+            "kubectl apply."
+        ),
+    )
+    remaining_request_context: str = Field(
+        ...,
+        description=(
+            "The remaining part of the user's request that is not related to file "
+            "selection."
+        ),
+    )
+
+
+class LLMFinalApplyPlanResponse(BaseModel):
+    """Schema for LLM response containing the final list of planned apply commands."""
+
+    planned_commands: list[LLMCommandResponse] = Field(
+        ...,
+        description=(
+            "A list of LLMCommandResponse objects, each representing a kubectl "
+            "command to be executed."
+        ),
+    )
+
+    model_config = {
+        "use_enum_values": True,
+        "extra": "forbid",  # Forbid extra fields to ensure strict adherence
+    }
+
+
+# TODO: Add PromptFragment model for typed prompt construction

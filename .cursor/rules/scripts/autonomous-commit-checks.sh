@@ -57,7 +57,7 @@ if echo "$CHANGED_FILES" | grep -qE '\.py$'; then
     fi
     echo "PASSED: Pytest coverage check."
 
-    UNDOCUMENTED=$(grep -r "pragma: no cover" --include="*.py" . | grep -v " - ")
+    UNDOCUMENTED=$(find . -name "*.py" -not -path "./.venv/*" -print0 | xargs -0 grep -H "pragma: no cover" | grep -v " - ")
     if [ -n "$UNDOCUMENTED" ]; then
       echo "Error: Undocumented coverage exclusions found (ran from autonomous-commit-checks.sh):" >&2
       echo "$UNDOCUMENTED" >&2

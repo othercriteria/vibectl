@@ -77,92 +77,105 @@ def create_kubectl_error(
 
 
 def run_kubectl(
-    cmd: list[str], capture: bool = False, config: Config | None = None
+    cmd: list[str],
+    allowed_exit_codes: tuple[int, ...] = (0,),
+    config: Config | None = None,
 ) -> Result:
     """Run kubectl command and capture output.
 
     Args:
-        cmd: List of command arguments
-        capture: Whether to capture and return output
-        config: Optional Config instance to use
+        cmd: List of command arguments (does not include "kubectl" itself)
+        config: Optional Config instance to use.
+        allowed_exit_codes: Tuple of exit codes that should be treated as success.
 
     Returns:
-        Success with command output if capture=True, or None otherwise
-        Error with error message on failure
+        Success with command output (stdout) and original_exit_code.
+        Error with error message on failure (if exit code not in allowed_exit_codes).
     """
     try:
-        # Get a Config instance if not provided
         cfg = config or Config()
-
-        # Get the kubeconfig path from config
         kubeconfig = cfg.get("kubeconfig")
-
-        # Build the full command
-        kubectl_cmd = ["kubectl"]
-
-        # Add the command arguments first, to ensure kubeconfig is AFTER the main
-        # command
-        kubectl_cmd.extend(cmd)
-
-        # Add kubeconfig AFTER the main command to avoid errors
+        kubectl_full_cmd = ["kubectl"]  # Renamed to avoid conflict with cmd parameter
+        kubectl_full_cmd.extend(cmd)  # cmd is the list of args for kubectl
         if kubeconfig:
-            kubectl_cmd.extend(["--kubeconfig", str(kubeconfig)])
+            kubectl_full_cmd.extend(["--kubeconfig", str(kubeconfig)])
 
-        logger.info(f"Running kubectl command: {' '.join(kubectl_cmd)}")
+        display_cmd = " ".join(kubectl_full_cmd)
 
-        # Execute the command
-        result = subprocess.run(
-            kubectl_cmd,
-            capture_output=capture,
-            check=False,
+        logger.info(f"Running kubectl command: {display_cmd}")
+
+        process_result = subprocess.run(
+            kubectl_full_cmd,
+            capture_output=True,
+            check=False,  # We handle exit codes manually
             text=True,
             encoding="utf-8",
         )
 
-        # Check for errors
-        if result.returncode != 0:
-            error_message = result.stderr.strip() if capture else "Command failed"
-            if not error_message:
-                error_message = f"Command failed with exit code {result.returncode}"
-            logger.debug(f"kubectl command failed: {error_message}")
+        stdout_data = process_result.stdout.strip() if process_result.stdout else ""
+        stderr_data = process_result.stderr.strip() if process_result.stderr else ""
 
-            # Create error result, potentially marking some as non-halting
-            # TODO: Consider moving the actual create_kubectl_error logic here
+        logger.debug(
+            f"kubectl command (exit code {process_result.returncode}) "
+            f"produced stdout: '{stdout_data[:200]}...'"
+            f"produced stderr: '{stderr_data[:200]}...'"
+        )
+
+        if process_result.returncode in allowed_exit_codes:
+            success_message = (
+                f"Command {display_cmd} completed with "
+                f"exit code {process_result.returncode}."
+            )
+
+            return Success(
+                data=stdout_data,
+                message=success_message,
+                original_exit_code=process_result.returncode,
+            )
+        else:
+            error_content = (
+                stderr_data or stdout_data or "Unknown error (no stdout/stderr)"
+            )
+            error_message = (
+                f"Command failed with exit code {process_result.returncode}: "
+                f"{error_content}"
+            )
+
             return create_kubectl_error(error_message)
 
-        # Return output if capturing
-        if capture:
-            output = result.stdout.strip()
-            logger.debug(f"kubectl command output: {output}")
-            return Success(data=output)
-        return Success()
     except FileNotFoundError as e:
-        # Directly create Error with the exception
         logger.error("kubectl command failed: executable not found.", exc_info=False)
         return Error(
             error="kubectl not found. Please install it and try again.",
-            exception=e,  # Include the exception
+            exception=e,
             halt_auto_loop=True,
         )
-    except subprocess.CalledProcessError as e:
+    except (
+        subprocess.CalledProcessError
+    ) as e:  # Should not be reached due to check=False
         logger.error(
-            f"kubectl command failed with exit code {e.returncode}: {e.stderr}",
+            f"kubectl command failed unexpectedly (CalledProcessError) "
+            f"with exit code {e.returncode}: {e.stderr}",
             exc_info=True,
         )
-        return create_kubectl_error(e.stderr)
+        return create_kubectl_error(e.stderr or f"CalledProcessError: {e.returncode}")
     except Exception as e:
-        logger.debug(f"Exception running kubectl: {e}", exc_info=True)
+        logger.error(f"Exception running kubectl: {e}", exc_info=True)
         return Error(error=str(e), exception=e)
 
 
 def run_kubectl_with_yaml(
-    args: list[str], yaml_content: str, config: Config | None = None
+    args: list[str],
+    yaml_content: str,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+    config: Config | None = None,
 ) -> Result:
     """Execute a kubectl command with YAML content via stdin or temp file.
 
     Args:
         args: List of command arguments (e.g., ['apply', '-f', '-'])
         yaml_content: YAML content string
+        allowed_exit_codes: Tuple of exit codes that should be treated as success.
         config: Optional Config instance to use
 
     Returns:
@@ -172,6 +185,7 @@ def run_kubectl_with_yaml(
         # Get a Config instance if not provided
         cfg = config or Config()
         kubeconfig_path = cfg.get("kubeconfig")
+        kubectl_executable = cfg.get_typed("kubectl_path", "kubectl")
 
         # Fix multi-document YAML formatting issues for robustness
         yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
@@ -184,14 +198,14 @@ def run_kubectl_with_yaml(
             for i, arg in enumerate(args)
         )
 
-        full_cmd_list = ["kubectl", *args]  # Use splat operator
+        full_cmd_list = [kubectl_executable, *args]
         if kubeconfig_path:
-            # Insert after 'kubectl' but before other args if possible,
-            # or append if simpler and still correct.
             # For consistency with run_kubectl, append it.
             full_cmd_list.extend(["--kubeconfig", str(kubeconfig_path)])
 
-        logger.info(f"Running kubectl command with YAML: {' '.join(full_cmd_list)}")
+        display_cmd = " ".join(full_cmd_list)
+
+        logger.info(f"Running kubectl command with YAML: {display_cmd}")
 
         if is_stdin_command:
             # Use Popen with stdin pipe
@@ -218,12 +232,12 @@ def run_kubectl_with_yaml(
             stdout = stdout_bytes.decode("utf-8").strip()
             stderr = stderr_bytes.decode("utf-8").strip()
 
-            if process.returncode != 0:
+            if process.returncode not in allowed_exit_codes:
                 error_msg = (
                     stderr or f"Command failed with exit code {process.returncode}"
                 )
                 return create_kubectl_error(error_msg)
-            return Success(data=stdout)
+            return Success(data=stdout, original_exit_code=process.returncode)
         else:
             # If not using stdin, check if -f <file> was provided alongside YAML content
             if any(arg == "-f" or arg.startswith("-f=") for arg in args):
@@ -243,7 +257,9 @@ def run_kubectl_with_yaml(
 
                 # By earlier check, -f <file> isn't present if we reach here,
                 # sowe can always add -f <temp_path>
-                cmd_to_run = list(full_cmd_list)  # Create a copy
+                cmd_to_run = list(
+                    full_cmd_list
+                )  # Create a copy, already contains kubectl_executable
                 cmd_to_run.extend(["-f", temp_path])
                 # Note: if kubeconfig_path was added to full_cmd_list,
                 # it's already in cmd_to_run here.
@@ -252,13 +268,17 @@ def run_kubectl_with_yaml(
                     cmd_to_run, capture_output=True, text=True, check=False
                 )
 
-                if proc.returncode != 0:
+                if proc.returncode not in allowed_exit_codes:
                     error_msg = (
                         proc.stderr.strip()
                         or f"Command failed with exit code {proc.returncode}"
                     )
                     return create_kubectl_error(error_msg)
-                return Success(data=proc.stdout.strip())
+                return Success(
+                    message=f"Ran {display_cmd} with YAML content via {temp_path}.",
+                    data=proc.stdout.strip(),
+                    original_exit_code=proc.returncode,
+                )
             finally:
                 if temp_path and os.path.exists(temp_path):
                     try:

@@ -9,6 +9,7 @@ Usage examples and demonstrations for vibectl.
 A Capture-The-Flag style demo environment using Docker and Kind where vibectl autonomously solves Kubernetes challenges.
 
 Features:
+
 - Isolated Kubernetes environment using Kind
 - Autonomous vibectl operation with memory-guided problem solving
 - Multi-stage challenges with progressive difficulty

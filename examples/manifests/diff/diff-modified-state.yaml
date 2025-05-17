@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: diff-demo-cm
+  namespace: diff-demo-ns
+data:
+  key1: value1 # Unchanged
+  key2: "modified data" # Changed
+  key3: "new value" # Added
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: diff-demo-secret
+  namespace: diff-demo-ns
+type: Opaque
+data:
+  username: dXNlcjE= # user1 (Unchanged)
+  password: UGFzc3dvcmRXSlpB # PasswordXJZA (Changed)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: diff-demo-secret-new
+  namespace: diff-demo-ns
+type: Opaque
+data:
+  apikey: MWY0ZTg2YjM0ZDRjYjhkNA== # 1f4e86b34d4cb8d4

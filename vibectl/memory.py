@@ -5,7 +5,6 @@ that is maintained between vibectl commands.
 """
 
 import logging
-from collections.abc import Callable
 from typing import cast  # Added List, Tuple
 
 from .config import Config
@@ -94,7 +93,7 @@ def clear_memory(config: Config | None = None) -> None:
 
 
 def update_memory(
-    command: str,
+    command_message: str,
     command_output: str,
     vibe_output: str,
     model_name: str | None = None,
@@ -116,7 +115,7 @@ def update_memory(
 
         # Get fragments for memory update, now passing current_memory
         system_fragments, user_fragments = memory_update_prompt(
-            command=command,
+            command_message=command_message,
             command_output=command_output,
             vibe_output=vibe_output,
             current_memory=current_memory_text,
@@ -149,59 +148,6 @@ def update_memory(
         # Log unexpected errors if logger is available
         logger.exception("Unexpected error updating memory")
         return None  # Ignore unexpected errors too for now
-
-
-def include_memory_in_prompt(
-    prompt_template: str | Callable[[], str], config: Config | None = None
-) -> str:
-    """Include memory in a prompt template if available and enabled.
-
-    Args:
-        prompt_template: The prompt template or callable returning template
-        config: Optional Config instance. If not provided, creates a new one.
-
-    Returns:
-        str: Updated prompt with memory context if available
-    """
-    cfg = config or Config()
-
-    # If memory is disabled or empty, return original prompt
-    if not is_memory_enabled(cfg):
-        return prompt_template() if callable(prompt_template) else prompt_template
-
-    memory = get_memory(cfg)
-    if not memory:
-        return prompt_template() if callable(prompt_template) else prompt_template
-
-    # Get the prompt text
-    prompt = prompt_template() if callable(prompt_template) else prompt_template
-
-    # Insert memory context after formatting instructions and before the actual prompt
-    memory_section = f"""
-Memory context:
-{memory}
-
-"""
-
-    # Try to find an appropriate insertion point
-    # Check for common markers in our prompts
-    if "Important:" in prompt:
-        # Insert before the "Important:" section
-        prompt = prompt.replace("Important:", f"{memory_section}Important:")
-    elif "Example format:" in prompt:
-        # Insert before the "Example format:" section
-        prompt = prompt.replace("Example format:", f"{memory_section}Example format:")
-    elif "Example inputs and outputs:" in prompt:
-        # Insert before the "Example inputs and outputs:" section
-        prompt = prompt.replace(
-            "Example inputs and outputs:",
-            f"{memory_section}Example inputs and outputs:",
-        )
-    else:
-        # If no marker found, just add at the beginning
-        prompt = f"{memory_section}{prompt}"
-
-    return prompt
 
 
 def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:

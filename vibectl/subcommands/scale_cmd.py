@@ -1,10 +1,11 @@
+import asyncio
+
 # Local imports
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.console import console_manager
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.prompt import PLAN_SCALE_PROMPT, scale_resource_prompt
@@ -61,38 +62,39 @@ async def run_scale_command(
             )
 
     # Standard kubectl scale
-    kubectl_command = ["scale", resource, *args]
-
-    # Log command if requested
-    if show_kubectl:
-        console_manager.print_note(f"Running: kubectl {' '.join(kubectl_command)}")
-
     try:
-        # run_kubectl is synchronous, remove await
-        kube_result = run_kubectl(kubectl_command, capture=True)
+        # Build command list
+        cmd_list = ["scale", resource, *args]
+        logger.info(f"Running kubectl command: {' '.join(cmd_list)}")
+
+        # Run kubectl and get result (capture is always True in run_kubectl now)
+        output = await asyncio.to_thread(run_kubectl, cmd_list)
+
+        # Handle errors from kubectl
+        if isinstance(output, Error):
+            return output
+
+        if output.data:
+            try:
+                # handle_command_output is synchronous
+                await asyncio.to_thread(
+                    handle_command_output,
+                    output=output,
+                    command="scale",
+                    output_flags=output_flags,
+                    summary_prompt_func=scale_resource_prompt,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error processing kubectl scale output: %s", e, exc_info=True
+                )
+                return Error(error="Exception processing scale output", exception=e)
+        else:
+            logger.info("No output from kubectl scale command.")
+            return Success(message="No output from kubectl scale command.")
+
+        logger.info(f"Completed 'scale' command for resource: {resource}")
+        return Success(message=f"Successfully processed scale command for {resource}")
     except Exception as e:
         logger.error("Error running kubectl scale: %s", e, exc_info=True)
         return Error(error="Exception running kubectl scale", exception=e)
-
-    # Check result directly, don't await again
-    if isinstance(kube_result, Error):
-        return kube_result
-
-    if kube_result.data:
-        try:
-            # handle_command_output is synchronous
-            handle_command_output(
-                output=kube_result.data,
-                command="scale",
-                output_flags=output_flags,
-                summary_prompt_func=scale_resource_prompt,
-            )
-        except Exception as e:
-            logger.error("Error processing kubectl scale output: %s", e, exc_info=True)
-            return Error(error="Exception processing scale output", exception=e)
-    else:
-        logger.info("No output from kubectl scale command.")
-        return Success(message="No output from kubectl scale command.")
-
-    logger.info(f"Completed 'scale' command for resource: {resource}")
-    return Success(message=f"Successfully processed scale command for {resource}")

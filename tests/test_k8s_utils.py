@@ -2,6 +2,8 @@
 
 import asyncio
 import subprocess
+import unittest.mock
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -80,7 +82,7 @@ def test_create_kubectl_error_decode_error() -> None:
 def test_create_kubectl_error_decode_exception() -> None:
     """Test handling of generic Exception during byte decoding."""
     # Create a mock object that simulates bytes but raises Exception on decode
-    mock_bytes = MagicMock(spec=bytes)
+    mock_bytes = unittest.mock.MagicMock(spec=bytes)
     mock_bytes.decode.side_effect = Exception("Unexpected decoding issue")
 
     # Pass the mock object instead of actual bytes
@@ -105,14 +107,16 @@ def test_create_kubectl_error_unexpected_type() -> None:
 
 
 @patch("subprocess.run")
-def test_run_kubectl_success_no_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0)
+def test_run_kubectl_success_no_capture(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=0, stdout=" some output "
+    )
     result = run_kubectl(["get", "pods"])
     assert isinstance(result, Success)
-    assert result.data is None
+    assert result.data == "some output"
     mock_run.assert_called_once_with(
         ["kubectl", "get", "pods"],
-        capture_output=False,
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",
@@ -120,9 +124,11 @@ def test_run_kubectl_success_no_capture(mock_run: MagicMock) -> None:
 
 
 @patch("subprocess.run")
-def test_run_kubectl_success_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout=" pod1 \npod2 ")
-    result = run_kubectl(["get", "nodes"], capture=True)
+def test_run_kubectl_success_capture(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=0, stdout=" pod1 \npod2 "
+    )
+    result = run_kubectl(["get", "nodes"])
     assert isinstance(result, Success)
     assert result.data == "pod1 \npod2"
     mock_run.assert_called_once_with(
@@ -135,50 +141,60 @@ def test_run_kubectl_success_capture(mock_run: MagicMock) -> None:
 
 
 @patch("subprocess.run")
-def test_run_kubectl_failure_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr=" Error message ")
-    result = run_kubectl(["apply", "-f", "thing.yaml"], capture=True)
+def test_run_kubectl_failure_capture(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=1, stderr=" Error message ", stdout=""
+    )
+    result = run_kubectl(["apply", "-f", "thing.yaml"])
     assert isinstance(result, Error)
-    assert result.error == "Error message"
+    assert result.error == "Command failed with exit code 1: Error message"
     assert result.exception is None
-    # Check halt_auto_loop based on error message (default True)
     assert result.halt_auto_loop is True
 
 
 @patch("subprocess.run")
-def test_run_kubectl_failure_no_capture(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1)
+def test_run_kubectl_failure_no_capture(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(returncode=1, stderr="", stdout="")
     result = run_kubectl(["delete", "pod", "my-pod"])
     assert isinstance(result, Error)
-    assert result.error == "Command failed"
-    assert result.exception is None
-    assert result.halt_auto_loop is True
-
-
-@patch("subprocess.run")
-def test_run_kubectl_failure_no_stderr(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr="")
-    result = run_kubectl(["delete", "pod", "my-pod"], capture=True)
-    assert isinstance(result, Error)
-    assert result.error == "Command failed with exit code 1"
-    assert result.exception is None
-    assert result.halt_auto_loop is True
-
-
-@patch("subprocess.run")
-def test_run_kubectl_failure_recoverable(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(
-        returncode=1, stderr="error from server (NotFound)"
+    assert (
+        result.error
+        == "Command failed with exit code 1: Unknown error (no stdout/stderr)"
     )
-    result = run_kubectl(["get", "pod", "nonexistent"], capture=True)
-    assert isinstance(result, Error)
-    assert result.error == "error from server (NotFound)"
     assert result.exception is None
-    assert result.halt_auto_loop is False  # Recoverable error
+    assert result.halt_auto_loop is True
 
 
 @patch("subprocess.run")
-def test_run_kubectl_file_not_found(mock_run: MagicMock) -> None:
+def test_run_kubectl_failure_no_stderr(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=1, stderr="", stdout="some stdout data"
+    )
+    result = run_kubectl(["delete", "pod", "my-pod"])
+    assert isinstance(result, Error)
+    assert result.error == "Command failed with exit code 1: some stdout data"
+    assert result.exception is None
+    assert result.halt_auto_loop is True
+
+
+@patch("subprocess.run")
+def test_run_kubectl_failure_recoverable(mock_run: unittest.mock.MagicMock) -> None:
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=1, stderr="error from server (NotFound)", stdout=""
+    )
+    result = run_kubectl(["get", "pod", "nonexistent"])
+    assert isinstance(result, Error)
+    assert (
+        result.error == "Command failed with exit code 1: error from server (NotFound)"
+    )
+    assert result.exception is None
+    created_error = create_kubectl_error("error from server (NotFound)")
+    assert created_error.halt_auto_loop is False
+    assert result.halt_auto_loop is False
+
+
+@patch("subprocess.run")
+def test_run_kubectl_file_not_found(mock_run: unittest.mock.MagicMock) -> None:
     mock_run.side_effect = FileNotFoundError("kubectl not found")
     result = run_kubectl(["version"])
     assert isinstance(result, Error)
@@ -189,18 +205,24 @@ def test_run_kubectl_file_not_found(mock_run: MagicMock) -> None:
 
 @patch("vibectl.k8s_utils.Config")
 @patch("subprocess.run")
-def test_run_kubectl_with_config(mock_run: MagicMock, mock_config: MagicMock) -> None:
-    mock_config.return_value.get.return_value = "/path/to/my/kubeconfig"
+def test_run_kubectl_with_config(
+    mock_run: unittest.mock.MagicMock, mock_config_class: unittest.mock.MagicMock
+) -> None:
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.get.return_value = "/path/to/my/kubeconfig"
 
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=0, stdout=" success data "
+    )
 
-    result = run_kubectl(["get", "svc"], config=mock_config.return_value)
+    result = run_kubectl(["get", "svc"], config=mock_config_instance)
 
     assert isinstance(result, Success)
-    mock_config.return_value.get.assert_called_once_with("kubeconfig")
+    assert result.data == "success data"
+    mock_config_instance.get.assert_called_once_with("kubeconfig")
     mock_run.assert_called_once_with(
         ["kubectl", "get", "svc", "--kubeconfig", "/path/to/my/kubeconfig"],
-        capture_output=False,
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",
@@ -210,20 +232,24 @@ def test_run_kubectl_with_config(mock_run: MagicMock, mock_config: MagicMock) ->
 @patch("vibectl.k8s_utils.Config")
 @patch("subprocess.run")
 def test_run_kubectl_without_config(
-    mock_run: MagicMock, mock_config: MagicMock
+    mock_run: unittest.mock.MagicMock, mock_config_class: unittest.mock.MagicMock
 ) -> None:
-    # Ensure Config() returns a mock that returns None for kubeconfig
-    mock_config.return_value.get.return_value = None
+    mock_config_instance = mock_config_class.return_value
+    mock_config_instance.get.return_value = None
 
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=0, stdout=" more success data "
+    )
 
-    result = run_kubectl(["get", "ns"])  # No config passed
+    result = run_kubectl(["get", "ns"])
 
     assert isinstance(result, Success)
-    mock_config.return_value.get.assert_called_once_with("kubeconfig")
+    assert result.data == "more success data"
+    mock_config_class.assert_called_once()
+    mock_config_instance.get.assert_called_once_with("kubeconfig")
     mock_run.assert_called_once_with(
-        ["kubectl", "get", "ns"],  # No --kubeconfig arg
-        capture_output=False,
+        ["kubectl", "get", "ns"],
+        capture_output=True,
         check=False,
         text=True,
         encoding="utf-8",
@@ -231,7 +257,7 @@ def test_run_kubectl_without_config(
 
 
 @patch("subprocess.run")
-def test_run_kubectl_called_process_error(mock_run: MagicMock) -> None:
+def test_run_kubectl_called_process_error(mock_run: unittest.mock.MagicMock) -> None:
     """Test handling of CalledProcessError exception."""
     error = subprocess.CalledProcessError(
         returncode=1,
@@ -251,7 +277,7 @@ def test_run_kubectl_called_process_error(mock_run: MagicMock) -> None:
 
 
 @patch("subprocess.run")
-def test_run_kubectl_generic_exception(mock_run: MagicMock) -> None:
+def test_run_kubectl_generic_exception(mock_run: unittest.mock.MagicMock) -> None:
     """Test handling of generic exceptions during subprocess.run."""
     error = OSError("Disk is full or something")
     mock_run.side_effect = error
@@ -294,8 +320,10 @@ spec:
 
 
 @patch("subprocess.Popen")
-def test_run_kubectl_with_yaml_stdin_success(mock_popen: MagicMock) -> None:
-    mock_process = MagicMock()
+def test_run_kubectl_with_yaml_stdin_success(
+    mock_popen: unittest.mock.MagicMock,
+) -> None:
+    mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (b"pod/test-pod created", b"")
     mock_process.returncode = 0
     mock_popen.return_value = mock_process
@@ -318,8 +346,10 @@ def test_run_kubectl_with_yaml_stdin_success(mock_popen: MagicMock) -> None:
 
 
 @patch("subprocess.Popen")
-def test_run_kubectl_with_yaml_stdin_multi_doc_success(mock_popen: MagicMock) -> None:
-    mock_process = MagicMock()
+def test_run_kubectl_with_yaml_stdin_multi_doc_success(
+    mock_popen: unittest.mock.MagicMock,
+) -> None:
+    mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (
         b"namespace/test-ns created\npod/test-pod created",
         b"",
@@ -340,8 +370,10 @@ def test_run_kubectl_with_yaml_stdin_multi_doc_success(mock_popen: MagicMock) ->
 
 
 @patch("subprocess.Popen")
-def test_run_kubectl_with_yaml_stdin_failure(mock_popen: MagicMock) -> None:
-    mock_process = MagicMock()
+def test_run_kubectl_with_yaml_stdin_failure(
+    mock_popen: unittest.mock.MagicMock,
+) -> None:
+    mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (b"", b"Error applying YAML")
     mock_process.returncode = 1
     mock_popen.return_value = mock_process
@@ -354,8 +386,10 @@ def test_run_kubectl_with_yaml_stdin_failure(mock_popen: MagicMock) -> None:
 
 
 @patch("subprocess.Popen")
-def test_run_kubectl_with_yaml_stdin_timeout(mock_popen: MagicMock) -> None:
-    mock_process = MagicMock()
+def test_run_kubectl_with_yaml_stdin_timeout(
+    mock_popen: unittest.mock.MagicMock,
+) -> None:
+    mock_process = unittest.mock.MagicMock()
     mock_process.communicate.side_effect = [
         subprocess.TimeoutExpired(cmd="kubectl apply", timeout=30),
         (b"", b"Timeout"),
@@ -377,19 +411,19 @@ def test_run_kubectl_with_yaml_stdin_timeout(mock_popen: MagicMock) -> None:
 @patch("os.unlink")
 @patch("os.path.exists")
 def test_run_kubectl_with_yaml_tempfile_success(
-    mock_exists: MagicMock,
-    mock_unlink: MagicMock,
-    mock_run: MagicMock,
-    mock_tempfile: MagicMock,
+    mock_exists: unittest.mock.MagicMock,
+    mock_unlink: unittest.mock.MagicMock,
+    mock_run: unittest.mock.MagicMock,
+    mock_tempfile: unittest.mock.MagicMock,
 ) -> None:
     # Mock the temporary file context manager
-    mock_temp_file = MagicMock()
+    mock_temp_file = unittest.mock.MagicMock()
     mock_temp_file.name = "/tmp/testfile.yaml"
     mock_tempfile.return_value.__enter__.return_value = mock_temp_file
     mock_exists.return_value = True  # Assume file exists for cleanup
 
     # Mock subprocess run
-    mock_run.return_value = MagicMock(
+    mock_run.return_value = unittest.mock.MagicMock(
         returncode=0, stdout="pod/test-pod configured", stderr=""
     )
 
@@ -418,17 +452,19 @@ def test_run_kubectl_with_yaml_tempfile_success(
 @patch("os.unlink")
 @patch("os.path.exists")
 def test_run_kubectl_with_yaml_tempfile_failure(
-    mock_exists: MagicMock,
-    mock_unlink: MagicMock,
-    mock_run: MagicMock,
-    mock_tempfile: MagicMock,
+    mock_exists: unittest.mock.MagicMock,
+    mock_unlink: unittest.mock.MagicMock,
+    mock_run: unittest.mock.MagicMock,
+    mock_tempfile: unittest.mock.MagicMock,
 ) -> None:
-    mock_temp_file = MagicMock()
+    mock_temp_file = unittest.mock.MagicMock()
     mock_temp_file.name = "/tmp/fail.yaml"
     mock_tempfile.return_value.__enter__.return_value = mock_temp_file
     mock_exists.return_value = True
 
-    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Temp file error")
+    mock_run.return_value = unittest.mock.MagicMock(
+        returncode=1, stdout="", stderr="Temp file error"
+    )
 
     result = run_kubectl_with_yaml(["create"], YAML_CONTENT)
 
@@ -443,18 +479,18 @@ def test_run_kubectl_with_yaml_tempfile_failure(
 @patch("os.unlink")
 @patch("os.path.exists")
 def test_run_kubectl_with_yaml_tempfile_cleanup_error(
-    mock_exists: MagicMock,
-    mock_unlink: MagicMock,
-    mock_run: MagicMock,
-    mock_tempfile: MagicMock,
+    mock_exists: unittest.mock.MagicMock,
+    mock_unlink: unittest.mock.MagicMock,
+    mock_run: unittest.mock.MagicMock,
+    mock_tempfile: unittest.mock.MagicMock,
 ) -> None:
-    mock_temp_file = MagicMock()
+    mock_temp_file = unittest.mock.MagicMock()
     mock_temp_file.name = "/tmp/cleanup_fail.yaml"
     mock_tempfile.return_value.__enter__.return_value = mock_temp_file
     mock_exists.return_value = True
     mock_unlink.side_effect = OSError("Permission denied")  # Simulate cleanup failure
 
-    mock_run.return_value = MagicMock(
+    mock_run.return_value = unittest.mock.MagicMock(
         returncode=0, stdout="Deleted successfully", stderr=""
     )
 
@@ -471,7 +507,7 @@ def test_run_kubectl_with_yaml_tempfile_cleanup_error(
 
 @patch("tempfile.NamedTemporaryFile")
 def test_run_kubectl_with_yaml_tempfile_creation_error(
-    mock_tempfile: MagicMock,
+    mock_tempfile: unittest.mock.MagicMock,
 ) -> None:
     mock_tempfile.side_effect = OSError("Disk full")
 
@@ -484,10 +520,10 @@ def test_run_kubectl_with_yaml_tempfile_creation_error(
 
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_already_starts_with_dashes(
-    mock_popen: MagicMock,
+    mock_popen: unittest.mock.MagicMock,
 ) -> None:
     """Test stdin execution when input YAML already starts with ---."""
-    mock_process = MagicMock()
+    mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (b"pod/test-pod created", b"")
     mock_process.returncode = 0
     mock_popen.return_value = mock_process
@@ -506,13 +542,22 @@ def test_run_kubectl_with_yaml_stdin_already_starts_with_dashes(
 @patch("vibectl.k8s_utils.subprocess.Popen")
 @patch("vibectl.k8s_utils.Config")
 def test_run_kubectl_with_yaml_uses_vibectl_config_kubeconfig(
-    mock_config: MagicMock, mock_popen: MagicMock
+    mock_config_cls: MagicMock, mock_popen: MagicMock
 ) -> None:
     """Test that run_kubectl_with_yaml uses kubeconfig from vibectl.config.Config."""
     # Setup mock Config instance
-    mock_config_instance = mock_config.return_value
+    mock_config_instance = mock_config_cls.return_value
     custom_kubeconfig_path = "/custom/path/kube.config"
-    mock_config_instance.get.return_value = custom_kubeconfig_path
+
+    def mock_get_side_effect(key: str, default: Any = None) -> Any:
+        if key == "kubeconfig":
+            return custom_kubeconfig_path
+        if key == "kubectl_path":
+            return "kubectl"  # Ensure kubectl_path returns a string
+        return default
+
+    mock_config_instance.get.side_effect = mock_get_side_effect
+    mock_config_instance.get_typed.side_effect = mock_get_side_effect
 
     # Mock Popen to simulate successful execution
     mock_process = MagicMock()

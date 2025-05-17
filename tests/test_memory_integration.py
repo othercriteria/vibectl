@@ -70,7 +70,7 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
 
     # Call update_memory
     update_memory(
-        command=command,
+        command_message=command,
         command_output=command_output,
         vibe_output=vibe_output,
         model_name="claude-3.7-sonnet",
@@ -117,7 +117,7 @@ def test_update_memory_disabled(
 
     # Call update_memory
     update_memory(
-        command="kubectl get pods",
+        command_message="kubectl get pods",
         command_output="No resources found",
         vibe_output="No pods found",
         config=test_config,
@@ -145,7 +145,7 @@ def test_update_memory_with_error(
 
     # Call update_memory
     update_memory(
-        command=command,
+        command_message=command,
         command_output=command_output,
         vibe_output=vibe_output,
         config=test_config,
@@ -200,7 +200,7 @@ def test_update_memory_model_error(
     with patch("vibectl.memory.set_memory") as mock_set_mem:
         # Call update_memory - should catch the exception internally
         update_memory(
-            command="kubectl get pods",
+            command_message="kubectl get pods",
             command_output="output",
             vibe_output="vibe",
             config=test_config,
@@ -238,7 +238,7 @@ def test_update_memory_integration(test_config: Config) -> None:
 
         # Call update_memory
         update_memory(
-            command="kubectl get pods",
+            command_message="kubectl get pods",
             command_output="3 pods running",
             vibe_output="3 pods are running",
             config=test_config,

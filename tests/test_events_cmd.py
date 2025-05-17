@@ -25,7 +25,7 @@ async def test_events_error_handling(
         await cmd_obj.main([])
 
     assert exc_info.value.code != 0
-    mock_run_kubectl.assert_called_once_with(["events"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["events"])
     mock_handle_output.assert_not_called()
 
 
@@ -45,7 +45,7 @@ async def test_events_output_processing(
         await cmd_obj.main([])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["events"], capture=True)
+    mock_run_kubectl.assert_called_once_with(["events"])
     mock_handle_output.assert_called_once()
 
 

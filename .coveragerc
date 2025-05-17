@@ -3,7 +3,7 @@ branch = True
 source = vibectl
 parallel = True
 concurrency = thread, multiprocessing
-omit = *migrations*, *tests*, *__pycache__*
+omit = *migrations*, *tests*, *__pycache__*, .venv/*
 
 [report]
 exclude_lines =

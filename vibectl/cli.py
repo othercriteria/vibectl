@@ -21,11 +21,13 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
+from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
 from vibectl.subcommands.describe_cmd import run_describe_command
+from vibectl.subcommands.diff_cmd import run_diff_command
 from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
@@ -327,7 +329,6 @@ async def create(
             sys.exit(1)
             return
         vibe_request = " ".join(args)
-        # Call run_vibe_command directly and await it
         result = await run_vibe_command(
             request=vibe_request,
             show_raw_output=show_raw_output,
@@ -339,13 +340,11 @@ async def create(
             show_metrics=show_metrics,
         )
     else:
-        # Call the helper function for standard create logic
         result = _create_command_logic(
             resource=resource,
             args=args,
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            # Correct order: show_kubectl before model
             show_kubectl=show_kubectl,
             model=model,
             freeze_memory=freeze_memory,
@@ -355,7 +354,7 @@ async def create(
     handle_result(result)
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(include_show_kubectl=True, include_yes=True)
@@ -371,11 +370,7 @@ async def delete(
     yes: bool = False,
     show_metrics: bool | None = None,
 ) -> None:
-    """Delete a resource.
-
-    Removes resources from the cluster.
-    Use --yes or -y to skip confirmation prompt for non-interactive usage.
-    """
+    """Delete a resource."""
 
     # Await the call to the now-async runner function
     result = await run_delete_command(
@@ -835,9 +830,9 @@ async def cluster_info(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
-) -> int | None:
-    """Display cluster info."""
-    # Await run_cluster_info_command
+    yes: bool = False,
+) -> None:
+    """Get cluster information."""
     result = await run_cluster_info_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -849,9 +844,6 @@ async def cluster_info(
         show_metrics=show_metrics,
     )
     handle_result(result)
-    # Return 0 for success consistency if needed, but handle_result exits on error
-    # The return type hint might need adjustment if handle_result always exits.
-    return 0
 
 
 @cli.group(name="memory", help="Memory management commands")
@@ -1423,28 +1415,82 @@ async def port_forward(
     handle_result(cmd_result)
 
 
-# --- Helper Function to handle Result ---
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@common_command_options(include_show_kubectl=True)
+async def diff(
+    resource: str,
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+) -> None:
+    """Diff configurations between local files/stdin and the live cluster state."""
+    result = await run_diff_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@common_command_options(include_show_kubectl=True)
+async def apply(
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+) -> None:
+    """Apply a configuration to the live cluster from a file, directory, or stdin."""
+    result = await run_apply_command(
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    handle_result(result)
 
 
 def handle_result(result: Result) -> None:
-    """
-    Handle a Result (Success or Error): print errors and exit with the correct code.
-    Use in CLI handlers to reduce boilerplate.
-    """
+    """Handle the Result of a subcommand, exiting if requested."""
     if isinstance(result, Success):
-        # Check if we should terminate execution
-        if not result.continue_execution:
-            # This is a normal exit (like the user choosing "Exit" in semiauto mode)
-            logger.info(f"Normal termination requested: {result.message}")
-            sys.exit(0)
-        return  # Normal exit, continue
+        if result.continue_execution:
+            return
+
+        exit_code = result.original_exit_code or 0
+        logger.info(
+            f"Normal termination requested: {result.message}. "
+            f"Exiting with code {exit_code}."
+        )
+        sys.exit(exit_code)
+
     elif isinstance(result, Error):
-        # Always print the error message to console if available
-        if hasattr(result, "error") and result.error:
+        # Always print the error message to the console if available
+        if result.error:
             console_manager.print_error(result.error)
-        # Otherwise, print the standard exception string representation
         elif str(result):
             console_manager.print_error(str(result))
 
-        # Revert: Exit with 1 for any Error, as cancellation is now Success
+        logger.info("Encountered an error. Exiting with code 1.")
         sys.exit(1)

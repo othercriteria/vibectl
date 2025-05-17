@@ -43,6 +43,7 @@ def test_rollout_commands_with_mocked_handler(command: str) -> None:
 
 @pytest.fixture
 def standard_output_flags() -> OutputFlags:
+    """Standard output flags for testing."""
     return OutputFlags(
         show_raw=False,
         show_vibe=True,

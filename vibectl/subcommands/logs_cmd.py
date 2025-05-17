@@ -103,12 +103,9 @@ async def run_logs_command(
         cmd = ["logs", resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
 
-        # Run kubectl and check result type
-        # Assume run_kubectl might be sync or async; wrap sync in to_thread if needed
-        # For now, assume it remains sync as in handle_standard_command pattern
-        result = await asyncio.to_thread(run_kubectl, cmd, capture=True)
+        # Run kubectl logs in a separate thread
+        result = await asyncio.to_thread(run_kubectl, cmd)
 
-        # If result is an error, return it
         if isinstance(result, Error):
             error_msg = f"Error running kubectl: {result.error}"
             logger.error(error_msg)

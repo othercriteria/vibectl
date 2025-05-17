@@ -43,16 +43,17 @@ def run_create_command(
         cmd = ["create", resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")
         try:
-            output = run_kubectl(cmd, capture=True)
+            output = run_kubectl(cmd)
         except Exception as e:
             logger.error("Error running kubectl: %s", e, exc_info=True)
             return Error(error="Exception running kubectl", exception=e)
 
-        if not output:
+        if isinstance(output, Success) and not output.data:
             logger.info("No output from kubectl create command.")
             return Success(message="No output from kubectl create command.")
 
         try:
+            # Ensure handle_command_output is called with the Result object directly
             handle_command_output(
                 output=output,
                 output_flags=output_flags,
