@@ -49,6 +49,42 @@ The `vibectl apply vibe "<user_input_string>"` command intelligently processes y
 * **Validation:** Leverages `kubectl apply --dry-run=server` to ensure manifest validity before attempting to make changes to the cluster.
 * **Automation:** Streamlines the process of applying multiple manifests, especially when some may have issues.
 
+## Worked Example
+
+The snippet below shows an actual run of the intelligent apply workflow. The log output is extremely verbose, but the key steps are:
+
+```bash
+❯ vibectl config set log_level INFO
+❯ k create namespace apply-demo-1
+❯ k create namespace apply-demo-2
+❯ vibectl memory set ""
+❯ vibectl apply vibe "examples/manifests/apply/ into both apply-demo-1 and apply-demo-2 namespaces"
+[INFO] Starting intelligent apply workflow...
+[INFO] Total files discovered and processed: 6
+[INFO] Semantically valid manifests found: 2
+[INFO] Invalid/non-manifest sources to correct/generate: 4
+[INFO] Total corrected/generated manifests: 3
+[INFO] Total unresolvable sources after Step 4: 1
+[INFO] Executing planned command 1/2: ... -n apply-demo-1
+✨ Vibe check: Deployment and Service Resources
+deployment.apps/valid-deployment-1 created
+service/valid-service-1 created
+...
+[INFO] Executing planned command 2/2: ... -n apply-demo-2
+```
+
+The operation applies the original valid manifests plus three AI-corrected ones, creating identical resources in both namespaces.
+
+### What changed?
+
+Compared with the files in `examples/manifests/apply/`:
+
+- **`valid_manifest_1.yaml` & `valid_manifest_2.yaml`** were applied unchanged.
+- **`natural_language_resource.txt`** → generated a `Deployment` called `nlp-deployment` with 2 replicas and the label `env: production`.
+- **`invalid_logic.yaml`** → transformed from an invalid `NonExistentKind` object into a standard `Deployment` (named `invalid-logic-resource`) using the `nginx:latest` image and CPU/memory limits.
+- **`invalid_syntax.yaml`** → fixed indentation issues to create the `invalid-syntax-deployment` Deployment.
+- **`not_a_resource.txt`** → skipped entirely because it was recognized as license text and not a manifest.
+
 ## Future Enhancements (Not Yet Implemented)
 
 * **Interactive Confirmation:** Option for users to review a diff and confirm changes before applying LLM-corrected or generated manifests.
