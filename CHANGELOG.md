@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `vibectl diff` subcommand to compare local configurations (files or stdin) or Vibe.AI planned configurations against the live cluster state, with optional Vibe.AI summarization of changes.
-- `PLAN_DIFF_PROMPT` for Vibe.AI to intelligently plan `kubectl diff` commands, including setting `allowed_exit_codes` to `[0, 1]`.
+
+- `vibectl apply vibe` intelligent workflow: an LLM-powered feature that understands user requests for applying manifests, discovers and validates specified files (local or remote), builds an operational context by summarizing valid manifests, attempts to correct or generate manifests for invalid/incomplete sources, plans the final `kubectl apply` command(s) based on all inputs and context, and executes the plan. Includes cleanup of temporary files.
+- `vibectl diff` subcommand to compare local configurations (files or stdin) or planned configurations against the live cluster state, with optional summarization of changes.
 - Added comprehensive tests for the `vibectl diff` subcommand, achieving 100% code coverage for `vibectl/subcommands/diff_cmd.py`.
-- Planned: Implement `vibectl apply` subcommand with LLM-powered input fixing and vibe integration (WIP)
 
 ### Changed
+
 - Refactored `allowed_exit_codes` handling throughout the application:
   - `LLMCommandResponse` schema now supports an optional `allowed_exit_codes` field, allowing Vibe.AI to specify which exit codes are considered successful for a planned command.
   - `run_kubectl` (in `vibectl/k8s_utils.py`) now consistently uses the `allowed_exit_codes` parameter.
@@ -26,11 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated numerous tests and subcommand implementations to align with the `run_kubectl` refactoring and `allowed_exit_codes` propagation.
 
 ### Removed
+
 - Removed `capture` parameter from `run_kubectl` and its call sites, as output is now always captured.
 
 ## [0.7.0] - 2025-05-14
 
 ### Added
+
 - **LLM Interaction Optimization & Observability:**
   - Refactored prompt construction to use a fragment-based system (`PromptFragments` in `vibectl/prompt.py`, `vibectl/types.py`) for better structure, potential caching by the underlying `llm` library, and improved maintainability.
   - Enhanced LLM call instrumentation in `model_adapter.py` and `command_handler.py` to record and display metrics for token usage (input/output) and latency, including total processing duration for LLM-related operations.
@@ -38,23 +41,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Introduced `TimedOperation` context manager in `model_adapter.py` for standardized internal timing.
 
 ### Changed
+
 - Major refactor of prompt generation and handling (`vibectl/prompt.py`, `vibectl/command_handler.py`):
-    - Introduced `PromptFragments` (SystemFragments, UserFragments) for more structured and flexible prompt construction.
-    - Updated most planning and summarization prompts to use this new fragment-based system (e.g., `plan_vibe_fragments`, `memory_update_prompt`, `vibe_autonomous_prompt`).
-    - Replaced static `plan_prompt` strings in subcommand handlers with `plan_prompt_func` that return `PromptFragments`.
-    - Removed `memory_context` as a direct argument to `handle_vibe_request`; memory is now incorporated into prompt fragments by the caller or within specific prompt functions.
-    - Consolidated and clarified prompt examples and instructions.
+  - Introduced `PromptFragments` (SystemFragments, UserFragments) for more structured and flexible prompt construction.
+  - Updated most planning and summarization prompts to use this new fragment-based system (e.g., `plan_vibe_fragments`, `memory_update_prompt`, `vibe_autonomous_prompt`).
+  - Replaced static `plan_prompt` strings in subcommand handlers with `plan_prompt_func` that return `PromptFragments`.
+  - Removed `memory_context` as a direct argument to `handle_vibe_request`; memory is now incorporated into prompt fragments by the caller or within specific prompt functions.
+  - Consolidated and clarified prompt examples and instructions.
 - Improved consistency in passing `Config` objects for prompt generation and other configurations.
 - Refactored `LLMModelAdapter.execute` in `vibectl/model_adapter.py` for improved robustness, error handling, and internal timing:
-    - Implemented `_handle_prompt_execution_with_adaptation` for adaptive retries on `AttributeError` (e.g., schema/fragment issues).
-    - Introduced `LLMAdaptationError` for exhausted adaptation attempts.
-    - Enhanced error logging with more context (attempt counts, latencies).
-    - Made `_determine_provider_from_model` more robust for Ollama models.
+  - Implemented `_handle_prompt_execution_with_adaptation` for adaptive retries on `AttributeError` (e.g., schema/fragment issues).
+  - Introduced `LLMAdaptationError` for exhausted adaptation attempts.
+  - Enhanced error logging with more context (attempt counts, latencies).
+  - Made `_determine_provider_from_model` more robust for Ollama models.
 - Updated `LLMMetrics` in `vibectl/types.py` (removed `cache_hit`, added `total_processing_duration_ms`) and adjusted `command_handler.py` and `console.py` for consistent metrics display.
 
 ## [0.6.3] - 2025-05-12
 
 ### Changed
+
 - **[Demo]** Kafka Throughput Demo:
   - Updated `README.md` and `STRUCTURE.md` to reflect the current implementation:
     - `README.md`: Removed outdated Makefile targets (e.g., `check-latency`) and the "Troubleshooting & Past Issues" section. Updated demo stop command to `make down && make clean-cluster`.
@@ -77,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.2] - 2025-05-08
 
 ### Fixed
+
 - Update example Dockerfiles (bootstrap, ctf) to use Python 3.11+.
 - Fix `TypeError` in `vibectl auto` command when `--yes` flag is used.
 - Fix `click.Abort` error in non-interactive `auto` mode by correctly handling the `yes` flag during command confirmation for dangerous commands.
@@ -85,12 +91,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.1] - 2025-05-07
 
 ### Added
+
 - Interactive live display for commands using `--watch` (`get`, `events`) or `--follow` (`logs`), replacing simple pass-through. Includes keybindings for Exit (E), Pause (P), Wrap (W), Save (S), and Filter (F).
 - Status bar for live display showing elapsed time, line count, and spinner.
 - Live display feature for `vibectl get --watch` using Rich Live.
 - Planned: Enhanced watch/follow functionality for relevant vibectl commands (WIP)
 
 ### Changed
+
 - Refactored tests for `get` subcommand into `tests/subcommands/test_get_cmd.py`.
 - Improved test coverage for `vibectl/subcommands/get_cmd.py`.
 - Refactored watch/follow logic from `command_handler.py` into new `live_display_watch.py` module.
@@ -99,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2025-05-04
 
 ### Added
+
 - Define `RecoverableApiError` exception and `RECOVERABLE_API_ERROR_KEYWORDS` for better handling of transient API issues (rate limits, etc.).
 - New `yaml_manifest` field to `LLMCommandResponse` schema to handle YAML input for commands like `create -f -`.
 - Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
@@ -113,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added missing `summary_prompt_func` arguments to internal subcommand calls.
 
 ### Changed
+
 - Refactor `PLAN_VIBE_PROMPT` to use the JSON schema approach for planning.
 - Update `model_adapter.py` to use `schema=` parameter for `llm` library compatibility.
 - Update error handling in `command_handler` to use `RecoverableApiError` and improve error reporting during Vibe processing.
@@ -151,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Updated README to reflect new setup, configuration, and troubleshooting details.
 
 ### Fixed
+
 - Fix test failures related to `schema=` parameter change in `model_adapter`.
 - Correct `execute` method signatures in test mock adapters to align with base class and resolve mypy errors.
 - Correct `BaseModel` imports in test files (`pydantic` vs `typing`).
@@ -171,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.3] - 2025-04-27
 
 ### Added
+
 - Added initial Kafka throughput optimization demo (`examples/k8s-sandbox/kafka-throughput/`) featuring:
   - K3d Kubernetes cluster running a single-node KRaft Kafka instance.
   - Python producer/consumer applications generating load and reporting P99 latency.

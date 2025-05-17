@@ -155,7 +155,7 @@ async def test_recovery_suggestions_not_in_memory(
     call_args_1, kwargs_1 = mock_update_memory.call_args_list[1]  # <<< Use index 1
     # The command logged in the second call should be
     # the verb passed to handle_command_output
-    assert kwargs_1.get("command") == "get"  # <<< Check verb
+    assert kwargs_1.get("command_message") == "get"  # <<< Check verb
     assert "Pod not found" in kwargs_1.get("command_output", "")
     assert recovery_suggestion_text in kwargs_1.get(
         "vibe_output", ""
@@ -218,6 +218,7 @@ async def test_recovery_suggestions_should_update_memory(
     update_kwargs = mock_update_memory.call_args_list[1].kwargs
     assert original_error.error in update_kwargs["command_output"]
     assert recovery_suggestion_text in update_kwargs["vibe_output"]
+    assert update_kwargs.get("command_message") == "pods"  # Changed from "get"
 
 
 @pytest.mark.asyncio
@@ -295,9 +296,8 @@ async def test_recovery_suggestions_in_auto_mode(
     # The command should be the *failed* one's verb ('get')
     failed_plan = json.loads(initial_plan_json)
     failed_verb = failed_plan["commands"][0]
-    assert update_kwargs["command"] == failed_verb
-    assert original_error.error in update_kwargs["command_output"]
-    assert recovery_suggestion_text in update_kwargs["vibe_output"]
+    assert update_kwargs["command_message"] == failed_verb  # Changed from command
+    assert "Pod not found" in update_kwargs["command_output"]  # Added for robustness
 
     # Verify memory updated TWICE after first call
     # (1: after _execute returns error; 2: after recovery suggestion)

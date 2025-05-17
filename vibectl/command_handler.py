@@ -111,19 +111,16 @@ def handle_standard_command(
             )
             return result  # Return the original error
 
-    output = result.data
-
     # Handle empty output
-    # Ensure output is not None before checking/stripping
-    if output is None or not output.strip():
+    if result.data is None or result.data.strip() == "":
         return _handle_empty_output(command, resource, args)
 
     # Process and display output based on flags
     # Pass command type to handle_command_output
-    # Output is guaranteed to be a string here
+    # output should be the Result object (Success in this path)
     try:
         return handle_command_output(
-            output,
+            result,
             output_flags,
             summary_prompt_func,
             command=command,
@@ -237,7 +234,7 @@ def create_api_error(
 
 
 def handle_command_output(
-    output: Result | str,
+    output: Result,
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
@@ -245,7 +242,7 @@ def handle_command_output(
     """Processes and displays command output based on flags.
 
     Args:
-        output: The command output string or a Result object.
+        output: The command output Result object.
         output_flags: Flags controlling the output format.
         command: The original kubectl command type (e.g., get, describe).
 
@@ -254,8 +251,9 @@ def handle_command_output(
     """
     _check_output_visibility(output_flags)
 
+    output_data: str | None = None  # Initialize output_data here
+    output_message: str = ""  # Initialize output_message here
     original_error_object: Error | None = None
-    output_str: str | None = None
     result_metrics: LLMMetrics | None = (
         None  # Metrics from this result (summary/recovery)
     )
@@ -264,24 +262,34 @@ def handle_command_output(
     if isinstance(output, Error):
         original_error_object = output
         console_manager.print_error(original_error_object.error)
-        output_str = original_error_object.error
+        output_data = original_error_object.error  # error is a string
         result_metrics = original_error_object.metrics  # Get metrics from Error
     elif isinstance(output, Success):
-        output_str = output.data
+        output_message = (
+            output.message or ""
+        )  # output_message seems unused before vibe processing
+        output_data = output.data or ""  # data is a string or empty string
         result_metrics = output.metrics
         result_original_exit_code = output.original_exit_code
-    else:  # Plain string input
-        output_str = output
 
     _display_kubectl_command(output_flags, command)
 
-    if output_str is not None:
-        _display_raw_output(output_flags, output_str)
+    # This check should now always have output_data defined if logic above is correct
+    if output_data is not None:
+        _display_raw_output(output_flags, output_data)
+    else:
+        # This case should ideally not be reached if the above logic is exhaustive
+        # for setting output_data. Log a warning if it is.
+        logger.warning(
+            "output_data was None before vibe processing, which is unexpected."
+        )
+        # If output_data is None here, and show_vibe is false, we
+        # might return None implicitly later if not careful.
+        # Ensure we return the original_error_object if it exists from the 'else' block.
 
-    # --- Vibe Processing --- #
     vibe_result: Result | None = None
     if output_flags.show_vibe:
-        if output_str is not None:
+        if output_data is not None:
             try:
                 if original_error_object:
                     # If we started with an error, generate a recovery prompt
@@ -289,10 +297,9 @@ def handle_command_output(
                     recovery_system_fragments, recovery_user_fragments = (
                         recovery_prompt(
                             failed_command=command or "Unknown Command",
-                            error_output=output_str,
+                            error_output=output_data,
                             original_explanation=None,
                             current_memory=get_memory(),
-                            # Add config if needed by recovery_prompt
                             config=Config(),
                         )
                     )
@@ -356,7 +363,7 @@ def handle_command_output(
                     # Wrap memory update in try-except as it's non-critical path
                     try:
                         memory_update_metrics = update_memory(
-                            command=command or "Unknown",
+                            command_message=command or "Unknown",
                             command_output=original_error_object.error,
                             vibe_output=vibe_output_text,
                             model_name=output_flags.model_name,
@@ -389,7 +396,8 @@ def handle_command_output(
                     )
                     # _process_vibe_output returns Success with summary_metrics
                     vibe_result = _process_vibe_output(
-                        output_str,
+                        output_message,
+                        output_data,
                         output_flags,
                         summary_system_fragments=summary_system_fragments,
                         summary_user_fragments=summary_user_fragments,
@@ -475,7 +483,7 @@ def handle_command_output(
     else:
         # Return Success with the original output string if no vibe processing
         return Success(
-            message=output_str if output_str is not None else "",
+            message=output_data if output_data is not None else "",
             original_exit_code=result_original_exit_code,
         )
 
@@ -535,7 +543,8 @@ def _display_raw_output(output_flags: OutputFlags, output: str) -> None:
 
 
 def _process_vibe_output(
-    output: str,
+    output_message: str,
+    output_data: str,
     output_flags: OutputFlags,
     summary_system_fragments: SystemFragments,
     summary_user_fragments: UserFragments,
@@ -545,7 +554,8 @@ def _process_vibe_output(
     """Processes output using Vibe LLM for summary.
 
     Args:
-        output: The raw command output string.
+        output_message: The raw command output message.
+        output_data: The raw command output data.
         output_flags: Flags controlling output format.
         summary_system_fragments: System prompt fragments for the summary.
         summary_user_fragments: User prompt fragments for the summary.
@@ -556,7 +566,7 @@ def _process_vibe_output(
         Result object with Vibe summary or an Error.
     """
     # Truncate output if necessary
-    processed_output = output_processor.process_auto(output).truncated
+    processed_output = output_processor.process_auto(output_data).truncated
 
     # Get LLM summary
     try:
@@ -597,9 +607,9 @@ def _process_vibe_output(
 
         # Update memory only if Vibe summary succeeded
         memory_update_metrics = update_memory(
-            command=command or "Unknown",
-            command_output=output,  # Store original full output in memory
-            vibe_output=vibe_output_text,  # Store summary text
+            command_message=output_message or command or "Unknown",
+            command_output=output_data,
+            vibe_output=vibe_output_text,
             model_name=output_flags.model_name,
         )
         if memory_update_metrics and output_flags.show_metrics:
@@ -653,8 +663,13 @@ def _display_vibe_output(vibe_output: str) -> None:
     Args:
         vibe_output: Vibe output to display
     """
-    logger.debug("Displaying vibe summary output.")
-    console_manager.print_vibe(vibe_output)
+    if (
+        vibe_output and vibe_output.strip()
+    ):  # Check if vibe_output is not empty or just whitespace
+        logger.debug("Displaying vibe summary output.")
+        console_manager.print_vibe(vibe_output)
+    else:
+        logger.debug("Vibe output is empty, not displaying.")
 
 
 async def handle_vibe_request(
@@ -721,7 +736,7 @@ async def handle_vibe_request(
         LLMCommandResponse,
     )
 
-    if isinstance(plan_result, Error):
+    if isinstance(plan_result, Error | RecoverableApiError):
         # Error handling (logging, console printing) is now done within _get_llm_plan
         # or handled by the caller based on halt_auto_loop.
         return plan_result
@@ -770,9 +785,9 @@ async def handle_vibe_request(
         # Display explanation first if provided
         console_manager.print_note(f"AI Explanation: {response.explanation}")
         update_memory(
-            command=command,
-            command_output=error_message,  # Store raw error from LLM
-            vibe_output=f"LLM Planning Error: {request} -> {error_message}",
+            command_message=f"command: {command} request: {request}",
+            command_output=error_message,
+            vibe_output=f"LLM Planning Error: {command} {request} -> {error_message}",
             model_name=output_flags.model_name,
         )
         logger.info("Planning error added to memory context")
@@ -808,13 +823,12 @@ async def handle_vibe_request(
 
     elif action == ActionType.COMMAND.value:
         if not response.commands and not response.yaml_manifest:
-            logger.error(
-                "LLM returned COMMAND action but no commands or YAML provided."
-            )
+            message = "LLM returned COMMAND action but no commands or YAML provided."
+            logger.error(message)
             update_memory(
-                command=command or "system",
-                command_output="LLM Error: COMMAND action with no args.",
-                vibe_output="LLM Error: COMMAND action with no args.",
+                command_message=command or "system",
+                command_output=message,
+                vibe_output=message,
                 model_name=output_flags.model_name,
             )
             return Error(error="Internal error: LLM sent COMMAND action with no args.")
@@ -949,7 +963,7 @@ async def _confirm_and_execute_plan(
     memory_update_metrics: LLMMetrics | None = None
     try:
         memory_update_metrics = update_memory(
-            command=display_cmd,
+            command_message=f"command: {display_cmd} original: {original_command_verb}",
             command_output=command_output_str,
             vibe_output=vibe_output_str,
             model_name=output_flags.model_name,
@@ -1514,7 +1528,7 @@ def _get_llm_plan(
         error_msg = f"Failed to get model '{model_name}': {e}"
         logger.error(error_msg, exc_info=True)
         error_memory_metrics = update_memory(
-            command="system",
+            command_message="system",
             command_output=error_msg,
             vibe_output=f"System Error: Failed to get model '{model_name}'.",
             model_name=model_name,
@@ -1540,7 +1554,7 @@ def _get_llm_plan(
         if not llm_response_text or llm_response_text.strip() == "":
             logger.error("LLM returned an empty response.")
             update_memory(
-                command="system",
+                command_message="system",
                 command_output="LLM Error: Empty response.",
                 vibe_output="LLM Error: Empty response.",
                 model_name=model_name,
@@ -1563,7 +1577,7 @@ def _get_llm_plan(
             llm_response_text, budget=100
         ).truncated
         memory_update_metrics = update_memory(  # Capture metrics
-            command="system",
+            command_message="system",
             command_output=error_msg,
             vibe_output=(
                 f"System Error: Failed to parse LLM response: "

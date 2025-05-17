@@ -134,7 +134,7 @@ async def run_rollout_command(
         try:
             await asyncio.to_thread(
                 handle_command_output,
-                output=output_data,
+                output=kubectl_result,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
             )

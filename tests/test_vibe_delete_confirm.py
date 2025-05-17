@@ -89,13 +89,9 @@ def mock_memory() -> Generator[tuple[MagicMock, MagicMock], None, None]:
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
         patch("vibectl.memory.update_memory") as mock_memory_update,
         patch("vibectl.memory.get_memory") as mock_get_memory,
-        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory,
     ):
         # Set default return values
         mock_get_memory.return_value = "Test memory context"
-
-        # Make include_memory_in_prompt return the original prompt
-        mock_include_memory.side_effect = lambda prompt: prompt
 
         # Set up delegation from command_handler's import to the actual implementation
         # This mimics how command_handler.update_memory calls memory.update_memory

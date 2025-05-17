@@ -356,7 +356,7 @@ def test_memory_update_prompt(test_config: Config) -> None:
     with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
         mock_prompt_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = memory_update_prompt(
-            command="dummy_command",
+            command_message="dummy_command",
             command_output="dummy_command_output",
             vibe_output="dummy_vibe_output",
             current_memory=dummy_memory_content,
@@ -383,7 +383,7 @@ def test_memory_update_prompt(test_config: Config) -> None:
     # Check if the exact string is in the combined text
     assert expected_memory_fragment_str in combined_text  # From fragment_memory_context
     assert (
-        "Interaction:\nCommand: dummy_command" in combined_text
+        "Interaction:\nAction: dummy_command" in combined_text
     )  # From fragment_interaction
 
 

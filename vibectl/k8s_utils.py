@@ -100,7 +100,9 @@ def run_kubectl(
         if kubeconfig:
             kubectl_full_cmd.extend(["--kubeconfig", str(kubeconfig)])
 
-        logger.info(f"Running kubectl command: {' '.join(kubectl_full_cmd)}")
+        display_cmd = " ".join(kubectl_full_cmd)
+
+        logger.info(f"Running kubectl command: {display_cmd}")
 
         process_result = subprocess.run(
             kubectl_full_cmd,
@@ -121,7 +123,8 @@ def run_kubectl(
 
         if process_result.returncode in allowed_exit_codes:
             success_message = (
-                f"Command completed with exit code {process_result.returncode}."
+                f"Command {display_cmd} completed with "
+                f"exit code {process_result.returncode}."
             )
 
             return Success(
@@ -182,6 +185,7 @@ def run_kubectl_with_yaml(
         # Get a Config instance if not provided
         cfg = config or Config()
         kubeconfig_path = cfg.get("kubeconfig")
+        kubectl_executable = cfg.get_typed("kubectl_path", "kubectl")
 
         # Fix multi-document YAML formatting issues for robustness
         yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
@@ -194,12 +198,14 @@ def run_kubectl_with_yaml(
             for i, arg in enumerate(args)
         )
 
-        full_cmd_list = ["kubectl", *args]
+        full_cmd_list = [kubectl_executable, *args]
         if kubeconfig_path:
             # For consistency with run_kubectl, append it.
             full_cmd_list.extend(["--kubeconfig", str(kubeconfig_path)])
 
-        logger.info(f"Running kubectl command with YAML: {' '.join(full_cmd_list)}")
+        display_cmd = " ".join(full_cmd_list)
+
+        logger.info(f"Running kubectl command with YAML: {display_cmd}")
 
         if is_stdin_command:
             # Use Popen with stdin pipe
@@ -251,7 +257,9 @@ def run_kubectl_with_yaml(
 
                 # By earlier check, -f <file> isn't present if we reach here,
                 # sowe can always add -f <temp_path>
-                cmd_to_run = list(full_cmd_list)  # Create a copy
+                cmd_to_run = list(
+                    full_cmd_list
+                )  # Create a copy, already contains kubectl_executable
                 cmd_to_run.extend(["-f", temp_path])
                 # Note: if kubeconfig_path was added to full_cmd_list,
                 # it's already in cmd_to_run here.
@@ -267,6 +275,7 @@ def run_kubectl_with_yaml(
                     )
                     return create_kubectl_error(error_msg)
                 return Success(
+                    message=f"Ran {display_cmd} with YAML content via {temp_path}.",
                     data=proc.stdout.strip(),
                     original_exit_code=proc.returncode,
                 )

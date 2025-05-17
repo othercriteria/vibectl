@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -511,11 +512,18 @@ async def test_vibe_command_with_yaml_input(
     # --- Mock Config used by command_handler._execute_command ---
     mock_config_instance_ch = mock_ch_config.return_value
     mock_kubeconfig_path = "/tmp/fake_kubeconfig_for_test.yaml"
+
     # Ensure this mock_get only returns the fake path for "kubeconfig" key
-    mock_config_instance_ch.get.side_effect = (
-        lambda key, default=None: mock_kubeconfig_path
-        if key == "kubeconfig"
-        else default
+    def mock_config_get_side_effect(key: str, default: Any = None) -> Any:
+        if key == "kubeconfig":
+            return mock_kubeconfig_path
+        if key == "kubectl_path":
+            return "kubectl"  # Ensure kubectl_path returns a string
+        return default
+
+    mock_config_instance_ch.get.side_effect = mock_config_get_side_effect
+    mock_config_instance_ch.get_typed.side_effect = (
+        mock_config_get_side_effect  # Also mock get_typed
     )
 
     # --- Mock subprocess.Popen called by k8s_utils.run_kubectl_with_yaml ---

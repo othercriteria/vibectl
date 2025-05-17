@@ -354,7 +354,7 @@ async def create(
     handle_result(result)
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(include_show_kubectl=True, include_yes=True)
@@ -370,11 +370,7 @@ async def delete(
     yes: bool = False,
     show_metrics: bool | None = None,
 ) -> None:
-    """Delete a resource.
-
-    Removes resources from the cluster.
-    Use --yes or -y to skip confirmation prompt for non-interactive usage.
-    """
+    """Delete a resource."""
 
     # Await the call to the now-async runner function
     result = await run_delete_command(
@@ -834,9 +830,9 @@ async def cluster_info(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
-) -> int | None:
-    """Display cluster info."""
-    # Await run_cluster_info_command
+    yes: bool = False,
+) -> None:
+    """Get cluster information."""
     result = await run_cluster_info_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -848,9 +844,6 @@ async def cluster_info(
         show_metrics=show_metrics,
     )
     handle_result(result)
-    # Return 0 for success consistency if needed, but handle_result exits on error
-    # The return type hint might need adjustment if handle_result always exits.
-    return 0
 
 
 @cli.group(name="memory", help="Memory management commands")

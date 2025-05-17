@@ -5,6 +5,7 @@ This document provides an overview of the project's structure and organization.
 ## Directory Layout
 
 ### Core Package (`vibectl/`)
+
 - `cli.py` - Command-line interface implementation
 - `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) and planning prompts like `PLAN_DIFF_PROMPT`.
 - `config.py` - Configuration management and settings
@@ -42,6 +43,7 @@ This document provides an overview of the project's structure and organization.
   - `diff_cmd.py` - Diff command implementation
 
 ### Testing (`tests/`)
+
 - Test files and test resources
 - Coverage tracking with pytest-cov
 - `.coveragerc` - Coverage measurement configuration
@@ -53,6 +55,7 @@ This document provides an overview of the project's structure and organization.
   - `test_apply_cmd.py` - Tests for the `vibectl apply` subcommand.
 
 ### Examples (`examples/`)
+
 - Example usage scenarios and demo environments
 - `manifests/` - Example Kubernetes manifest files for testing various `vibectl` features.
   - `apply/` - Manifests for testing `vibectl apply vibe` intelligent features.
@@ -64,15 +67,18 @@ This document provides an overview of the project's structure and organization.
   - `kafka-throughput/` - Demonstrates `vibectl` tuning Kafka broker performance (heap, threads) in K3d based on producer/consumer metrics (latency, rates). Includes adaptive producer, UI for monitoring. See [examples/k8s-sandbox/kafka-throughput/STRUCTURE.md](examples/k8s-sandbox/kafka-throughput/STRUCTURE.md) for details.
 
 ### Type Information (`typings/`)
+
 - Custom type definitions and type stubs
 
 ### Documentation (`docs/`)
+
 - `MODEL_KEYS.md` - Comprehensive guide for model API key management
 - `CONFIG.md` - Configuration options and settings
 - `PORT_FORWARD.md` - Documentation for port-forwarding functionality
 - Additional documentation files
 
 ### Configuration
+
 - `.vscode/` - VS Code editor settings
 - `.cursor/` - Cursor IDE configuration and rules
   - `rules/` - Project-specific Cursor rules (see `RULES.md` for a complete description of all rules)
@@ -84,6 +90,7 @@ This document provides an overview of the project's structure and organization.
 - `.envrc` - direnv configuration for environment activation
 
 ### Scripts (`scripts/`)
+
 - Helper scripts for development and maintenance
 
 ## Key Files
@@ -103,6 +110,7 @@ This document provides an overview of the project's structure and organization.
 ## Architecture
 
 ### Command Systems
+
 1. `cli.py` - Core command-line interface definitions and routing
 2. `subcommands/` - Implementations of individual commands:
    - `auto_cmd.py` - Autonomous command execution
@@ -123,6 +131,7 @@ This document provides an overview of the project's structure and organization.
    - `version_cmd.py` - Version information
 
 ### Console Management
+
 1. `console.py` - Typed output methods with theme support
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
@@ -132,6 +141,7 @@ This document provides an overview of the project's structure and organization.
    - Handles `allowed_exit_codes` for commands.
 
 ### Prompt System
+
 1. `prompt.py` - Manages prompt construction for LLM interactions.
    - Defines functions that return `PromptFragments` (tuples of `SystemFragments` and `UserFragments`).
    - Examples: `plan_vibe_fragments()`, `memory_update_prompt()`, `vibe_autonomous_prompt()`.
@@ -142,6 +152,7 @@ This document provides an overview of the project's structure and organization.
    - Memory integration is handled by including memory content within relevant fragments.
 
 ### Common Command Patterns
+
 1. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
    - Dispatches kubectl execution to `k8s_utils.py`
@@ -155,6 +166,7 @@ This document provides an overview of the project's structure and organization.
    - `Success` result objects now include `original_exit_code`.
 
 ### Memory System
+
 1. `memory.py` - Core memory management with functions for:
    - Getting and setting memory content
    - Enabling/disabling memory updates
@@ -173,6 +185,7 @@ This document provides an overview of the project's structure and organization.
    - Tracks command execution flow
 
 ### Model Key Management System
+
 1. `model_adapter.py` - Manages model API keys and validation
    - `ModelEnvironment` context manager for safely handling model environment variables
    - Key format validation on startup with helpful warnings
@@ -193,6 +206,7 @@ This document provides an overview of the project's structure and organization.
 Detailed documentation about model key configuration can be found in [Model API Key Management](docs/MODEL_KEYS.md).
 
 ### Logging System
+
 1. `logutil.py` - Logging configuration and setup
    - Standardized logging format
    - Log level configuration
@@ -203,18 +217,21 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Traceback control based on log level
 
 ### Type Safety
+
 - Extensive type annotations throughout codebase (`types.py` and inline)
 - Generic type parameters and TypeVar for flexible interfaces
 - Requires Python 3.11+, uses modern features like `asyncio.TaskGroup`, `asyncio.timeout`, etc.
 - PEP 561 compliance with `py.typed` marker
 
 ### Configuration System
+
 - Type-safe configuration with validation
 - Theme configuration and custom prompt instructions
 - Memory settings management
 - Model key management and validation
 
 ### Model Interaction System
+
 1. `model_adapter.py` - Abstraction for LLM model interactions
    - Abstract `ModelAdapter` interface defining common operations
    - `LLMModelAdapter` implementation for the llm package

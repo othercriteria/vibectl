@@ -135,7 +135,7 @@ def test_handle_command_output_api_error_marked_non_halting(
 
     # Call the function (now imported at top level)
     result = handle_command_output(
-        output="test output",
+        output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=get_dummy_prompt_fragments,
     )

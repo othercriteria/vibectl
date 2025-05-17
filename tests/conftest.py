@@ -113,9 +113,17 @@ def ensure_test_config_env(
 def mock_config() -> Generator[Mock, None, None]:
     """Provide a mocked Config instance."""
     with patch("vibectl.command_handler.Config") as mock_config_class:
-        mock_config = Mock()
-        mock_config_class.return_value = mock_config
-        yield mock_config
+        mock_config_instance = Mock(spec=Config)
+
+        def custom_get(key: str, default: Any = None) -> Any:
+            if key == "memory_max_chars":
+                return default
+            return default if default is not None else Mock()
+
+        mock_config_instance.get.side_effect = custom_get
+
+        mock_config_class.return_value = mock_config_instance
+        yield mock_config_instance
 
 
 @pytest.fixture
@@ -238,6 +246,28 @@ def mock_handle_output_for_cli() -> Generator[Mock, None, None]:
     for CLI tests."""
     with patch("vibectl.command_handler.handle_command_output") as mock:
         yield mock
+
+
+@pytest.fixture
+def mock_get_adapter() -> Generator[MagicMock, None, None]:
+    """Mock the model adapter factory at vibectl.command_handler.get_model_adapter."""
+    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter_factory:
+        # Set up a default mock adapter instance that the factory will return
+        mock_adapter_instance = MagicMock()
+        mock_adapter_factory.return_value = mock_adapter_instance
+
+        # Set up a default mock model object that the adapter instance's get_model
+        # will return
+        mock_model = Mock()
+        mock_adapter_instance.get_model.return_value = mock_model
+
+        # DO NOT set a default return value for execute_and_log_metrics here.
+        # Tests should explicitly mock this.
+        # mock_adapter_instance.execute_and_log_metrics.return_value = (
+        #     "Default mock LLM response",
+        #     LLMMetrics() # Ensure it's an LLMMetrics instance if a default were used
+        # )
+        yield mock_adapter_instance  # YIELD THE INSTANCE, NOT THE FACTORY
 
 
 @pytest.fixture
@@ -372,12 +402,12 @@ def mock_kubectl_output() -> str:
 def default_output_flags() -> OutputFlags:
     """Provides a default OutputFlags instance for tests."""
     return OutputFlags(
-        show_vibe=True,
-        show_metrics=True,
         show_raw=False,
-        show_kubectl=False,
+        show_vibe=True,
         warn_no_output=True,
         model_name="test-model",
+        show_metrics=True,
+        show_kubectl=True,
         warn_no_proxy=True,
     )
 
@@ -397,7 +427,7 @@ def no_vibe_output_flags() -> OutputFlags:
 
 
 @pytest.fixture
-def mock_memory() -> Generator[MagicMock, None, None]:
+def mock_memory() -> Generator[dict[str, MagicMock], None, None]:
     """Mock memory functions to avoid actual LLM API calls.
 
     This fixture prevents actual API calls to LLMs during tests, which would:
@@ -409,17 +439,25 @@ def mock_memory() -> Generator[MagicMock, None, None]:
     are the primary concern for test stability and performance.
     """
     with (
-        patch("vibectl.command_handler.update_memory") as mock_update_memory,
-        patch("vibectl.memory.get_memory") as mock_get_memory,
-        patch("vibectl.memory.include_memory_in_prompt") as mock_include_memory,
+        patch("vibectl.memory.get_memory") as mock_get,
+        patch("vibectl.memory.set_memory") as mock_set,
+        patch("vibectl.memory.update_memory") as mock_update,
+        patch("vibectl.command_handler.get_memory") as mock_get_ch,
+        patch("vibectl.command_handler.update_memory") as mock_update_ch,
     ):
-        # Set default return values
-        mock_get_memory.return_value = "Test memory context"
+        # Default behaviors
+        mock_get.return_value = "Test memory context from vibectl.memory"
+        mock_get_ch.return_value = "Test memory context from command_handler"
 
-        # Make include_memory_in_prompt just return the original prompt
-        mock_include_memory.side_effect = lambda prompt_func: prompt_func()
-
-        yield mock_update_memory
+        # Create a dictionary of mocks to return
+        mocks = {
+            "get": mock_get,
+            "set": mock_set,
+            "update": mock_update,
+            "get_ch": mock_get_ch,
+            "update_ch": mock_update_ch,
+        }
+        yield mocks
 
 
 @pytest.fixture(autouse=True)

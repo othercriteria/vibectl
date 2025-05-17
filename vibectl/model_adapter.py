@@ -377,7 +377,7 @@ class LLMModelAdapter(ModelAdapter):
             TypeError: If the response object is not of the expected type.
             Other exceptions from model.prompt().
         """
-        response = model.prompt(**prompt_kwargs)  # type: ignore[misc]
+        response = model.prompt(**prompt_kwargs)
         if not isinstance(response, ModelResponse):
             raise TypeError(f"Expected ModelResponse, got {type(response).__name__}")
         return response
@@ -827,7 +827,15 @@ class LLMModelAdapter(ModelAdapter):
         user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
-        """Wraps execute with fragments, logs metrics, returns response and metrics."""
+        """Wraps execute, logs metrics, returns response text and metrics."""
+        # TODO: When response_model is provided, this method should ideally attempt
+        # to parse the response into the Pydantic model. If successful, it could
+        # return tuple[BaseModel, LLMMetrics | None] or a more specific type.
+        # If parsing fails, it should either raise the parsing exception (e.g.,
+        # ValidationError, JSONDecodeError) or return a clear error indicator
+        # alongside the raw string, rather than just the raw string.
+        # Currently, it always returns tuple[str, LLMMetrics | None], and parsing
+        # is handled by the caller.
         response_text = ""
         metrics = None
         try:

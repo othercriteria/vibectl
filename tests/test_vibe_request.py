@@ -8,12 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
-from pytest_mock import MockerFixture
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags, handle_vibe_request
 from vibectl.config import Config
-from vibectl.model_adapter import LLMMetrics, LLMModelAdapter, RecoverableApiError
+from vibectl.model_adapter import LLMMetrics, RecoverableApiError
 from vibectl.prompt import (
     plan_vibe_fragments,
 )
@@ -57,23 +56,23 @@ def mock_prompt() -> Generator[MagicMock, None, None]:
 
 
 @pytest.fixture
-def mock_llm(mocker: MockerFixture) -> Generator[MagicMock, None, None]:
-    """Mocks the get_model_adapter and its methods.
-
-    Yields the mocked adapter *instance*.
-    """
-    mock_get_adapter = mocker.patch("vibectl.command_handler.get_model_adapter")
-    mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
-    mock_model_instance = MagicMock()
-    mock_get_adapter.return_value = mock_adapter_instance
-    mock_adapter_instance.get_model.return_value = mock_model_instance
-    mock_adapter_instance.execute.return_value = "Default execute response"
-    yield mock_adapter_instance  # Yield the adapter instance
+def default_output_flags(
+    mock_config: MagicMock,
+) -> OutputFlags:  # Ensure mock_config is used
+    return OutputFlags(
+        show_raw=False,
+        show_vibe=True,  # Changed to True
+        warn_no_output=True,
+        model_name="test-model",
+        show_metrics=True,
+        show_kubectl=True,  # Changed to True for more comprehensive testing
+        warn_no_proxy=True,
+    )
 
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_success(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
     default_output_flags: OutputFlags,
@@ -91,8 +90,8 @@ async def test_handle_vibe_request_success(  # Added async
     }
     # This metric is associated with the planning step
     planning_metrics = LLMMetrics(latency_ms=100.0, token_input=10, token_output=20)
-    # The mock_llm fixture now mocks execute_and_log_metrics directly
-    mock_llm.execute_and_log_metrics.return_value = (
+    # The mock_get_adapter fixture now mocks execute_and_log_metrics directly
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         json.dumps(plan_response),
         planning_metrics,
     )
@@ -140,7 +139,7 @@ async def test_handle_vibe_request_success(  # Added async
         assert result.metrics == execution_metrics
 
     # Verify LLM planning call occurred
-    mock_llm.execute_and_log_metrics.assert_called_once()
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
     # Verify memory update (if applicable - check mock_memory fixture setup)
     # mock_memory.add_interaction.assert_called() # Example if needed
 
@@ -148,7 +147,7 @@ async def test_handle_vibe_request_success(  # Added async
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_empty_response(  # Added async
     mock_console: Mock,
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_memory: MagicMock,
     default_output_flags: OutputFlags,
@@ -156,7 +155,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
     """Test vibe request with empty string response from planner."""
     # Set up empty response
     malformed_response = ""
-    mock_llm.execute_and_log_metrics.return_value = (
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         malformed_response,
         MagicMock(spec=LLMMetrics),
     )
@@ -166,10 +165,6 @@ async def test_handle_vibe_request_empty_response(  # Added async
     with (
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
         patch("vibectl.command_handler.create_api_error") as mock_create_api_error,
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: empty response test",
-        ),
     ):
         result = await handle_vibe_request(  # Added await
             request="empty response test",
@@ -186,7 +181,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
     # Verify update_memory and create_api_error were NOT called for this specific path
     mock_update_memory.assert_called_once()
     call_args = mock_update_memory.call_args.kwargs
-    assert call_args.get("command") == "system"
+    assert call_args.get("command_message") == "system"
     assert call_args.get("command_output") == "LLM Error: Empty response."
     assert call_args.get("vibe_output") == "LLM Error: Empty response."
     assert call_args.get("model_name") == default_output_flags.model_name
@@ -200,7 +195,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_error_response(  # Added async
     mock_console: Mock,
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
     mock_memory: MagicMock,
@@ -216,22 +211,22 @@ async def test_handle_vibe_request_error_response(  # Added async
         "error": error_msg,
         "explanation": explanation_msg,
     }
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(error_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(error_response),
+        None,
+    )
 
     # Set show_kubectl to True (doesn't affect this path but good practice)
     default_output_flags.show_kubectl = True
 
     # Assert the result of handle_vibe_request
-    with patch(
-        "vibectl.memory.include_memory_in_prompt", return_value="Plan this: error test"
-    ):
-        result = await handle_vibe_request(  # Added await
-            request="ERROR: test error",
-            command="get",
-            plan_prompt_func=plan_vibe_fragments,
-            summary_prompt_func=get_test_summary_fragments,
-            output_flags=default_output_flags,
-        )
+    result = await handle_vibe_request(  # Added await
+        request="ERROR: test error",
+        command="get",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=get_test_summary_fragments,
+        output_flags=default_output_flags,
+    )
 
     # Assert handle_vibe_request returned an Error object
     assert isinstance(result, Error)
@@ -244,8 +239,13 @@ async def test_handle_vibe_request_error_response(  # Added async
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
 
-    # Verify memory was NOT updated on planning error
-    mock_memory.add_interaction.assert_not_called()
+    # Verify memory was updated because _get_llm_plan handles it
+    mock_memory["update_ch"].assert_called_once_with(
+        command_message="command: get request: ERROR: test error",
+        command_output=error_msg,  # which is "test planner error"
+        vibe_output=f"LLM Planning Error: get ERROR: test error -> {error_msg}",
+        model_name=default_output_flags.model_name,
+    )
 
 
 @pytest.mark.asyncio  # Added
@@ -255,14 +255,14 @@ async def test_handle_vibe_request_invalid_format(  # Added async
     mock_update_memory: MagicMock,
     mock_create_api_error: MagicMock,
     mock_console: Mock,
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
     """Test vibe request with non-JSON format from planner."""
     # Set up invalid response
     non_json_response = "kubectl get pods # This is not JSON"
-    mock_llm.execute_and_log_metrics.return_value = (
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         non_json_response,
         MagicMock(spec=LLMMetrics),
     )
@@ -278,40 +278,36 @@ async def test_handle_vibe_request_invalid_format(  # Added async
     mock_create_api_error.return_value = expected_error_return
 
     # Expect JSONDecodeError path - removed inner with block for patches
-    with patch(
-        "vibectl.memory.include_memory_in_prompt",
-        return_value="Plan this: invalid format test",
-    ):
-        result = await handle_vibe_request(  # Added await
-            request="show me the pods invalid format",
-            command="get",
-            plan_prompt_func=plan_vibe_fragments,
-            summary_prompt_func=get_test_summary_fragments,
-            output_flags=default_output_flags,
-        )
+    result = await handle_vibe_request(  # Added await
+        request="show me the pods invalid format",
+        command="get",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=get_test_summary_fragments,
+        output_flags=default_output_flags,
+    )
 
-        # Verify update_memory and create_api_error were called due to parsing failure
-        mock_update_memory.assert_called_once()
-        call_kwargs = mock_update_memory.call_args.kwargs
-        assert call_kwargs.get("command") == "system"
-        assert "Failed to parse LLM response as expected JSON" in call_kwargs.get(
-            "command_output", ""
-        )
-        assert "System Error: Failed to parse LLM response:" in call_kwargs.get(
-            "vibe_output", ""
-        )
-        assert call_kwargs.get("model_name") == default_output_flags.model_name
+    # Verify update_memory and create_api_error were called due to parsing failure
+    mock_update_memory.assert_called_once()
+    call_kwargs = mock_update_memory.call_args.kwargs
+    assert call_kwargs.get("command_message") == "system"
+    assert "Failed to parse LLM response as expected JSON" in call_kwargs.get(
+        "command_output", ""
+    )
+    assert "System Error: Failed to parse LLM response:" in call_kwargs.get(
+        "vibe_output", ""
+    )
+    assert call_kwargs.get("model_name") == default_output_flags.model_name
 
-        # Verify create_api_error was called (now happens in _get_llm_plan)
-        mock_create_api_error.assert_called_once()
+    # Verify create_api_error was called (now happens in _get_llm_plan)
+    mock_create_api_error.assert_called_once()
 
-        # Verify the function returned the specific Error object we configured
-        assert result is expected_error_return
+    # Verify the function returned the specific Error object we configured
+    assert result is expected_error_return
 
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_no_output(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: MagicMock,
     prevent_exit: MagicMock,
@@ -325,7 +321,7 @@ async def test_handle_vibe_request_no_output(  # Added async
         "explanation": "Get pods",
     }
     # Summary not needed as handle_command_output is fully mocked
-    mock_llm.execute_and_log_metrics.return_value = (
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         json.dumps(plan_response),
         None,
     )  # Return JSON string and None metrics
@@ -345,10 +341,6 @@ async def test_handle_vibe_request_no_output(  # Added async
     with (
         patch("vibectl.command_handler.console_manager") as direct_console_mock,
         patch("vibectl.command_handler._execute_command") as mock_execute_cmd,
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: show me the pods",
-        ),
     ):
         # Configure the console mock methods needed by handle_command_output
         direct_console_mock.print_no_output_warning = MagicMock()
@@ -388,7 +380,7 @@ async def test_handle_vibe_request_no_output(  # Added async
 async def test_handle_vibe_request_llm_output_parsing(  # Added async
     mock_update_memory: MagicMock,
     mock_create_api_error: MagicMock,
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
@@ -435,7 +427,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
             "COMMAND missing args",
             '{"action_type": "COMMAND"}',
             Error,
-            "LLM sent COMMAND action with no args.",
+            "Internal error: LLM sent COMMAND action with no args.",
             True,
             False,
         ),
@@ -466,7 +458,7 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
         expect_api_error_call,
     ) in test_cases:
         print(f"Running test case: {desc}")
-        mock_llm.execute_and_log_metrics.return_value = (llm_response, None)
+        mock_get_adapter.execute_and_log_metrics.return_value = (llm_response, None)
         mock_update_memory.reset_mock()
         mock_create_api_error.reset_mock()
 
@@ -502,18 +494,36 @@ async def test_handle_vibe_request_llm_output_parsing(  # Added async
             mock_create_api_error.assert_not_called()
             # Memory update might happen depending on the specific internal error
             if desc == "COMMAND missing args":
+                # This is the error message that handle_vibe_request itself returns
+                # after _get_llm_plan successfully parses the action_type but
+                # finds no commands.
+                expected_error_in_result = (
+                    "Internal error: LLM sent COMMAND action with no args."
+                )
+                assert result.error == expected_error_in_result
+
                 mock_update_memory.assert_called_once()
                 assert (
-                    "LLM Error: COMMAND action with no args."
-                    in mock_update_memory.call_args.kwargs.get("vibe_output", "")
+                    mock_update_memory.call_args.kwargs.get("command_message") == "vibe"
                 )
+                expected_memory_command_output = (
+                    "LLM returned COMMAND action but no commands or YAML provided."
+                )
+                assert (
+                    mock_update_memory.call_args.kwargs.get("command_output")
+                    == expected_memory_command_output
+                )
+                assert (
+                    mock_update_memory.call_args.kwargs.get("vibe_output")
+                    == expected_memory_command_output
+                )  # vibe_output is same as command_output here
             else:
                 mock_update_memory.assert_not_called()
 
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_command_error(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
     default_output_flags: OutputFlags,
@@ -531,7 +541,10 @@ async def test_handle_vibe_request_command_error(  # Added async
     }
     # This first mock value will be overwritten by the side_effect below, but
     # we keep it for clarity about the plan structure.
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(plan_response),
+        None,
+    )
 
     # Patch _execute_command to return an error
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
@@ -543,7 +556,7 @@ async def test_handle_vibe_request_command_error(  # Added async
         # Set up side_effect for model_adapter.execute_and_log_metrics:
         # plan first, then recovery
         expected_recovery_suggestion = "Recovery suggestion: Check pod status."
-        mock_llm.execute_and_log_metrics.side_effect = [
+        mock_get_adapter.execute_and_log_metrics.side_effect = [
             (json.dumps(plan_response), None),
             (expected_recovery_suggestion, None),
         ]
@@ -571,7 +584,7 @@ async def test_handle_vibe_request_command_error(  # Added async
     # Check arguments passed using kwargs for the *second* call (recovery)
     assert mock_update_memory_ch.call_args_list[1] is not None  # Check list index
     second_call_kwargs = mock_update_memory_ch.call_args_list[1].kwargs
-    assert second_call_kwargs.get("command") == "get"  # Command verb
+    assert second_call_kwargs.get("command_message") == "get"  # Command verb
     assert (
         second_call_kwargs.get("command_output") == error_message
     )  # Original command error output
@@ -588,7 +601,7 @@ async def test_handle_vibe_request_command_error(  # Added async
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_error(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: Mock,
     prevent_exit: MagicMock,
@@ -606,19 +619,19 @@ async def test_handle_vibe_request_error(  # Added async
         "error": error_msg,
         "explanation": explanation_msg,
     }
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(plan_response),
+        None,
+    )
 
     # Assert the result of handle_vibe_request
-    with patch(
-        "vibectl.memory.include_memory_in_prompt", return_value="Plan this: llm error"
-    ):
-        result = await handle_vibe_request(  # Added await
-            request="cause an llm error",
-            command="error",
-            plan_prompt_func=plan_vibe_fragments,
-            summary_prompt_func=get_test_summary_fragments,
-            output_flags=default_output_flags,
-        )
+    result = await handle_vibe_request(  # Added await
+        request="cause an llm error",
+        command="error",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=get_test_summary_fragments,
+        output_flags=default_output_flags,
+    )
 
     # Assert handle_vibe_request returned an Error object
     assert isinstance(result, Error)
@@ -631,13 +644,18 @@ async def test_handle_vibe_request_error(  # Added async
     # Verify kubectl was NOT called
     mock_run_kubectl.assert_not_called()
 
-    # Verify memory was NOT updated
-    mock_memory.add_interaction.assert_not_called()
+    # Verify memory was updated because _get_llm_plan handles it
+    mock_memory["update_ch"].assert_called_once_with(
+        command_message="command: error request: cause an llm error",
+        command_output=error_msg,  # which is "test error from llm"
+        vibe_output=f"LLM Planning Error: error cause an llm error -> {error_msg}",
+        model_name=default_output_flags.model_name,
+    )
 
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_yaml_creation(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: Mock,
     mock_confirm: MagicMock,
@@ -664,7 +682,7 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
     #     "action_type": ActionType.FEEDBACK.value,
     #     "explanation": "Test response",
     # }
-    mock_llm.execute_and_log_metrics.return_value = (
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         json.dumps(expected_response_plan),
         None,
     )
@@ -674,10 +692,6 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
 
     # Mock subprocess.run for kubectl calls with YAML
     with (
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: create pod yaml",
-        ),
         patch("subprocess.run") as mock_subprocess,
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
     ):
@@ -707,7 +721,7 @@ async def test_handle_vibe_request_yaml_creation(  # Added async
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_yaml_response(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_console: Mock,
     mock_prompt: MagicMock,
     prevent_exit: MagicMock,
@@ -726,7 +740,10 @@ async def test_handle_vibe_request_yaml_response(  # Added async
         ],  # Corrected: Verb is from command, LLM provides only args
         "explanation": "Applying configuration from stdin.",
     }
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(plan_response),
+        None,
+    )
 
     # Mock prompt for confirmation (apply requires confirmation)
     mock_prompt.return_value = "y"
@@ -767,7 +784,7 @@ async def test_handle_vibe_request_yaml_response(  # Added async
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_create_pods_yaml(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_run_kubectl: Mock,
     mock_console: Mock,
     mock_confirm: MagicMock,
@@ -804,7 +821,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
     #     "action_type": ActionType.FEEDBACK.value,
     #     "explanation": "Test response",
     # }
-    mock_llm.execute_and_log_metrics.return_value = (
+    mock_get_adapter.execute_and_log_metrics.return_value = (
         json.dumps(expected_response_plan),
         None,
     )
@@ -814,10 +831,6 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
 
     # Mock subprocess.run for kubectl calls with YAML
     with (
-        patch(
-            "vibectl.memory.include_memory_in_prompt",
-            return_value="Plan this: Create nginx demo pods foo and bar.",
-        ),
         patch("subprocess.run") as mock_subprocess,
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
     ):
@@ -849,7 +862,7 @@ async def test_handle_vibe_request_create_pods_yaml(  # Added async
 @patch("vibectl.command_handler.console_manager")
 async def test_show_kubectl_flag_controls_command_display(  # Added async
     mock_console_manager: MagicMock,
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_memory: MagicMock,
     prevent_exit: MagicMock,
 ) -> None:
@@ -864,7 +877,10 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
         "commands": [llm_verb, *llm_args],
         "explanation": llm_explanation,
     }
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(plan_response),
+        None,
+    )
 
     # Define what the display string should look like
     expected_display_args_str = _create_display_command_for_test(llm_args)
@@ -876,11 +892,11 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
     for show_flag_value, expect_print in [(True, True), (False, False)]:
         # Reset mocks at the START of the loop iteration
         mock_console_manager.reset_mock()
-        mock_llm.reset_mock()  # Reset LLM mock if its state matters per iteration
+        mock_get_adapter.reset_mock()
         # We need fresh mocks for patched functions inside the loop
 
         # Set the LLM response again for this iteration (if reset)
-        mock_llm.execute_and_log_metrics.return_value = (
+        mock_get_adapter.execute_and_log_metrics.return_value = (
             json.dumps(plan_response),
             None,
         )
@@ -901,7 +917,6 @@ async def test_show_kubectl_flag_controls_command_display(  # Added async
             patch(
                 "vibectl.command_handler.handle_command_output"
             ) as mock_handle_output,
-            patch("vibectl.memory.include_memory_in_prompt"),
         ):  # No need to assert on this mock
             mock_execute_cmd.return_value = Success("pod data")
             mock_handle_output.return_value = Success("Handled output")  # Mock return
@@ -1025,7 +1040,7 @@ def _create_display_command_for_test(args: list[str]) -> str:
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
     default_output_flags: OutputFlags,
@@ -1048,14 +1063,17 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
     }
     kubectl_output_data = "pod-a\npod-b"
     # This initial return value will be overwritten by the side_effect
-    mock_llm.execute_and_log_metrics.return_value = (json.dumps(plan_response), None)
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(plan_response),
+        None,
+    )
 
     # Patch _execute_command to return success
     with patch("vibectl.command_handler._execute_command") as mock_execute_cmd:
         mock_execute_cmd.return_value = Success(data=kubectl_output_data)
 
         # Set up side_effect for the LLM calls: planning (success), summary (error)
-        mock_llm.execute_and_log_metrics.side_effect = [
+        mock_get_adapter.execute_and_log_metrics.side_effect = [
             (json.dumps(plan_response), None),  # First call for planning
             RecoverableApiError("Rate limit hit"),  # Second call for summary
         ]
@@ -1074,7 +1092,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
         mock_execute_cmd.assert_called_once()
 
         # Verify the LLM was called twice (plan + summary attempt)
-        assert mock_llm.execute_and_log_metrics.call_count == 2
+        assert mock_get_adapter.execute_and_log_metrics.call_count == 2
 
         # Verify the final result is the non-halting Error constructed by the handler
         assert isinstance(result, Error)
@@ -1088,7 +1106,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(  # Adde
 
 @pytest.mark.asyncio  # Added
 async def test_handle_vibe_request_general_exception_during_recovery(  # Added async
-    mock_llm: MagicMock,
+    mock_get_adapter: MagicMock,
     mock_console: Mock,
     prevent_exit: MagicMock,
     default_output_flags: OutputFlags,
@@ -1123,7 +1141,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
         # First call (planning) returns the plan
         # Second call (recovery) raises a general Exception
         recovery_exception_message = "Unexpected LLM service outage"
-        mock_llm.execute_and_log_metrics.side_effect = [
+        mock_get_adapter.execute_and_log_metrics.side_effect = [
             (json.dumps(plan_response), None),
             Exception(recovery_exception_message),
         ]
@@ -1141,7 +1159,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(  # Added a
             )
 
             # Verify the LLM execute was called twice (plan + recovery attempt)
-            assert mock_llm.execute_and_log_metrics.call_count == 2
+            assert mock_get_adapter.execute_and_log_metrics.call_count == 2
 
             # Verify update_memory was NOT called for the recovery failure itself
             # (it might be called for the *initial* error before recovery is attempted)

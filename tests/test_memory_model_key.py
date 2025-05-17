@@ -132,7 +132,7 @@ def test_memory_with_anthropic_api_key(
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
         # Call update_memory with a Claude model
         update_memory(
-            command="kubectl get pods",
+            command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
             # Claude model should use Anthropic key
@@ -231,7 +231,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
         # Call update_memory with a GPT model
         update_memory(
-            command="kubectl get pods",
+            command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
             model_name="gpt-4",  # GPT model should use OpenAI key
@@ -264,7 +264,7 @@ def test_memory_update_missing_api_key(test_config: Config) -> None:
     ):
         # Call update_memory - should catch the exception internally
         update_memory(
-            command="kubectl get pods",
+            command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
             model_name="claude-3.7-sonnet",  # Ensure model name matches error
@@ -305,7 +305,7 @@ def test_memory_update_with_environment_key(test_config: Config) -> None:
         with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
             # Call update_memory
             update_memory(
-                command="kubectl get pods",
+                command_message="kubectl get pods",
                 command_output="output",
                 vibe_output="vibe",
                 model_name="claude-3.7-sonnet",

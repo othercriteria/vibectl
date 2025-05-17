@@ -118,3 +118,42 @@ class LLMCommandResponse(BaseModel):
         "use_enum_values": True,
         "extra": "ignore",
     }
+
+
+class ApplyFileScopeResponse(BaseModel):
+    """Schema for LLM response when scoping files for kubectl apply."""
+
+    file_selectors: list[str] = Field(
+        ...,
+        description=(
+            "List of file paths, directory paths, or glob patterns identified for "
+            "kubectl apply."
+        ),
+    )
+    remaining_request_context: str = Field(
+        ...,
+        description=(
+            "The remaining part of the user's request that is not related to file "
+            "selection."
+        ),
+    )
+
+
+class LLMFinalApplyPlanResponse(BaseModel):
+    """Schema for LLM response containing the final list of planned apply commands."""
+
+    planned_commands: list[LLMCommandResponse] = Field(
+        ...,
+        description=(
+            "A list of LLMCommandResponse objects, each representing a kubectl "
+            "command to be executed."
+        ),
+    )
+
+    model_config = {
+        "use_enum_values": True,
+        "extra": "forbid",  # Forbid extra fields to ensure strict adherence
+    }
+
+
+# TODO: Add PromptFragment model for typed prompt construction

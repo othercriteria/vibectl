@@ -82,8 +82,10 @@ def test_handle_standard_command_logs(
     pos_args, kw_args = mock_handle_output.call_args
 
     # handle_command_output receives the string data from the Success
-    # object returned by run_kubectl
-    assert pos_args[0] == log_output
+    # object returned by run_kubectl --- THIS COMMENT IS NOW OUTDATED.
+    # It now receives the full Success object.
+    assert isinstance(pos_args[0], Success)
+    assert pos_args[0].data == log_output
     assert pos_args[1] == output_flags
     assert pos_args[2] == summary_func
     assert kw_args["command"] == "logs"
