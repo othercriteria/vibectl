@@ -22,8 +22,9 @@ Managing Kubernetes shouldn’t feel like editing an INI file through a perisco
 | **Rich TUI**                | Live *watch*, *logs ‑f*, *port‑forward* with pause/filter/save key‑bindings. |
 | **Traffic Proxy**           | Optional middle‑proxy shows per‑session throughput & errors.                 |
 | **Chaos / Demo Tooling**    | Drop‑in sandbox demos for CTFs, Kafka tuning, Chaos‑Monkey battles.          |
+| **Intelligent Apply**       | `vibectl apply vibe` autocorrects or generates manifests before applying.    |
 
-> **New in 0.6.x**  Fragment‑based prompt engine, structured LLM metrics, Ollama alias support, smarter `--watch` UI, and a port‑forward proxy with byte counters.
+> **New in 0.8.x**  `vibectl diff` for live comparisons and the new intelligent apply workflow.
 
 ---
 
