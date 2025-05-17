@@ -236,6 +236,10 @@ Implementation should prioritize commands that provide the most value to users w
 
 - **Interactive Confirmation:** Option for users to review a diff and confirm changes before applying LLM-corrected or generated manifests.
 - **Enhanced Kustomize Support:** Deeper integration with Kustomize, especially when manifests are being generated or modified as part of a kustomization.
+- **Progress Visibility:** Show progress during file discovery and correction steps so large directories don't appear to hang.
+- **Short-Circuit Valid Sets:** Skip LLM correction entirely if all selected manifests pass validation.
+- **Audit Output:** Optionally save a combined summary of what was applied (including corrected files) for later review.
+- **Show Corrections Diff:** Provide a diff of AI-corrected manifests against their originals so users can easily review changes.
 
 ## Ollama Model String Handling and Error Messaging
 
