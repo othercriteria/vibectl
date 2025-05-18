@@ -29,7 +29,7 @@ from vibectl.prompt import (
 )
 from vibectl.schema import (
     ApplyFileScopeResponse,
-    LLMCommandResponse,
+    CommandAction,
     LLMFinalApplyPlanResponse,
 )
 from vibectl.types import (
@@ -268,7 +268,7 @@ async def _discover_and_validate_files(
 
 
 async def _execute_planned_commands(
-    planned_commands: list[LLMCommandResponse],
+    planned_commands: list[CommandAction],
     cfg: Config,
     output_flags: OutputFlags,
     # We might need a different summary prompt for the final apply output
@@ -303,8 +303,7 @@ async def _execute_planned_commands(
                 f"{planned_cmd_response.action_type}"
             )
             final_results_summary += (
-                f"Skipped planned action ({planned_cmd_response.action_type}): "
-                f"{planned_cmd_response.explanation}\n"
+                f"Skipped planned action ({planned_cmd_response.action_type}).\n"
             )
             continue
 
@@ -394,7 +393,7 @@ async def _execute_planned_commands(
                 f"{' '.join(full_kubectl_command_list)}. Error: {summary_result.error}"
             )
             summary_output = (
-                kubectl_result.result_value
+                kubectl_result.data
                 if isinstance(kubectl_result, Success)
                 else "N/A"
             )

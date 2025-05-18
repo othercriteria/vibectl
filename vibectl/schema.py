@@ -1,23 +1,39 @@
 """Defines Pydantic models for structured LLM responses."""
 
+from typing import Literal, Union
+
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from .types import ActionType
 
 
-class LLMCommandResponse(BaseModel):
-    """Schema for structured responses from the LLM for command execution."""
+# Base Action Model
+class LLMAction(BaseModel):
+    """Base model for all LLM actions."""
 
-    action_type: ActionType = Field(
-        ..., description="The type of action the LLM wants to perform."
-    )
+    # This field will be used for discriminating unions
+    # action_type: ActionType # This will be defined in subclasses with Literal
+
+
+# Specific Action Models
+class ThoughtAction(LLMAction):
+    """Schema for a thought action from the LLM."""
+
+    action_type: Literal[ActionType.THOUGHT] = Field(ActionType.THOUGHT)
+    text: str = Field(..., description="The textual content of the LLM's thought.")
+
+
+class CommandAction(LLMAction):
+    """Schema for a command execution action from the LLM."""
+
+    action_type: Literal[ActionType.COMMAND] = Field(ActionType.COMMAND)
     commands: list[str] | None = Field(
         None,
         description=(
             "List of command parts (arguments) for kubectl, *excluding* the initial"
-            " command verb (e.g., get, create). Required if action_type is COMMAND"
-            " and no yaml_manifest is provided."
+            " command verb (e.g., get, create). Required if no yaml_manifest is"
+            " provided."
         ),
     )
     yaml_manifest: str | None = Field(
@@ -28,22 +44,6 @@ class LLMCommandResponse(BaseModel):
             " with 'commands' for flags like '-n'."
         ),
     )
-    explanation: str | None = Field(
-        None, description="Textual explanation or feedback from the LLM."
-    )
-    error: str | None = Field(
-        None,
-        description=(
-            "Error message if the LLM encountered an issue or refused the request."
-            " Required if action_type is ERROR."
-        ),
-    )
-    wait_duration_seconds: int | None = Field(
-        None,
-        description="Duration in seconds to wait. Required if action_type is WAIT.",
-    )
-    # TODO: Consider adding a validator for allowed_exit_codes to ensure unique entries,
-    # though unclear if non-unique entries should cause outright rejection.
     allowed_exit_codes: list[int] | None = Field(
         None,
         description=(
@@ -55,69 +55,85 @@ class LLMCommandResponse(BaseModel):
 
     @field_validator("commands", mode="before")
     @classmethod
-    def check_commands(
+    def check_commands_or_yaml_required(
         cls, v: list[str] | None, info: ValidationInfo
     ) -> list[str] | None:
-        """Validate commands field based on action_type."""
-        if "action_type" in info.data:
-            action_type_str = info.data["action_type"]
-            try:
-                action_type = ActionType(action_type_str)
-                # For COMMAND, either commands or yaml_manifest must be present.
-                yaml_manifest = info.data.get("yaml_manifest")
-                if action_type == ActionType.COMMAND and not v and not yaml_manifest:
-                    raise ValueError(
-                        "Either 'commands' or 'yaml_manifest' is required when"
-                        " action_type is COMMAND"
-                    )
-            except ValueError as e:
-                # Handle cases where action_type itself is invalid
-                if "action_type" in str(e):
-                    raise ValueError(
-                        f"Invalid action_type provided: {action_type_str}"
-                    ) from e
-                # Re-raise validation errors from the check
-                raise e
+        """Validate that either commands or yaml_manifest is present."""
+        # This validator assumes action_type is already confirmed as COMMAND
+        # by the discriminated union.
+        yaml_manifest = info.data.get("yaml_manifest")
+        if not v and not yaml_manifest:
+            raise ValueError(
+                "Either 'commands' or 'yaml_manifest' is required for a COMMAND action"
+            )
         return v
 
-    @field_validator("error", mode="before")
-    @classmethod
-    def check_error(cls, v: str | None, info: ValidationInfo) -> str | None:
-        """Validate error field based on action_type."""
-        if "action_type" in info.data:
-            action_type_str = info.data["action_type"]
-            try:
-                action_type = ActionType(action_type_str)
-                if action_type == ActionType.ERROR and not v:
-                    raise ValueError("error is required when action_type is ERROR")
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid action_type provided: {action_type_str}"
-                ) from e
-        return v
 
-    @field_validator("wait_duration_seconds", mode="before")
-    @classmethod
-    def check_wait_duration(cls, v: int | None, info: ValidationInfo) -> int | None:
-        """Validate wait_duration_seconds field based on action_type."""
-        if "action_type" in info.data:
-            action_type_str = info.data["action_type"]
-            try:
-                action_type = ActionType(action_type_str)
-                if action_type == ActionType.WAIT and v is None:
-                    raise ValueError(
-                        "wait_duration_seconds is required when action_type is WAIT"
-                    )
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid action_type provided: {action_type_str}"
-                ) from e
-        return v
+class WaitAction(LLMAction):
+    """Schema for a wait action from the LLM."""
+
+    action_type: Literal[ActionType.WAIT] = Field(ActionType.WAIT)
+    duration_seconds: int = Field(
+        ..., description="Duration in seconds to wait."
+    )
+
+
+class ErrorAction(LLMAction):
+    """Schema for an error action from the LLM."""
+
+    action_type: Literal[ActionType.ERROR] = Field(ActionType.ERROR)
+    message: str = Field(
+        ..., description="Error message if the LLM encountered an issue or refused the request."
+    )
+
+
+class FeedbackAction(LLMAction):
+    """Schema for a feedback action from the LLM."""
+
+    action_type: Literal[ActionType.FEEDBACK] = Field(ActionType.FEEDBACK)
+    message: str = Field(..., description="Textual feedback from the LLM.")
+
+
+class DoneAction(LLMAction):
+    """Schema for a done action from the LLM (used by vibectl check)."""
+
+    action_type: Literal[ActionType.DONE] = Field(ActionType.DONE)
+    exit_code: int | None = Field(
+        None,
+        description=(
+            "The intended exit code for vibectl. If None, a default may be used "
+            "(e.g., 3 for 'cannot determine' in vibectl check)."
+        )
+    )
+
+
+# Union of all specific actions for Pydantic's discriminated union
+AnyLLMAction = Union[
+    ThoughtAction,
+    CommandAction,
+    WaitAction,
+    ErrorAction,
+    FeedbackAction,
+    DoneAction,
+]
+
+
+class LLMPlannerResponse(BaseModel):
+    """Schema for structured responses from the LLM planner."""
+
+    action: AnyLLMAction = Field(
+        ..., description="The single action for vibectl to perform."
+    )
 
     model_config = {
-        "use_enum_values": True,
-        "extra": "ignore",
+        "use_enum_values": True, # Keep if ActionType is still used directly in some models
+        "extra": "forbid", # Forbid extra fields to ensure strict adherence
     }
+
+
+# Existing models - LLMCommandResponse is now replaced by LLMPlannerResponse
+# and its constituent actions.
+# We need to update LLMFinalApplyPlanResponse.
 
 
 class ApplyFileScopeResponse(BaseModel):
@@ -137,22 +153,24 @@ class ApplyFileScopeResponse(BaseModel):
             "selection."
         ),
     )
+    model_config = {
+        "extra": "forbid",
+    }
 
 
 class LLMFinalApplyPlanResponse(BaseModel):
     """Schema for LLM response containing the final list of planned apply commands."""
 
-    planned_commands: list[LLMCommandResponse] = Field(
+    planned_commands: list[CommandAction] = Field( # Changed from LLMCommandResponse
         ...,
         description=(
-            "A list of LLMCommandResponse objects, each representing a kubectl "
+            "A list of CommandAction objects, each representing a kubectl "
             "command to be executed."
         ),
     )
 
     model_config = {
-        "use_enum_values": True,
-        "extra": "forbid",  # Forbid extra fields to ensure strict adherence
+        "extra": "forbid",
     }
 
 

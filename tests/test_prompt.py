@@ -46,7 +46,7 @@ from vibectl.prompt import (
     vibe_autonomous_prompt,
     wait_resource_prompt,
 )
-from vibectl.schema import LLMCommandResponse
+from vibectl.schema import LLMPlannerResponse, CommandAction, ActionType
 
 # Import new types
 from vibectl.types import (
@@ -57,7 +57,7 @@ from vibectl.types import (
     UserFragments,
 )
 
-_TEST_SCHEMA_JSON = json.dumps(LLMCommandResponse.model_json_schema())
+_TEST_SCHEMA_JSON = json.dumps(LLMPlannerResponse.model_json_schema())
 
 
 # TODO: replace with fragment_current_time test...
@@ -243,17 +243,15 @@ def test_create_planning_prompt_structure_and_content() -> None:
         (
             "request 1",
             {
-                "action_type": "COMMAND",
+                "action_type": ActionType.COMMAND.value,
                 "commands": ["arg1", "val1"],
-                "explanation": "Explanation for request 1.",
             },
         ),
         (
             "request 2",
             {
-                "action_type": "COMMAND",
+                "action_type": ActionType.COMMAND.value,
                 "commands": ["arg2", "--flag"],
-                "explanation": "Explanation for request 2.",
             },
         ),
     ]

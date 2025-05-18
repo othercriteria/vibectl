@@ -14,13 +14,14 @@ from datetime import datetime
 from .config import Config
 from .schema import (
     ApplyFileScopeResponse,
-    LLMCommandResponse,
+    LLMPlannerResponse,
     LLMFinalApplyPlanResponse,
+    ActionType,
 )
 from .types import Examples, Fragment, PromptFragments, SystemFragments, UserFragments
 
 # Regenerate the shared JSON schema definition string from the Pydantic model
-_SCHEMA_DEFINITION_JSON = json.dumps(LLMCommandResponse.model_json_schema(), indent=2)
+_SCHEMA_DEFINITION_JSON = json.dumps(LLMPlannerResponse.model_json_schema(), indent=2)
 _APPLY_FILESCOPE_SCHEMA_JSON = json.dumps(
     ApplyFileScopeResponse.model_json_schema(), indent=2
 )
@@ -89,13 +90,14 @@ def create_planning_prompt(
 which is used for {description}.
 
 Given a natural language request describing the target resource(s), determine the
-appropriate arguments *following* 'kubectl {command}' and respond with a JSON
-object matching the provided schema.
+appropriate arguments *following* 'kubectl {command}'.
+Your response will be a JSON object that wraps a single 'COMMAND' action,
+containing the necessary arguments.
 
-The action '{command}' is implied by the context.
+The kubectl command '{command}' is implied by the context of this planning task.
 
 Focus on extracting resource names, types, namespaces, selectors, and flags
-from the request.""")
+from the request to populate the 'commands' field of the 'COMMAND' action.""")
     )
 
     # System: Schema definition and key fields reminder
@@ -106,16 +108,23 @@ Your response MUST be a valid JSON object conforming to this schema:
 {schema_definition}
 ```
 
-Key fields:
-- `action_type`: Specify the intended action (usually COMMAND for planning args).
+This means your output should look like:
+{{
+  "action": {{
+    "action_type": "COMMAND",
+    "commands": ["<arg1>", "<arg2>", ...],
+    "yaml_manifest": "<yaml_string_if_applicable>",
+    "allowed_exit_codes": [0] // or other relevant codes
+  }}
+}}
+
+Key fields within the nested "COMMAND" action object:
+- `action_type`: MUST be "COMMAND".
 - `commands`: List of string arguments *following* `kubectl {command}`. Include flags
   like `-n`, `-f -`, but *exclude* the command verb itself. **MUST be a JSON array
   of strings, e.g., [\"pods\", \"-n\", \"kube-system\"], NOT a single string like
   \"pods -n kube-system\" or '[\"pods\", \"-n\", \"kube-system\"]' **.
-- `yaml_manifest`: YAML content as a string (primarily for `create`).
-- `explanation`: Brief explanation of the planned arguments.
-- `error`: Required if action_type is ERROR (e.g., request is unclear).
-- `wait_duration_seconds`: Required if action_type is WAIT.
+- `yaml_manifest`: YAML content as a string (primarily for `create` or `apply` actions that use stdin).
 - `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
   for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.""")
     )
@@ -123,12 +132,12 @@ Key fields:
     # System: Formatted examples
     formatted_examples = (
         "Example inputs (natural language target descriptions) and "
-        "expected JSON outputs:\n"
+        "expected JSON outputs (LLMPlannerResponse wrapping a CommandAction):\n"
     )
     formatted_examples += "\n".join(
         [
             f'- Target: "{req}" -> \n'
-            f"Expected JSON output:\n{json.dumps(output, indent=2)}"
+            f"Expected JSON output:\\n{json.dumps({'action': output}, indent=2)}"
             for req, output in examples
         ]
     )
@@ -253,25 +262,22 @@ PLAN_GET_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "pods in kube-system",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "-n", "kube-system"],
-                    "explanation": "Getting pods in the kube-system namespace.",
                 },
             ),
             (
                 "pods with app=nginx label",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Getting pods matching the label app=nginx.",
                 },
             ),
             (
                 "all pods in every namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--all-namespaces"],
-                    "explanation": "Getting all pods across all namespaces.",
                 },
             ),
         ]
@@ -370,25 +376,22 @@ PLAN_DESCRIBE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "nginx"],
-                    "explanation": "Describing the pod named nginx.",
                 },
             ),
             (
                 "the deployment in foo namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployments", "-n", "foo"],
-                    "explanation": "Describing deployments in the foo namespace.",
                 },
             ),
             (
                 "details of all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Describing pods matching the label app=nginx.",
                 },
             ),
         ]
@@ -405,27 +408,22 @@ PLAN_LOGS_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "logs from the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx"],
-                    "explanation": "Getting logs for the pod named nginx.",
                 },
             ),
             (
                 "logs from the api container in app pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/app", "-c", "api"],
-                    "explanation": "Getting logs for the 'api' container in pod 'app'.",
                 },
             ),
             (
                 "the last 100 lines from all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--selector=app=nginx", "--tail=100"],
-                    "explanation": (
-                        "Getting the last 100 log lines for pods with label app=nginx."
-                    ),
                 },
             ),
         ]
@@ -442,7 +440,7 @@ PLAN_CREATE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "an nginx hello world pod in default",  # Implicit creation request
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-", "-n", "default"],
                     "yaml_manifest": (
                         """---
@@ -459,13 +457,12 @@ spec:
     ports:
     - containerPort: 80"""
                     ),
-                    "explanation": "Creating a simple Nginx pod.",
                 },
             ),
             (
                 "create a configmap with HTML content",  # Explicit creation
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
                     "yaml_manifest": (
                         """---
@@ -477,13 +474,12 @@ data:
   index.html: |
     <html><body><h1>Hello World</h1></body></html>"""
                     ),
-                    "explanation": "Creating a ConfigMap with HTML data.",
                 },
             ),
             (
                 "frontend and backend pods for my application",  # Implicit creation
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
                     "yaml_manifest": (
                         """---
@@ -515,13 +511,12 @@ spec:
     ports:
     - containerPort: 6379"""
                     ),
-                    "explanation": "Creating two pods using a multi-document YAML.",
                 },
             ),
             (
                 "spin up a basic redis deployment",  # Explicit creation verb
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
                     "yaml_manifest": (
                         """---
@@ -546,7 +541,6 @@ spec:
         - containerPort: 6379
 """
                     ),
-                    "explanation": "Creating a single-replica Redis deployment.",
                 },
             ),
         ]
@@ -564,25 +558,22 @@ PLAN_VERSION_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "version in json format",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=json"],
-                    "explanation": "Getting version information in JSON format.",
                 },
             ),
             (
                 "client version only",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--client=true", "--output=json"],
-                    "explanation": "Getting only the client version in JSON format.",
                 },
             ),
             (
                 "version in yaml",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=yaml"],
-                    "explanation": "Getting version information in YAML format.",
                 },
             ),
         ]
@@ -599,25 +590,22 @@ PLAN_CLUSTER_INFO_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["dump"],  # Default behavior is dump
-                    "explanation": "Getting detailed cluster information using dump.",
                 },
             ),
             (
                 "basic cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [],  # No extra args needed for basic info
-                    "explanation": "Getting basic cluster endpoint information.",
                 },
             ),
             (
                 "detailed cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["dump"],
-                    "explanation": "Getting detailed cluster information using dump.",
                 },
             ),
         ]
@@ -637,25 +625,22 @@ PLAN_EVENTS_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "events in default namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [],  # Default namespace is implicit
-                    "explanation": "Getting events in the default namespace.",
                 },
             ),
             (
                 "events for pod nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--for=pod/nginx"],
-                    "explanation": "Getting events related to the pod named nginx.",
                 },
             ),
             (
                 "all events in all namespaces",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--all-namespaces"],  # Use -A or --all-namespaces
-                    "explanation": "Getting all events across all namespaces.",
                 },
             ),
         ]
@@ -769,25 +754,22 @@ PLAN_DELETE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod", "nginx"],
-                    "explanation": "Deleting the pod named nginx.",
                 },
             ),
             (
                 "deployment in kube-system namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment", "-n", "kube-system"],
-                    "explanation": "Deleting deployments in the kube-system namespace.",
                 },
             ),
             (
                 "all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Deleting pods matching the label app=nginx.",
                 },
             ),
         ]
@@ -829,31 +811,25 @@ PLAN_SCALE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "deployment nginx to 3 replicas",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/nginx", "--replicas=3"],
-                    "explanation": "Scaling the nginx deployment to 3 replicas.",
                 },
             ),
             (
                 "the redis statefulset to 5 replicas in the cache namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["statefulset/redis", "--replicas=5", "-n", "cache"],
-                    "explanation": (
-                        "Scaling the redis statefulset in the cache "
-                        "namespace to 5 replicas."
-                    ),
                 },
             ),
             (
                 "down the api deployment",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "deployment/api",
                         "--replicas=1",
                     ],  # Assuming scale down means 1
-                    "explanation": "Scaling down the api deployment to 1 replica.",
                 },
             ),
         ]
@@ -895,25 +871,21 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "for the deployment my-app to be ready",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/my-app", "--for=condition=Available"],
-                    "explanation": "Waiting for my-app deployment to become Available.",
                 },
             ),
             (
                 "until the pod nginx becomes ready with 5 minute timeout",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx", "--for=condition=Ready", "--timeout=5m"],
-                    "explanation": (
-                        "Waiting up to 5 minutes for the nginx pod to become Ready."
-                    ),
                 },
             ),
             (
                 "for all jobs in billing namespace to complete",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "jobs",
                         "--all",
@@ -921,9 +893,6 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
                         "billing",
                         "--for=condition=Complete",
                     ],
-                    "explanation": (
-                        "Waiting for all jobs in the billing namespace to Complete."
-                    ),
                 },
             ),
         ]
@@ -978,53 +947,41 @@ PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "status of deployment nginx",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["status", "deployment/nginx"],
-                    "explanation": "Checking the rollout status of nginx deployment.",
                 },
             ),
             (
                 "frontend deployment to revision 2",  # rollout action description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["undo", "deployment/frontend", "--to-revision=2"],
-                    "explanation": (
-                        "Rolling back the frontend deployment to revision 2."
-                    ),
                 },
             ),
             (
                 "the rollout of my-app deployment in production namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pause", "deployment/my-app", "-n", "production"],
-                    "explanation": (
-                        "Pausing the rollout for the my-app deployment in the "
-                        "production namespace."
-                    ),
                 },
             ),
             (
                 "all deployments in default namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "restart",
                         "deployment",
                         "-n",
                         "default",
                     ],  # Or add selector if needed
-                    "explanation": "Restarting all deployments in default namespace.",
                 },
             ),
             (
                 "history of statefulset/redis",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["history", "statefulset/redis"],
-                    "explanation": (
-                        "Showing the rollout history for the redis statefulset."
-                    ),
                 },
             ),
         ]
@@ -1296,13 +1253,16 @@ def plan_vibe_fragments() -> PromptFragments:
 You are a highly agentic and capable AI assistant delegated to work for a user
 in a Kubernetes cluster.
 
-Your options are:
+Your options are to return a single action object, which can be one of:
+- THOUGHT: record a thought or reasoning step.
 - COMMAND: execute a single kubectl command, to directly advance the user's goal or
   reduce uncertainty about the user's goal and its status.
 - FEEDBACK: return feedback to the user explaining uncertainty about the user's goal
   that you cannot reduce by planning a COMMAND.
-- ERROR: the user's goal is clear but you cannot plan a next command.
+- ERROR: the user's goal is clear but you cannot plan a next command, or the request is invalid.
 - WAIT: pause further work for at minimum some specified duration.
+- DONE: (Primarily for 'vibectl check') signal that the predicate evaluation is complete
+  and provide an exit code.
 
 You may be in a non-interactive context, so do NOT plan blocking commands like
 'kubectl wait' or 'kubectl port-forward' unless given an explicit request to the
@@ -1315,127 +1275,181 @@ commands to run inside pods may be appropriate.""")
     # System: Schema definition (f-string needed here)
     system_fragments.append(
         Fragment(
-            f"""Your response MUST be a valid JSON object conforming to this schema:
+            f"""Your response MUST be a valid JSON object conforming to the LLMPlannerResponse schema:
 ```json
 {_SCHEMA_DEFINITION_JSON}
 ```
+This means your output should be a JSON object with a single key "action",
+where "action" contains the specific action object (e.g., CommandAction, ErrorAction).
 
-Key fields reminder:
-- `action_type`: COMMAND, FEEDBACK, ERROR, or WAIT.
-- `commands`: If action_type is COMMAND, this is a JSON list of strings representing the
-  *full* kubectl subcommand *including the verb*
-  (e.g., ["get", "pods", "-n", "app"]).
-- `yaml_manifest`: If action_type is COMMAND and involves creating/applying complex
-  resources, provide the YAML here as a single string.
-- `error`: A description of why you will not plan a next command. Required if
-  action_type is ERROR.
-- `explanation`: Brief explanation justifying the action taken.
-- `wait_duration_seconds`: Required if action_type is WAIT.
-- `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
-  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
-- `wait_duration_seconds`: Required if action_type is WAIT."""
+Example structure for a COMMAND action:
+{{
+  "action": {{
+    "action_type": "COMMAND",
+    "commands": ["get", "pods", "-n", "app"],
+    "yaml_manifest": null, // or YAML string
+    "allowed_exit_codes": [0]
+  }}
+}}
+
+Example structure for an ERROR action:
+{{
+  "action": {{
+    "action_type": "ERROR",
+    "message": "The requested pod 'xyz' does not exist."
+  }}
+}}
+
+
+Key fields for each Action Type within the "action" object:
+
+1.  `action_type`: "THOUGHT", "COMMAND", "FEEDBACK", "ERROR", "WAIT", or "DONE".
+
+2.  If `action_type` is "THOUGHT":
+    - `text` (string, required): The textual content of your thought.
+
+3.  If `action_type` is "COMMAND":
+    - `commands` (list of strings, required if no `yaml_manifest`): The *full* kubectl
+      subcommand *including the verb* (e.g., ["get", "pods", "-n", "app"]).
+    - `yaml_manifest` (string, optional): YAML content if creating/applying complex
+      resources.
+    - `allowed_exit_codes` (list of int, optional): Allowed exit codes for the
+      command (e.g., [0, 1] for diff). Defaults to [0].
+
+4.  If `action_type` is "FEEDBACK":
+    - `message` (string, required): Textual feedback to the user.
+
+5.  If `action_type` is "ERROR":
+    - `message` (string, required): Description of why you cannot plan a command
+      or why the request is problematic.
+
+6.  If `action_type` is "WAIT":
+    - `duration_seconds` (int, required): Duration in seconds to wait.
+
+7.  If `action_type` is "DONE":
+    - `exit_code` (int, optional): The intended exit code for vibectl.
+      Defaults to 3 ('cannot determine') if not provided for 'vibectl check'.
+
+Remember to choose only ONE action per response."""
         )
     )
 
     # System: Examples
     system_fragments.append(
         Fragment(
-            """Examples:
+            """Examples (showing the full LLMPlannerResponse JSON):
 
 Memory: "We are working in namespace 'app'. Deployed 'frontend' and 'backend' services."
 Request: "check if everything is healthy"
 Output:
-{  "action_type": "COMMAND",
-    "commands": ["get", "pods", "-n", "app"],
-    "explanation": "Checking pod status in the 'app' namespace."
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["get", "pods", "-n", "app"]
+  }
 }
 
 Memory: "The health-check pod is called 'health-check'."
 Request: "Tell me about the health-check pod and the database deployment."
 Output:
-{  "action_type": "COMMAND",
-    "commands": ["get", "pods", "-l", "app=health-check"],
-    "explanation": "Describing the health-check pod. Database deployment next..."
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["get", "pods", "-l", "app=health-check"]
+    // Assuming the LLM will handle the database deployment in a subsequent step/thought
+  }
 }
 
 Memory: ""
 Request: "What are the differences for my-deployment.yaml?"
 Output:
-{  "action_type": "COMMAND",
+{
+  "action": {
+    "action_type": "COMMAND",
     "commands": ["diff", "-f", "my-deployment.yaml"],
-    "explanation": "Diffing the local file my-deployment.yaml against the cluster.",
     "allowed_exit_codes": [0, 1]
+  }
 }
 
 Memory: "We need to debug why the database pod keeps crashing."
 Request: ""
 Output:
-{  "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "Examining the database pod based on memory context."
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["describe", "pod", "-l", "app=database"]
+  }
 }
 
 Memory: ""
 Request: "help me troubleshoot the database pod"
 Output:
-{  "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "Describing the database pod as requested."
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["describe", "pod", "-l", "app=database"]
+  }
 }
 
 Memory: "Wait until pod 'foo' is deleted"
 Request: ""
 Output:
-{  "action_type": "ERROR",
-    "error": "The command 'kubectl wait --for=delete pod/foo' is potentially blocking.",
-    "explanation": "Refusing to run a potentially blocking 'wait' command."
+{
+  "action": {
+    "action_type": "ERROR",
+    "message": "The command 'kubectl wait --for=delete pod/foo' is potentially blocking and should be avoided in autonomous mode without explicit timeout."
+  }
 }
 
 Memory: "You MUST NOT delete the 'health-check' pod."
 Request: "delete the health-check pod"
 Output:
-{  "action_type": "ERROR",
-    "error": "You MUST NOT delete the 'health-check' pod.",
-    "explanation": "Memory indicates this pod is not allowed to be deleted."
+{
+  "action": {
+    "action_type": "ERROR",
+    "message": "Memory indicates the 'health-check' pod MUST NOT be deleted."
+  }
 }
 
 Memory: "The cluster has 64GiB of memory available."
 Request: "set the memory request for the app deployment to 128GiB"
 Output:
-{  "action_type": "FEEDBACK",
-    "explanation": "The cluster does not have enough memory to meet the request."
+{
+  "action": {
+    "action_type": "FEEDBACK",
+    "message": "The cluster does not have enough memory (64GiB available) to meet the request for 128GiB."
+  }
 }
 
 Memory: ""
 Request: "lkbjwqnfl alkfjlkads"
 Output:
-{  "action_type": "FEEDBACK",
-    "explanation": "It is not clear what you want to do. Please try again."
+{
+  "action": {
+    "action_type": "FEEDBACK",
+    "message": "It is not clear what you want to do. Please try again with a clearer request."
+  }
 }
 
 Memory: ""
 Request: "wait until pod 'bar' finishes spinning up"
 Output:
-{  "action_type": "COMMAND",
-    "commands": ["wait", "pod", "bar", "--for=condition=ready", "--timeout=10s"],
-    "explanation": "Waiting for pod 'bar' to be running, with tight timeout."
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["wait", "pod", "bar", "--for=condition=ready", "--timeout=10s"]
+  }
 }
 
 Memory: "We need to create multiple resources for our application."
 Request: "create the frontend and backend pods"
 Output:
-{  "action_type": "COMMAND",
+{
+  "action": {
+    "action_type": "COMMAND",
     "commands": ["create", "-f", "-"],
-    "yaml_manifest": (
-        "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: frontend\\n  labels:\\n"
-        "    app: foo\\n    component: frontend\\nspec:\\n  containers:\\n"
-        "  - name: frontend\\n    image: nginx:latest\\n    ports:\\n"
-        "    - containerPort: 80\\n---\\napiVersion: v1\\nkind: Pod\\nmetadata:\\n"
-        "  name: backend\\n  labels:\\n    app: foo\\n    component: backend\\nspec:\\n"
-        "  containers:\\n  - name: backend\\n    image: redis:latest\\n    ports:\\n"
-        "    - containerPort: 6379"
-    ),
-    "explanation": "Creating frontend and backend pods using YAML as requested."
+    "yaml_manifest": "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: frontend\\n  labels:\\n    app: foo\\n    component: frontend\\nspec:\\n  containers:\\n  - name: frontend\\n    image: nginx:latest\\n    ports:\\n    - containerPort: 80\\n---\\napiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: backend\\n  labels:\\n    app: foo\\n    component: backend\\nspec:\\n  containers:\\n  - name: backend\\n    image: redis:latest\\n    ports:\\n    - containerPort: 6379"
+  }
 }
 
 # END Example inputs (memory and request) and outputs"""
@@ -1531,58 +1545,41 @@ PLAN_PORT_FORWARD_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "port 8080 of pod nginx to my local 8080",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx", "8080:8080"],
-                    "explanation": (
-                        "Forwarding local port 8080 to port 8080 of the nginx pod."
-                    ),
                 },
             ),
             (
                 "the redis service port 6379 on local port 6380",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["service/redis", "6380:6379"],
-                    "explanation": (
-                        "Forwarding local port 6380 to port 6379 of the redis service."
-                    ),
                 },
             ),
             (
                 "deployment webserver port 80 to my local 8000",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/webserver", "8000:80"],
-                    "explanation": (
-                        "Forwarding local port 8000 to port 80 on webserver deployment."
-                    ),
                 },
             ),
             (
                 "my local 5000 to port 5000 on the api pod in namespace test",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/api", "5000:5000", "--namespace", "test"],
-                    "explanation": (
-                        "Forwarding local port 5000 to port 5000 of the "
-                        "api pod in the test namespace."
-                    ),
                 },
             ),
             (
                 "ports with the app running on namespace production",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "pod/app",
                         "8080:80",
                         "--namespace",
                         "production",
                     ],  # Needs better inference?
-                    "explanation": (
-                        "Forwarding local port 8080 to port 80 of the app "
-                        "pod in the production namespace."
-                    ),
                 },
             ),
         ]
@@ -1668,25 +1665,23 @@ PLAN_DIFF_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "server-side diff for local file examples/my-app.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--server-side=true", "-f", "my-app.yaml"],
-                    "explanation": "Diffing local file my-app.yaml server-side.",
                     "allowed_exit_codes": [0, 1],
                 },
             ),
             (
                 "diff the manifest at https://foo.com/manifests/pod.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "https://foo.com/manifests/pod.yaml"],
-                    "explanation": "Diffing remote manifest from URL foo.com.",
                     "allowed_exit_codes": [0, 1],
                 },
             ),
             (
                 "diff a generated minimal nginx deployment in staging",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-n", "staging", "-f", "-"],
                     "yaml_manifest": (
                         """---
@@ -1711,16 +1706,14 @@ spec:
         ports:
         - containerPort: 80"""
                     ),
-                    "explanation": "Diffing a generated minimal Nginx deployment.",
                     "allowed_exit_codes": [0, 1],
                 },
             ),
             (
                 "diff file.yaml recursively in dir/",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "dir/file.yaml", "-R"],
-                    "explanation": "Recursively diffing from dir/file.yaml.",
                     "allowed_exit_codes": [0, 1],
                 },
             ),
@@ -1738,23 +1731,21 @@ PLAN_APPLY_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "apply the deployment from my-deployment.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "my-deployment.yaml"],
-                    "explanation": "Applying configuration from my-deployment.yaml.",
                 },
             ),
             (
                 "apply all yaml files in the ./manifests directory",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "./manifests"],
-                    "explanation": "Applying YAML files in the ./manifests directory.",
                 },
             ),
             (
                 "apply the following nginx pod manifest",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
                     "yaml_manifest": (
                         """---
@@ -1769,23 +1760,20 @@ spec:
     ports:
     - containerPort: 80"""
                     ),
-                    "explanation": "Applying an Nginx pod manifest from input.",
                 },
             ),
             (
                 "apply the kustomization in ./my-app",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-k", "./my-app"],
-                    "explanation": "Applying the kustomization in ./my-app.",
                 },
             ),
             (
                 "see what a standard nginx pod would look like",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
-                    "explanation": "Dry run apply an Nginx pod with YAML output.",
                 },
             ),
         ]
@@ -2030,14 +2018,15 @@ def plan_final_apply_command_prompt_fragments(
                   LLMFinalApplyPlanResponse schema provided below. This means a
                   single JSON object with one key: 'planned_commands'. The value
                   of 'planned_commands' MUST be a list of valid
-                  LLMCommandResponse JSON objects.
+                  CommandAction JSON objects (as defined in the LLMPlannerResponse schema).
 
-                - Each LLMCommandResponse object in the list represents a single
+                - Each CommandAction object in the list represents a single
                   `kubectl apply` command to be executed.
 
-                - For each command, the `action_type` MUST be 'COMMAND'.
+                - For each command, the `action_type` within the CommandAction
+                  object MUST be 'COMMAND'.
 
-                - The `commands` field within each LLMCommandResponse MUST be a list
+                - The `commands` field within each CommandAction MUST be a list
                   of strings representing the arguments *after* `kubectl apply`
                   (e.g., ['-f', 'path1.yaml', '-f', 'path2.yaml', '-n', 'namespace']).
                   Do NOT include 'kubectl apply' itself in the `commands` list.
@@ -2045,7 +2034,7 @@ def plan_final_apply_command_prompt_fragments(
                 - If a manifest needs to be applied via stdin (e.g., because it
                   was generated by you and doesn't have a fixed path), use
                   `commands: ['-f', '-']` and provide the manifest content in the
-                  `yaml_manifest` field of that LLMCommandResponse.
+                  `yaml_manifest` field of that CommandAction.
 
                 - Use the `corrected_temp_manifest_paths` for any manifests that
                   were corrected or generated. Prefer these over original paths if a
@@ -2062,7 +2051,7 @@ def plan_final_apply_command_prompt_fragments(
                 - Incorporate the `remaining_user_request` (e.g., target
                   namespace, flags like --prune, --server-side) into the
                   `commands` list of the relevant `kubectl apply`
-                  LLMCommandResponse(s).
+                  CommandAction(s).
 
                 - If there are no valid or corrected manifests to apply, the
                   `planned_commands` list should be empty ( `[]` ). Do NOT generate
@@ -2071,9 +2060,11 @@ def plan_final_apply_command_prompt_fragments(
                 - If `unresolvable_sources` lists any files, they CANNOT be used.
                   Your plan should only use files from
                   `valid_original_manifest_paths` and
-                  `corrected_temp_manifest_paths`. Provide a brief `explanation`
-                  in the *first* LLMCommandResponse if any sources were
-                  unresolvable and thus excluded from the plan.
+                  `corrected_temp_manifest_paths`. If any sources were
+                  unresolvable and thus excluded from the plan, this information should
+                  be conveyed through a separate FEEDBACK or THOUGHT action in a
+                  prior step by the calling logic, as CommandAction itself does not
+                  have a dedicated 'explanation' field for this purpose.
 
                 - Ensure all paths in the `commands` field are absolute paths
                   as provided in the input lists."""
@@ -2081,7 +2072,7 @@ def plan_final_apply_command_prompt_fragments(
             # Use the new schema for LLMFinalApplyPlanResponse
             fragment_json_schema_instruction(
                 final_plan_schema_json,
-                "LLMFinalApplyPlanResponse (a list of command plans)",
+                "LLMFinalApplyPlanResponse (a list of CommandAction plans)",
             ),
         ]
     )
@@ -2128,3 +2119,159 @@ def plan_final_apply_command_prompt_fragments(
         object conforming to the LLMFinalApplyPlanResponse schema."""
     user_frags = UserFragments([Fragment(user_frags_content)])
     return PromptFragments((system_frags, user_frags))
+
+
+# Template for planning vibectl check commands
+def plan_check_fragments() -> PromptFragments:
+    """Get prompt fragments for planning vibectl check predicate evaluations.
+
+    Returns:
+        PromptFragments: System fragments and base user fragments.
+                         Caller adds memory and request (predicate) fragments.
+    """
+    system_fragments: SystemFragments = SystemFragments([])
+    user_fragments: UserFragments = UserFragments(
+        []
+    )  # Base user fragments, caller adds predicate
+
+    # System: Core instructions and role for 'check'
+    system_fragments.append(
+        Fragment("""
+You are an AI assistant tasked with evaluating the truthiness of a predicate
+about a Kubernetes cluster's state. Your primary goal is to determine if the
+given predicate is TRUE or FALSE.
+
+Based on the predicate, you should respond with an `LLMPlannerResponse` JSON object
+containing a single action. The preferred actions are:
+
+1.  `DONE`: If you can determine the truthiness of the predicate.
+    - `exit_code`:
+        - `0` if the predicate is TRUE.
+        - `1` if the predicate is FALSE.
+        - `2` if the predicate is ill-posed, ambiguous, or unanswerable as stated.
+        - `3` if you cannot determine the truthiness without more information
+          (even if you could potentially find it with commands).
+
+2.  `ERROR`: If the predicate is fundamentally flawed, internally contradictory,
+    or requests something impossible in a way that `DONE` with exit_code 2 or 3
+    doesn't quite capture. The `message` field should explain why.
+
+If, for some reason, you believe you *must* issue a `COMMAND` (e.g., a read-only
+`kubectl get` or `kubectl describe`) or a `WAIT` action to gather information
+before concluding, understand that for the initial evaluation phase, `vibectl`
+will interpret this as you being unable to determine the predicate's truthiness
+in a single step, and will likely result in an overall outcome of "cannot determine"
+(exit code 3). Only plan `COMMAND` actions that are strictly read-only.
+
+Do NOT plan commands that modify state (e.g., create, delete, apply, scale, patch).
+""")
+    )
+
+    # System: Schema definition (reuse the main planner schema)
+    system_fragments.append(
+        Fragment(
+            f"""Your response MUST be a valid JSON object conforming to the LLMPlannerResponse schema:
+```json
+{_SCHEMA_DEFINITION_JSON}
+```
+This means your output should be a JSON object with a single key "action",
+where "action" contains the specific action object (e.g., DoneAction, ErrorAction, CommandAction).
+
+Example structure for a DONE action (predicate is TRUE):
+{{
+  "action": {{
+    "action_type": "DONE",
+    "exit_code": 0
+  }}
+}}
+
+Example structure for an ERROR action (predicate is ambiguous):
+{{
+  "action": {{
+    "action_type": "ERROR",
+    "message": "The predicate 'is the cluster happy?' is too ambiguous to evaluate."
+  }}
+}}
+
+See the general planner prompt for details on COMMAND, WAIT, FEEDBACK action fields if you
+must use them, but prioritize DONE or ERROR for this 'check' task.
+""")
+        )
+
+
+    # System: Examples for 'check'
+    system_fragments.append(
+        Fragment(
+            """Examples for 'vibectl check':
+
+Memory: "Namespace 'default' has pods: nginx-1 (Running), nginx-2 (Running)."
+Request (Predicate): "are all pods in the default namespace running?"
+Output:
+{
+  "action": {
+    "action_type": "DONE",
+    "exit_code": 0
+  }
+}
+
+Memory: "Pods in 'kube-system': coredns-a (Running), etcd-cp (Running), kube-apiserver-cp (CrashLoopBackOff)"
+Request (Predicate): "are all pods in kube-system healthy?"
+Output:
+{
+  "action": {
+    "action_type": "DONE",
+    "exit_code": 1
+  }
+}
+
+Memory: ""
+Request (Predicate): "is there a deployment named 'web-server' in namespace 'production'?"
+Output (Assuming LLM doesn't know and needs to check):
+{
+  "action": {
+    "action_type": "COMMAND",
+    "commands": ["get", "deployment", "web-server", "-n", "production"]
+  }
+}
+// vibectl (in Phase 1) would interpret the above COMMAND as exit code 3 (cannot determine in one shot).
+
+Memory: ""
+Request (Predicate): "is the sky blue today in the cluster?"
+Output:
+{
+  "action": {
+    "action_type": "DONE",
+    "exit_code": 2 // Ill-posed for a K8s cluster context
+  }
+}
+
+Memory: ""
+Request (Predicate): "Ensure all pods are deleted."
+Output:
+{
+  "action": {
+    "action_type": "ERROR",
+    "message": "The 'check' command cannot ensure actions; it only evaluates predicates. This predicate implies a modification."
+  }
+}
+# END Example inputs (memory and request/predicate) and outputs"""
+        )
+    )
+
+    # User: Instruction for output format and prompt structure
+    user_fragments.append(
+        Fragment(
+            "Your output MUST be ONLY the JSON object conforming to the schema, "
+            "based on the user's predicate and current memory context:"
+        )
+    )
+    # User fragment for memory will be added by caller
+    # User fragment for predicate (request) will be added by caller
+    user_fragments.append(
+        Fragment("Output:")
+    )  # Instructs where the JSON output should start
+
+    return PromptFragments((system_fragments, user_fragments))
+
+
+PLAN_CHECK_PROMPT: PromptFragments = plan_check_fragments()

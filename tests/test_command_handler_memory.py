@@ -20,9 +20,8 @@ from vibectl.model_adapter import LLMModelAdapter
 from vibectl.prompt import (
     plan_vibe_fragments,
 )
-from vibectl.schema import LLMCommandResponse
+from vibectl.schema import LLMPlannerResponse, CommandAction, ActionType
 from vibectl.types import (
-    ActionType,
     Error,
     Fragment,
     LLMMetrics,
@@ -333,8 +332,19 @@ async def test_handle_vibe_request_error_recovery_flow(
     # Mock LLM recovery suggestion response
     recovery_suggestion_text = "Try checking the namespace."
     mock_model_adapter.execute_and_log_metrics.side_effect = [
-        (json.dumps(plan_response), None),  # Planning
-        (recovery_suggestion_text, None),  # Recovery suggestion
+        (
+            LLMPlannerResponse(action=CommandAction(
+                action_type=ActionType.COMMAND,
+                commands=["get", "pods"],
+            )).model_dump_json(),
+            LLMMetrics(
+                token_input=50,
+                token_output=30,
+                latency_ms=200,
+                total_processing_duration_ms=220,
+            ),
+        ),
+        recovery_suggestion_text,  # Recovery suggestion
     ]
 
     output_flags = OutputFlags(
@@ -405,7 +415,7 @@ async def test_handle_vibe_request_error_recovery_flow(
             model=mock_model_adapter.get_model.return_value,
             system_fragments=ANY,
             user_fragments=ANY,
-            response_model=LLMCommandResponse,
+            response_model=LLMPlannerResponse,
         )
         # 2. Kubectl execution
         mock_execute_cmd.assert_called_once_with(
@@ -501,7 +511,7 @@ async def test_handle_vibe_request_includes_memory_context(
             for frag in call_kwargs["user_fragments"]
         ), "Memory context string not found in user_fragments"
         assert "response_model" in call_kwargs
-        assert call_kwargs["response_model"] == LLMCommandResponse
+        assert call_kwargs["response_model"] == LLMPlannerResponse
 
         # Optional: Check the request string is in the user fragments
         assert any("get the pods" in frag for frag in call_kwargs["user_fragments"])

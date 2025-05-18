@@ -229,11 +229,15 @@ class StatsProtocol(Protocol):
 
 
 # For LLM command generation schema
-class ActionType(Enum):
+class ActionType(str, Enum):
+    """Enum for LLM action types."""
+
+    THOUGHT = "THOUGHT"
     COMMAND = "COMMAND"
-    ERROR = "ERROR"
     WAIT = "WAIT"
+    ERROR = "ERROR"
     FEEDBACK = "FEEDBACK"
+    DONE = "DONE"
 
 
 @runtime_checkable
@@ -255,3 +259,8 @@ class ModelResponse(Protocol):
             Any: Usage object (structure may vary by model/library version)
         """
         ...
+
+
+class ErrorSeverity(str, Enum):
+    # Add any necessary error severity definitions here
+    pass

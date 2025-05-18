@@ -7,7 +7,7 @@ import pytest
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
 from vibectl.model_adapter import LLMModelAdapter
-from vibectl.schema import ActionType, LLMCommandResponse
+from vibectl.schema import ActionType, LLMPlannerResponse, CommandAction, FeedbackAction, ErrorAction
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.types import Error, Success
 
@@ -61,11 +61,10 @@ async def test_vibe_command_with_request(
     # update_memory, and _get_llm_summary
     mock_adapter_instance.execute_and_log_metrics.side_effect = [
         (
-            LLMCommandResponse(
+            LLMPlannerResponse(action=CommandAction(
                 action_type=ActionType.COMMAND,
                 commands=["create", "deployment", "nginx", "--image=nginx"],
-                explanation="ok",
-            ).model_dump_json(),
+            )).model_dump_json(),
             None,
         ),  # 1. For _get_llm_plan call
         ("Memory updated after execution.", None),  # 2. For first update_memory call
@@ -158,15 +157,17 @@ async def test_vibe_command_with_yes_flag(
     mock_adapter_instance.get_model.return_value = MagicMock()
 
     # 3. Mock adapter's execute_and_log_metrics method for sequential plan and feedback
-    plan_json = LLMCommandResponse(
+    plan_json = LLMPlannerResponse(action=CommandAction(
         action_type=ActionType.COMMAND,
         commands=["create", "deployment", "my-deploy", "--image=nginx"],
-        explanation="Create deploy",
-    ).model_dump_json()
+    )).model_dump_json()
     mock_adapter_instance.execute_and_log_metrics.side_effect = [
         (plan_json, None),  # For _get_llm_plan
         (
-            '{"action_type": "FEEDBACK", "explanation": "kubectl failed"}',
+            LLMPlannerResponse(action=FeedbackAction( 
+                action_type=ActionType.FEEDBACK,
+                message="kubectl failed",
+            )).model_dump_json(),
             None,
         ),  # For recovery
         ("Memory updated after initial plan.", None),  # For first update_memory
@@ -495,12 +496,11 @@ async def test_vibe_command_with_yaml_input(
     mock_adapter_instance.get_model.return_value = MagicMock()
 
     yaml_content_str = "apiVersion: v1\\nkind: ConfigMap\\nmetadata:\\n  name: my-cm"
-    plan_json = LLMCommandResponse(
+    plan_json = LLMPlannerResponse(action=CommandAction(
         action_type=ActionType.COMMAND,
         commands=["apply", "-f", "-"],
-        explanation="Apply this ConfigMap",
         yaml_manifest=yaml_content_str,
-    ).model_dump_json()
+    )).model_dump_json()
 
     mock_adapter_instance.execute_and_log_metrics.side_effect = [
         (plan_json, None),
@@ -583,23 +583,31 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
 
     mock_adapter_instance.get_model.return_value = MagicMock()
 
-    plan_json = LLMCommandResponse(
+    plan_json = LLMPlannerResponse(action=CommandAction(
         action_type=ActionType.COMMAND,
         commands=["delete", "pod", "nonexistent-pod"],
-        explanation="Delete a pod",
-    ).model_dump_json()
+    )).model_dump_json()
 
     mock_adapter_instance.execute_and_log_metrics.side_effect = [
-        (plan_json, None),  # For _get_llm_plan
         (
-            LLMCommandResponse(
+            LLMPlannerResponse(action=CommandAction(
+                action_type=ActionType.COMMAND,
+                commands=["delete", "pod", "nonexistent-pod"],
+            )).model_dump_json(),
+            None,
+        ),  # For _get_llm_plan
+        # For recovery attempt - this test expects no useful recovery plan,
+        # so the LLM might return a simple feedback or an error indicating it cannot help.
+        # Let's use FeedbackAction as an example of a non-command recovery.
+        (
+            LLMPlannerResponse(action=FeedbackAction( 
                 action_type=ActionType.FEEDBACK,
-                explanation="The pod was not found, so deletion failed.",
-            ).model_dump_json(),
+                message="The pod was not found. Cannot suggest specific recovery without more info.",
+            )).model_dump_json(),
             None,
         ),
-        ("Memory updated after initial plan.", None),  # For first update_memory
-        ("Memory updated after recovery feedback.", None),  # For second update_memory
+        ("Memory updated after initial plan.", None),
+        ("Memory updated after failed recovery attempt.", None),
     ]
     mock_run_kubectl.return_value = Error(error="pods 'nonexistent-pod' not found")
 

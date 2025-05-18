@@ -71,18 +71,41 @@
 
 ## Open Questions/Considerations:
 
-1.  **Naming**: `vibectl check` seems acceptable unless a strong counter-argument arises.
-2.  **Exit Code Specificity**: Suggested scheme:
+1.  **Naming**: `vibectl check`. This naming is confirmed as suitable.
+2.  **Exit Code Specificity**: The following scheme is confirmed:
     - `0`: Predicate TRUE.
     - `1`: Predicate FALSE.
     - `2`: Predicate poorly posed/ambiguous.
     - `3`: Cannot determine / timeout / planner gave up before confirming TRUE/FALSE.
-    *(This needs your confirmation or alternative proposal.)*
-3.  **Default `exit_code` for `DONE` action**: If `DONE` action omits `exit_code`, what should it default to? Perhaps `3` (cannot determine)?
-4.  **Maximum Loop Iterations/Timeout**: `vibectl check` should likely have a configurable maximum number of iterations or a timeout to prevent indefinite loops and ensure it can reach a "cannot determine" state (exit code 3).
-5.  **Schema Refactoring - Pydantic Models**:
-    - Propose defining a base `LLMAction` Pydantic model.
-    - Specific actions (`ThoughtAction`, `CommandAction`, `WaitAction`, `FeedbackAction`, `DoneAction`) inherit from `LLMAction`.
-    - `LLMPlannerResponse` (renamed from `LLMCommandResponse`) would contain `actions: list[LLMAction]`.
-    *(This seems like a good approach for modularity and type safety.)*
-6.  **"Safe" Verbs with Side Effects**: Start with prompt engineering to guide the LLM. If issues arise with specific CRDs/operators causing side effects even with `get`, we can consider more targeted restrictions later (e.g., deny-listing certain GVKs for the `check` subcommand).
+3.  **Default `exit_code` for `DONE` action**: If the `DONE` action omits `exit_code`, it will default to `3` (cannot determine). This is confirmed.
+4.  **Maximum Loop Iterations/Timeout**: `vibectl check` will have configurable maximum loop iterations and a timeout to prevent indefinite loops and ensure it can reach a "cannot determine" state (exit code 3). These will be configurable via CLI flags.
+    - TODO: Implement a token budget for LLM interactions as well.
+5.  **Schema Refactoring - Pydantic Models**: The approach of defining a base `LLMAction` Pydantic model, with specific actions (`ThoughtAction`, `CommandAction`, `WaitAction`, `FeedbackAction`, `DoneAction`) inheriting from it, and `LLMPlannerResponse` (renamed from `LLMCommandResponse`) containing `actions: list[LLMAction]`, is confirmed as a good approach for modularity and type safety.
+6.  **"Safe" Verbs with Side Effects**: The initial approach will be to guide the LLM via prompt engineering to avoid side effects with "safe" verbs. If issues persist with specific CRDs/operators, more targeted restrictions can be considered later. This is confirmed.
+
+## Phased Implementation Strategy
+
+To manage complexity, the implementation of `vibectl check` will proceed in phases:
+
+1.  **Phase 1: One-Shot Evaluation**
+    *   **Objective**: Implement the core predicate evaluation logic without a command execution loop. This is equivalent to having zero loop iterations remaining.
+    *   **Behavior**:
+        *   The LLM will be prompted to evaluate the `<predicate>` based on the current state of its memory (if any, though likely minimal for the first interaction).
+        *   The system prompt will strongly encourage the LLM to respond with a `DONE` action (with the appropriate `exit_code`) or an `ERROR` action if the predicate cannot be immediately assessed or is invalid.
+        *   If the LLM responds with `COMMAND` or `WAIT` actions in this phase, `vibectl check` will interpret this as an inability to determine the predicate's truthiness with the single allowed interaction, and will therefore exit with code `3` (Cannot determine).
+    *   **Focus**: This phase will concentrate on:
+        *   Setting up the new CLI command (`vibectl check`).
+        *   Implementing the new `DONE` action in the schema.
+        *   Crafting the initial system prompt for one-shot evaluation.
+        *   Ensuring correct exit code handling for `DONE` and `ERROR` responses, and for the implicit "cannot determine" case if `COMMAND`/`WAIT` is returned.
+
+2.  **Phase 2: Iterative Execution Loop**
+    *   **Objective**: Introduce the autonomous execution loop, allowing `vibectl check` to perform a sequence of read-only `kubectl` commands.
+    *   **Behavior**:
+        *   The system will iteratively call the LLM planner, execute `COMMAND` actions, handle `WAIT` actions, and feed results back to the LLM.
+        *   The loop will terminate upon receiving a `DONE` action or an `ERROR` action from the LLM, or if the maximum iterations/timeout is reached.
+    *   **Focus**:
+        *   Implementing the main execution loop logic, similar to `vibectl auto` but restricted to read-only operations and the new planner schema.
+        *   Handling the maximum loop iterations and timeout configurations.
+        *   Refining the system prompt for iterative, read-only planning.
+        *   Thorough testing of various predicate scenarios, including those requiring multiple steps and temporal conditions.

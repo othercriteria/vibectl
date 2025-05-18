@@ -38,6 +38,7 @@ from vibectl.subcommands.scale_cmd import run_scale_command
 from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
+from vibectl.execution.check import run_check_command
 
 from . import __version__
 from .config import DEFAULT_CONFIG, Config
@@ -1445,20 +1446,36 @@ async def diff(
     handle_result(result)
 
 
-@cli.command(context_settings={"ignore_unknown_options": True})
+@cli.command(
+    "apply",
+    help="Apply a configuration to a resource by filename or stdin",
+    context_settings={"ignore_unknown_options": True}, # Allow arbitrary args for kubectl
+)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-async def apply(
+@click.option("--show-raw-output", is_flag=True, help="Show raw kubectl output")
+@click.option("--show-vibe", is_flag=True, help="Show vibe output")
+@click.option("--show-kubectl", is_flag=True, help="Show kubectl command executed")
+@click.option("--model", help="Specify the LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Freeze memory (no new updates)"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
+)
+@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
+@click.pass_context
+async def apply_command_wrapper(
+    ctx: click.Context,
     args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
-) -> None:
-    """Apply a configuration to the live cluster from a file, directory, or stdin."""
+    show_metrics: bool | None,
+):
+    """Wrapper for the apply command."""
     result = await run_apply_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -1469,7 +1486,52 @@ async def apply(
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
     )
-    handle_result(result)
+    ctx.obj = result # Store result in context for the result_callback
+
+
+# Check command
+@cli.command(
+    "check",
+    help="Evaluate a predicate about the cluster state using LLM.",
+    context_settings={"ignore_unknown_options": False}, # No passthrough for check args yet
+)
+@click.argument("predicate", nargs=1, type=click.STRING)
+@click.option("--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)")
+@click.option("--show-vibe", is_flag=True, default=True, help="Show LLM reasoning/decision (default: True)")
+@click.option("--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one")
+@click.option("--model", help="Specify the LLM model to use")
+@click.option(
+    "--freeze-memory", is_flag=True, help="Freeze memory (no new updates)"
+)
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
+)
+@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
+# TODO: Add --max-iterations, --timeout, --token-budget for Phase 2
+@click.pass_context
+async def check_command_wrapper(
+    ctx: click.Context,
+    predicate: str,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_metrics: bool | None,
+):
+    """Wrapper for the check command."""
+    result = await run_check_command(
+        predicate=predicate,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    ctx.obj = result # Store result in context for the result_callback
 
 
 def handle_result(result: Result) -> None:

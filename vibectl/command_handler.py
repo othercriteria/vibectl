@@ -39,7 +39,14 @@ from .prompt import (
     memory_fuzzy_update_prompt,
     recovery_prompt,
 )
-from .schema import ActionType, LLMCommandResponse
+from .schema import (
+    ActionType,
+    LLMPlannerResponse,
+    CommandAction,
+    ErrorAction,
+    FeedbackAction,
+    WaitAction,
+)
 from .types import (
     Error,
     Fragment,
@@ -733,57 +740,46 @@ async def handle_vibe_request(
         model_name,
         plan_system_fragments,  # Pass system fragments
         UserFragments(final_user_fragments),  # Pass final user fragments
-        LLMCommandResponse,
+        LLMPlannerResponse, # Expect LLMPlannerResponse
     )
 
-    if isinstance(plan_result, Error | RecoverableApiError):
-        # Error handling (logging, console printing) is now done within _get_llm_plan
-        # or handled by the caller based on halt_auto_loop.
+    if isinstance(plan_result, Error):
         return plan_result
 
-    # --- Display LLM Planning Metrics --- #
-    plan_metrics: LLMMetrics | None = None
-    if (
-        isinstance(plan_result, Success)
-        and plan_result.metrics
-        and output_flags.show_metrics
-    ):
-        plan_metrics = plan_result.metrics
-        console_manager.print_metrics(
-            source="LLM Planner",
-            tokens_in=plan_metrics.token_input,
-            tokens_out=plan_metrics.token_output,
-            latency_ms=plan_metrics.latency_ms,
-            total_duration=plan_metrics.total_processing_duration_ms,
-        )
-    # --- End Planning Metrics Display --- #
-
     # Plan succeeded, get the validated response object
-    response = plan_result.data
-    # Add check to satisfy linter and handle potential (though unlikely) None case
-    if response is None:
-        logger.error("Internal Error: _get_llm_plan returned Success with None data.")
-        return Error("Internal error: Failed to get valid plan data from LLM.")
+    llm_planner_response = plan_result.data # This is an LLMPlannerResponse instance
+    
+    if llm_planner_response is None or not hasattr(llm_planner_response, 'action') or llm_planner_response.action is None:
+        logger.error(
+            "Internal Error: _get_llm_plan returned Success but response or action is None."
+        )
+        return Error(
+            "Internal error: Failed to get a valid action from LLM."
+        )
+
+    response_action = llm_planner_response.action # Get the single action
 
     # Dispatch based on the validated plan's ActionType
     logger.debug(
-        f"Matching action_type: {response.action_type} "
-        f"(Type: {type(response.action_type)})"
+        f"Matching action_type: {response_action.action_type} " # Use response_action
+        f"(Type: {type(response_action.action_type)})"
     )
     logger.info(
-        f"[DEBUG] Type of response.action_type IS: {type(response.action_type)}"
+        f"[DEBUG] Type of response_action.action_type IS: {type(response_action.action_type)}" # Use response_action
     )
     # Replace match with if/elif/else
-    action = response.action_type
+    action = response_action.action_type # Use response_action
     if action == ActionType.ERROR.value:
-        if not response.error:
-            logger.error("ActionType is ERROR but no error message provided.")
-            return Error(error="Internal error: LLM sent ERROR action without message.")
+        if not isinstance(response_action, ErrorAction) or not response_action.message:
+            logger.error("ActionType is ERROR but no error message provided or not ErrorAction.")
+            return Error(error="Internal error: LLM sent ERROR action without message or wrong type.")
         # Handle planning errors (updates memory)
-        error_message = response.error
+        error_message = response_action.message # message from ErrorAction
         logger.info(f"LLM returned planning error: {error_message}")
         # Display explanation first if provided
-        console_manager.print_note(f"AI Explanation: {response.explanation}")
+        plan_explanation = response_action.explanation if hasattr(response_action, 'explanation') else None
+        if plan_explanation:
+            console_manager.print_note(f"AI Explanation: {plan_explanation}")
         update_memory(
             command_message=f"command: {command} request: {request}",
             command_output=error_message,
@@ -794,18 +790,21 @@ async def handle_vibe_request(
         console_manager.print_error(f"LLM Planning Error: {error_message}")
         return Error(
             error=f"LLM planning error: {error_message}",
-            recovery_suggestions=response.explanation
-            or "Check the request or try rephrasing.",
+            recovery_suggestions=plan_explanation
+            if plan_explanation
+            else "Check the request or try rephrasing.",
         )
 
     elif action == ActionType.WAIT.value:
-        if response.wait_duration_seconds is None:
-            logger.error("ActionType is WAIT but no duration provided.")
-            return Error(error="Internal error: LLM sent WAIT action without duration.")
-        duration = response.wait_duration_seconds
+        if not isinstance(response_action, WaitAction) or response_action.duration_seconds is None:
+            logger.error("ActionType is WAIT but no duration provided or not WaitAction.")
+            return Error(error="Internal error: LLM sent WAIT action without duration or wrong type.")
+        duration = response_action.duration_seconds
         logger.info(f"LLM requested WAIT for {duration} seconds.")
         # Display explanation first if provided
-        console_manager.print_note(f"AI Explanation: {response.explanation}")
+        plan_explanation = response_action.explanation if hasattr(response_action, 'explanation') else None
+        if plan_explanation:
+            console_manager.print_note(f"AI Explanation: {plan_explanation}")
         console_manager.print_processing(
             f"Waiting for {duration} seconds as requested by AI..."
         )
@@ -813,16 +812,28 @@ async def handle_vibe_request(
         return Success(message=f"Waited for {duration} seconds.")
 
     elif action == ActionType.FEEDBACK.value:
+        if not isinstance(response_action, FeedbackAction):
+            logger.error("ActionType is FEEDBACK but not FeedbackAction.")
+            return Error("Internal error: LLM sent FEEDBACK action with wrong type.")
         logger.info("LLM issued FEEDBACK without command.")
-        if response.explanation:
-            console_manager.print_note(f"AI Explanation: {response.explanation}")
+        plan_explanation = response_action.explanation if hasattr(response_action, 'explanation') else None
+        feedback_message = response_action.message if hasattr(response_action, 'message') else None
+
+        if plan_explanation:
+            console_manager.print_note(f"AI Explanation: {plan_explanation}")
+        elif feedback_message:
+            console_manager.print_note(f"AI Feedback: {feedback_message}")
         else:
-            # If no explanation, provide a default message
+            # If no explanation or message, provide a default message
             console_manager.print_note("Received feedback from AI.")
-        return Success(message="Received feedback from AI.")
+        return Success(message=feedback_message or plan_explanation or "Received feedback from AI.")
 
     elif action == ActionType.COMMAND.value:
-        if not response.commands and not response.yaml_manifest:
+        if not isinstance(response_action, CommandAction):
+            logger.error(f"ActionType is COMMAND but response is not a CommandAction: {type(response_action)}")
+            return Error("Internal error: Expected CommandAction for COMMAND type.")
+
+        if not response_action.commands and not response_action.yaml_manifest:
             message = "LLM returned COMMAND action but no commands or YAML provided."
             logger.error(message)
             update_memory(
@@ -834,9 +845,17 @@ async def handle_vibe_request(
             return Error(error="Internal error: LLM sent COMMAND action with no args.")
 
         # Extract verb and args using helper
-        raw_llm_commands = response.commands or []
+        raw_llm_commands = response_action.commands or []
         kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
-        allowed_exit_codes: tuple[int, ...] = response.allowed_exit_codes or (0,)
+        
+        # Ensure allowed_exit_codes is a tuple for consistency
+        allowed_exit_codes_list = response_action.allowed_exit_codes
+        if allowed_exit_codes_list is None:
+            allowed_exit_codes_tuple: tuple[int, ...] = (0,)
+        elif isinstance(allowed_exit_codes_list, list):
+            allowed_exit_codes_tuple = tuple(allowed_exit_codes_list)
+        else: # It's already a tuple, assume it's tuple[int, ...]
+            allowed_exit_codes_tuple = allowed_exit_codes_list
 
         # Handle error from extraction helper
         if kubectl_verb is None:
@@ -860,15 +879,19 @@ async def handle_vibe_request(
                 args=pf_args,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
-                allowed_exit_codes=allowed_exit_codes,
+                allowed_exit_codes=allowed_exit_codes_tuple, # Pass tuple
             )
         else:
             # Confirm and execute the plan using a helper function
+            # For CommandAction, there isn't a direct 'explanation' field.
+            # The explanation for choosing a command might come from a preceding THOUGHT
+            # or a general explanation on the LLMPlannerResponse. For now, pass None.
+            command_action_explanation = response_action.explanation if hasattr(response_action, 'explanation') else None
             return await _confirm_and_execute_plan(
                 kubectl_verb,
                 kubectl_args,
-                response.yaml_manifest,
-                response.explanation,
+                response_action.yaml_manifest,
+                command_action_explanation, # Pass explanation from CommandAction if it exists, else None
                 command,  # Pass original command verb
                 semiauto,
                 yes,
@@ -876,14 +899,14 @@ async def handle_vibe_request(
                 live_display,
                 output_flags,
                 summary_prompt_func,
-                allowed_exit_codes=allowed_exit_codes,
+                allowed_exit_codes=allowed_exit_codes_tuple, # Pass tuple
             )
 
     else:  # Default case (Unknown ActionType)
-        logger.error(f"Internal error: Unknown ActionType: {response.action_type}")
+        logger.error(f"Internal error: Unknown ActionType: {response_action.action_type}")
         return Error(
             error=f"Internal error: Unknown ActionType received from "
-            f"LLM: {response.action_type}"
+            f"LLM: {response_action.action_type}"
         )
 
 
@@ -891,7 +914,7 @@ async def _confirm_and_execute_plan(
     kubectl_verb: str,
     kubectl_args: list[str],
     yaml_content: str | None,
-    explanation: str | None,
+    plan_explanation: str | None, # Renamed from explanation to be more generic
     original_command_verb: str,  # Add original_command_verb
     semiauto: bool,
     yes: bool,
@@ -921,7 +944,7 @@ async def _confirm_and_execute_plan(
             display_cmd=display_cmd,
             semiauto=semiauto,
             model_name=output_flags.model_name,
-            explanation=explanation,
+            explanation=plan_explanation, # Use the passed plan_explanation
             yes=yes,
         )
         if confirmation_result is not None:
@@ -957,7 +980,7 @@ async def _confirm_and_execute_plan(
     else:
         command_output_str = ""
 
-    vibe_output_str = explanation or f"Executed: {display_cmd}"
+    vibe_output_str = plan_explanation or f"Executed: {display_cmd}"
 
     # Update memory
     memory_update_metrics: LLMMetrics | None = None
@@ -1517,7 +1540,7 @@ def _get_llm_plan(
     model_name: str,
     plan_system_fragments: SystemFragments,
     plan_user_fragments: UserFragments,
-    response_model_type: type[LLMCommandResponse],
+    response_model_type: type[LLMPlannerResponse],
 ) -> Result:
     """Calls the LLM to get a command plan and validates the response."""
     model_adapter = get_model_adapter()
@@ -1561,9 +1584,21 @@ def _get_llm_plan(
             )
             return Error("LLM returned an empty response.")
 
-        response = LLMCommandResponse.model_validate_json(llm_response_text)
+        # Validate against LLMPlannerResponse
+        response = LLMPlannerResponse.model_validate_json(llm_response_text)
         logger.debug(f"Parsed LLM response object: {response}")
-        logger.info(f"Validated ActionType: {response.action_type}")
+
+        if not hasattr(response, 'action') or response.action is None:
+            logger.error("LLMPlannerResponse has no action or action is None.")
+            update_memory(
+                command_message="system",
+                command_output="LLM Error: No action in planner response.",
+                vibe_output="LLM Error: No action in planner response.",
+                model_name=model_name,
+            )
+            return Error("LLM Error: Planner response contained no action.")
+
+        logger.info(f"Validated ActionType: {response.action.action_type}")
         # Attach metrics to the Success result
         return Success(data=response, metrics=metrics)
 

@@ -13,7 +13,7 @@ from vibectl.model_adapter import LLMMetrics
 from vibectl.prompt import (
     plan_vibe_fragments,
 )
-from vibectl.schema import LLMCommandResponse
+from vibectl.schema import LLMPlannerResponse, CommandAction, FeedbackAction
 from vibectl.types import (
     Fragment,
     PromptFragments,
@@ -177,17 +177,11 @@ async def test_vibe_delete_with_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test deletion command requires confirmation which is given."""
-    # Mock the LLM response data (no need to mock the LLM call itself now)
-    plan_response_data = LLMCommandResponse(
+    command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pod", "my-pod"],
-        explanation="Deleting pod my-pod as requested.",
-        # Ensure all other optional fields are None or default if needed by schema
-        yaml_manifest=None,
-        error=None,
-        wait_duration_seconds=None,
     )
-    # Configure the patched _get_llm_plan to return Success with this data
+    plan_response_data = LLMPlannerResponse(action=command_action)
     mock_get_llm_plan.return_value = Success(
         data=plan_response_data, metrics=LLMMetrics(latency_ms=100)
     )
@@ -255,13 +249,11 @@ async def test_vibe_delete_with_confirmation_cancelled(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test deletion command with confirmation that gets cancelled."""
-    # Mock the LLM response data
-    plan_response_data = LLMCommandResponse(
+    command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pod", "nginx"],
-        explanation="Deleting pod nginx as requested.",
     )
-    # Configure the patched _get_llm_plan
+    plan_response_data = LLMPlannerResponse(action=command_action)
     mock_get_llm_plan.return_value = Success(
         data=plan_response_data, metrics=LLMMetrics(latency_ms=100)
     )
@@ -330,13 +322,11 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test that the --yes flag bypasses the delete confirmation."""
-    # Mock the LLM response data
-    plan_response_data = LLMCommandResponse(
+    command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pod", "bypass-pod"],
-        explanation="Deleting pod bypass-pod.",
     )
-    # Configure the patched _get_llm_plan
+    plan_response_data = LLMPlannerResponse(action=command_action)
     mock_get_llm_plan.return_value = Success(
         data=plan_response_data, metrics=LLMMetrics(latency_ms=100)
     )
@@ -397,13 +387,11 @@ async def test_vibe_non_delete_commands_skip_confirmation(
     mock_handle_output: MagicMock,
 ) -> None:
     """Test non-delete commands skip confirmation even if yes=False."""
-    # Mock the LLM response data for a 'get' command
-    plan_response_data = LLMCommandResponse(
+    command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pods", "-A"],  # Args for 'get'
-        explanation="Getting all pods.",
     )
-    # Configure the patched _get_llm_plan
+    plan_response_data = LLMPlannerResponse(action=command_action)
     mock_get_llm_plan.return_value = Success(
         data=plan_response_data, metrics=LLMMetrics(latency_ms=100)
     )
@@ -465,14 +453,13 @@ async def test_vibe_delete_confirmation_memory_option(
 ) -> None:
     """Test the 'm' (memory) option during command confirmation."""
     # Mock LLM to return a delete command plan
-    plan_response = {
-        "action_type": ActionType.COMMAND.value,
-        "commands": ["pod", "nginx-mem"],
-        "explanation": "Deleting pod nginx-mem.",
-    }
-    # Only one LLM call (planning) is expected in this flow ('m' then 'y')
+    command_action = CommandAction(
+        action_type=ActionType.COMMAND,
+        commands=["pod", "nginx-mem"],
+    )
+    plan_response_data = LLMPlannerResponse(action=command_action)
     mock_llm.return_value.execute_and_log_metrics.return_value = (
-        json.dumps(plan_response),
+        json.dumps(plan_response_data),
         LLMMetrics(latency_ms=100),
     )
     mock_llm.return_value.execute_and_log_metrics.side_effect = (
@@ -542,25 +529,27 @@ async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
 ) -> None:
     """Test 'no but' confirmation where the fuzzy memory update LLM call fails."""
     # Mock LLM response for original delete command planning
-    plan_response = {
-        "action_type": ActionType.COMMAND.value,
-        "commands": ["pod", "nginx"],
-        "explanation": "Deleting pod nginx as requested.",
-    }
-    fuzzy_update_response = {  # Mock response for the fuzzy update LLM call
-        # Assuming fuzzy update just needs a simple confirmation/explanation
-        "action_type": ActionType.FEEDBACK.value,
-        "explanation": "Memory context noted.",
-    }
+    command_action = CommandAction(
+        action_type=ActionType.COMMAND,
+        commands=["pod", "nginx"],
+    )
+    plan_response_data = LLMPlannerResponse(action=command_action)
+
+    # Mock response for the fuzzy update LLM call - should be FeedbackAction
+    feedback_action = FeedbackAction(
+        action_type=ActionType.FEEDBACK,
+        message="Memory context noted.", # Changed from explanation to message
+    )
+    fuzzy_update_llm_response = LLMPlannerResponse(action=feedback_action)
+
+    # Simulate _get_llm_plan for the initial delete, then fuzzy update failure
     mock_llm.return_value.execute_and_log_metrics.side_effect = [
         (
-            json.dumps(plan_response),
+            plan_response_data.model_dump_json(),
             LLMMetrics(latency_ms=100),
-        ),  # First call (planning)
-        (
-            json.dumps(fuzzy_update_response),
-            LLMMetrics(latency_ms=50),
-        ),  # Second call (fuzzy update)
+        ),  # First call (planning the delete)
+        # Second call (fuzzy memory update) - this one will raise an error in the test
+        Exception("LLM API error during fuzzy update"),
     ]
 
     # Patch _execute_command (it should NOT be called if cancelled)
