@@ -1,73 +1,55 @@
 # Planned Changes for feature/vibectl-check
 
-## 1. Subcommand Definition: `vibectl check <predicate>` - Implemented
+## 1. Subcommand Definition: `vibectl check <predicate>` - Partially Implemented
 
 - **Objective**: Evaluate a given predicate about the Kubernetes cluster state and return an exit code indicating truthiness (0 for true, non-zero for false or error).
-- **Autonomous Loop**: Similar to `vibectl auto`, it will autonomously execute a plan (sequence of kubectl commands) to determine the predicate's truthiness. - Implemented
+- **Autonomous Loop**: Similar to `vibectl auto`, it will autonomously execute a plan (sequence of kubectl commands) to determine the predicate's truthiness. - Partially Implemented (Works for predicates resolvable from memory; does not yet execute command sequences for data gathering).
 - **Read-Only Operations**:
-    - Strictly limited to "read-only" kubectl verbs (e.g., `get`, `describe`, `logs`, `events`). - Implemented
+    - Strictly limited to "read-only" kubectl verbs (e.g., `get`, `describe`, `logs`, `events`). - Implemented (in planner schema and prompting, but command execution for data gathering not yet observed for `check`).
     - Prompting for the LLM planner will emphasize this read-only intent and caution against side-effects, even with safe verbs (e.g., in complex CRD/operator scenarios). - Implemented
-- **Exit Code Semantics**: - Implemented
-    - `0`: Predicate is confirmed to be true.
-    - `1` (or other non-zero): Predicate is confirmed to be false.
-    - Other non-zero codes (e.g., 2, 3) for:
-        - Predicate is poorly posed or ambiguous.
-        - Insufficient information or capability to confirm/deny the predicate (fail-safe).
-- **Temporal Aspect**:
-    - Predicates are evaluated for the present state by default. - Implemented
-    - Predicates with explicit temporal conditions (e.g., "on 2028-01-01, ...") will involve `WAIT` actions. - Implemented (as part of general WAIT action capability)
-- **Fail-Safe Behavior**: Favor non-0 exit codes when unsure. - Implemented
+- **Exit Code Semantics**: - Implemented (Observed working for 0, 1, and 3).
 
 ## 2. LLM Planner Enhancements - Implemented
 
-- **New Action Type**: Introduce a `DONE` action in the planner's schema. - Implemented
-    - `DONE` action will signify the end of the evaluation for `vibectl check`.
-    - It will include an optional `exit_code` field (integer) to specify the intended exit code for `vibectl`. If not provided, a default non-zero might be assumed or determined by the planner's final assessment.
-- **Schema Refactoring for LLM Responses**: - Implemented
-    - Evaluate current `LLMCommandResponse` (likely in `vibes.schema.llm_command_response`).
-    - Consider renaming `LLMCommandResponse` to something more specific like `LLMVibePlanResponse` or `LLMAutoCommandResponse`. (Renamed to `LLMPlannerResponse`)
-    - Create a base schema for LLM plan responses. (Base `LLMAction` created)
-    - The existing planner response (for `vibectl auto` and `vibectl diff`) would extend this base schema, possibly adding the `FEEDBACK` action type. (FeedbackAction created)
-    - The new planner response for `vibectl check` would extend the base schema by adding the `DONE` action type. (DoneAction created)
-    - This modularity should allow different subcommands to use tailored LLM planner schemas while sharing common elements (e.g., `THOUGHT`, `COMMAND`, `WAIT`).
+- **New Action Type**: Introduce a `DONE` action in the planner's schema. - Implemented (Observed working with correct exit codes for memory-based checks).
 
-## 3. Core Logic for `vibectl check` - Implemented
+## 3. Core Logic for `vibectl check` - Partially Implemented
 
-- **Predicate Parsing/Understanding**: The LLM will be responsible for interpreting the natural language `<predicate>`. - Implemented
+- **Predicate Parsing/Understanding**: The LLM will be responsible for interpreting the natural language `<predicate>`. - Implemented (Works for predicates resolvable from memory; ability to form plans for data-dependent predicates needs verification).
 - **Planner Integration**:
     - A new planner instance or configuration will be used for `vibectl check`. - Implemented
     - It will use the enhanced schema with the `DONE` action. - Implemented
-    - The system prompt for this planner will be tailored to the "check" task, emphasizing read-only actions and the goal of determining predicate truthiness. - Implemented
+    - The system prompt for this planner will be tailored to the "check" task, emphasizing read-only actions and the goal of determining predicate truthiness. - Implemented (Current tailoring might be too restrictive, preventing multi-step command plans for data gathering).
 - **Execution Loop**:
-    - Similar to `vibectl auto`, it will parse LLM responses, execute commands, and feed back results. - Implemented
+    - Similar to `vibectl auto`, it will parse LLM responses, execute commands, and feed back results. - Partially Implemented (Loop correctly processes `DONE` actions. However, execution of `COMMAND` actions for information gathering before deciding "Cannot Determine" is not occurring as expected for data-dependent predicates).
     - The loop terminates when a `DONE` action is received from the LLM. - Implemented
     - The `vibectl` process will then exit with the `exit_code` specified in the `DONE` action (or a default if not specified/error). - Implemented
-- **Error Handling**: Robust error handling for LLM communication, command execution, and predicate evaluation. - Implemented
+- **Error Handling**: Robust error handling for LLM communication, command execution, and predicate evaluation. - Implemented (for paths observed).
 
 ## 4. CLI Implementation (Click) - Implemented
 
 - Add a new `click` command for `check`.
 - Define arguments and options (e.g., `<predicate>`, potentially flags for verbosity, LLM model selection if applicable).
 
-## 5. Prompt Engineering - Implemented
+## 5. Prompt Engineering - Implemented (Needs Review)
 
 - Carefully craft the system prompt for the `vibectl check` planner:
     - Emphasize the goal: determine if `<predicate>` is true.
     - Enforce read-only kubectl verbs.
     - Instruct on using the `DONE` action with an appropriate `exit_code`.
     - Guide on handling ambiguity or unanswerable predicates (leading to non-zero exit codes).
+    - Note: Current prompting may be too restrictive, leading the LLM to avoid planning necessary read-only commands and prematurely exiting with 'Cannot Determine' for data-dependent predicates.
 
-## 6. Testing - Implemented (Initial set of tests)
+## 6. Testing - Partially Implemented
 
-- Unit tests for schema changes.
-- Unit tests for the new `DONE` action handling.
+- Unit tests for schema changes. - Implemented
+- Unit tests for the new `DONE` action handling. - Implemented
 - Integration tests for the `vibectl check` subcommand with various predicates:
-    - Simple true/false cases.
-    - Cases requiring multiple steps.
-    - Cases involving `WAIT`.
-    - Cases leading to "poorly posed" or "cannot determine" outcomes.
-    - Tests for correct exit codes.
-- Mock LLM interactions extensively.
+    - Simple true/false cases. - Implemented (Verified working for memory-based predicates).
+    - Cases requiring multiple steps. - Needs Verification (Current behavior suggests these are not working as intended; command execution for data gathering is not occurring, leading to exit code 3).
+    - Cases involving `WAIT`. - Implemented (as part of general WAIT action capability, but applicability within `check` for multi-step plans is unverified).
+    - Cases leading to "poorly posed" or "cannot determine" outcomes. - Implemented (Exit code 3 path is active).
+    - Tests for correct exit codes. - Implemented (Verified for 0, 1, 3).
 
 ## Open Questions/Considerations: - All addressed/confirmed
 
@@ -83,11 +65,11 @@
 5.  **Schema Refactoring - Pydantic Models**: The approach of defining a base `LLMAction` Pydantic model, with specific actions (`ThoughtAction`, `CommandAction`, `WaitAction`, `FeedbackAction`, `DoneAction`) inheriting from it, and `LLMPlannerResponse` (renamed from `LLMCommandResponse`) containing `actions: list[LLMAction]`, is confirmed as a good approach for modularity and type safety. - Implemented
 6.  **"Safe" Verbs with Side Effects**: The initial approach will be to guide the LLM via prompt engineering to avoid side effects with "safe" verbs. If issues persist with specific CRDs/operators, more targeted restrictions can be considered later. This is confirmed. - Implemented (via prompt engineering)
 
-## Phased Implementation Strategy - Completed
+## Phased Implementation Strategy - Phase 1 Completed, Phase 2 Partially Implemented
 
 To manage complexity, the implementation of `vibectl check` will proceed in phases:
 
-1.  **Phase 1: One-Shot Evaluation - Completed**
+1.  **Phase 1: One-Shot Evaluation - Completed and Verified**
     *   **Objective**: Implement the core predicate evaluation logic without a command execution loop. This is equivalent to having zero loop iterations remaining.
     *   **Behavior**:
         *   The LLM will be prompted to evaluate the `<predicate>` based on the current state of its memory (if any, though likely minimal for the first interaction).
@@ -98,8 +80,9 @@ To manage complexity, the implementation of `vibectl check` will proceed in phas
         *   Implementing the new `DONE` action in the schema.
         *   Crafting the initial system prompt for one-shot evaluation.
         *   Ensuring correct exit code handling for `DONE` and `ERROR` responses, and for the implicit "cannot determine" case if `COMMAND`/`WAIT` is returned.
+    *   **Status**: Verified as working correctly, especially for predicates resolvable from existing memory context.
 
-2.  **Phase 2: Iterative Execution Loop - Completed**
+2.  **Phase 2: Iterative Execution Loop - Partially Implemented**
     *   **Objective**: Introduce the autonomous execution loop, allowing `vibectl check` to perform a sequence of read-only `kubectl` commands.
     *   **Behavior**:
         *   The system will iteratively call the LLM planner, execute `COMMAND` actions, handle `WAIT` actions, and feed results back to the LLM.
@@ -109,3 +92,4 @@ To manage complexity, the implementation of `vibectl check` will proceed in phas
         *   Handling the maximum loop iterations and timeout configurations.
         *   Refining the system prompt for iterative, read-only planning.
         *   Thorough testing of various predicate scenarios, including those requiring multiple steps and temporal conditions.
+    *   **Status**: The loop structure and `DONE`/`ERROR` termination are likely in place. However, the critical functionality of executing `COMMAND` actions to gather new information for data-dependent predicates is not working as expected; the system currently defaults to "Cannot Determine" (exit 3) in such cases instead of attempting to run commands. Configuration of loop iterations/timeout for `check` may also need review.

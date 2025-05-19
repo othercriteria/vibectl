@@ -284,5 +284,9 @@ async def run_check_command(
             total_duration=llm_metrics.total_processing_duration_ms,
         )
 
+    # After all processing, before the final return
+    if isinstance(result_to_return, Success):
+        result_to_return.continue_execution = False  # Explicitly set to False
+
     logger.info(f"'check' subcommand determined exit code: {exit_code_to_set}")
     return result_to_return

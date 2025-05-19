@@ -1486,7 +1486,7 @@ async def apply_command_wrapper(
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
     )
-    ctx.obj = result  # Store result in context for the result_callback
+    handle_result(result)
 
 
 # Check command
@@ -1540,21 +1540,26 @@ async def check_command_wrapper(
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
     )
-    ctx.obj = result  # Store result in context for the result_callback
+    handle_result(result)
 
 
 def handle_result(result: Result) -> None:
     """Handle the Result of a subcommand, exiting if requested."""
+    logger.info(f"handle_result received: {result!r}")
     if isinstance(result, Success):
         if result.continue_execution:
+            logger.info(
+                f"Continuing execution as requested by Success: {result.message}"
+            )
             return
 
         exit_code = result.original_exit_code or 0
         logger.info(
             f"Normal termination requested: {result.message}. "
-            f"Exiting with code {exit_code}."
+            f"Using original_exit_code: {result.original_exit_code}, "
+            f"effective_exit_code: {exit_code}."
         )
-        sys.exit(exit_code)
+        raise click.exceptions.Exit(exit_code)
 
     elif isinstance(result, Error):
         # Always print the error message to the console if available
@@ -1563,5 +1568,13 @@ def handle_result(result: Result) -> None:
         elif str(result):
             console_manager.print_error(str(result))
 
-        logger.info("Encountered an error. Exiting with code 1.")
-        sys.exit(1)
+        # Use original_exit_code if present and non-zero, otherwise default to 1
+        exit_code_val = 1
+        if result.original_exit_code is not None and result.original_exit_code != 0:
+            exit_code_val = result.original_exit_code
+
+        logger.info(
+            f"Encountered an error. Error details: {result!r}. "
+            f"Using exit_code_val: {exit_code_val}"
+        )
+        raise click.exceptions.Exit(exit_code_val)
