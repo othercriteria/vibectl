@@ -21,7 +21,7 @@ from rich.table import Table
 
 from .config import Config
 from .k8s_utils import run_kubectl
-from .memory import update_memory
+from .memory import get_memory, update_memory
 from .model_adapter import get_model_adapter
 from .proxy import TcpProxy, start_proxy_server, stop_proxy_server
 
@@ -821,7 +821,11 @@ async def _execute_port_forward_with_live_display(
             )
 
             # Get and format the prompt fragments
-            system_fragments, user_fragments_template = summary_prompt_func(config)
+            cfg = config or Config()
+            current_memory_text = get_memory(cfg)
+            system_fragments, user_fragments_template = summary_prompt_func(
+                cfg, current_memory_text
+            )
 
             filled_user_fragments: list[
                 Fragment

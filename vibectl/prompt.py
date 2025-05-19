@@ -153,6 +153,7 @@ def create_summary_prompt(
     focus_points: list[str],
     example_format: list[str],
     config: Config | None = None,  # Add config for formatting fragments
+    current_memory: str | None = None,  # New argument
 ) -> PromptFragments:
     """Create standard summary prompt fragments for kubectl command output.
 
@@ -161,6 +162,7 @@ def create_summary_prompt(
         focus_points: List of what to focus on in the summary
         example_format: List of lines showing the expected output format
         config: Optional Config instance to use.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and base user fragments (excluding memory).
@@ -168,6 +170,10 @@ def create_summary_prompt(
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])  # Base user fragments
+
+    # Add memory context if provided and not empty
+    if current_memory and current_memory.strip():
+        system_fragments.append(fragment_memory_context(current_memory))
 
     # System: Core task description and focus points
     focus_text = "\n".join([f"- {point}" for point in focus_points])
@@ -285,15 +291,19 @@ PLAN_GET_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl get' output
 def get_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,  # New parameter
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl get output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
+    # Removed: current_memory_text = get_memory(cfg)
     return create_summary_prompt(
         description="Summarize this kubectl output.",
         focus_points=["key information", "notable patterns", "potential issues"],
@@ -303,22 +313,27 @@ def get_resource_prompt(
             "[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]",
             "[yellow]Warning: 2 pods have high restart counts[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,  # Pass through the parameter
     )
 
 
 # Template for summarizing 'kubectl describe' output
 def describe_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,  # New parameter
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl describe output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
+    # Removed: current_memory_text = get_memory(cfg)
     return create_summary_prompt(
         description="Summarize this kubectl describe output. Limit to 200 words.",
         focus_points=["key details", "issues needing attention"],
@@ -328,22 +343,26 @@ def describe_resource_prompt(
             "[italic]last restart 2h ago[/italic]",
             "[red]OOMKilled 3 times in past day[/red]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,  # Pass through the parameter
     )
 
 
 # Template for summarizing 'kubectl logs' output
 def logs_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl logs output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze these container logs concisely.",
         focus_points=[
@@ -359,7 +378,8 @@ def logs_prompt(
             "[yellow]Slow query detected[/yellow] [italic]10s ago[/italic]",
             "[red]3 connection timeouts[/red] in past minute",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -667,15 +687,18 @@ PLAN_EVENTS_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl cluster-info' output
 def cluster_info_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl cluster-info output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze cluster-info output.",
         focus_points=[
@@ -693,22 +716,26 @@ def cluster_info_prompt(
             "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
             "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl version' output
 def version_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl version output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Interpret Kubernetes version details in a human-friendly way.",
         focus_points=[
@@ -722,22 +749,26 @@ def version_prompt(
             "[blue]Server components[/blue] all [green]up-to-date[/green]",
             "[yellow]Client will be deprecated in 3 months[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl events' output
 def events_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl events output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze these Kubernetes events concisely.",
         focus_points=[
@@ -756,7 +787,8 @@ def events_prompt(
             "[red]OOMKilled[/red] events for [bold]db-pod[/bold], "
             "[italic]happened 3 times[/italic]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -799,15 +831,18 @@ PLAN_DELETE_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl delete' output
 def delete_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl delete output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl delete results.",
         focus_points=["resources deleted", "potential issues", "warnings"],
@@ -816,7 +851,8 @@ def delete_resource_prompt(
             "[blue]default namespace[/blue]",
             "[yellow]Warning: Some resources are still terminating[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -863,15 +899,18 @@ PLAN_SCALE_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl scale' output
 def scale_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl scale output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize scaling operation results.",
         focus_points=["changes made", "current state", "issues or concerns"],
@@ -880,7 +919,8 @@ def scale_resource_prompt(
             "[yellow]Warning: Scale operation might take time to complete[/yellow]",
             "[blue]Namespace: default[/blue]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -929,15 +969,18 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl wait' output
 def wait_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl wait output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl wait output.",
         focus_points=[
@@ -959,7 +1002,8 @@ def wait_resource_prompt(
                 "[bold]StatefulSet/database[/bold] to be ready"
             ),
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -1023,15 +1067,18 @@ PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl create' output
 def create_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl create output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize resource creation results.",
         focus_points=["resources created", "issues or concerns"],
@@ -1041,22 +1088,26 @@ def create_resource_prompt(
             "[italic]default resource limits[/italic]",
             "[yellow]Note: No liveness probe configured[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl rollout status' output
 def rollout_status_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout status output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout status.",
         focus_points=["progress", "completion status", "issues or delays"],
@@ -1066,22 +1117,26 @@ def rollout_status_prompt(
             "[yellow]Still waiting for 2/5 replicas[/yellow]",
             "[italic]Rollout started 5 minutes ago[/italic]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl rollout history' output
 def rollout_history_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout history output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout history.",
         focus_points=[
@@ -1094,22 +1149,26 @@ def rollout_history_prompt(
             "[green]Current active: revision 5[/green] (deployed 2 hours ago)",
             "[yellow]Revision 3 had frequent restarts[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing other rollout command outputs
 def rollout_general_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout command results.",
         focus_points=["key operation details"],
@@ -1118,7 +1177,8 @@ def rollout_general_prompt(
             "[blue]Updates applied[/blue] to [bold]my-deployment[/bold]",
             "[yellow]Warning: rollout took longer than expected[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -1541,17 +1601,24 @@ Output:
 
 
 # Template for summarizing vibe autonomous command output
-def vibe_autonomous_prompt(config: Config | None = None) -> PromptFragments:
+def vibe_autonomous_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
     """Get prompt fragments for summarizing command output in autonomous mode.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments.
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])
+
+    if current_memory and current_memory.strip():
+        system_fragments.append(fragment_memory_context(current_memory))
 
     # System: Core instructions
     system_fragments.append(
@@ -1571,10 +1638,13 @@ For resources with complex data:
 
     # System: Formatting instructions
     formatting_system_fragments, formatting_user_fragments = get_formatting_fragments(
-        config
+        config  # Pass original config parameter
     )
     system_fragments.extend(formatting_system_fragments)
-    user_fragments.extend(formatting_user_fragments)  # Includes memory
+    # User fragments from get_formatting_fragments might include dynamic time notes.
+    # These should come after general instructions but before specific
+    # output placeholders.
+    user_fragments.extend(formatting_user_fragments)
 
     # System: Example format
     system_fragments.append(
@@ -1666,15 +1736,18 @@ PLAN_PORT_FORWARD_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl port-forward' output
 def port_forward_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl port-forward output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl port-forward output.",
         focus_points=[
@@ -1693,22 +1766,26 @@ def port_forward_prompt(
                 "[red]connection refused[/red]"
             ),
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl diff' output
 def diff_output_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl diff output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl diff output, highlighting changes.",
         focus_points=[
@@ -1727,7 +1804,8 @@ def diff_output_prompt(
             "[bold]Secret/old[/bold] in [blue]dev[/blue] [red]removed[/red]",
             "Summary: [bold]1 ConfigMap modified[/bold], ...",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -1860,15 +1938,18 @@ spec:
 # Template for summarizing 'kubectl apply' output
 def apply_output_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl apply output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl apply results.",
         focus_points=[
@@ -1884,7 +1965,8 @@ def apply_output_prompt(
             "[red]Error: unable to apply service/broken-svc[/red]: invalid spec",
             "[yellow]Warning: server-side apply conflict for deployment/app[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 

@@ -155,6 +155,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
 # Dummy summary prompt function that returns fragments
 def get_test_summary_fragments(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Dummy summary prompt function for testing that returns fragments."""
     return PromptFragments(

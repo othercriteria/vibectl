@@ -10,20 +10,22 @@ This document provides an overview of the project's structure and organization.
 - `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) and planning prompts like `PLAN_DIFF_PROMPT`.
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns, delegates kubectl execution to `k8s_utils` and live display to relevant modules. Manages `allowed_exit_codes` for commands, often derived from LLM plans.
+- `command_handler.py` - Common command handling patterns (confirmation, output processing), delegates kubectl execution to `k8s_utils`, and live display to relevant modules. Manages `allowed_exit_codes` for commands. Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `execution/vibe.py`.
 - `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation. `run_kubectl` always captures output and uses an `allowed_exit_codes` parameter (defaulting to `(0,)`) to treat certain non-zero exits as success.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
-- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMCommandResponse` for planning, which can include `allowed_exit_codes`).
+- `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMPlannerResponse`, `CommandAction` with `explanation`, `FeedbackAction` with `explanation` and `suggestion`). Includes `allowed_exit_codes` in `CommandAction`.
 - `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait), now also respects `allowed_exit_codes`.
 - `live_display_watch.py` - Interactive live display implementation for watch/follow commands, now also respects `allowed_exit_codes`.
-- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema, `Success` and `Error` result types. `Success` objects include `original_exit_code`).
+- `types.py` - Custom type definitions (e.g., `ActionType` enum for schema, `Success` and `Error` result types. `Success` objects include `original_exit_code`, `Error` objects now include `original_exit_code`).
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 - `logutil.py` - Logging setup and configuration
+- `execution/` - Modules related to command execution logic.
+  - `vibe.py` - Handles the core Vibe.AI LLM interaction loop, including `handle_vibe_request`.
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation
@@ -41,6 +43,7 @@ This document provides an overview of the project's structure and organization.
   - `create_cmd.py` - Create command implementation
   - `cluster_info_cmd.py` - Cluster-info command implementation
   - `diff_cmd.py` - Diff command implementation
+  - `check_cmd.py` - Check command implementation (evaluates predicates about cluster state)
 
 ### Testing (`tests/`)
 
@@ -128,6 +131,7 @@ This document provides an overview of the project's structure and organization.
    - `cluster_info_cmd.py` - Cluster information
    - `just_cmd.py` - Plain execution with memory
    - `diff_cmd.py` - Diff configurations against live state or Vibe.AI plans.
+   - `check_cmd.py` - Evaluates predicates about cluster state using read-only commands.
    - `version_cmd.py` - Version information
 
 ### Console Management
@@ -159,7 +163,11 @@ This document provides an overview of the project's structure and organization.
    - Process command output for user feedback
    - Port-forwarding functionality (partially delegated to live_display)
    - Memory integration
-2. `k8s_utils.py` - Core Kubernetes utilities
+   - Handles `allowed_exit_codes` for commands.
+   - Note: Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `vibectl/execution/vibe.py`.
+2. `vibectl/execution/vibe.py` - Handles the core Vibe.AI LLM interaction loop.
+   - `handle_vibe_request` is the primary entry point for LLM-driven command planning and execution.
+3. `k8s_utils.py` - Core Kubernetes utilities
    - Executes kubectl commands safely (standard sync, YAML input), respecting `allowed_exit_codes`.
    - Creates async kubectl processes for live display commands.
    - Handles errors specific to kubectl
@@ -243,16 +251,21 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Context manager for environment variable handling
 2. `command_handler.py` - Uses model adapter for command execution
    - Processes command output with model summaries
-   - Handles vibe requests with model planning
    - Provides consistent error handling for LLM interactions
-3. `memory.py` - Uses model adapter for memory updates
+   - (Note: vibe requests / LLM planning loop now in `execution/vibe.py`)
+3. `execution/vibe.py` - Central module for LLM-driven planning and execution loop (`handle_vibe_request`).
+   - Uses `model_adapter.py` for LLM calls.
+   - Integrates with `prompt.py` for generating LLM requests.
+   - Works with `schema.py` for parsing LLM responses.
+4. `memory.py` - Uses model adapter for memory updates
    - Updates memory context based on command execution
    - Uses model adapter instead of direct LLM calls
-4. `prompt.py` - Defines prompt templates used by model adapters
+5. `prompt.py` - Defines prompt templates used by model adapters
    - Command-specific prompt template functions (e.g., `create_planning_prompt()`, `plan_vibe_fragments()`) now return `PromptFragments`.
-   - Includes instructions for generating JSON output matching defined schemas.
+   - Includes instructions for generating JSON output matching defined schemas (now including `explanation` and `suggestion` fields where appropriate).
    - Formatting instructions are managed via fragment helper functions.
    - Consistent prompt structure for all LLM interactions, built from fragments.
-5. Schema Integration (`schema.py`, `types.py`, `command_handler.py`)
-   - Defines Pydantic models (`LLMCommandResponse`) and enums (`ActionType`) for desired LLM output structure. `LLMCommandResponse` can specify `allowed_exit_codes` for planned commands.
-   - `model_adapter.py`
+6. Schema Integration (`schema.py`, `types.py`, `execution/vibe.py`)
+   - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. `CommandAction` can specify `allowed_exit_codes` and `explanation`. `FeedbackAction` can include `explanation` and `suggestion`.
+   - `model_adapter.py` uses these schemas for LLM interaction.
+   - `types.py` includes `Error` model now with `original_exit_code`.

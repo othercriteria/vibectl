@@ -139,7 +139,7 @@ Result = Success | Error
 
 
 # --- Type Hints for Functions ---
-SummaryPromptFragmentFunc = Callable[[Config | None], PromptFragments]
+SummaryPromptFragmentFunc = Callable[[Config | None, str | None], PromptFragments]
 # -----------------------------
 
 

@@ -418,9 +418,12 @@ def handle_command_output(
                     # If we started with success, generate a summary prompt
                     # Call with config
                     cfg = Config()  # Instantiate config
+                    current_memory_text = get_memory(cfg)  # Fetch memory here
                     # Call WITH config argument as required by the type hint
                     summary_system_fragments, summary_user_fragments = (
-                        summary_prompt_func(cfg)
+                        summary_prompt_func(
+                            cfg, current_memory_text
+                        )  # Pass memory here
                     )
                     # _process_vibe_output returns Success with summary_metrics
                     vibe_result = _process_vibe_output(

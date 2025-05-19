@@ -28,6 +28,7 @@ from vibectl.types import (
     OutputFlags,
     PromptFragments,
     Success,
+    SummaryPromptFragmentFunc,
     SystemFragments,
     Truncation,
     UserFragments,
@@ -653,11 +654,10 @@ def mock_memory_functions() -> Generator[tuple[Mock, Mock, Mock, Mock], None, No
         )
 
 
-# Helper function for dummy prompt fragments
 def get_test_summary_fragments(
-    config: Config | None = None,
+    config: Config | None = None, current_memory: str | None = None
 ) -> PromptFragments:
-    """Dummy summary prompt function for testing that returns fragments."""
+    """Returns dummy prompt fragments for testing command_handler memory updates."""
     return PromptFragments(
         (
             SystemFragments([Fragment("System fragment with {output}")]),
@@ -675,3 +675,77 @@ DEFAULT_OUTPUT_FLAGS = OutputFlags(
     show_kubectl=True,
     warn_no_proxy=True,
 )
+
+
+@pytest.mark.asyncio
+async def test_handle_command_output_passes_memory_to_summary_prompt(
+    mock_memory: dict[str, MagicMock],
+    mock_process_auto: Mock,
+    mock_get_adapter: MagicMock,
+) -> None:
+    """Test handle_command_output fetches memory and passes to summary_prompt_func."""
+    mock_get_memory_func = mock_memory["get"]
+    mock_update_memory_func = mock_memory["update"]
+
+    test_memory_content = "This is the active memory context."
+    mock_get_memory_func.return_value = test_memory_content
+
+    # Mock the summary prompt function to capture its arguments
+    # and return predictable fragments
+    mock_summary_prompt_creator = MagicMock(spec=SummaryPromptFragmentFunc)
+
+    def summary_prompt_side_effect(
+        config: Config | None, current_memory: str | None
+    ) -> PromptFragments:
+        # We can assert here that current_memory is what we expect
+        assert current_memory == test_memory_content
+        # Return dummy fragments that might include the memory for further checking
+        return PromptFragments(
+            (
+                SystemFragments([Fragment(f"System with memory: {current_memory}")]),
+                UserFragments([Fragment("User: {output}")]),
+            )
+        )
+
+    mock_summary_prompt_creator.side_effect = summary_prompt_side_effect
+
+    # Mock the LLM call
+    mock_get_adapter.execute_and_log_metrics.return_value = (
+        "LLM summary influenced by memory",
+        LLMMetrics(),
+    )
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+    )
+
+    # Call handle_command_output
+    handle_command_output(
+        output=Success(data="kubectl output data"),
+        output_flags=output_flags,
+        summary_prompt_func=mock_summary_prompt_creator,
+        command="get pods",
+    )
+
+    # 1. Assert get_memory was called
+    mock_get_memory_func.assert_called_once()
+
+    # 2. Assert our mock_summary_prompt_creator was called
+    mock_summary_prompt_creator.assert_called_once()
+    # The assertion for current_memory happens inside its side_effect
+
+    # 3. Assert that the LLM was called with fragments that include the memory
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    _, llm_call_kwargs = mock_get_adapter.execute_and_log_metrics.call_args
+    passed_system_fragments = llm_call_kwargs.get("system_fragments")
+
+    assert any(test_memory_content in frag for frag in passed_system_fragments), (
+        "Memory content not found in system fragments passed to LLM."
+    )
+
+    # 4. Assert update_memory was also called (standard flow)
+    mock_update_memory_func.assert_called_once()

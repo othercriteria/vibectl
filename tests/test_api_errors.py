@@ -25,7 +25,9 @@ from vibectl.types import (
 
 
 # Re-defining for clarity here, or ensure it's importable
-def get_dummy_prompt_fragments(config: Config | None = None) -> PromptFragments:
+def get_dummy_prompt_fragments(
+    config: Config | None = None, current_memory: str | None = None
+) -> PromptFragments:
     """Returns a dummy PromptFragments object for testing."""
     return PromptFragments(
         (

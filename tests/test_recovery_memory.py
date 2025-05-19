@@ -91,6 +91,7 @@ def output_flags() -> OutputFlags:
 # Dummy summary prompt function that returns fragments
 def get_test_summary_fragments(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Dummy summary prompt function for testing that returns fragments."""
     return PromptFragments(
