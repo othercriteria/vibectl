@@ -1,10 +1,10 @@
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
-    handle_vibe_request,
     handle_wait_with_live_display,
 )
 from vibectl.config import Config
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_WAIT_PROMPT, wait_resource_prompt

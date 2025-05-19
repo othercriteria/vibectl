@@ -2,40 +2,42 @@
 Execution logic for the 'vibectl check' subcommand.
 """
 
-import asyncio
 from json import JSONDecodeError
 
-from vibectl.command_handler import (
-    configure_output_flags,
-    # _get_llm_plan is not directly exported, we might need to replicate or extract it
-)
+from pydantic import ValidationError
+
+from vibectl.command_handler import configure_output_flags
 from vibectl.config import Config
 from vibectl.logutil import logger
-from vibectl.memory import configure_memory_flags, get_memory, update_memory
-from vibectl.prompt import PLAN_CHECK_PROMPT, Fragment, SystemFragments, UserFragments # Added Fragment imports
+from vibectl.memory import configure_memory_flags, get_memory
+from vibectl.model_adapter import (
+    RecoverableApiError,
+    get_model_adapter,
+)
+from vibectl.prompt import (
+    PLAN_CHECK_PROMPT,
+    Fragment,
+    SystemFragments,
+    UserFragments,
+)
 from vibectl.schema import (
-    ActionType,
-    LLMPlannerResponse,
+    CommandAction,
     DoneAction,
     ErrorAction,
-    CommandAction,
-    WaitAction,
     FeedbackAction,
+    LLMPlannerResponse,
     ThoughtAction,
+    WaitAction,
 )
 from vibectl.types import (
     Error,
-    OutputFlags,
+    LLMMetrics,
     Result,
     Success,
-    LLMMetrics,
 )
 from vibectl.utils import console_manager
-from vibectl.model_adapter import get_model_adapter, RecoverableApiError # For _get_llm_plan like functionality
-from pydantic import ValidationError
 
-# Helper function similar to _get_llm_plan in command_handler.py
-# This is to avoid directly importing a private function or making command_handler.py even larger.
+
 def _get_check_llm_plan(
     model_name: str,
     plan_system_fragments: SystemFragments,
@@ -44,7 +46,6 @@ def _get_check_llm_plan(
 ) -> Result:
     """Calls the LLM to get a command plan for 'check' and validates the response."""
     model_adapter = get_model_adapter(config=config)
-    output_processor = console_manager # Assuming console_manager can be used for output processing needs if any
 
     try:
         model = model_adapter.get_model(model_name)
@@ -59,9 +60,13 @@ def _get_check_llm_plan(
         #     config=config,
         # )
         # For check, memory update on model failure might be less critical than for auto
-        return Error(error=error_msg, exception=e, halt_auto_loop=False) # halt_auto_loop might not be relevant for check
+        return Error(
+            error=error_msg, exception=e, halt_auto_loop=False
+        )  # halt_auto_loop might not be relevant for check
 
-    console_manager.print_processing(f"Consulting {model_name} to evaluate predicate...")
+    console_manager.print_processing(
+        f"Consulting {model_name} to evaluate predicate..."
+    )
     logger.debug(
         f"Final 'check' planning prompt:\n{plan_system_fragments} {plan_user_fragments}"
     )
@@ -71,7 +76,7 @@ def _get_check_llm_plan(
             model=model,
             system_fragments=plan_system_fragments,
             user_fragments=plan_user_fragments,
-            response_model=LLMPlannerResponse, # Expecting LLMPlannerResponse
+            response_model=LLMPlannerResponse,
         )
         logger.info(f"Raw LLM response text for 'check':\n{llm_response_text}")
 
@@ -83,8 +88,10 @@ def _get_check_llm_plan(
         response = LLMPlannerResponse.model_validate_json(llm_response_text)
         logger.debug(f"Parsed LLM response object for 'check': {response}")
 
-        if not hasattr(response, 'action') or response.action is None:
-            logger.error("LLMPlannerResponse for 'check' has no action or action is None.")
+        if not hasattr(response, "action") or response.action is None:
+            logger.error(
+                "LLMPlannerResponse for 'check' has no action or action is None."
+            )
             # update_memory(...) # Optional memory update
             return Error("LLM Error: Planner response for 'check' contained no action.")
 
@@ -98,7 +105,9 @@ def _get_check_llm_plan(
         )
         error_msg = f"Failed to parse LLM response for 'check' as expected JSON: {e}"
         # memory_update_metrics = update_memory(...) # Optional
-        return Error(error=error_msg, exception=e) # Potentially non-halting for API errors
+        return Error(
+            error=error_msg, exception=e
+        )  # Potentially non-halting for API errors
     except RecoverableApiError as api_err:
         logger.warning(
             f"Recoverable API error during 'check' planning: {api_err}", exc_info=True
@@ -106,8 +115,10 @@ def _get_check_llm_plan(
         console_manager.print_error(f"API Error: {api_err}")
         return Error(str(api_err), exception=api_err, halt_auto_loop=False)
     except Exception as e:
-        logger.error(f"Error during LLM 'check' planning interaction: {e}", exc_info=True)
-        console_manager.print_error(f"Error evaluating predicate: {str(e)}")
+        logger.error(
+            f"Error during LLM 'check' planning interaction: {e}", exc_info=True
+        )
+        console_manager.print_error(f"Error evaluating predicate: {e!s}")
         return Error(str(e), exception=e)
 
 
@@ -143,6 +154,7 @@ async def run_check_command(
     cfg = Config()
     exit_code_to_set = 3  # Default to 'cannot determine'
     llm_metrics: LLMMetrics | None = None
+    result_to_return: Result  # Explicitly type result_to_return
 
     logger.info(f"Evaluating predicate: {predicate}")
 
@@ -152,7 +164,9 @@ async def run_check_command(
 
     final_user_fragments_list = list(plan_user_fragments_base)
     if memory_context_str:
-        final_user_fragments_list.insert(0, Fragment(f"Memory Context:\n{memory_context_str}"))
+        final_user_fragments_list.insert(
+            0, Fragment(f"Memory Context:\n{memory_context_str}")
+        )
     final_user_fragments_list.append(Fragment(f"Request (Predicate): {predicate}"))
     final_user_fragments = UserFragments(final_user_fragments_list)
 
@@ -168,50 +182,89 @@ async def run_check_command(
         logger.error(f"Error from LLM planning for 'check': {plan_result.error}")
         console_manager.print_error(f"Error evaluating predicate: {plan_result.error}")
         exit_code_to_set = 3  # Cannot determine due to system/planning error
-        result_to_return = plan_result
+        result_to_return = (
+            plan_result  # Assign plan_result (which is an Error) directly
+        )
     elif isinstance(plan_result, Success):
-        llm_planner_response: LLMPlannerResponse = plan_result.data
-        llm_metrics = plan_result.metrics # Capture metrics from successful planning
-        action = llm_planner_response.action
-        action_type_str = action.action_type.value # Get string value of enum
-
-        logger.info(f"LLM planned action for 'check': {action_type_str}")
-        vibe_message = f"LLM Action: {action_type_str}"
-
-        if isinstance(action, DoneAction):
-            exit_code_to_set = action.exit_code if action.exit_code is not None else 3
-            vibe_message += f", Exit Code: {exit_code_to_set}"
-            logger.info(f"DoneAction received with exit_code: {action.exit_code} -> using {exit_code_to_set}")
-        elif isinstance(action, ErrorAction):
-            vibe_message += f", Message: {action.message}"
-            logger.warning(f"ErrorAction received: {action.message}")
-            # Map ErrorAction to exit code 2 (ambiguous/error) or 3 (cannot determine)
-            # For simplicity, let's use 2 for now, assuming it's an issue with the predicate itself.
-            exit_code_to_set = 2 
-        elif isinstance(action, CommandAction):
-            vibe_message += f", Commands: {action.commands}"
-            logger.info(f"CommandAction received. For Phase 1, this means 'cannot determine'. Intended commands: {action.commands}")
-            exit_code_to_set = 3
-        elif isinstance(action, WaitAction):
-            vibe_message += f", Duration: {action.duration_seconds}s"
-            logger.info(f"WaitAction received. For Phase 1, this means 'cannot determine'. Duration: {action.duration_seconds}")
-            exit_code_to_set = 3
-        elif isinstance(action, FeedbackAction):
-            vibe_message += f", Message: {action.message}"
-            logger.info(f"FeedbackAction received: {action.message}. Interpreting as 'cannot determine' or 'ambiguous'.")
-            exit_code_to_set = 2 # Or 3, depending on how feedback should be treated
-        elif isinstance(action, ThoughtAction):
-            vibe_message += f", Text: {action.text}"
-            logger.info(f"ThoughtAction received: {action.text}. Interpreting as 'cannot determine'.")
-            exit_code_to_set = 3
+        # Type check for plan_result.data before assignment
+        if not isinstance(plan_result.data, LLMPlannerResponse):
+            logger.error(
+                "Unexpected data type in Success object from _get_check_llm_plan: "
+                f"{type(plan_result.data)}"
+            )
+            exit_code_to_set = 3  # Cannot determine due to internal error
+            result_to_return = Error(
+                error="Internal error: Unexpected data type from LLM plan for 'check'.",
+                original_exit_code=exit_code_to_set,
+            )
         else:
-            logger.warning(f"Unhandled action type from LLM for 'check': {action_type_str}")
-            exit_code_to_set = 3 # Default for unhandled actions
-        
-        if output_flags.show_vibe:
-            console_manager.print_vibe(vibe_message)
-        
-        result_to_return = Success(message=vibe_message, metrics=llm_metrics)
+            llm_planner_response: LLMPlannerResponse = plan_result.data
+            llm_metrics = (
+                plan_result.metrics
+            )  # Capture metrics from successful planning
+            action = llm_planner_response.action
+            action_type_str = action.action_type.value  # Get string value of enum
+
+            logger.info(f"LLM planned action for 'check': {action_type_str}")
+            vibe_message = f"LLM Action: {action_type_str}"
+
+            if isinstance(action, DoneAction):
+                exit_code_to_set = (
+                    action.exit_code if action.exit_code is not None else 3
+                )
+                vibe_message += f", Exit Code: {exit_code_to_set}"
+                logger.info(
+                    f"DoneAction received with exit_code: {action.exit_code} -> "
+                    f"using {exit_code_to_set}"
+                )
+            elif isinstance(action, ErrorAction):
+                vibe_message += f", Message: {action.message}"
+                logger.warning(f"ErrorAction received: {action.message}")
+                # Map ErrorAction to exit code 2 (ambiguous/error) or
+                # 3 (cannot determine)
+                # For simplicity, let's use 2 for now, assuming it's an issue
+                # with the predicate itself.
+                exit_code_to_set = 2
+            elif isinstance(action, CommandAction):
+                vibe_message += f", Commands: {action.commands}"
+                logger.info(
+                    "CommandAction received. For Phase 1, this means "
+                    f"'cannot determine'. Intended commands: {action.commands}"
+                )
+                exit_code_to_set = 3
+            elif isinstance(action, WaitAction):
+                vibe_message += f", Duration: {action.duration_seconds}s"
+                logger.info(
+                    "WaitAction received. For Phase 1, this means "
+                    f"'cannot determine'. Duration: {action.duration_seconds}"
+                )
+                exit_code_to_set = 3
+            elif isinstance(action, FeedbackAction):
+                vibe_message += f", Message: {action.message}"
+                logger.info(
+                    f"FeedbackAction received: {action.message}. Interpreting as "
+                    "'cannot determine' or 'ambiguous'."
+                )
+                exit_code_to_set = (
+                    2  # Or 3, depending on how feedback should be treated
+                )
+            elif isinstance(action, ThoughtAction):
+                vibe_message += f", Text: {action.text}"
+                logger.info(
+                    f"ThoughtAction received: {action.text}. Interpreting as "
+                    "'cannot determine'."
+                )
+                exit_code_to_set = 3
+            else:
+                logger.warning(
+                    f"Unhandled action type from LLM for 'check': {action_type_str}"
+                )
+                exit_code_to_set = 3  # Default for unhandled actions
+
+            if output_flags.show_vibe:
+                console_manager.print_vibe(vibe_message)
+
+            result_to_return = Success(message=vibe_message, metrics=llm_metrics)
     else:
         # Should not happen if plan_result is always Error or Success
         logger.error("Unexpected result type from _get_check_llm_plan")
@@ -220,7 +273,7 @@ async def run_check_command(
 
     # Store the determined exit code in the Result object
     result_to_return.original_exit_code = exit_code_to_set
-    
+
     # Display metrics if requested and available
     if llm_metrics and output_flags.show_metrics:
         console_manager.print_metrics(
@@ -232,4 +285,4 @@ async def run_check_command(
         )
 
     logger.info(f"'check' subcommand determined exit code: {exit_code_to_set}")
-    return result_to_return 
+    return result_to_return

@@ -1,5 +1,7 @@
 from vibectl.command_handler import (
     configure_output_flags,
+)
+from vibectl.execution.vibe import (
     handle_vibe_request,
 )
 from vibectl.logutil import logger
@@ -101,8 +103,6 @@ async def run_vibe_command(
                 error=f"Unexpected error in handle_vibe_request: {e!s}", exception=e
             )
 
-        logger.info("Completed 'vibe' subcommand.")
-        return Success(message="Completed 'vibe' subcommand.")
     except Exception as e:
         logger.error("Error in 'vibe' subcommand: %s", e, exc_info=True)
         if exit_on_error:

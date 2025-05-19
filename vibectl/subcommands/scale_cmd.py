@@ -1,11 +1,12 @@
 import asyncio
 
-# Local imports
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_vibe_request,
 )
+
+# Local imports
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.prompt import PLAN_SCALE_PROMPT, scale_resource_prompt

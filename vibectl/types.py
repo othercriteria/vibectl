@@ -131,6 +131,7 @@ class Error:
     # Default True to maintain current behavior
     halt_auto_loop: bool = True
     metrics: "LLMMetrics | None" = None
+    original_exit_code: int | None = None
 
 
 # Union type for command results

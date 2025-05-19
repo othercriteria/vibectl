@@ -11,9 +11,11 @@ from pydantic import ValidationError
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_vibe_request,
 )
 from vibectl.config import Config
+from vibectl.execution.vibe import (
+    handle_vibe_request,
+)
 from vibectl.k8s_utils import run_kubectl, run_kubectl_with_yaml
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -393,9 +395,7 @@ async def _execute_planned_commands(
                 f"{' '.join(full_kubectl_command_list)}. Error: {summary_result.error}"
             )
             summary_output = (
-                kubectl_result.data
-                if isinstance(kubectl_result, Success)
-                else "N/A"
+                kubectl_result.data if isinstance(kubectl_result, Success) else "N/A"
             )
             final_results_summary += (
                 f"Succeeded: {' '.join(full_kubectl_command_list)}\n"

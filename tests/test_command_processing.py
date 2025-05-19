@@ -7,10 +7,12 @@ import pytest
 from vibectl.command_handler import (
     _create_display_command,
     _execute_command,
-    _handle_fuzzy_memory_update,
     _quote_args,
 )
-from vibectl.types import Success
+from vibectl.execution.vibe import (
+    _handle_fuzzy_memory_update,
+)
+from vibectl.types import Fragment, LLMMetrics, Success, SystemFragments, UserFragments
 
 
 def test_create_display_command_basic() -> None:
@@ -277,61 +279,122 @@ def test_execute_command(
         mock_run_yaml.assert_not_called()
 
 
-@patch("vibectl.command_handler.get_memory")
-@patch("vibectl.command_handler.set_memory")
-@patch("vibectl.command_handler.get_model_adapter")
-@patch("vibectl.command_handler.memory_fuzzy_update_prompt")
-@patch("vibectl.command_handler.Config")
+@patch("vibectl.execution.vibe.get_memory", autospec=True)
+@patch("vibectl.execution.vibe.set_memory", autospec=True)
+@patch("vibectl.execution.vibe.get_model_adapter", autospec=True)
+@patch("vibectl.execution.vibe.memory_fuzzy_update_prompt", autospec=True)
+@patch("vibectl.execution.vibe.Config", autospec=True)
+@patch("vibectl.execution.vibe.click.prompt", autospec=True)
+@patch("vibectl.execution.vibe.console_manager", autospec=True)
+@patch("vibectl.execution.vibe.logger", autospec=True)
 def test_fuzzy_memory_update(
-    mock_config: Mock,
-    mock_prompt_func: Mock,
-    mock_get_adapter: Mock,
-    mock_set_memory: Mock,
-    mock_get_memory: Mock,
-    capsys: pytest.CaptureFixture,
-) -> None:  # Add missing type hint
-    """Test the fuzzy memory update process."""
-    # Mock configuration and dependencies
-    mock_cfg_instance = Mock()
-    mock_config.return_value = mock_cfg_instance
-    mock_get_memory.return_value = "Original memory context"
-    mock_adapter_instance = Mock()
-    mock_model_instance = Mock()
-    mock_get_adapter.return_value = mock_adapter_instance
-    mock_adapter_instance.get_model.return_value = mock_model_instance
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        "Updated memory context",
-        None,
+    mock_logger: Mock,
+    mock_console_manager: Mock,
+    mock_click_prompt_func: Mock,
+    mock_config_cls: Mock,
+    mock_memory_fuzzy_prompt_func: Mock,
+    mock_get_model_adapter_func: Mock,
+    mock_set_memory_func: Mock,
+    mock_get_memory_func: Mock,
+) -> None:
+    """Test _handle_fuzzy_memory_update successfully updates memory."""
+    print("\n=== Starting test_fuzzy_memory_update ===")
+
+    # Setup Mocks
+    user_input_for_update = "User provided additional context for memory."
+    mock_click_prompt_func.return_value = user_input_for_update
+    print(f"Mocked click.prompt return value: {user_input_for_update}")
+
+    mock_config_instance = Mock(name="MockedConfigInstance")
+    mock_config_cls.return_value = mock_config_instance
+    mock_config_instance.get.return_value = "claude-3.7-sonnet"
+    print(f"Mocked config model name: {mock_config_instance.get.return_value}")
+
+    initial_memory_content = "Initial memory context before fuzzy update."
+    mock_get_memory_func.return_value = initial_memory_content
+    print(f"Mocked initial memory content: {initial_memory_content}")
+
+    # Mock for memory_fuzzy_update_prompt
+    system_frags = SystemFragments([Fragment("System fuzzy prompt")])
+    user_frags = UserFragments([Fragment("User fuzzy prompt")])
+    mock_memory_fuzzy_prompt_func.return_value = (system_frags, user_frags)
+    print("Mocked memory_fuzzy_update_prompt with system and user fragments")
+
+    # Mocks for model adapter and LLM call
+    final_updated_memory_text = "Memory has been successfully updated with fuzzy logic."
+    mock_llm_metrics = LLMMetrics(token_input=10, token_output=20, latency_ms=100)
+
+    mock_model_adapter_instance = Mock(name="MockedModelAdapterInstance")
+    mock_model_instance = Mock(name="MockedModelInstance")
+    mock_model_adapter_instance.get_model.return_value = mock_model_instance
+
+    mock_model_adapter_instance.execute_and_log_metrics.return_value = (
+        final_updated_memory_text,
+        mock_llm_metrics,
     )
-    mock_prompt_func.return_value = (
-        ["System: Fuzzy Update"],
-        ["User: Please integrate: User added this text"],
+    mock_get_model_adapter_func.return_value = mock_model_adapter_instance
+    print(f"Mocked final memory update text: {final_updated_memory_text}")
+
+    print("\nCalling _handle_fuzzy_memory_update...")
+    result = _handle_fuzzy_memory_update(
+        option="yes and", model_name="claude-3.7-sonnet"
+    )
+    print(f"Function returned: {result}")
+
+    # Assertions with debug prints
+    print("\nVerifying assertions...")
+    assert isinstance(result, Success), f"Expected Success, got {type(result)}"
+    assert result.message == "Memory updated successfully", (
+        f"Expected 'Memory updated successfully', got '{result.message}'"
     )
 
-    # Simulate user input for the update text
-    with patch("click.prompt", return_value="User added this text"):
-        result = _handle_fuzzy_memory_update("yes and", "test-model")
+    print("\nVerifying mock calls...")
+    mock_click_prompt_func.assert_called_once_with("Memory update")
+    print("✓ click.prompt called correctly")
 
-    # Assertions
-    assert isinstance(result, Success)
-    mock_get_memory.assert_called_once_with(mock_cfg_instance)
-    mock_prompt_func.assert_called_once_with(
-        current_memory="Original memory context",
-        update_text="User added this text",
-        config=mock_cfg_instance,
+    mock_memory_fuzzy_prompt_func.assert_called_once_with(
+        current_memory=initial_memory_content,
+        update_text=user_input_for_update,
+        config=mock_config_instance,
     )
-    mock_adapter_instance.execute_and_log_metrics.assert_called_once_with(
+    print("✓ memory_fuzzy_update_prompt called correctly")
+
+    mock_get_model_adapter_func.assert_called_once_with(mock_config_instance)
+    print("✓ get_model_adapter called correctly")
+
+    mock_model_adapter_instance.execute_and_log_metrics.assert_called_once_with(
         mock_model_instance,
-        system_fragments=["System: Fuzzy Update"],
-        user_fragments=["User: Please integrate: User added this text"],
+        system_fragments=system_frags,
+        user_fragments=user_frags,
     )
-    mock_get_adapter.assert_called_once_with(mock_cfg_instance)
-    mock_adapter_instance.get_model.assert_called_once_with("test-model")
-    mock_set_memory.assert_called_once_with("Updated memory context", mock_cfg_instance)
+    print("✓ model adapter execute_and_log_metrics called correctly")
 
-    # Check console output - ignore ANSI codes for simplicity
-    captured = capsys.readouterr()
-    assert "Updating memory" in captured.out  # Check substring without ellipsis
-    assert "Memory updated" in captured.out
-    assert "Updated Memory Content" in captured.out
-    assert "Updated memory context" in captured.out
+    mock_set_memory_func.assert_called_once_with(
+        final_updated_memory_text, mock_config_instance
+    )
+    print("✓ set_memory called correctly")
+
+    # Verify console outputs with debug prints
+    print("\nVerifying console outputs...")
+    mock_console_manager.print_note.assert_any_call(
+        "Enter additional information for memory:"
+    )
+    mock_console_manager.print_processing.assert_any_call("Updating memory...")
+    mock_console_manager.print_success.assert_any_call("Memory updated")
+    print("✓ Console manager calls verified")
+
+    # Verify panel output
+    assert mock_console_manager.safe_print.called, "safe_print was not called"
+    panel_call = mock_console_manager.safe_print.call_args
+    if panel_call and len(panel_call.args) > 1 and hasattr(panel_call.args[1], "title"):
+        print(f"✓ Panel printed with title: {panel_call.args[1].title}")
+    else:
+        print("! Warning: Could not verify Panel content details")
+
+    # Verify logger calls
+    mock_logger.info.assert_any_call(
+        "User requested fuzzy memory update with 'yes and' option"
+    )
+    print("✓ Logger calls verified")
+
+    print("\n=== test_fuzzy_memory_update completed successfully ===\n")

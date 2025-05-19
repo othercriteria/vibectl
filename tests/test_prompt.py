@@ -46,7 +46,7 @@ from vibectl.prompt import (
     vibe_autonomous_prompt,
     wait_resource_prompt,
 )
-from vibectl.schema import LLMPlannerResponse, CommandAction, ActionType
+from vibectl.schema import ActionType, LLMPlannerResponse
 
 # Import new types
 from vibectl.types import (
@@ -275,7 +275,8 @@ def test_create_planning_prompt_structure_and_content() -> None:
     )
     assert f"which is used for {description}." in combined_prompt
     assert (
-        "respond with a JSON\nobject matching the provided schema." in combined_prompt
+        "Your response MUST be a valid JSON object conforming to this schema:"
+        in combined_prompt
     )
     # __MEMORY_CONTEXT_PLACEHOLDER__ is NOT added by create_planning_prompt itself.
     # It's added by the assembler (e.g. plan_vibe_fragments)
@@ -330,7 +331,10 @@ def test_plan_prompt_constants_are_generated(
     assert len(combined_text) > 100
 
     assert "You are planning arguments for the 'kubectl" in combined_text
-    assert "respond with a JSON\nobject matching the provided schema." in combined_text
+    assert (
+        "Your response MUST be a valid JSON object conforming to this schema:"
+        in combined_text
+    )
 
 
 def test_plan_create_prompt_structure() -> None:

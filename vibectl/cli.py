@@ -14,6 +14,7 @@ import asyncclick as click
 from rich.panel import Panel
 from rich.table import Table
 
+from vibectl.execution.check import run_check_command
 from vibectl.memory import (
     clear_memory,
     disable_memory,
@@ -38,7 +39,6 @@ from vibectl.subcommands.scale_cmd import run_scale_command
 from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
-from vibectl.execution.check import run_check_command
 
 from . import __version__
 from .config import DEFAULT_CONFIG, Config
@@ -1449,16 +1449,16 @@ async def diff(
 @cli.command(
     "apply",
     help="Apply a configuration to a resource by filename or stdin",
-    context_settings={"ignore_unknown_options": True}, # Allow arbitrary args for kubectl
+    context_settings={
+        "ignore_unknown_options": True
+    },  # Allow arbitrary args for kubectl
 )
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.option("--show-raw-output", is_flag=True, help="Show raw kubectl output")
 @click.option("--show-vibe", is_flag=True, help="Show vibe output")
 @click.option("--show-kubectl", is_flag=True, help="Show kubectl command executed")
 @click.option("--model", help="Specify the LLM model to use")
-@click.option(
-    "--freeze-memory", is_flag=True, help="Freeze memory (no new updates)"
-)
+@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
 @click.option(
     "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
 )
@@ -1474,7 +1474,7 @@ async def apply_command_wrapper(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
-):
+) -> None:
     """Wrapper for the apply command."""
     result = await run_apply_command(
         args=args,
@@ -1486,23 +1486,32 @@ async def apply_command_wrapper(
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
     )
-    ctx.obj = result # Store result in context for the result_callback
+    ctx.obj = result  # Store result in context for the result_callback
 
 
 # Check command
 @cli.command(
     "check",
     help="Evaluate a predicate about the cluster state using LLM.",
-    context_settings={"ignore_unknown_options": False}, # No passthrough for check args yet
+    context_settings={
+        "ignore_unknown_options": False
+    },  # No passthrough for check args yet
 )
 @click.argument("predicate", nargs=1, type=click.STRING)
-@click.option("--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)")
-@click.option("--show-vibe", is_flag=True, default=True, help="Show LLM reasoning/decision (default: True)")
-@click.option("--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one")
-@click.option("--model", help="Specify the LLM model to use")
 @click.option(
-    "--freeze-memory", is_flag=True, help="Freeze memory (no new updates)"
+    "--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)"
 )
+@click.option(
+    "--show-vibe",
+    is_flag=True,
+    default=True,
+    help="Show LLM reasoning/decision (default: True)",
+)
+@click.option(
+    "--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one"
+)
+@click.option("--model", help="Specify the LLM model to use")
+@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
 @click.option(
     "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
 )
@@ -1519,7 +1528,7 @@ async def check_command_wrapper(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
-):
+) -> None:
     """Wrapper for the check command."""
     result = await run_check_command(
         predicate=predicate,
@@ -1531,7 +1540,7 @@ async def check_command_wrapper(
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
     )
-    ctx.obj = result # Store result in context for the result_callback
+    ctx.obj = result  # Store result in context for the result_callback
 
 
 def handle_result(result: Result) -> None:

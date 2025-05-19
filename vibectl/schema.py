@@ -1,6 +1,6 @@
 """Defines Pydantic models for structured LLM responses."""
 
-from typing import Literal, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
@@ -52,6 +52,13 @@ class CommandAction(LLMAction):
             "command verb in specific contexts."
         ),
     )
+    explanation: str | None = Field(
+        None,
+        description=(
+            "AI's reasoning for choosing this action. If not provided, the system "
+            "may use a default (e.g., 'no additional explanation provided')."
+        ),
+    )
 
     @field_validator("commands", mode="before")
     @classmethod
@@ -73,9 +80,7 @@ class WaitAction(LLMAction):
     """Schema for a wait action from the LLM."""
 
     action_type: Literal[ActionType.WAIT] = Field(ActionType.WAIT)
-    duration_seconds: int = Field(
-        ..., description="Duration in seconds to wait."
-    )
+    duration_seconds: int = Field(..., description="Duration in seconds to wait.")
 
 
 class ErrorAction(LLMAction):
@@ -83,7 +88,8 @@ class ErrorAction(LLMAction):
 
     action_type: Literal[ActionType.ERROR] = Field(ActionType.ERROR)
     message: str = Field(
-        ..., description="Error message if the LLM encountered an issue or refused the request."
+        ...,
+        description="Error message if the LLM encountered an issue or refused request.",
     )
 
 
@@ -92,6 +98,12 @@ class FeedbackAction(LLMAction):
 
     action_type: Literal[ActionType.FEEDBACK] = Field(ActionType.FEEDBACK)
     message: str = Field(..., description="Textual feedback from the LLM.")
+    explanation: str | None = Field(
+        None, description="AI's reasoning for choosing this action."
+    )
+    suggestion: str | None = Field(
+        None, description="Optional suggested text for the user to update memory with."
+    )
 
 
 class DoneAction(LLMAction):
@@ -103,19 +115,19 @@ class DoneAction(LLMAction):
         description=(
             "The intended exit code for vibectl. If None, a default may be used "
             "(e.g., 3 for 'cannot determine' in vibectl check)."
-        )
+        ),
     )
 
 
 # Union of all specific actions for Pydantic's discriminated union
-AnyLLMAction = Union[
-    ThoughtAction,
-    CommandAction,
-    WaitAction,
-    ErrorAction,
-    FeedbackAction,
-    DoneAction,
-]
+AnyLLMAction = (
+    ThoughtAction
+    | CommandAction
+    | WaitAction
+    | ErrorAction
+    | FeedbackAction
+    | DoneAction
+)
 
 
 class LLMPlannerResponse(BaseModel):
@@ -126,14 +138,9 @@ class LLMPlannerResponse(BaseModel):
     )
 
     model_config = {
-        "use_enum_values": True, # Keep if ActionType is still used directly in some models
-        "extra": "forbid", # Forbid extra fields to ensure strict adherence
+        "use_enum_values": True,
+        "extra": "forbid",  # Forbid extra fields to ensure strict adherence
     }
-
-
-# Existing models - LLMCommandResponse is now replaced by LLMPlannerResponse
-# and its constituent actions.
-# We need to update LLMFinalApplyPlanResponse.
 
 
 class ApplyFileScopeResponse(BaseModel):
@@ -161,7 +168,7 @@ class ApplyFileScopeResponse(BaseModel):
 class LLMFinalApplyPlanResponse(BaseModel):
     """Schema for LLM response containing the final list of planned apply commands."""
 
-    planned_commands: list[CommandAction] = Field( # Changed from LLMCommandResponse
+    planned_commands: list[CommandAction] = Field(  # Changed from LLMCommandResponse
         ...,
         description=(
             "A list of CommandAction objects, each representing a kubectl "
