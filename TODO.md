@@ -104,7 +104,7 @@ While full [Model Context Protocol](https://github.com/modelcontextprotocol/pyth
 
 ## Command Execution Safety & Confirmation
 
-- **LLM-Assessed Danger:** Explore having the LLM planner assess if a planned command is potentially dangerous (beyond the current hardcoded list in `_needs_confirmation`). This could involve prompting the LLM for a safety rating or flag. Implement with strong guardrails and default to requiring confirmation if unsure.
+- **LLM-Assessed Danger:** For commands identified as non-read-only by `is_kubectl_command_read_only`, explore having the LLM planner further assess if a planned *write* command is potentially dangerous in the given context. This could involve prompting the LLM for a safety rating or specific warnings. Implement with strong guardrails and default to requiring confirmation if the LLM is unsure or flags a potential risk.
 - **Refine Confirmation UI:** Ensure the confirmation prompt clearly presents the command and its potential impact.
 
 ## Technical Debt

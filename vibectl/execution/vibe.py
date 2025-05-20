@@ -15,11 +15,11 @@ from vibectl.command_handler import (
     _execute_command,
     # We need create_api_error if it was used by moved functions directly
     # but it seems it was used by handle_command_output or others not moving.
-    _needs_confirmation,
     handle_command_output,
     handle_port_forward_with_live_display,
 )
 from vibectl.config import Config
+from vibectl.k8s_utils import is_kubectl_command_read_only
 from vibectl.logutil import logger as _logger
 from vibectl.memory import (
     get_memory,
@@ -342,28 +342,35 @@ async def _confirm_and_execute_plan(
     # Create the display command using the helper function
     display_cmd = _create_display_command(kubectl_verb, kubectl_args, has_yaml_content)
 
-    needs_conf = _needs_confirmation(
-        original_command_verb, semiauto
-    )  # Use original_command_verb
+    # Determine if confirmation is needed
+    command_is_read_only = is_kubectl_command_read_only([kubectl_verb, *kubectl_args])
+    confirmation_is_required = not command_is_read_only and not autonomous_mode
+
     logger.debug(
         f"Confirmation check: command='{display_cmd}', verb='{original_command_verb}', "
-        f"semiauto={semiauto}, needs_confirmation={needs_conf}, yes_flag={yes}"
+        f"is_read_only={command_is_read_only}, autonomous_mode={autonomous_mode}, "
+        f"confirmation_required={confirmation_is_required}, yes_flag={yes}"
     )
 
-    if needs_conf:
+    if confirmation_is_required:
+        # _handle_command_confirmation will use the 'yes' flag to bypass prompt if True
         confirmation_result = _handle_command_confirmation(
             display_cmd=display_cmd,
             semiauto=semiauto,
             model_name=output_flags.model_name,
-            explanation=plan_explanation,  # Use the passed plan_explanation
+            explanation=plan_explanation,
             yes=yes,
         )
         if confirmation_result is not None:
             return confirmation_result
-    elif yes:
+    elif not command_is_read_only and autonomous_mode:
         logger.info(
-            f"Proceeding without prompt (confirmation not needed, yes=True) "
-            f"for command: {display_cmd}"
+            "Proceeding with potentially dangerous command in autonomous mode "
+            f"(not read-only): {display_cmd}"
+        )
+    elif command_is_read_only:
+        logger.info(
+            f"Proceeding with read-only command without confirmation: {display_cmd}"
         )
 
     # Display the command being run if show_kubectl is true, before execution

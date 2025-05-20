@@ -133,10 +133,6 @@ def test_quote_args_empty() -> None:
     assert result == []
 
 
-def test_needs_confirmation_dangerous() -> None:
-    """Test _needs_confirmation identifies dangerous commands."""
-
-
 @patch("vibectl.command_handler.run_kubectl")
 @patch("vibectl.command_handler.console_manager")
 def test_execute_command_with_spaces(

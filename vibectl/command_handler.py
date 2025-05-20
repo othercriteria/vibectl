@@ -768,36 +768,6 @@ def _create_display_command(verb: str, args: list[str], has_yaml: bool) -> str:
         return base_cmd
 
 
-def _needs_confirmation(verb: str, semiauto: bool) -> bool:
-    """Check if a command needs confirmation based on its type.
-
-    Args:
-        verb: Command verb (e.g., get, delete)
-        semiauto: Whether the command is running in semiauto mode
-            (always requires confirmation)
-
-    Returns:
-        Whether the command needs confirmation
-    """
-    dangerous_commands = [
-        "delete",
-        "scale",
-        "rollout",
-        "patch",
-        "apply",
-        "replace",
-        "create",
-    ]
-    is_dangerous = verb in dangerous_commands  # Check against the verb
-    needs_conf = semiauto or is_dangerous
-    logger.debug(
-        f"Checking confirmation for verb '{verb}': "
-        f"semiauto={semiauto}, is_dangerous={is_dangerous}, "
-        f"needs_confirmation={needs_conf}"
-    )
-    return needs_conf
-
-
 def _execute_command(
     command: str,
     args: list[str],
@@ -819,9 +789,6 @@ def _execute_command(
         full_args = [command, *args] if command else args
 
         if yaml_content:
-            # Dispatch to the YAML handling function in k8s_utils
-            # Pass the combined args (command + original args)
-            # Instantiate Config to pass to run_kubectl_with_yaml
             cfg = Config()
             return run_kubectl_with_yaml(
                 full_args,
