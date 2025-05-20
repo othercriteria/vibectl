@@ -32,6 +32,7 @@ from vibectl.schema import (
 from vibectl.types import (
     Error,
     LLMMetrics,
+    PredicateCheckExitCode,
     Result,
     Success,
 )
@@ -152,7 +153,7 @@ async def run_check_command(
     )
 
     cfg = Config()
-    exit_code_to_set = 3  # Default to 'cannot determine'
+    exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
     llm_metrics: LLMMetrics | None = None
     result_to_return: Result  # Explicitly type result_to_return
 
@@ -181,7 +182,7 @@ async def run_check_command(
     if isinstance(plan_result, Error):
         logger.error(f"Error from LLM planning for 'check': {plan_result.error}")
         console_manager.print_error(f"Error evaluating predicate: {plan_result.error}")
-        exit_code_to_set = 3  # Cannot determine due to system/planning error
+        exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
         result_to_return = (
             plan_result  # Assign plan_result (which is an Error) directly
         )
@@ -192,10 +193,10 @@ async def run_check_command(
                 "Unexpected data type in Success object from _get_check_llm_plan: "
                 f"{type(plan_result.data)}"
             )
-            exit_code_to_set = 3  # Cannot determine due to internal error
+            exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
             result_to_return = Error(
                 error="Internal error: Unexpected data type from LLM plan for 'check'.",
-                original_exit_code=exit_code_to_set,
+                original_exit_code=exit_code_to_set.value,  # Use .value for int
             )
         else:
             llm_planner_response: LLMPlannerResponse = plan_result.data
@@ -210,35 +211,34 @@ async def run_check_command(
 
             if isinstance(action, DoneAction):
                 exit_code_to_set = (
-                    action.exit_code if action.exit_code is not None else 3
+                    PredicateCheckExitCode(action.exit_code)
+                    if action.exit_code is not None
+                    else PredicateCheckExitCode.CANNOT_DETERMINE
                 )
-                vibe_message += f", Exit Code: {exit_code_to_set}"
+                vibe_message += f", Exit Code: {exit_code_to_set.value}"
                 logger.info(
                     f"DoneAction received with exit_code: {action.exit_code} -> "
-                    f"using {exit_code_to_set}"
+                    f"using {exit_code_to_set.value}"
                 )
             elif isinstance(action, ErrorAction):
                 vibe_message += f", Message: {action.message}"
                 logger.warning(f"ErrorAction received: {action.message}")
-                # Map ErrorAction to exit code 2 (ambiguous/error) or
-                # 3 (cannot determine)
-                # For simplicity, let's use 2 for now, assuming it's an issue
-                # with the predicate itself.
-                exit_code_to_set = 2
+                # TODO: is this the right exit code?
+                exit_code_to_set = PredicateCheckExitCode.POORLY_POSED
             elif isinstance(action, CommandAction):
                 vibe_message += f", Commands: {action.commands}"
                 logger.info(
                     "CommandAction received. For Phase 1, this means "
                     f"'cannot determine'. Intended commands: {action.commands}"
                 )
-                exit_code_to_set = 3
+                exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
             elif isinstance(action, WaitAction):
                 vibe_message += f", Duration: {action.duration_seconds}s"
                 logger.info(
                     "WaitAction received. For Phase 1, this means "
                     f"'cannot determine'. Duration: {action.duration_seconds}"
                 )
-                exit_code_to_set = 3
+                exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
             elif isinstance(action, FeedbackAction):
                 vibe_message += f", Message: {action.message}"
                 logger.info(
@@ -246,7 +246,8 @@ async def run_check_command(
                     "'cannot determine' or 'ambiguous'."
                 )
                 exit_code_to_set = (
-                    2  # Or 3, depending on how feedback should be treated
+                    PredicateCheckExitCode.POORLY_POSED
+                    # TODO: is this the right exit code?
                 )
             elif isinstance(action, ThoughtAction):
                 vibe_message += f", Text: {action.text}"
@@ -254,12 +255,12 @@ async def run_check_command(
                     f"ThoughtAction received: {action.text}. Interpreting as "
                     "'cannot determine'."
                 )
-                exit_code_to_set = 3
+                exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
             else:
                 logger.warning(
                     f"Unhandled action type from LLM for 'check': {action_type_str}"
                 )
-                exit_code_to_set = 3  # Default for unhandled actions
+                exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
 
             if output_flags.show_vibe:
                 console_manager.print_vibe(vibe_message)
@@ -268,11 +269,11 @@ async def run_check_command(
     else:
         # Should not happen if plan_result is always Error or Success
         logger.error("Unexpected result type from _get_check_llm_plan")
-        exit_code_to_set = 3
+        exit_code_to_set = PredicateCheckExitCode.CANNOT_DETERMINE
         result_to_return = Error("Internal error: Unexpected planning result type")
 
     # Store the determined exit code in the Result object
-    result_to_return.original_exit_code = exit_code_to_set
+    result_to_return.original_exit_code = exit_code_to_set.value  # Use .value for int
 
     # Display metrics if requested and available
     if llm_metrics and output_flags.show_metrics:
@@ -288,5 +289,5 @@ async def run_check_command(
     if isinstance(result_to_return, Success):
         result_to_return.continue_execution = False  # Explicitly set to False
 
-    logger.info(f"'check' subcommand determined exit code: {exit_code_to_set}")
+    logger.info(f"'check' subcommand determined exit code: {exit_code_to_set.value}")
     return result_to_return

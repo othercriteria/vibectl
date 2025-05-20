@@ -9,7 +9,7 @@ from asyncclick.testing import CliRunner  # Use CliRunner from asyncclick
 
 from vibectl.cli import cli  # Assuming main cli object is here
 from vibectl.subcommands.check_cmd import run_check_command
-from vibectl.types import Error, OutputFlags, Result, Success
+from vibectl.types import Error, OutputFlags, PredicateCheckExitCode, Result, Success
 
 # Mark all tests in this file as asyncio
 pytestmark = pytest.mark.asyncio
@@ -36,7 +36,7 @@ async def test_run_check_command_success(
     mock_configure_output_flags.return_value = mock_output_flags
 
     expected_result = Success(message="Predicate is TRUE")
-    expected_result.original_exit_code = 0
+    expected_result.original_exit_code = PredicateCheckExitCode.TRUE.value
     mock_handle_vibe_request.return_value = expected_result
 
     result: Result = await run_check_command(
@@ -51,7 +51,7 @@ async def test_run_check_command_success(
     )
 
     assert result == expected_result
-    assert result.original_exit_code == 0
+    assert result.original_exit_code == PredicateCheckExitCode.TRUE.value
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -91,7 +91,7 @@ async def test_run_check_command_error_from_vibe(
     mock_configure_output_flags.return_value = mock_output_flags
 
     expected_error = Error(error="LLM failed")
-    expected_error.original_exit_code = 3
+    expected_error.original_exit_code = PredicateCheckExitCode.CANNOT_DETERMINE.value
     mock_handle_vibe_request.return_value = expected_error
 
     result: Result = await run_check_command(
@@ -106,7 +106,7 @@ async def test_run_check_command_error_from_vibe(
     )
 
     assert result == expected_error
-    assert result.original_exit_code == 3
+    assert result.original_exit_code == PredicateCheckExitCode.CANNOT_DETERMINE.value
     mock_configure_memory_flags.assert_called_once_with(True, False)
     mock_handle_vibe_request.assert_called_once_with(
         request=predicate,
@@ -155,7 +155,7 @@ async def test_run_check_command_empty_predicate() -> None:
         'vibectl check "are there any pods in a CrashLoopBackOff state?"'
     )
     assert result.error == expected_error_message
-    assert result.original_exit_code == 2
+    assert result.original_exit_code == PredicateCheckExitCode.POORLY_POSED.value
     mock_cfg_mem_flags.assert_called_once()
     mock_cfg_out_flags.assert_called_once()
 
@@ -172,12 +172,12 @@ async def test_run_check_command_empty_predicate() -> None:
 
 
 @pytest.mark.parametrize(
-    "expected_exit_code",
+    "expected_exit_code_enum",
     [
-        0,  # Predicate TRUE
-        1,  # Predicate FALSE
-        2,  # Predicate poorly posed (though usually caught before vibe_request)
-        3,  # Cannot determine
+        PredicateCheckExitCode.TRUE,
+        PredicateCheckExitCode.FALSE,
+        PredicateCheckExitCode.POORLY_POSED,
+        PredicateCheckExitCode.CANNOT_DETERMINE,
     ],
 )
 # Patch targets should be where the names are looked up by the code under test.
@@ -192,7 +192,7 @@ async def test_check_command_cli_exit_code_propagation(
     mock_get_model_adapter_func: MagicMock,
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
-    expected_exit_code: int,
+    expected_exit_code_enum: PredicateCheckExitCode,
 ) -> None:
     """Test that vibectl check CLI command propagates original_exit_code correctly."""
     runner = CliRunner()
@@ -208,8 +208,10 @@ async def test_check_command_cli_exit_code_propagation(
 
     action_dict = {
         "action_type": "DONE",
-        "exit_code": expected_exit_code,
-        "message": f"Predicate evaluation complete with code {expected_exit_code}",
+        "exit_code": expected_exit_code_enum.value,
+        "message": (
+            f"Predicate evaluation complete with code {expected_exit_code_enum.value}"
+        ),
     }
 
     llm_response_dict = {"action": action_dict}
@@ -243,7 +245,7 @@ async def test_check_command_cli_exit_code_propagation(
         command_to_invoke, [predicate_text, "--model", "test-cli-model"]
     )
 
-    mock_sys_exit.assert_called_once_with(expected_exit_code)
+    mock_sys_exit.assert_called_once_with(expected_exit_code_enum.value)
 
     # configure_memory_flags is called by run_check_command
     mock_configure_memory_flags.assert_called_once()

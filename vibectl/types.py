@@ -47,6 +47,15 @@ class RecoverableApiError(ValueError):
     pass
 
 
+class PredicateCheckExitCode(int, Enum):
+    """Exit codes for the 'vibectl check' command."""
+
+    TRUE = 0  # Predicate is TRUE
+    FALSE = 1  # Predicate is FALSE
+    POORLY_POSED = 2  # Predicate is poorly posed or ambiguous
+    CANNOT_DETERMINE = 3  # Cannot determine predicate truthiness
+
+
 @dataclass
 class OutputFlags:
     """Configuration for output display flags."""
