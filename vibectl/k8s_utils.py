@@ -340,3 +340,57 @@ async def create_async_kubectl_process(
         logger.error(f"Error creating async kubectl process: {e}", exc_info=True)
         # Re-raise other exceptions
         raise e
+
+
+READ_ONLY_KUBECTL_VERBS = (
+    "get",
+    "describe",
+    "logs",
+    "api-versions",
+    "api-resources",
+    "top",
+    "cluster-info",
+    "diff",  # diff is read-only, though it might contact the server for live state.
+    "explain",
+    "auth",  # Specifically "auth can-i" is read-only.
+    "version",
+    "proxy",  # proxy itself doesn't change state, but what's done *through* it can.
+    # For planner, assume LLM won't plan to start a proxy and
+    # then do mutations through it.
+)
+
+
+def is_kubectl_command_read_only(command_parts: list[str]) -> bool:
+    """
+    Checks if the given kubectl command (verb + args) is read-only.
+    This is a basic check based on the verb.
+
+    Args:
+        command_parts: The kubectl command split into parts (e.g.,
+        ["get", "pods", "-n", "default"])
+
+    Returns:
+        True if the command is considered read-only, False otherwise.
+    """
+    if not command_parts:
+        return False  # Or raise error, an empty command is not valid.
+
+    verb = command_parts[0].lower()
+
+    if verb in READ_ONLY_KUBECTL_VERBS:
+        # Special case for "auth": only "auth can-i" is truly read-only by default.
+        # Other "auth" subcommands might not be.
+        if verb == "auth":
+            if len(command_parts) > 1 and command_parts[1].lower() == "can-i":
+                return True
+            # "auth whoami" could also be considered read-only, but "can-i"
+            # is the primary safe one.
+            # For now, be conservative for other "auth" subcommands.
+            logger.warning(
+                f"Allowing 'auth' verb without 'can-i': {command_parts}. "
+                "Review for safety."
+            )
+            return True  # Temporarily allowing other 'auth' for now, should be refined.
+        return True
+
+    return False

@@ -117,6 +117,9 @@ class DoneAction(LLMAction):
             "(e.g., 3 for 'cannot determine' in vibectl check)."
         ),
     )
+    explanation: str | None = Field(
+        None, description="The LLM's final reasoning or message for this DONE action."
+    )
 
 
 # Union of all specific actions for Pydantic's discriminated union

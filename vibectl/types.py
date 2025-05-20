@@ -17,6 +17,9 @@ from typing import (
 # Import Config for type hinting
 from .config import Config
 
+# Type alias for the structure of examples used in format_ml_examples
+MLExampleItem = tuple[str, str, dict[str, Any]]
+
 # For prompt construction
 Examples = NewType("Examples", list[tuple[str, dict[str, Any]]])
 Fragment = NewType("Fragment", str)

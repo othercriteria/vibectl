@@ -49,6 +49,7 @@ DEFAULT_CONFIG = {
     "live_display_save_dir": ".",  # Default directory to save watch output logs
     "intelligent_apply": True,  # Enable intelligent apply features
     "max_correction_retries": 1,
+    "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -90,6 +91,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "live_display_save_dir": str,
     "intelligent_apply": bool,
     "max_correction_retries": int,
+    "check_max_iterations": int,
 }
 
 # Valid values for specific keys

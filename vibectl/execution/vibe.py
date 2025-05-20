@@ -40,6 +40,7 @@ from vibectl.types import (
     Error,
     Fragment,
     OutputFlags,
+    PredicateCheckExitCode,
     PromptFragments,
     Result,
     Success,
@@ -152,6 +153,21 @@ async def handle_vibe_request(
             recovery_suggestions=error_message,
         )
 
+    elif action == ActionType.DONE:
+        # TODO: Handle DONE action for commands other than 'check' or remove from
+        # schema so that it's not returned.
+
+        # DONE action received for a command other than 'check', or wrong type
+        logger.warning(
+            f"Received DONE action for command '{command}' or mismatched type. "
+            "This is currently unhandled."
+        )
+        # For now, treat as an error or unexpected situation
+        return Error(
+            error=f"Unexpected DONE action for command '{command}'.",
+            original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
+        )
+
     elif action == ActionType.WAIT:
         duration = response_action.duration_seconds
         logger.info(f"LLM requested WAIT for {duration} seconds.")
@@ -254,8 +270,8 @@ async def handle_vibe_request(
         return Success(message=f"Processed AI feedback: {feedback_message}")
 
     elif action == ActionType.COMMAND:
-        raw_llm_commands = response_action.commands or []
-        kubectl_verb, kubectl_args = _extract_verb_args(command, raw_llm_commands)
+        commands_to_run = response_action.commands or []
+        kubectl_verb, kubectl_args = _extract_verb_args(command, commands_to_run)
 
         allowed_exit_codes_list = response_action.allowed_exit_codes or [0]
 
@@ -309,8 +325,8 @@ async def _confirm_and_execute_plan(
     kubectl_verb: str,
     kubectl_args: list[str],
     yaml_content: str | None,
-    plan_explanation: str | None,  # Renamed from explanation to be more generic
-    original_command_verb: str,  # Add original_command_verb
+    plan_explanation: str | None,
+    original_command_verb: str,
     semiauto: bool,
     yes: bool,
     autonomous_mode: bool,

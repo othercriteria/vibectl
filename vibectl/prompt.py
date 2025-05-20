@@ -15,10 +15,18 @@ from .config import Config
 from .schema import (
     ActionType,
     ApplyFileScopeResponse,
+    LLMAction,
     LLMFinalApplyPlanResponse,
     LLMPlannerResponse,
 )
-from .types import Examples, Fragment, PromptFragments, SystemFragments, UserFragments
+from .types import (
+    Examples,
+    Fragment,
+    MLExampleItem,
+    PromptFragments,
+    SystemFragments,
+    UserFragments,
+)
 
 # Regenerate the shared JSON schema definition string from the Pydantic model
 _SCHEMA_DEFINITION_JSON = json.dumps(LLMPlannerResponse.model_json_schema(), indent=2)
@@ -31,6 +39,44 @@ _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON = json.dumps(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_ml_examples(
+    examples: list[MLExampleItem],
+    request_label: str = "Request",
+    action_schema: type[LLMAction] | None = None,  # Schema for validation
+) -> str:
+    """Formats a list of Memory, Request, and Output examples into a string.
+
+    Args:
+        examples: A list of tuples, where each tuple contains:
+                  (memory_context: str, request_text: str, output_action: dict).
+                  The output_action is a dict representing the JSON action.
+        request_label: The label to use for the request/predicate part.
+        action_schema: Optional Pydantic model to validate the output_action against.
+
+    Returns:
+        str: A string containing all formatted examples.
+    """
+    formatted_str = ""
+    for i, (memory, request, output_action_item) in enumerate(examples):
+        if action_schema:
+            try:
+                action_schema.model_validate(output_action_item)
+            except Exception as e:  # Catch Pydantic ValidationError and others
+                logger.warning(
+                    f"Example {i + 1} (Request: '{request}') has an "
+                    "invalid 'output_action' against schema "
+                    f"{action_schema.__name__}: {e}"
+                    f"Action details: {output_action_item}"
+                )
+
+        formatted_str += f"Memory: {memory}\n"
+        formatted_str += f"{request_label}: {request}\n"
+        formatted_str += (
+            f"Output:\n{json.dumps({'action': output_action_item}, indent=2)}\n\n"
+        )
+    return formatted_str.strip()
 
 
 def format_examples(examples: list[tuple[str, str]]) -> str:
@@ -1358,8 +1404,8 @@ All actions will update working memory, so THOUGHT and FEEDBACK are only needed
 if you must make specific changes to the memory context.
 
 You may be in a non-interactive context, so do NOT plan blocking commands like
-'kubectl wait' or 'kubectl port-forward' unless given an explicit request to the
-contrary, and even then use appropriate timeouts.
+'kubectl wait' or 'kubectl port-forward' or 'kubectl get --watch' unless given an
+explicit request to the contrary, and even then use appropriate timeouts.
 
 You cannot run arbitrary shell commands, but a COMMAND planning appropriate
 `kubectl exec` commands to run inside pods may be appropriate.""")
@@ -1425,177 +1471,165 @@ Remember to choose only ONE action per response."""
     )
 
     # System: Examples
+    vibe_examples_data: list[MLExampleItem] = [
+        (
+            "We are working in namespace 'app'. Deployed 'frontend' and "
+            "'backend' services.",
+            "check if everything is healthy",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "pods", "-n", "app"],
+                "explanation": "Viewing pods in 'app' namespace, as first step in "
+                "overall check.",
+            },
+        ),
+        (
+            "The health-check pod is called 'health-check'.",
+            "Tell me about the health-check pod and the database deployment.",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "pods", "-l", "app=health-check"],
+                "explanation": "Addressing the health-check pod first; database "
+                "deployment next...",
+            },
+        ),
+        (
+            "",
+            "What are the differences for my-deployment.yaml?",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["diff", "-f", "my-deployment.yaml"],
+                "allowed_exit_codes": [0, 1],
+                "explanation": "User wants a diff for my-deployment.yaml. (Exit code "
+                "1 is normal.)",
+            },
+        ),
+        (
+            "We need to debug why the database pod keeps crashing.",
+            "",  # Empty request, relying on memory
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["describe", "pod", "-l", "app=database"],
+                "explanation": "My memory shows database pod crashing. Describe it "
+                "for details...",
+            },
+        ),
+        (
+            "",  # Empty memory, relying on request
+            "help me troubleshoot the database pod",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["describe", "pod", "-l", "app=database"],
+                "explanation": "User claims trouble with database pod. First, let's "
+                "describe it.",
+            },
+        ),
+        (
+            "Wait until pod 'foo' is deleted",
+            "",  # Empty request, relying on memory
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "Command 'kubectl wait --for=delete pod/foo' may "
+                "indefinitely block.",
+            },
+        ),
+        (
+            "You MUST NOT delete the 'health-check' pod.",
+            "delete the health-check pod",
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "Memory indicates 'health-check' pod MUST NOT be deleted.",
+            },
+        ),
+        (
+            "The cluster has 64GiB of memory available.",
+            "set the memory request for the app deployment to 128GiB",
+            {
+                "action_type": str(ActionType.FEEDBACK.value),
+                "message": "The cluster lacks memory (64GiB available) to meet "
+                "request for 128GiB.",
+                "explanation": "User's request exceeds available cluster resources.",
+                "suggestion": "Set a reduced memory request for the app deployment "
+                "of 32GiB.",
+            },
+        ),
+        (
+            "",
+            "lkbjwqnfl alkfjlkads",  # Unintelligible request
+            {
+                "action_type": str(ActionType.FEEDBACK.value),
+                "message": "It is not clear what you want to do. Try again with a "
+                "clearer request.",
+                "explanation": "The user's request is unintelligible.",
+                "suggestion": "Check user input for unclear requests. Provide detailed "
+                "examples.",
+            },
+        ),
+        (
+            "",
+            "wait until pod 'bar' finishes spinning up",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": [
+                    "wait",
+                    "pod",
+                    "bar",
+                    "--for=condition=ready",
+                    "--timeout=10s",
+                ],
+                "explanation": "Waiting on pod ready with 10s timeout to avoid "
+                "indefinite blocking.",
+            },
+        ),
+        (
+            "We need to create multiple resources for our application.",
+            "create the frontend and backend pods",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["create", "-f", "-"],
+                "yaml_manifest": (
+                    "apiVersion: v1\\n"
+                    "kind: Pod\\n"
+                    "metadata:\\n"
+                    "  name: frontend\\n"
+                    "  labels:\\n"
+                    "    app: foo\\n"
+                    "    component: frontend\\n"
+                    "spec:\\n"
+                    "  containers:\\n"
+                    "  - name: nginx\\n"
+                    "    image: nginx\\n"
+                    "---\\n"
+                    "apiVersion: v1\\n"
+                    "kind: Pod\\n"
+                    "metadata:\\n"
+                    "  name: backend\\n"
+                    "  labels:\\n"
+                    "    app: foo\\n"
+                    "    component: backend\\n"
+                    "spec:\\n"
+                    "  containers:\\n"
+                    "  - name: alpine\\n"
+                    "    image: alpine\\n"
+                    '    command: ["sleep", "infinity"]'
+                ),
+                "explanation": "Creating frontend and backend pods using the "
+                "provided YAML manifest.",
+            },
+        ),
+    ]
     system_fragments.append(
-        Fragment(
-            """Examples:
-
-Memory: "We are working in namespace 'app'. Deployed 'frontend' and 'backend' services."
-Request: "check if everything is healthy"
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["get", "pods", "-n", "app"],
-    "explanation": "Viewing pods in 'app' namespace, as first step in overall check."
-  }
-}
-
-Memory: "The health-check pod is called 'health-check'."
-Request: "Tell me about the health-check pod and the database deployment."
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["get", "pods", "-l", "app=health-check"],
-    "explanation": "Addressing the health-check pod first; database deployment next..."
-  }
-}
-
-Memory: ""
-Request: "What are the differences for my-deployment.yaml?"
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["diff", "-f", "my-deployment.yaml"],
-    "allowed_exit_codes": [0, 1],
-    "explanation": "User wants a diff for my-deployment.yaml. (Exit code 1 is normal.)"
-  }
-}
-
-Memory: "We need to debug why the database pod keeps crashing."
-Request: ""
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "My memory shows database pod crashing. Describe it for details..."
-  }
-}
-
-Memory: ""
-Request: "help me troubleshoot the database pod"
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "User claims trouble with database pod. First, let's describe it."
-  }
-}
-
-Memory: "Wait until pod 'foo' is deleted"
-Request: ""
-Output:
-{
-  "action": {
-    "action_type": "ERROR",
-    "message": "Command 'kubectl wait --for=delete pod/foo' may indefinitely block."
-  }
-}
-
-Memory: "You MUST NOT delete the 'health-check' pod."
-Request: "delete the health-check pod"
-Output:
-{
-  "action": {
-    "action_type": "ERROR",
-    "message": "Memory indicates 'health-check' pod MUST NOT be deleted."
-  }
-}
-
-Memory: "The cluster has 64GiB of memory available."
-Request: "set the memory request for the app deployment to 128GiB"
-Output:
-{
-  "action": {
-    "action_type": "FEEDBACK",
-    "message": "The cluster lacks memory (64GiB available) to meet request for 128GiB.",
-    "explanation": "User's request exceeds available cluster resources.",
-    "suggestion": "Set a reduced memory request for the app deployment of 32GiB."
-  }
-}
-
-Memory: ""
-Request: "lkbjwqnfl alkfjlkads"
-Output:
-{
-  "action": {
-    "action_type": "FEEDBACK",
-    "message": "It is not clear what you want to do. Try again with a clearer request.",
-    "explanation": "The user's request is unintelligible.",
-    "suggestion": "Check user input for unclear requests. Provide detailed examples."
-  }
-}
-
-Memory: ""
-Request: "wait until pod 'bar' finishes spinning up"
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["wait", "pod", "bar", "--for=condition=ready", "--timeout=10s"],
-    "explanation": "Waiting on pod ready with 10s timeout to avoid indefinite blocking."
-  }
-}
-
-Memory: "We need to create multiple resources for our application."
-Request: "create the frontend and backend pods"
-Output:
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["create", "-f", "-"],
-    "yaml_manifest": (
-        "apiVersion: v1\n"
-        "kind: Pod\n"
-        "metadata:\n"
-        "  name: frontend\n"
-        "  labels:\n"
-        "    app: foo\n"
-        "    component: frontend\n"
-        "spec:\n"
-        "  containers:\n"
-        "  - name: frontend\n"
-        "    image: nginx:latest\n"
-        "    ports:\n"
-        "    - containerPort: 80\n"
-        "---\n"
-        "apiVersion: v1\n"
-        "kind: Pod\n"
-        "metadata:\n"
-        "  name: backend\n"
-        "  labels:\n"
-        "    app: foo\n"
-        "    component: backend\n"
-        "spec:\n"
-        "  containers:\n"
-        "  - name: backend\n"
-        "    image: redis:latest\n"
-        "    ports:\n"
-        "    - containerPort: 6379"
-    ),
-    "explanation": "Creating multiple resources as asked, in a single YAML manifest."
-  }
-}
-
-# END Example inputs (memory and request) and outputs"""
-        )
+        Fragment(f"""Examples:\n\n{format_ml_examples(vibe_examples_data)}
+""")
     )
 
-    # User: Instruction for output format and prompt structure (placeholders removed)
+    # User fragments will be added by the caller (memory context, actual request)
     user_fragments.append(
         Fragment(
-            "Your output MUST be ONLY the JSON object conforming to the schema, "
-            "based on the user's goal:"
+            "Consider the user's goal and current memory context to plan the next "
+            "action:"
         )
     )
-    # User fragment for memory will be added by caller
-    # User fragment for request will be added by caller
-    user_fragments.append(
-        Fragment("Output:")
-    )  # Instructs where the JSON output should start
 
     return PromptFragments((system_fragments, user_fragments))
 
@@ -2279,161 +2313,113 @@ def plan_final_apply_command_prompt_fragments(
     return PromptFragments((system_frags, user_frags))
 
 
-# Template for planning vibectl check commands
+# Template for planning 'vibectl check' commands
 def plan_check_fragments() -> PromptFragments:
-    """Get prompt fragments for planning vibectl check predicate evaluations.
-
-    Returns:
-        PromptFragments: System fragments and base user fragments.
-                         Caller adds memory and request (predicate) fragments.
-    """
+    """Get prompt fragments for planning 'vibectl check' commands."""
     system_fragments: SystemFragments = SystemFragments([])
-    user_fragments: UserFragments = UserFragments(
-        []
-    )  # Base user fragments, caller adds predicate
+    user_fragments: UserFragments = UserFragments([])
 
     # System: Core instructions and role for 'check'
     system_fragments.append(
-        Fragment("""
-You are an AI assistant tasked with evaluating the truthiness of a predicate
-about a Kubernetes cluster's state. Your primary goal is to determine if the
-given predicate is TRUE or FALSE.
+        Fragment(
+            """You are an AI assistant evaluating a predicate against a
+Kubernetes cluster.
 
-Based on the predicate, you should respond with an `LLMPlannerResponse` JSON object
-containing a single action. The preferred actions are:
+Your goal is to determine if the given predicate is TRUE or FALSE.
 
-1.  `DONE`: If you can determine the truthiness of the predicate.
-    - `exit_code`:
-        - `0` if the predicate is TRUE.
-        - `1` if the predicate is FALSE.
-        - `2` if the predicate is ill-posed, ambiguous, or unanswerable as stated.
-        - `3` if you cannot determine the truthiness without more information
-          (even if you could potentially find it with commands).
+You MUST use read-only kubectl commands (get, describe, logs, events) to
+gather information.
 
-2.  `ERROR`: If the predicate is fundamentally flawed, internally contradictory,
-    or requests something impossible in a way that `DONE` with exit_code 2 or 3
-    doesn't quite capture. The `message` field should explain why.
+Do NOT use commands that modify state (create, delete, apply, patch, edit, scale, etc.).
 
-If, for some reason, you believe you *must* issue a `COMMAND` (e.g., a read-only
-`kubectl get` or `kubectl describe`) or a `WAIT` action to gather information
-before concluding, understand that for the initial evaluation phase, `vibectl`
-will interpret this as you being unable to determine the predicate's truthiness
-in a single step, and will likely result in an overall outcome of "cannot determine"
-(exit code 3). Only plan `COMMAND` actions that are strictly read-only.
+Your response MUST be a single JSON object conforming to the LLMPlannerResponse schema.
+Choose ONE action:
+- COMMAND: If you need more information. Specify *full* kubectl command arguments.
+- DONE: If you can determine the predicate's truthiness. Include 'exit_code':
+    - 0: Predicate is TRUE.
+    - 1: Predicate is FALSE.
+    - 2: Predicate is ill-posed or ambiguous for a Kubernetes context.
+    - 3: Cannot determine truthiness (e.g., insufficient info, timeout, error
+         during execution).
+  Include an 'explanation' field justifying your conclusion.
+- ERROR: If the request is fundamentally flawed (e.g., asks to modify state).
 
-Do NOT plan commands that modify state (e.g., create, delete, apply, scale, patch).
+Focus on the original predicate. Base your final DONE action on whether that specific
+predicate is true or false based on the information gathered."""
+        )
+    )
+
+    # System: Schema definition
+    system_fragments.append(fragment_json_schema_instruction(_SCHEMA_DEFINITION_JSON))
+
+    # System: Examples for 'check'
+    check_examples_data: list[MLExampleItem] = [
+        (
+            "Namespace 'default' has pods: nginx-1 (Running), nginx-2 (Running).",
+            "are all pods in the default namespace running?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 0,
+                "explanation": "All pods listed in memory for 'default' are Running.",
+            },
+        ),
+        (
+            "Pods in 'kube-system': foo (Running), bar (CrashLoopBackOff), "
+            "baz (Pending)",
+            "are all pods in kube-system healthy?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 1,
+                "explanation": "Pod 'bar' in 'kube-system' is in CrashLoopBackOff "
+                "state.",
+            },
+        ),
+        (
+            "",
+            "is there a deployment named 'web-server' in 'production'?",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "deployment", "web-server", "-n", "production"],
+                "explanation": "Cannot determine from memory; need to query the "
+                "cluster for the deployment.",
+            },
+        ),
+        (
+            "",
+            "is the sky blue today in the cluster?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 2,
+                "explanation": "This predicate is ill-posed for a Kubernetes "
+                "cluster context.",
+            },
+        ),
+        (
+            "",
+            "Attempt deletion of all pods in the cluster and ensure they are deleted.",
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "The 'check' command can't ensure actions; it only "
+                "evaluates predicates.",
+            },
+        ),
+    ]
+    system_fragments.append(
+        Fragment(f"""Examples for 'vibectl check':
+
+{format_ml_examples(check_examples_data, request_label="Predicate")}
+
+Note on multi-step COMMAND example: If a COMMAND action is planned, `vibectl` will
+execute it and the output will be fed back into your memory for a subsequent planning
+step. You would then use that new information to issue another COMMAND or a DONE action.
 """)
     )
 
-    # System: Schema definition (reuse the main planner schema)
-    system_fragments.append(
-        Fragment(
-            f"""Your response MUST be a valid JSON object conforming to
-the LLMPlannerResponse schema:
-```json
-{_SCHEMA_DEFINITION_JSON}
-```
-This means your output should be a JSON object with a single key "action",
-where "action" contains the specific action object (e.g., DoneAction,
-ErrorAction, CommandAction).
-
-Example structure for a DONE action (predicate is TRUE):
-{{
-  "action": {{
-    "action_type": "DONE",
-    "exit_code": 0
-  }}
-}}
-
-Example structure for an ERROR action (predicate is ambiguous):
-{{
-  "action": {{
-    "action_type": "ERROR",
-    "message": "The predicate 'is the cluster happy?' is too ambiguous to evaluate."
-  }}
-}}
-
-See the general planner prompt for details on COMMAND, WAIT, FEEDBACK action fields if
-you must use them, but prioritize DONE or ERROR for this 'check' task.
-"""
-        )
-    )
-
-    # System: Examples for 'check'
-    system_fragments.append(
-        Fragment(
-            """Examples for 'vibectl check':
-
-Memory: "Namespace 'default' has pods: nginx-1 (Running), nginx-2 (Running)."
-Request (Predicate): "are all pods in the default namespace running?"
-Output:
-{
-  "action": {
-    "action_type": "DONE",
-    "exit_code": 0
-  }
-}
-
-Memory: "Pods in 'kube-system': foo (Running), bar (CrashLoopBackOff), baz (Pending)"
-Request (Predicate): "are all pods in kube-system healthy?"
-Output:
-{
-  "action": {
-    "action_type": "DONE",
-    "exit_code": 1
-  }
-}
-
-Memory: ""
-Request (Predicate): "is there a deployment named 'web-server' in 'production'?"
-Output (Assuming LLM doesn't know and needs to check):
-{
-  "action": {
-    "action_type": "COMMAND",
-    "commands": ["get", "deployment", "web-server", "-n", "production"],
-    "explanation": "Cannot determine from memory; need to query the cluster."
-  }
-}
-// vibectl (in Phase 1) would interpret the above COMMAND as
-// exit code 3 (cannot determine in one shot).
-
-Memory: ""
-Request (Predicate): "is the sky blue today in the cluster?"
-Output:
-{
-  "action": {
-    "action_type": "DONE",
-    "exit_code": 2 // Ill-posed for a K8s cluster context
-  }
-}
-
-Memory: ""
-Request (Predicate): "Ensure all pods are deleted."
-Output:
-{
-  "action": {
-    "action_type": "ERROR",
-    "message": "The 'check' command can't ensure actions; it only evaluates predicates."
-  }
-}
-# END Example inputs (memory and request/predicate) and outputs"""
-        )
-    )
-
-    # User: Instruction for output format and prompt structure
+    # User fragments will be added by the caller (memory context, actual predicate)
     user_fragments.append(
         Fragment(
-            "Your output MUST be ONLY the JSON object conforming to the schema, "
-            "based on the user's predicate and current memory context:"
+            "Evaluate the following based on your memory and the plan you develop:"
         )
     )
-    # User fragment for memory will be added by caller
-    # User fragment for predicate (request) will be added by caller
-    user_fragments.append(
-        Fragment("Output:")
-    )  # Instructs where the JSON output should start
 
     return PromptFragments((system_fragments, user_fragments))
-
-
-PLAN_CHECK_PROMPT: PromptFragments = plan_check_fragments()

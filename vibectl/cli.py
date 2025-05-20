@@ -14,7 +14,6 @@ import asyncclick as click
 from rich.panel import Panel
 from rich.table import Table
 
-from vibectl.execution.check import run_check_command
 from vibectl.memory import (
     clear_memory,
     disable_memory,
@@ -24,6 +23,7 @@ from vibectl.memory import (
 )
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
+from vibectl.subcommands.check_cmd import run_check_command as run_check_subcommand
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -1530,7 +1530,7 @@ async def check_command_wrapper(
     show_metrics: bool | None,
 ) -> None:
     """Wrapper for the check command."""
-    result = await run_check_command(
+    result = await run_check_subcommand(
         predicate=predicate,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
@@ -1554,8 +1554,10 @@ def handle_result(result: Result) -> None:
             return
 
         exit_code = result.original_exit_code or 0
+        # Ensure consistent single period at the end of result.message
+        formatted_message = result.message.rstrip().rstrip(".")
         logger.info(
-            f"Normal termination requested: {result.message}. "
+            f"Normal termination requested: {formatted_message}. "
             f"Using original_exit_code: {result.original_exit_code}, "
             f"effective_exit_code: {exit_code}."
         )
