@@ -630,20 +630,23 @@ async def _process_vibe_output(
 
         if should_stream:
             logger.info("Streaming Vibe output...")
-            # For streaming, we will yield chunks and the caller will handle display.
-            # The `console_manager.print_vibe` will need to be adapted or a new method created.
-            # We'll accumulate the full response text for memory update and return.
+            console_manager.start_live_vibe_panel() # Start live display
             full_vibe_response_text = ""
-            async for chunk in model_adapter.stream_execute(
-                model=model,
-                system_fragments=summary_system_fragments,
-                user_fragments=UserFragments(formatted_user_fragments),
-            ):
-                console_manager.print_vibe(chunk, is_stream_chunk=True)
-                full_vibe_response_text += chunk
+            try:
+                async for chunk in model_adapter.stream_execute(
+                    model=model,
+                    system_fragments=summary_system_fragments,
+                    user_fragments=UserFragments(formatted_user_fragments),
+                ):
+                    console_manager.update_live_vibe_panel(chunk) # Update live display
+                    full_vibe_response_text += chunk
+            finally:
+                # Ensure panel is stopped even if streaming errors out, though text might be incomplete.
+                # The stop_live_vibe_panel method now returns the accumulated text, 
+                # but we use full_vibe_response_text which was accumulated directly.
+                console_manager.stop_live_vibe_panel()
+            
             vibe_output_text = full_vibe_response_text
-            # Metrics for streaming are not yet fully implemented in stream_execute.
-            # For now, we'll return None for metrics when streaming.
             metrics = None # Placeholder for streaming metrics
         else:
             # Non-streaming path (existing logic)
