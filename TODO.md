@@ -306,3 +306,11 @@ Implementation should prioritize commands that provide the most value to users w
 - **`vibectl semiauto`**: Designed for interactive execution where each step planned by the LLM is presented to the user for confirmation. It implies `yes=False` for internal command confirmations, requiring explicit user input (`y/n/a/b/m/e`).
 - **Confirmation Logic**: The `_needs_confirmation` helper in `command_handler.py` determines if a command verb is dangerous. This, combined with the effective `yes` status (always `True` for full auto, always `False` for semiauto initial prompt) dictates whether `_handle_command_confirmation` shows a prompt or bypasses it.
 - **Error Handling**: Both modes have mechanisms to continue or halt on errors, with `exit_on_error` controlling the loop's behavior. Non-halting errors allow the loop to proceed, often with recovery suggestions.
+
+## `vibectl check` Future Enhancements
+
+- **Comprehensive Integration Testing**: Develop a comprehensive suite of integration tests for `vibectl check` covering diverse predicates (simple true/false, multi-step, poorly posed, cannot determine outcomes) and verifying exit codes and explanations for semantic fidelity to the original predicate.
+- **Semantic Drift Regression Testing**: Design and implement tests specifically to detect and prevent "semantic drift" regressions in `vibectl check`.
+- **Schema Clarity**: Rename `CommandAction.commands` to `CommandAction.args` in `vibectl/schema.py` for better clarity.
+- **Token Budget**: Implement a token budget for LLM interactions within the `vibectl check` loop to manage costs and prevent overly long interactions.
+- **Ongoing Prompt Refinement**: Continuously monitor `vibectl check` behavior with various complex predicates and real-world scenarios, refining system and user prompts as needed to improve clarity, accuracy, and robustness against semantic drift. Ensure the LLM's explanations in `DoneAction` clearly articulate how gathered information relates to the *original user-supplied predicate*.
