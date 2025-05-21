@@ -23,6 +23,7 @@ from vibectl.memory import (
 )
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
+from vibectl.subcommands.check_cmd import run_check_command as run_check_subcommand
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -1445,20 +1446,36 @@ async def diff(
     handle_result(result)
 
 
-@cli.command(context_settings={"ignore_unknown_options": True})
+@cli.command(
+    "apply",
+    help="Apply a configuration to a resource by filename or stdin",
+    context_settings={
+        "ignore_unknown_options": True
+    },  # Allow arbitrary args for kubectl
+)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-async def apply(
+@click.option("--show-raw-output", is_flag=True, help="Show raw kubectl output")
+@click.option("--show-vibe", is_flag=True, help="Show vibe output")
+@click.option("--show-kubectl", is_flag=True, help="Show kubectl command executed")
+@click.option("--model", help="Specify the LLM model to use")
+@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
+)
+@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
+@click.pass_context
+async def apply_command_wrapper(
+    ctx: click.Context,
     args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
+    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: bool | None,
 ) -> None:
-    """Apply a configuration to the live cluster from a file, directory, or stdin."""
+    """Wrapper for the apply command."""
     result = await run_apply_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -1472,18 +1489,79 @@ async def apply(
     handle_result(result)
 
 
+# Check command
+@cli.command(
+    "check",
+    help="Evaluate a predicate about the cluster state using LLM.",
+    context_settings={
+        "ignore_unknown_options": False
+    },  # No passthrough for check args yet
+)
+@click.argument("predicate", nargs=1, type=click.STRING)
+@click.option(
+    "--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)"
+)
+@click.option(
+    "--show-vibe",
+    is_flag=True,
+    default=True,
+    help="Show LLM reasoning/decision (default: True)",
+)
+@click.option(
+    "--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one"
+)
+@click.option("--model", help="Specify the LLM model to use")
+@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
+@click.option(
+    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
+)
+@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
+# TODO: Add --max-iterations, --timeout, --token-budget for Phase 2
+@click.pass_context
+async def check_command_wrapper(
+    ctx: click.Context,
+    predicate: str,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_metrics: bool | None,
+) -> None:
+    """Wrapper for the check command."""
+    result = await run_check_subcommand(
+        predicate=predicate,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+    )
+    handle_result(result)
+
+
 def handle_result(result: Result) -> None:
     """Handle the Result of a subcommand, exiting if requested."""
+    logger.info(f"handle_result received: {result!r}")
     if isinstance(result, Success):
         if result.continue_execution:
+            logger.info(
+                f"Continuing execution as requested by Success: {result.message}"
+            )
             return
 
         exit_code = result.original_exit_code or 0
+        # Ensure consistent single period at the end of result.message
+        formatted_message = result.message.rstrip().rstrip(".")
         logger.info(
-            f"Normal termination requested: {result.message}. "
-            f"Exiting with code {exit_code}."
+            f"Normal termination requested: {formatted_message}. "
+            f"Using original_exit_code: {result.original_exit_code}, "
+            f"effective_exit_code: {exit_code}."
         )
-        sys.exit(exit_code)
+        raise click.exceptions.Exit(exit_code)
 
     elif isinstance(result, Error):
         # Always print the error message to the console if available
@@ -1492,5 +1570,13 @@ def handle_result(result: Result) -> None:
         elif str(result):
             console_manager.print_error(str(result))
 
-        logger.info("Encountered an error. Exiting with code 1.")
-        sys.exit(1)
+        # Use original_exit_code if present and non-zero, otherwise default to 1
+        exit_code_val = 1
+        if result.original_exit_code is not None and result.original_exit_code != 0:
+            exit_code_val = result.original_exit_code
+
+        logger.info(
+            f"Encountered an error. Error details: {result!r}. "
+            f"Using exit_code_val: {exit_code_val}"
+        )
+        raise click.exceptions.Exit(exit_code_val)

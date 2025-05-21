@@ -13,14 +13,23 @@ from datetime import datetime
 
 from .config import Config
 from .schema import (
+    ActionType,
     ApplyFileScopeResponse,
-    LLMCommandResponse,
+    LLMAction,
     LLMFinalApplyPlanResponse,
+    LLMPlannerResponse,
 )
-from .types import Examples, Fragment, PromptFragments, SystemFragments, UserFragments
+from .types import (
+    Examples,
+    Fragment,
+    MLExampleItem,
+    PromptFragments,
+    SystemFragments,
+    UserFragments,
+)
 
 # Regenerate the shared JSON schema definition string from the Pydantic model
-_SCHEMA_DEFINITION_JSON = json.dumps(LLMCommandResponse.model_json_schema(), indent=2)
+_SCHEMA_DEFINITION_JSON = json.dumps(LLMPlannerResponse.model_json_schema(), indent=2)
 _APPLY_FILESCOPE_SCHEMA_JSON = json.dumps(
     ApplyFileScopeResponse.model_json_schema(), indent=2
 )
@@ -30,6 +39,44 @@ _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON = json.dumps(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_ml_examples(
+    examples: list[MLExampleItem],
+    request_label: str = "Request",
+    action_schema: type[LLMAction] | None = None,  # Schema for validation
+) -> str:
+    """Formats a list of Memory, Request, and Output examples into a string.
+
+    Args:
+        examples: A list of tuples, where each tuple contains:
+                  (memory_context: str, request_text: str, output_action: dict).
+                  The output_action is a dict representing the JSON action.
+        request_label: The label to use for the request/predicate part.
+        action_schema: Optional Pydantic model to validate the output_action against.
+
+    Returns:
+        str: A string containing all formatted examples.
+    """
+    formatted_str = ""
+    for i, (memory, request, output_action_item) in enumerate(examples):
+        if action_schema:
+            try:
+                action_schema.model_validate(output_action_item)
+            except Exception as e:  # Catch Pydantic ValidationError and others
+                logger.warning(
+                    f"Example {i + 1} (Request: '{request}') has an "
+                    "invalid 'output_action' against schema "
+                    f"{action_schema.__name__}: {e}"
+                    f"Action details: {output_action_item}"
+                )
+
+        formatted_str += f"Memory: {memory}\n"
+        formatted_str += f"{request_label}: {request}\n"
+        formatted_str += (
+            f"Output:\n{json.dumps({'action': output_action_item}, indent=2)}\n\n"
+        )
+    return formatted_str.strip()
 
 
 def format_examples(examples: list[tuple[str, str]]) -> str:
@@ -89,16 +136,14 @@ def create_planning_prompt(
 which is used for {description}.
 
 Given a natural language request describing the target resource(s), determine the
-appropriate arguments *following* 'kubectl {command}' and respond with a JSON
-object matching the provided schema.
+appropriate arguments *following* 'kubectl {command}'.
 
-The action '{command}' is implied by the context.
+The kubectl command '{command}' is implied by the context of this planning task.
 
 Focus on extracting resource names, types, namespaces, selectors, and flags
-from the request.""")
+from the request to populate the 'commands' field of the 'COMMAND' action.""")
     )
 
-    # System: Schema definition and key fields reminder
     system_fragments.append(
         Fragment(f"""
 Your response MUST be a valid JSON object conforming to this schema:
@@ -106,39 +151,45 @@ Your response MUST be a valid JSON object conforming to this schema:
 {schema_definition}
 ```
 
-Key fields:
-- `action_type`: Specify the intended action (usually COMMAND for planning args).
+This means your output should have syntax that aligns with this:
+{{
+  "action": {{
+    "action_type": "COMMAND",
+    "commands": ["<arg1>", "<arg2>", ...],
+    "yaml_manifest": "<yaml_string_if_applicable>",
+    "allowed_exit_codes": [0]
+    "explanation": "Optional string."
+  }}
+}}
+
+Key fields within the nested "COMMAND" action object:
+- `action_type`: MUST be "COMMAND".
 - `commands`: List of string arguments *following* `kubectl {command}`. Include flags
   like `-n`, `-f -`, but *exclude* the command verb itself. **MUST be a JSON array
-  of strings, e.g., [\"pods\", \"-n\", \"kube-system\"], NOT a single string like
-  \"pods -n kube-system\" or '[\"pods\", \"-n\", \"kube-system\"]' **.
-- `yaml_manifest`: YAML content as a string (primarily for `create`).
-- `explanation`: Brief explanation of the planned arguments.
-- `error`: Required if action_type is ERROR (e.g., request is unclear).
-- `wait_duration_seconds`: Required if action_type is WAIT.
+  of strings, e.g., ["pods", "-n", "kube-system"], NOT a single string like
+  "pods -n kube-system" or '["pods", "-n", "kube-system"]' **.
+- `yaml_manifest`: YAML content as a string (for actions like `create` that use stdin).
 - `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
-  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.""")
+  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
+- `explanation`: Optional. A brief string explaining why this command was chosen.""")
     )
 
     # System: Formatted examples
     formatted_examples = (
         "Example inputs (natural language target descriptions) and "
-        "expected JSON outputs:\n"
+        "expected JSON outputs (LLMPlannerResponse wrapping a CommandAction):\n"
     )
     formatted_examples += "\n".join(
         [
             f'- Target: "{req}" -> \n'
-            f"Expected JSON output:\n{json.dumps(output, indent=2)}"
+            f"Expected JSON output:\\n{json.dumps({'action': output}, indent=2)}"
             for req, output in examples
         ]
     )
     system_fragments.append(Fragment(formatted_examples))
 
-    # User: Request prompt structure (placeholders removed)
     # Caller will add actual memory and request strings as separate user fragments.
     user_fragments.append(Fragment("Here's the request:"))
-    # User fragment for memory will be added by caller
-    # User fragment for request will be added by caller
 
     return PromptFragments((system_fragments, user_fragments))
 
@@ -148,6 +199,7 @@ def create_summary_prompt(
     focus_points: list[str],
     example_format: list[str],
     config: Config | None = None,  # Add config for formatting fragments
+    current_memory: str | None = None,  # New argument
 ) -> PromptFragments:
     """Create standard summary prompt fragments for kubectl command output.
 
@@ -156,6 +208,7 @@ def create_summary_prompt(
         focus_points: List of what to focus on in the summary
         example_format: List of lines showing the expected output format
         config: Optional Config instance to use.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and base user fragments (excluding memory).
@@ -163,6 +216,10 @@ def create_summary_prompt(
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])  # Base user fragments
+
+    # Add memory context if provided and not empty
+    if current_memory and current_memory.strip():
+        system_fragments.append(fragment_memory_context(current_memory))
 
     # System: Core task description and focus points
     focus_text = "\n".join([f"- {point}" for point in focus_points])
@@ -253,25 +310,22 @@ PLAN_GET_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "pods in kube-system",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "-n", "kube-system"],
-                    "explanation": "Getting pods in the kube-system namespace.",
                 },
             ),
             (
                 "pods with app=nginx label",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Getting pods matching the label app=nginx.",
                 },
             ),
             (
                 "all pods in every namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--all-namespaces"],
-                    "explanation": "Getting all pods across all namespaces.",
                 },
             ),
         ]
@@ -283,15 +337,19 @@ PLAN_GET_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl get' output
 def get_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,  # New parameter
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl get output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
+    # Removed: current_memory_text = get_memory(cfg)
     return create_summary_prompt(
         description="Summarize this kubectl output.",
         focus_points=["key information", "notable patterns", "potential issues"],
@@ -301,22 +359,27 @@ def get_resource_prompt(
             "[bold]nginx-pod[/bold] [italic]running for 2 days[/italic]",
             "[yellow]Warning: 2 pods have high restart counts[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,  # Pass through the parameter
     )
 
 
 # Template for summarizing 'kubectl describe' output
 def describe_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,  # New parameter
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl describe output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
+    # Removed: current_memory_text = get_memory(cfg)
     return create_summary_prompt(
         description="Summarize this kubectl describe output. Limit to 200 words.",
         focus_points=["key details", "issues needing attention"],
@@ -326,22 +389,26 @@ def describe_resource_prompt(
             "[italic]last restart 2h ago[/italic]",
             "[red]OOMKilled 3 times in past day[/red]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,  # Pass through the parameter
     )
 
 
 # Template for summarizing 'kubectl logs' output
 def logs_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl logs output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze these container logs concisely.",
         focus_points=[
@@ -357,7 +424,8 @@ def logs_prompt(
             "[yellow]Slow query detected[/yellow] [italic]10s ago[/italic]",
             "[red]3 connection timeouts[/red] in past minute",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -370,25 +438,25 @@ PLAN_DESCRIBE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "nginx"],
-                    "explanation": "Describing the pod named nginx.",
+                    "explanation": "User asked to describe the nginx pod.",
                 },
             ),
             (
                 "the deployment in foo namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployments", "-n", "foo"],
-                    "explanation": "Describing deployments in the foo namespace.",
+                    "explanation": "User asked a deployment in a specific namespace.",
                 },
             ),
             (
                 "details of all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Describing pods matching the label app=nginx.",
+                    "explanation": "User requested pods matching a specific label.",
                 },
             ),
         ]
@@ -405,27 +473,25 @@ PLAN_LOGS_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "logs from the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx"],
-                    "explanation": "Getting logs for the pod named nginx.",
+                    "explanation": "User asked for logs from a specific pod.",
                 },
             ),
             (
                 "logs from the api container in app pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/app", "-c", "api"],
-                    "explanation": "Getting logs for the 'api' container in pod 'app'.",
+                    "explanation": "User asked for pod logs from a specific container.",
                 },
             ),
             (
                 "the last 100 lines from all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--selector=app=nginx", "--tail=100"],
-                    "explanation": (
-                        "Getting the last 100 log lines for pods with label app=nginx."
-                    ),
+                    "explanation": "User requested some log lines from matching pods.",
                 },
             ),
         ]
@@ -442,8 +508,9 @@ PLAN_CREATE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "an nginx hello world pod in default",  # Implicit creation request
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-", "-n", "default"],
+                    "explanation": "Creating an nginx pod as requested by the user.",
                     "yaml_manifest": (
                         """---
 apiVersion: v1
@@ -459,14 +526,14 @@ spec:
     ports:
     - containerPort: 80"""
                     ),
-                    "explanation": "Creating a simple Nginx pod.",
                 },
             ),
             (
                 "create a configmap with HTML content",  # Explicit creation
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
+                    "explanation": "Creating requested configmap with HTML content.",
                     "yaml_manifest": (
                         """---
 apiVersion: v1
@@ -477,14 +544,14 @@ data:
   index.html: |
     <html><body><h1>Hello World</h1></body></html>"""
                     ),
-                    "explanation": "Creating a ConfigMap with HTML data.",
                 },
             ),
             (
                 "frontend and backend pods for my application",  # Implicit creation
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
+                    "explanation": "Creating frontend and backend pods as requested.",
                     "yaml_manifest": (
                         """---
 apiVersion: v1
@@ -515,14 +582,14 @@ spec:
     ports:
     - containerPort: 6379"""
                     ),
-                    "explanation": "Creating two pods using a multi-document YAML.",
                 },
             ),
             (
                 "spin up a basic redis deployment",  # Explicit creation verb
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
+                    "explanation": "Creating a redis deployment as requested.",
                     "yaml_manifest": (
                         """---
 apiVersion: apps/v1
@@ -546,7 +613,6 @@ spec:
         - containerPort: 6379
 """
                     ),
-                    "explanation": "Creating a single-replica Redis deployment.",
                 },
             ),
         ]
@@ -564,25 +630,25 @@ PLAN_VERSION_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "version in json format",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=json"],
-                    "explanation": "Getting version information in JSON format.",
+                    "explanation": "User requested version in JSON format.",
                 },
             ),
             (
                 "client version only",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--client=true", "--output=json"],
-                    "explanation": "Getting only the client version in JSON format.",
+                    "explanation": "User requested client version only, JSON format.",
                 },
             ),
             (
                 "version in yaml",  # Target/flag description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=yaml"],
-                    "explanation": "Getting version information in YAML format.",
+                    "explanation": "User requested version in YAML format.",
                 },
             ),
         ]
@@ -599,25 +665,25 @@ PLAN_CLUSTER_INFO_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
-                    "commands": ["dump"],  # Default behavior is dump
-                    "explanation": "Getting detailed cluster information using dump.",
+                    "action_type": ActionType.COMMAND.value,
+                    "commands": ["dump"],
+                    "explanation": "User asked for cluster info, defaulting to dump.",
                 },
             ),
             (
                 "basic cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
-                    "commands": [],  # No extra args needed for basic info
-                    "explanation": "Getting basic cluster endpoint information.",
+                    "action_type": ActionType.COMMAND.value,
+                    "commands": [],
+                    "explanation": "User asked for basic cluster info.",
                 },
             ),
             (
                 "detailed cluster info",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["dump"],
-                    "explanation": "Getting detailed cluster information using dump.",
+                    "explanation": "User asked for detailed cluster info (dump).",
                 },
             ),
         ]
@@ -637,25 +703,25 @@ PLAN_EVENTS_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "events in default namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [],  # Default namespace is implicit
-                    "explanation": "Getting events in the default namespace.",
+                    "explanation": "User asked for events in the default namespace.",
                 },
             ),
             (
                 "events for pod nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--for=pod/nginx"],
-                    "explanation": "Getting events related to the pod named nginx.",
+                    "explanation": "User asked for events related to a specific pod.",
                 },
             ),
             (
                 "all events in all namespaces",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--all-namespaces"],  # Use -A or --all-namespaces
-                    "explanation": "Getting all events across all namespaces.",
+                    "explanation": "User asked for all events across all namespaces.",
                 },
             ),
         ]
@@ -667,15 +733,18 @@ PLAN_EVENTS_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl cluster-info' output
 def cluster_info_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl cluster-info output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze cluster-info output.",
         focus_points=[
@@ -693,22 +762,26 @@ def cluster_info_prompt(
             "[blue]CoreDNS[/blue] and [blue]KubeDNS[/blue] add-ons active",
             "[yellow]Warning: Dashboard not secured with RBAC[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl version' output
 def version_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl version output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Interpret Kubernetes version details in a human-friendly way.",
         focus_points=[
@@ -722,22 +795,26 @@ def version_prompt(
             "[blue]Server components[/blue] all [green]up-to-date[/green]",
             "[yellow]Client will be deprecated in 3 months[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl events' output
 def events_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl events output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Analyze these Kubernetes events concisely.",
         focus_points=[
@@ -756,7 +833,8 @@ def events_prompt(
             "[red]OOMKilled[/red] events for [bold]db-pod[/bold], "
             "[italic]happened 3 times[/italic]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -769,25 +847,25 @@ PLAN_DELETE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "the nginx pod",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod", "nginx"],
-                    "explanation": "Deleting the pod named nginx.",
+                    "explanation": "User asked to delete a specific pod.",
                 },
             ),
             (
                 "deployment in kube-system namespace",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment", "-n", "kube-system"],
-                    "explanation": "Deleting deployments in the kube-system namespace.",
+                    "explanation": "User asked to delete deployment in namespace.",
                 },
             ),
             (
                 "all pods with app=nginx",  # Target description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pods", "--selector=app=nginx"],
-                    "explanation": "Deleting pods matching the label app=nginx.",
+                    "explanation": "User asked to delete all pods matching a label.",
                 },
             ),
         ]
@@ -799,15 +877,18 @@ PLAN_DELETE_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl delete' output
 def delete_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl delete output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl delete results.",
         focus_points=["resources deleted", "potential issues", "warnings"],
@@ -816,7 +897,8 @@ def delete_resource_prompt(
             "[blue]default namespace[/blue]",
             "[yellow]Warning: Some resources are still terminating[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -829,31 +911,29 @@ PLAN_SCALE_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "deployment nginx to 3 replicas",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/nginx", "--replicas=3"],
-                    "explanation": "Scaling the nginx deployment to 3 replicas.",
+                    "explanation": "User asked to scale a deployment to 3 replicas.",
                 },
             ),
             (
                 "the redis statefulset to 5 replicas in the cache namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["statefulset/redis", "--replicas=5", "-n", "cache"],
-                    "explanation": (
-                        "Scaling the redis statefulset in the cache "
-                        "namespace to 5 replicas."
-                    ),
+                    "explanation": "User asked to scale statefulset in namespace.",
                 },
             ),
             (
                 "down the api deployment",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "deployment/api",
                         "--replicas=1",
                     ],  # Assuming scale down means 1
-                    "explanation": "Scaling down the api deployment to 1 replica.",
+                    "explanation": "User asked to scale down a deployment, "
+                    "defaulting to 1 replica.",
                 },
             ),
         ]
@@ -865,15 +945,18 @@ PLAN_SCALE_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl scale' output
 def scale_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl scale output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize scaling operation results.",
         focus_points=["changes made", "current state", "issues or concerns"],
@@ -882,7 +965,8 @@ def scale_resource_prompt(
             "[yellow]Warning: Scale operation might take time to complete[/yellow]",
             "[blue]Namespace: default[/blue]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -895,25 +979,23 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "for the deployment my-app to be ready",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/my-app", "--for=condition=Available"],
-                    "explanation": "Waiting for my-app deployment to become Available.",
+                    "explanation": "User asked to wait on deployment availability.",
                 },
             ),
             (
                 "until the pod nginx becomes ready with 5 minute timeout",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx", "--for=condition=Ready", "--timeout=5m"],
-                    "explanation": (
-                        "Waiting up to 5 minutes for the nginx pod to become Ready."
-                    ),
+                    "explanation": "User asked to wait for pod readiness with timeout.",
                 },
             ),
             (
                 "for all jobs in billing namespace to complete",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "jobs",
                         "--all",
@@ -921,9 +1003,7 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
                         "billing",
                         "--for=condition=Complete",
                     ],
-                    "explanation": (
-                        "Waiting for all jobs in the billing namespace to Complete."
-                    ),
+                    "explanation": "User asked to wait on all jobs done in namespace.",
                 },
             ),
         ]
@@ -935,15 +1015,18 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl wait' output
 def wait_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl wait output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl wait output.",
         focus_points=[
@@ -965,7 +1048,8 @@ def wait_resource_prompt(
                 "[bold]StatefulSet/database[/bold] to be ready"
             ),
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -978,53 +1062,46 @@ PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "status of deployment nginx",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["status", "deployment/nginx"],
-                    "explanation": "Checking the rollout status of nginx deployment.",
+                    "explanation": "User asked for the rollout status of a deployment.",
                 },
             ),
             (
                 "frontend deployment to revision 2",  # rollout action description
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["undo", "deployment/frontend", "--to-revision=2"],
-                    "explanation": (
-                        "Rolling back the frontend deployment to revision 2."
-                    ),
+                    "explanation": "User asked to roll back to specific revision.",
                 },
             ),
             (
                 "the rollout of my-app deployment in production namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pause", "deployment/my-app", "-n", "production"],
-                    "explanation": (
-                        "Pausing the rollout for the my-app deployment in the "
-                        "production namespace."
-                    ),
+                    "explanation": "User asked to pause rollout in a namespace.",
                 },
             ),
             (
                 "all deployments in default namespace",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "restart",
                         "deployment",
                         "-n",
                         "default",
                     ],  # Or add selector if needed
-                    "explanation": "Restarting all deployments in default namespace.",
+                    "explanation": "User asked to restart deployments in namespace.",
                 },
             ),
             (
                 "history of statefulset/redis",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["history", "statefulset/redis"],
-                    "explanation": (
-                        "Showing the rollout history for the redis statefulset."
-                    ),
+                    "explanation": "User asked for the rollout history of statefulset.",
                 },
             ),
         ]
@@ -1036,15 +1113,18 @@ PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl create' output
 def create_resource_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl create output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize resource creation results.",
         focus_points=["resources created", "issues or concerns"],
@@ -1054,22 +1134,26 @@ def create_resource_prompt(
             "[italic]default resource limits[/italic]",
             "[yellow]Note: No liveness probe configured[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl rollout status' output
 def rollout_status_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout status output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout status.",
         focus_points=["progress", "completion status", "issues or delays"],
@@ -1079,22 +1163,26 @@ def rollout_status_prompt(
             "[yellow]Still waiting for 2/5 replicas[/yellow]",
             "[italic]Rollout started 5 minutes ago[/italic]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl rollout history' output
 def rollout_history_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout history output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout history.",
         focus_points=[
@@ -1107,22 +1195,26 @@ def rollout_history_prompt(
             "[green]Current active: revision 5[/green] (deployed 2 hours ago)",
             "[yellow]Revision 3 had frequent restarts[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing other rollout command outputs
 def rollout_general_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize rollout command results.",
         focus_points=["key operation details"],
@@ -1131,7 +1223,8 @@ def rollout_general_prompt(
             "[blue]Updates applied[/blue] to [bold]my-deployment[/bold]",
             "[yellow]Warning: rollout took longer than expected[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -1296,180 +1389,270 @@ def plan_vibe_fragments() -> PromptFragments:
 You are a highly agentic and capable AI assistant delegated to work for a user
 in a Kubernetes cluster.
 
-Your options are:
+Your will return a single action object, which can be one of:
 - COMMAND: execute a single kubectl command, to directly advance the user's goal or
   reduce uncertainty about the user's goal and its status.
+- THOUGHT: record a thought or reasoning step, to improve your working memory.
 - FEEDBACK: return feedback to the user explaining uncertainty about the user's goal
-  that you cannot reduce by planning a COMMAND.
-- ERROR: the user's goal is clear but you cannot plan a next command.
-- WAIT: pause further work for at minimum some specified duration.
+  that you cannot reduce by planning a COMMAND, and soliciting clarification.
+- WAIT: pause further work, for (at least) some specified duration.
+- DONE: (Primarily for 'vibectl check') signal that the predicate evaluation is complete
+  and provide an exit code.
+- ERROR: you cannot or should not act otherwise.
+
+All actions will update working memory, so THOUGHT and FEEDBACK are only needed
+if you must make specific changes to the memory context.
 
 You may be in a non-interactive context, so do NOT plan blocking commands like
-'kubectl wait' or 'kubectl port-forward' unless given an explicit request to the
-contrary, and even then use appropriate timeouts.
+'kubectl wait' or 'kubectl port-forward' or 'kubectl get --watch' unless given an
+explicit request to the contrary, and even then use appropriate timeouts.
 
-You cannot run arbitrary shell commands, but planning appropriate `kubectl exec`
-commands to run inside pods may be appropriate.""")
+You cannot run arbitrary shell commands, but a COMMAND planning appropriate
+`kubectl exec` commands to run inside pods may be appropriate.""")
     )
 
     # System: Schema definition (f-string needed here)
     system_fragments.append(
         Fragment(
-            f"""Your response MUST be a valid JSON object conforming to this schema:
+            f"""Your response MUST be a valid JSON object conforming to the
+LLMPlannerResponse schema:
 ```json
 {_SCHEMA_DEFINITION_JSON}
 ```
 
-Key fields reminder:
-- `action_type`: COMMAND, FEEDBACK, ERROR, or WAIT.
-- `commands`: If action_type is COMMAND, this is a JSON list of strings representing the
-  *full* kubectl subcommand *including the verb*
-  (e.g., ["get", "pods", "-n", "app"]).
-- `yaml_manifest`: If action_type is COMMAND and involves creating/applying complex
-  resources, provide the YAML here as a single string.
-- `error`: A description of why you will not plan a next command. Required if
-  action_type is ERROR.
-- `explanation`: Brief explanation justifying the action taken.
-- `wait_duration_seconds`: Required if action_type is WAIT.
-- `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
-  for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
-- `wait_duration_seconds`: Required if action_type is WAIT."""
+Example structure for a COMMAND action:
+{{
+  "action": {{
+    "action_type": "COMMAND",
+    "commands": ["get", "pods", "-n", "app"],
+    "yaml_manifest": null, // or YAML string
+    "allowed_exit_codes": [0],
+    "explanation": "The user's goal is to check the pods in the 'app' namespace."
+  }}
+}}
+
+Key fields for each Action Type within the "action" object:
+
+1.  `action_type`: "COMMAND", "THOUGHT", "FEEDBACK", "ERROR", "WAIT", or "DONE".
+
+2.  If `action_type` is "COMMAND":
+    - `commands` (list of strings, required if no `yaml_manifest`): The *full* kubectl
+      subcommand *including the verb* (e.g., ["get", "pods", "-n", "app"]).
+    - `yaml_manifest` (string, optional): YAML content if creating/applying complex
+      resources.
+    - `allowed_exit_codes` (list of int, optional): Allowed exit codes for the
+      command (e.g., [0, 1] for diff). Defaults to [0].
+    - `explanation` (string, optional): Reasoning for why this specific command is the
+      next best step towards the user's goal.
+
+3.  If `action_type` is "THOUGHT":
+    - `text` (string, required): The textual content of your thought.
+
+4.  If `action_type` is "FEEDBACK":
+    - `message` (string, required): Textual feedback to the user.
+    - `explanation` (string, optional): Reasoning for providing this feedback (e.g.,
+      why clarification is needed).
+    - `suggestion` (string, optional): A suggested change to the memory context to
+      help clarify the request or situation.
+
+5.  If `action_type` is "WAIT":
+    - `duration_seconds` (int, required): Duration in seconds to wait.
+
+6.  If `action_type` is "DONE":
+    - `exit_code` (int, optional): The intended exit code for vibectl.
+      Defaults to 3 ('cannot determine') if not provided for 'vibectl check'.
+
+7.  If `action_type` is "ERROR":
+    - `message` (string, required): Description of why you cannot plan a command
+      or why the request is problematic.
+
+Remember to choose only ONE action per response."""
         )
     )
 
     # System: Examples
+    vibe_examples_data: list[MLExampleItem] = [
+        (
+            "We are working in namespace 'app'. Deployed 'frontend' and "
+            "'backend' services.",
+            "check if everything is healthy",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "pods", "-n", "app"],
+                "explanation": "Viewing pods in 'app' namespace, as first step in "
+                "overall check.",
+            },
+        ),
+        (
+            "The health-check pod is called 'health-check'.",
+            "Tell me about the health-check pod and the database deployment.",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "pods", "-l", "app=health-check"],
+                "explanation": "Addressing the health-check pod first; database "
+                "deployment next...",
+            },
+        ),
+        (
+            "",
+            "What are the differences for my-deployment.yaml?",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["diff", "-f", "my-deployment.yaml"],
+                "allowed_exit_codes": [0, 1],
+                "explanation": "User wants a diff for my-deployment.yaml. (Exit code "
+                "1 is normal.)",
+            },
+        ),
+        (
+            "We need to debug why the database pod keeps crashing.",
+            "",  # Empty request, relying on memory
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["describe", "pod", "-l", "app=database"],
+                "explanation": "My memory shows database pod crashing. Describe it "
+                "for details...",
+            },
+        ),
+        (
+            "",  # Empty memory, relying on request
+            "help me troubleshoot the database pod",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["describe", "pod", "-l", "app=database"],
+                "explanation": "User claims trouble with database pod. First, let's "
+                "describe it.",
+            },
+        ),
+        (
+            "Wait until pod 'foo' is deleted",
+            "",  # Empty request, relying on memory
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "Command 'kubectl wait --for=delete pod/foo' may "
+                "indefinitely block.",
+            },
+        ),
+        (
+            "You MUST NOT delete the 'health-check' pod.",
+            "delete the health-check pod",
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "Memory indicates 'health-check' pod MUST NOT be deleted.",
+            },
+        ),
+        (
+            "The cluster has 64GiB of memory available.",
+            "set the memory request for the app deployment to 128GiB",
+            {
+                "action_type": str(ActionType.FEEDBACK.value),
+                "message": "The cluster lacks memory (64GiB available) to meet "
+                "request for 128GiB.",
+                "explanation": "User's request exceeds available cluster resources.",
+                "suggestion": "Set a reduced memory request for the app deployment "
+                "of 32GiB.",
+            },
+        ),
+        (
+            "",
+            "lkbjwqnfl alkfjlkads",  # Unintelligible request
+            {
+                "action_type": str(ActionType.FEEDBACK.value),
+                "message": "It is not clear what you want to do. Try again with a "
+                "clearer request.",
+                "explanation": "The user's request is unintelligible.",
+                "suggestion": "Check user input for unclear requests. Provide detailed "
+                "examples.",
+            },
+        ),
+        (
+            "",
+            "wait until pod 'bar' finishes spinning up",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": [
+                    "wait",
+                    "pod",
+                    "bar",
+                    "--for=condition=ready",
+                    "--timeout=10s",
+                ],
+                "explanation": "Waiting on pod ready with 10s timeout to avoid "
+                "indefinite blocking.",
+            },
+        ),
+        (
+            "We need to create multiple resources for our application.",
+            "create the frontend and backend pods",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["create", "-f", "-"],
+                "yaml_manifest": (
+                    "apiVersion: v1\\n"
+                    "kind: Pod\\n"
+                    "metadata:\\n"
+                    "  name: frontend\\n"
+                    "  labels:\\n"
+                    "    app: foo\\n"
+                    "    component: frontend\\n"
+                    "spec:\\n"
+                    "  containers:\\n"
+                    "  - name: nginx\\n"
+                    "    image: nginx\\n"
+                    "---\\n"
+                    "apiVersion: v1\\n"
+                    "kind: Pod\\n"
+                    "metadata:\\n"
+                    "  name: backend\\n"
+                    "  labels:\\n"
+                    "    app: foo\\n"
+                    "    component: backend\\n"
+                    "spec:\\n"
+                    "  containers:\\n"
+                    "  - name: alpine\\n"
+                    "    image: alpine\\n"
+                    '    command: ["sleep", "infinity"]'
+                ),
+                "explanation": "Creating frontend and backend pods using the "
+                "provided YAML manifest.",
+            },
+        ),
+    ]
     system_fragments.append(
-        Fragment(
-            """Examples:
-
-Memory: "We are working in namespace 'app'. Deployed 'frontend' and 'backend' services."
-Request: "check if everything is healthy"
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["get", "pods", "-n", "app"],
-    "explanation": "Checking pod status in the 'app' namespace."
-}
-
-Memory: "The health-check pod is called 'health-check'."
-Request: "Tell me about the health-check pod and the database deployment."
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["get", "pods", "-l", "app=health-check"],
-    "explanation": "Describing the health-check pod. Database deployment next..."
-}
-
-Memory: ""
-Request: "What are the differences for my-deployment.yaml?"
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["diff", "-f", "my-deployment.yaml"],
-    "explanation": "Diffing the local file my-deployment.yaml against the cluster.",
-    "allowed_exit_codes": [0, 1]
-}
-
-Memory: "We need to debug why the database pod keeps crashing."
-Request: ""
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "Examining the database pod based on memory context."
-}
-
-Memory: ""
-Request: "help me troubleshoot the database pod"
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["describe", "pod", "-l", "app=database"],
-    "explanation": "Describing the database pod as requested."
-}
-
-Memory: "Wait until pod 'foo' is deleted"
-Request: ""
-Output:
-{  "action_type": "ERROR",
-    "error": "The command 'kubectl wait --for=delete pod/foo' is potentially blocking.",
-    "explanation": "Refusing to run a potentially blocking 'wait' command."
-}
-
-Memory: "You MUST NOT delete the 'health-check' pod."
-Request: "delete the health-check pod"
-Output:
-{  "action_type": "ERROR",
-    "error": "You MUST NOT delete the 'health-check' pod.",
-    "explanation": "Memory indicates this pod is not allowed to be deleted."
-}
-
-Memory: "The cluster has 64GiB of memory available."
-Request: "set the memory request for the app deployment to 128GiB"
-Output:
-{  "action_type": "FEEDBACK",
-    "explanation": "The cluster does not have enough memory to meet the request."
-}
-
-Memory: ""
-Request: "lkbjwqnfl alkfjlkads"
-Output:
-{  "action_type": "FEEDBACK",
-    "explanation": "It is not clear what you want to do. Please try again."
-}
-
-Memory: ""
-Request: "wait until pod 'bar' finishes spinning up"
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["wait", "pod", "bar", "--for=condition=ready", "--timeout=10s"],
-    "explanation": "Waiting for pod 'bar' to be running, with tight timeout."
-}
-
-Memory: "We need to create multiple resources for our application."
-Request: "create the frontend and backend pods"
-Output:
-{  "action_type": "COMMAND",
-    "commands": ["create", "-f", "-"],
-    "yaml_manifest": (
-        "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: frontend\\n  labels:\\n"
-        "    app: foo\\n    component: frontend\\nspec:\\n  containers:\\n"
-        "  - name: frontend\\n    image: nginx:latest\\n    ports:\\n"
-        "    - containerPort: 80\\n---\\napiVersion: v1\\nkind: Pod\\nmetadata:\\n"
-        "  name: backend\\n  labels:\\n    app: foo\\n    component: backend\\nspec:\\n"
-        "  containers:\\n  - name: backend\\n    image: redis:latest\\n    ports:\\n"
-        "    - containerPort: 6379"
-    ),
-    "explanation": "Creating frontend and backend pods using YAML as requested."
-}
-
-# END Example inputs (memory and request) and outputs"""
-        )
+        Fragment(f"""Examples:\n\n{format_ml_examples(vibe_examples_data)}
+""")
     )
 
-    # User: Instruction for output format and prompt structure (placeholders removed)
+    # User fragments will be added by the caller (memory context, actual request)
     user_fragments.append(
         Fragment(
-            "Your output MUST be ONLY the JSON object conforming to the schema, "
-            "based on the user's goal:"
+            "Consider the user's goal and current memory context to plan the next "
+            "action:"
         )
     )
-    # User fragment for memory will be added by caller
-    # User fragment for request will be added by caller
-    user_fragments.append(
-        Fragment("Output:")
-    )  # Instructs where the JSON output should start
 
     return PromptFragments((system_fragments, user_fragments))
 
 
 # Template for summarizing vibe autonomous command output
-def vibe_autonomous_prompt(config: Config | None = None) -> PromptFragments:
+def vibe_autonomous_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
     """Get prompt fragments for summarizing command output in autonomous mode.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string. # New docstring
 
     Returns:
         PromptFragments: System fragments and user fragments.
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])
+
+    if current_memory and current_memory.strip():
+        system_fragments.append(fragment_memory_context(current_memory))
 
     # System: Core instructions
     system_fragments.append(
@@ -1489,10 +1672,13 @@ For resources with complex data:
 
     # System: Formatting instructions
     formatting_system_fragments, formatting_user_fragments = get_formatting_fragments(
-        config
+        config  # Pass original config parameter
     )
     system_fragments.extend(formatting_system_fragments)
-    user_fragments.extend(formatting_user_fragments)  # Includes memory
+    # User fragments from get_formatting_fragments might include dynamic time notes.
+    # These should come after general instructions but before specific
+    # output placeholders.
+    user_fragments.extend(formatting_user_fragments)
 
     # System: Example format
     system_fragments.append(
@@ -1531,58 +1717,48 @@ PLAN_PORT_FORWARD_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "port 8080 of pod nginx to my local 8080",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/nginx", "8080:8080"],
-                    "explanation": (
-                        "Forwarding local port 8080 to port 8080 of the nginx pod."
-                    ),
+                    "explanation": "User asked to port-forward a pod.",
                 },
             ),
             (
                 "the redis service port 6379 on local port 6380",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["service/redis", "6380:6379"],
-                    "explanation": (
-                        "Forwarding local port 6380 to port 6379 of the redis service."
-                    ),
+                    "explanation": "User asked to port-forward a service to a "
+                    "different local port.",
                 },
             ),
             (
                 "deployment webserver port 80 to my local 8000",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["deployment/webserver", "8000:80"],
-                    "explanation": (
-                        "Forwarding local port 8000 to port 80 on webserver deployment."
-                    ),
+                    "explanation": "User asked to port-forward a deployment.",
                 },
             ),
             (
                 "my local 5000 to port 5000 on the api pod in namespace test",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["pod/api", "5000:5000", "--namespace", "test"],
-                    "explanation": (
-                        "Forwarding local port 5000 to port 5000 of the "
-                        "api pod in the test namespace."
-                    ),
+                    "explanation": "User asked to port-forward pod in test namespace.",
                 },
             ),
             (
                 "ports with the app running on namespace production",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": [
                         "pod/app",
                         "8080:80",
                         "--namespace",
                         "production",
-                    ],  # Needs better inference?
-                    "explanation": (
-                        "Forwarding local port 8080 to port 80 of the app "
-                        "pod in the production namespace."
-                    ),
+                    ],
+                    "explanation": "User asked to port-forward a pod in production, "
+                    "assuming default ports.",
                 },
             ),
         ]
@@ -1594,15 +1770,18 @@ PLAN_PORT_FORWARD_PROMPT: PromptFragments = create_planning_prompt(
 # Template for summarizing 'kubectl port-forward' output
 def port_forward_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl port-forward output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl port-forward output.",
         focus_points=[
@@ -1621,22 +1800,26 @@ def port_forward_prompt(
                 "[red]connection refused[/red]"
             ),
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
 # Template for summarizing 'kubectl diff' output
 def diff_output_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl diff output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize this kubectl diff output, highlighting changes.",
         focus_points=[
@@ -1655,7 +1838,8 @@ def diff_output_prompt(
             "[bold]Secret/old[/bold] in [blue]dev[/blue] [red]removed[/red]",
             "Summary: [bold]1 ConfigMap modified[/bold], ...",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -1668,26 +1852,27 @@ PLAN_DIFF_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "server-side diff for local file examples/my-app.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--server-side=true", "-f", "my-app.yaml"],
-                    "explanation": "Diffing local file my-app.yaml server-side.",
                     "allowed_exit_codes": [0, 1],
+                    "explanation": "User asked for a server-side diff of a local file.",
                 },
             ),
             (
                 "diff the manifest at https://foo.com/manifests/pod.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "https://foo.com/manifests/pod.yaml"],
-                    "explanation": "Diffing remote manifest from URL foo.com.",
                     "allowed_exit_codes": [0, 1],
+                    "explanation": "User asked to diff a manifest from a URL.",
                 },
             ),
             (
                 "diff a generated minimal nginx deployment in staging",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-n", "staging", "-f", "-"],
+                    "explanation": "User asked to diff generated manifest in staging.",
                     "yaml_manifest": (
                         """---
 apiVersion: apps/v1
@@ -1711,16 +1896,6 @@ spec:
         ports:
         - containerPort: 80"""
                     ),
-                    "explanation": "Diffing a generated minimal Nginx deployment.",
-                    "allowed_exit_codes": [0, 1],
-                },
-            ),
-            (
-                "diff file.yaml recursively in dir/",
-                {
-                    "action_type": "COMMAND",
-                    "commands": ["-f", "dir/file.yaml", "-R"],
-                    "explanation": "Recursively diffing from dir/file.yaml.",
                     "allowed_exit_codes": [0, 1],
                 },
             ),
@@ -1738,24 +1913,25 @@ PLAN_APPLY_PROMPT: PromptFragments = create_planning_prompt(
             (
                 "apply the deployment from my-deployment.yaml",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "my-deployment.yaml"],
-                    "explanation": "Applying configuration from my-deployment.yaml.",
+                    "explanation": "User asked to apply a deployment from a file.",
                 },
             ),
             (
                 "apply all yaml files in the ./manifests directory",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "./manifests"],
-                    "explanation": "Applying YAML files in the ./manifests directory.",
+                    "explanation": "User asked to apply all YAML files in a directory.",
                 },
             ),
             (
                 "apply the following nginx pod manifest",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-f", "-"],
+                    "explanation": "User asked to apply a provided YAML manifest.",
                     "yaml_manifest": (
                         """---
 apiVersion: v1
@@ -1769,23 +1945,22 @@ spec:
     ports:
     - containerPort: 80"""
                     ),
-                    "explanation": "Applying an Nginx pod manifest from input.",
                 },
             ),
             (
                 "apply the kustomization in ./my-app",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["-k", "./my-app"],
-                    "explanation": "Applying the kustomization in ./my-app.",
+                    "explanation": "User asked to apply a kustomization.",
                 },
             ),
             (
                 "see what a standard nginx pod would look like",
                 {
-                    "action_type": "COMMAND",
+                    "action_type": ActionType.COMMAND.value,
                     "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
-                    "explanation": "Dry run apply an Nginx pod with YAML output.",
+                    "explanation": "A client-side dry-run shows the user a manifest.",
                 },
             ),
         ]
@@ -1797,15 +1972,18 @@ spec:
 # Template for summarizing 'kubectl apply' output
 def apply_output_prompt(
     config: Config | None = None,
+    current_memory: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl apply output.
 
     Args:
         config: Optional Config instance.
+        current_memory: Optional current memory string.
 
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl apply results.",
         focus_points=[
@@ -1821,7 +1999,8 @@ def apply_output_prompt(
             "[red]Error: unable to apply service/broken-svc[/red]: invalid spec",
             "[yellow]Warning: server-side apply conflict for deployment/app[/yellow]",
         ],
-        config=config,
+        config=cfg,
+        current_memory=current_memory,
     )
 
 
@@ -2030,14 +2209,16 @@ def plan_final_apply_command_prompt_fragments(
                   LLMFinalApplyPlanResponse schema provided below. This means a
                   single JSON object with one key: 'planned_commands'. The value
                   of 'planned_commands' MUST be a list of valid
-                  LLMCommandResponse JSON objects.
+                  CommandAction JSON objects (as defined in the LLMPlannerResponse
+                  schema).
 
-                - Each LLMCommandResponse object in the list represents a single
+                - Each CommandAction object in the list represents a single
                   `kubectl apply` command to be executed.
 
-                - For each command, the `action_type` MUST be 'COMMAND'.
+                - For each command, the `action_type` within the CommandAction
+                  object MUST be 'COMMAND'.
 
-                - The `commands` field within each LLMCommandResponse MUST be a list
+                - The `commands` field within each CommandAction MUST be a list
                   of strings representing the arguments *after* `kubectl apply`
                   (e.g., ['-f', 'path1.yaml', '-f', 'path2.yaml', '-n', 'namespace']).
                   Do NOT include 'kubectl apply' itself in the `commands` list.
@@ -2045,7 +2226,7 @@ def plan_final_apply_command_prompt_fragments(
                 - If a manifest needs to be applied via stdin (e.g., because it
                   was generated by you and doesn't have a fixed path), use
                   `commands: ['-f', '-']` and provide the manifest content in the
-                  `yaml_manifest` field of that LLMCommandResponse.
+                  `yaml_manifest` field of that CommandAction.
 
                 - Use the `corrected_temp_manifest_paths` for any manifests that
                   were corrected or generated. Prefer these over original paths if a
@@ -2062,7 +2243,7 @@ def plan_final_apply_command_prompt_fragments(
                 - Incorporate the `remaining_user_request` (e.g., target
                   namespace, flags like --prune, --server-side) into the
                   `commands` list of the relevant `kubectl apply`
-                  LLMCommandResponse(s).
+                  CommandAction(s).
 
                 - If there are no valid or corrected manifests to apply, the
                   `planned_commands` list should be empty ( `[]` ). Do NOT generate
@@ -2071,9 +2252,11 @@ def plan_final_apply_command_prompt_fragments(
                 - If `unresolvable_sources` lists any files, they CANNOT be used.
                   Your plan should only use files from
                   `valid_original_manifest_paths` and
-                  `corrected_temp_manifest_paths`. Provide a brief `explanation`
-                  in the *first* LLMCommandResponse if any sources were
-                  unresolvable and thus excluded from the plan.
+                  `corrected_temp_manifest_paths`. If any sources were
+                  unresolvable and thus excluded from the plan, this information should
+                  be conveyed through a separate FEEDBACK or THOUGHT action in a
+                  prior step by the calling logic, as CommandAction itself does not
+                  have a dedicated 'explanation' field for this purpose.
 
                 - Ensure all paths in the `commands` field are absolute paths
                   as provided in the input lists."""
@@ -2081,7 +2264,7 @@ def plan_final_apply_command_prompt_fragments(
             # Use the new schema for LLMFinalApplyPlanResponse
             fragment_json_schema_instruction(
                 final_plan_schema_json,
-                "LLMFinalApplyPlanResponse (a list of command plans)",
+                "LLMFinalApplyPlanResponse (a list of CommandAction plans)",
             ),
         ]
     )
@@ -2128,3 +2311,115 @@ def plan_final_apply_command_prompt_fragments(
         object conforming to the LLMFinalApplyPlanResponse schema."""
     user_frags = UserFragments([Fragment(user_frags_content)])
     return PromptFragments((system_frags, user_frags))
+
+
+# Template for planning 'vibectl check' commands
+def plan_check_fragments() -> PromptFragments:
+    """Get prompt fragments for planning 'vibectl check' commands."""
+    system_fragments: SystemFragments = SystemFragments([])
+    user_fragments: UserFragments = UserFragments([])
+
+    # System: Core instructions and role for 'check'
+    system_fragments.append(
+        Fragment(
+            """You are an AI assistant evaluating a predicate against a
+Kubernetes cluster.
+
+Your goal is to determine if the given predicate is TRUE or FALSE.
+
+You MUST use read-only kubectl commands (get, describe, logs, events) to
+gather information.
+
+Do NOT use commands that modify state (create, delete, apply, patch, edit, scale, etc.).
+
+Your response MUST be a single JSON object conforming to the LLMPlannerResponse schema.
+Choose ONE action:
+- COMMAND: If you need more information. Specify *full* kubectl command arguments.
+- DONE: If you can determine the predicate's truthiness. Include 'exit_code':
+    - 0: Predicate is TRUE.
+    - 1: Predicate is FALSE.
+    - 2: Predicate is ill-posed or ambiguous for a Kubernetes context.
+    - 3: Cannot determine truthiness (e.g., insufficient info, timeout, error
+         during execution).
+  Include an 'explanation' field justifying your conclusion.
+- ERROR: If the request is fundamentally flawed (e.g., asks to modify state).
+
+Focus on the original predicate. Base your final DONE action on whether that specific
+predicate is true or false based on the information gathered."""
+        )
+    )
+
+    # System: Schema definition
+    system_fragments.append(fragment_json_schema_instruction(_SCHEMA_DEFINITION_JSON))
+
+    # System: Examples for 'check'
+    check_examples_data: list[MLExampleItem] = [
+        (
+            "Namespace 'default' has pods: nginx-1 (Running), nginx-2 (Running).",
+            "are all pods in the default namespace running?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 0,
+                "explanation": "All pods listed in memory for 'default' are Running.",
+            },
+        ),
+        (
+            "Pods in 'kube-system': foo (Running), bar (CrashLoopBackOff), "
+            "baz (Pending)",
+            "are all pods in kube-system healthy?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 1,
+                "explanation": "Pod 'bar' in 'kube-system' is in CrashLoopBackOff "
+                "state.",
+            },
+        ),
+        (
+            "",
+            "is there a deployment named 'web-server' in 'production'?",
+            {
+                "action_type": str(ActionType.COMMAND.value),
+                "commands": ["get", "deployment", "web-server", "-n", "production"],
+                "explanation": "Cannot determine from memory; need to query the "
+                "cluster for the deployment.",
+            },
+        ),
+        (
+            "",
+            "is the sky blue today in the cluster?",
+            {
+                "action_type": str(ActionType.DONE.value),
+                "exit_code": 2,
+                "explanation": "This predicate is ill-posed for a Kubernetes "
+                "cluster context.",
+            },
+        ),
+        (
+            "",
+            "Attempt deletion of all pods in the cluster and ensure they are deleted.",
+            {
+                "action_type": str(ActionType.ERROR.value),
+                "message": "The 'check' command can't ensure actions; it only "
+                "evaluates predicates.",
+            },
+        ),
+    ]
+    system_fragments.append(
+        Fragment(f"""Examples for 'vibectl check':
+
+{format_ml_examples(check_examples_data, request_label="Predicate")}
+
+Note on multi-step COMMAND example: If a COMMAND action is planned, `vibectl` will
+execute it and the output will be fed back into your memory for a subsequent planning
+step. You would then use that new information to issue another COMMAND or a DONE action.
+""")
+    )
+
+    # User fragments will be added by the caller (memory context, actual predicate)
+    user_fragments.append(
+        Fragment(
+            "Evaluate the following based on your memory and the plan you develop:"
+        )
+    )
+
+    return PromptFragments((system_fragments, user_fragments))

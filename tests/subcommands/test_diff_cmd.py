@@ -32,7 +32,11 @@ async def test_run_diff_command_success_no_differences(
 
     # Mock run_kubectl to return Success with original_exit_code 0
     mock_kubectl_result = Success(
-        message="no differences found", original_exit_code=0, continue_execution=True
+        message="no differences found",
+        data=None,
+        original_exit_code=0,
+        continue_execution=True,
+        metrics=None,
     )
     # Mock handle_command_output
     mock_final_result = Success(
@@ -85,11 +89,16 @@ async def test_run_diff_command_success_no_differences(
         allowed_exit_codes=(0, 1),
     )
     # Second call is handle_command_output
+    from vibectl.command_handler import (
+        handle_command_output as actual_handle_command_output,
+    )
+
     mock_to_thread.assert_any_call(
-        ANY,  # handle_command_output function
-        output=mock_kubectl_result,
-        output_flags=mock_output_flags,
-        summary_prompt_func=diff_output_prompt,
+        actual_handle_command_output,  # func passed to to_thread
+        mock_kubectl_result,  # first *arg for func (becomes output)
+        output_flags=mock_output_flags,  # kwarg for func
+        summary_prompt_func=diff_output_prompt,  # kwarg for func
+        command="diff",  # kwarg for func
     )
 
 
@@ -115,7 +124,11 @@ async def test_run_diff_command_success_with_differences(
 
     # Mock run_kubectl to return Success with original_exit_code 1
     mock_kubectl_result = Success(
-        message="differences found", original_exit_code=1, continue_execution=True
+        message="differences found",
+        data=None,
+        original_exit_code=1,
+        continue_execution=True,
+        metrics=None,
     )
     # Mock handle_command_output
     mock_final_result = Success(
@@ -165,11 +178,17 @@ async def test_run_diff_command_success_with_differences(
         config=mock_config_instance,
         allowed_exit_codes=(0, 1),
     )
+    # Explicitly specify handle_command_output instead of ANY
+    from vibectl.command_handler import (
+        handle_command_output as actual_handle_command_output,
+    )
+
     mock_to_thread.assert_any_call(
-        ANY,  # handle_command_output function
-        output=mock_kubectl_result,
+        actual_handle_command_output,
+        mock_kubectl_result,
         output_flags=mock_output_flags,
         summary_prompt_func=diff_output_prompt,
+        command="diff",
     )
 
 
@@ -262,14 +281,22 @@ async def test_run_diff_command_handle_output_error(
     mock_output_flags = MagicMock(spec=OutputFlags)
     mock_configure_output_flags.return_value = mock_output_flags
 
-    # Mock run_kubectl to return Success
-    mock_kubectl_result = Success(
-        message="diff output", original_exit_code=0, continue_execution=True
+    # Mock run_kubectl to return Success (kubectl diff itself was fine)
+    # This object is passed as 'output' to handle_command_output
+    mock_kubectl_as_input_to_handler = Success(
+        message="diff output",  # This message should match what's in the AssertionError
+        data=None,  # As per AssertionError, or some placeholder data
+        original_exit_code=0,  # As per AssertionError
+        continue_execution=True,  # As per AssertionError
+        metrics=None,  # As per AssertionError
     )
     # Mock handle_command_output to return Error
-    mock_handle_output_error = Error(error="Failed to process diff output")
+    mock_handle_output_error_obj = Error(error="handle_command_output failed")
 
-    mock_to_thread.side_effect = [mock_kubectl_result, mock_handle_output_error]
+    mock_to_thread.side_effect = [
+        mock_kubectl_as_input_to_handler,
+        mock_handle_output_error_obj,
+    ]
 
     result = await run_diff_command(
         resource="configmap/my-config",
@@ -284,7 +311,7 @@ async def test_run_diff_command_handle_output_error(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "Failed to process diff output"
+    assert result.error == "handle_command_output failed"
     # The first info log call happens before handle_command_output error
     mock_logger.info.assert_any_call(
         "Invoking 'diff' subcommand with resource: configmap/my-config, "
@@ -311,11 +338,17 @@ async def test_run_diff_command_handle_output_error(
         config=mock_config_instance,
         allowed_exit_codes=(0, 1),
     )
+    # Explicitly specify handle_command_output instead of ANY
+    from vibectl.command_handler import (
+        handle_command_output as actual_handle_command_output,
+    )
+
     mock_to_thread.assert_any_call(
-        ANY,  # handle_command_output function
-        output=mock_kubectl_result,
+        actual_handle_command_output,
+        mock_kubectl_as_input_to_handler,
         output_flags=mock_output_flags,
         summary_prompt_func=diff_output_prompt,
+        command="diff",
     )
 
 

@@ -3,10 +3,10 @@ import asyncio
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_vibe_request,
     run_kubectl,
 )
 from vibectl.console import console_manager
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompt import PLAN_VERSION_PROMPT, version_prompt

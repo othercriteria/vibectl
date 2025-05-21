@@ -18,6 +18,7 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
+from vibectl.model_adapter import ModelAdapter
 from vibectl.types import Error, Success
 
 
@@ -251,10 +252,20 @@ def mock_handle_output_for_cli() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_get_adapter() -> Generator[MagicMock, None, None]:
     """Mock the model adapter factory at vibectl.command_handler.get_model_adapter."""
-    with patch("vibectl.command_handler.get_model_adapter") as mock_adapter_factory:
+    with (
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_adapter_factory,
+        patch(
+            "vibectl.command_handler.get_model_adapter"
+        ) as mock_cmd_handler_adapter_factory,
+        patch(
+            "vibectl.execution.vibe.get_model_adapter"
+        ) as mock_vibe_get_model_adapter_factory,
+    ):
         # Set up a default mock adapter instance that the factory will return
-        mock_adapter_instance = MagicMock()
-        mock_adapter_factory.return_value = mock_adapter_instance
+        mock_adapter_instance = MagicMock(spec=ModelAdapter)
+        mock_model_adapter_factory.return_value = mock_adapter_instance
+        mock_cmd_handler_adapter_factory.return_value = mock_adapter_instance
+        mock_vibe_get_model_adapter_factory.return_value = mock_adapter_instance
 
         # Set up a default mock model object that the adapter instance's get_model
         # will return
@@ -264,8 +275,8 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
         # DO NOT set a default return value for execute_and_log_metrics here.
         # Tests should explicitly mock this.
         # mock_adapter_instance.execute_and_log_metrics.return_value = (
-        #     "Default mock LLM response",
-        #     LLMMetrics() # Ensure it's an LLMMetrics instance if a default were used
+        # "Default mock LLM response",
+        # LLMMetrics() # Ensure it's an LLMMetrics instance if a default were used
         # )
         yield mock_adapter_instance  # YIELD THE INSTANCE, NOT THE FACTORY
 
@@ -427,37 +438,75 @@ def no_vibe_output_flags() -> OutputFlags:
 
 
 @pytest.fixture
-def mock_memory() -> Generator[dict[str, MagicMock], None, None]:
-    """Mock memory functions to avoid actual LLM API calls.
+def mock_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[dict[str, MagicMock], None, None]:
+    """Mocks memory functions and returns a dict of mocks."""
+    # Import functions here to ensure we get the correct ones for spec
+    from vibectl.memory import (
+        clear_memory as clear_memory_func,
+        disable_memory as disable_memory_func,
+        enable_memory as enable_memory_func,
+        get_memory as get_memory_func,
+        is_memory_enabled as is_memory_enabled_func,
+        set_memory as set_memory_func,
+        update_memory as update_memory_func,
+    )
 
-    This fixture prevents actual API calls to LLMs during tests, which would:
-    - Add cost for each test run
-    - Make tests flaky due to API dependencies
-    - Significantly slow down test execution
+    mocks: dict[str, MagicMock] = {}
 
-    Memory functions involve both file operations and LLM calls, but the LLM calls
-    are the primary concern for test stability and performance.
-    """
-    with (
-        patch("vibectl.memory.get_memory") as mock_get,
-        patch("vibectl.memory.set_memory") as mock_set,
-        patch("vibectl.memory.update_memory") as mock_update,
-        patch("vibectl.command_handler.get_memory") as mock_get_ch,
-        patch("vibectl.command_handler.update_memory") as mock_update_ch,
-    ):
-        # Default behaviors
-        mock_get.return_value = "Test memory context from vibectl.memory"
-        mock_get_ch.return_value = "Test memory context from command_handler"
+    # Mock get_memory
+    mock_get = MagicMock(spec=get_memory_func)
+    monkeypatch.setattr("vibectl.memory.get_memory", mock_get)
+    monkeypatch.setattr("vibectl.execution.vibe.get_memory", mock_get, raising=False)
+    monkeypatch.setattr("vibectl.command_handler.get_memory", mock_get, raising=False)
+    mocks["get"] = mock_get
 
-        # Create a dictionary of mocks to return
-        mocks = {
-            "get": mock_get,
-            "set": mock_set,
-            "update": mock_update,
-            "get_ch": mock_get_ch,
-            "update_ch": mock_update_ch,
-        }
-        yield mocks
+    # Mock update_memory - this is the primary one for tests to assert
+    mock_update = MagicMock(spec=update_memory_func)
+    # Patch the canonical location
+    monkeypatch.setattr("vibectl.memory.update_memory", mock_update)
+    # Patch where it's imported directly
+    monkeypatch.setattr(
+        "vibectl.execution.vibe.update_memory", mock_update, raising=False
+    )
+    monkeypatch.setattr(
+        "vibectl.command_handler.update_memory", mock_update, raising=False
+    )
+    mocks["update"] = mock_update
+
+    # Mock set_memory
+    mock_set = MagicMock(spec=set_memory_func)
+    monkeypatch.setattr("vibectl.memory.set_memory", mock_set)
+    monkeypatch.setattr("vibectl.execution.vibe.set_memory", mock_set, raising=False)
+    mocks["set"] = mock_set
+
+    # Mock is_memory_enabled
+    mock_is_enabled = MagicMock(
+        spec=is_memory_enabled_func, return_value=True
+    )  # Default to enabled
+    monkeypatch.setattr("vibectl.memory.is_memory_enabled", mock_is_enabled)
+    monkeypatch.setattr(
+        "vibectl.execution.vibe.is_memory_enabled", mock_is_enabled, raising=False
+    )
+    mocks["is_enabled"] = mock_is_enabled
+
+    # Mock enable_memory
+    mock_enable = MagicMock(spec=enable_memory_func)
+    monkeypatch.setattr("vibectl.memory.enable_memory", mock_enable)
+    mocks["enable"] = mock_enable
+
+    # Mock disable_memory
+    mock_disable = MagicMock(spec=disable_memory_func)
+    monkeypatch.setattr("vibectl.memory.disable_memory", mock_disable)
+    mocks["disable"] = mock_disable
+
+    # Mock clear_memory
+    mock_clear = MagicMock(spec=clear_memory_func)
+    monkeypatch.setattr("vibectl.memory.clear_memory", mock_clear)
+    mocks["clear"] = mock_clear
+
+    yield mocks
 
 
 @pytest.fixture(autouse=True)

@@ -52,6 +52,7 @@ def default_summary_prompt() -> SummaryPromptFragmentFunc:
 
     def summary_prompt_fragments(
         config: Config | None = None,
+        current_memory: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (

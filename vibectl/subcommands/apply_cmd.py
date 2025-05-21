@@ -11,9 +11,11 @@ from pydantic import ValidationError
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_vibe_request,
 )
 from vibectl.config import Config
+from vibectl.execution.vibe import (
+    handle_vibe_request,
+)
 from vibectl.k8s_utils import run_kubectl, run_kubectl_with_yaml
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -29,7 +31,7 @@ from vibectl.prompt import (
 )
 from vibectl.schema import (
     ApplyFileScopeResponse,
-    LLMCommandResponse,
+    CommandAction,
     LLMFinalApplyPlanResponse,
 )
 from vibectl.types import (
@@ -268,7 +270,7 @@ async def _discover_and_validate_files(
 
 
 async def _execute_planned_commands(
-    planned_commands: list[LLMCommandResponse],
+    planned_commands: list[CommandAction],
     cfg: Config,
     output_flags: OutputFlags,
     # We might need a different summary prompt for the final apply output
@@ -303,8 +305,7 @@ async def _execute_planned_commands(
                 f"{planned_cmd_response.action_type}"
             )
             final_results_summary += (
-                f"Skipped planned action ({planned_cmd_response.action_type}): "
-                f"{planned_cmd_response.explanation}\n"
+                f"Skipped planned action ({planned_cmd_response.action_type}).\n"
             )
             continue
 
@@ -394,9 +395,7 @@ async def _execute_planned_commands(
                 f"{' '.join(full_kubectl_command_list)}. Error: {summary_result.error}"
             )
             summary_output = (
-                kubectl_result.result_value
-                if isinstance(kubectl_result, Success)
-                else "N/A"
+                kubectl_result.data if isinstance(kubectl_result, Success) else "N/A"
             )
             final_results_summary += (
                 f"Succeeded: {' '.join(full_kubectl_command_list)}\n"

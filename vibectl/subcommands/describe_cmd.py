@@ -2,8 +2,8 @@ from vibectl.command_handler import (
     OutputFlags,
     configure_output_flags,
     handle_standard_command,
-    handle_vibe_request,
 )
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,

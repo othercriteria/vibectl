@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `vibectl check <predicate>` subcommand for autonomous, read-only evaluation of cluster state predicates, returning an exit code. This includes schema enhancements (e.g., `DONE` action, `explanation` fields) and related prompt engineering.
+
 ## [0.8.0] - 2025-05-17
 
 ### Added

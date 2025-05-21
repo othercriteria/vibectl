@@ -3,9 +3,9 @@ import asyncio
 from vibectl.command_handler import (
     configure_output_flags,
     handle_command_output,
-    handle_vibe_request,
 )
 from vibectl.config import Config
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -87,9 +87,10 @@ async def run_diff_command(
 
         result = await asyncio.to_thread(
             handle_command_output,
-            output=kubectl_result,
+            kubectl_result,
             output_flags=output_flags,
             summary_prompt_func=diff_output_prompt,
+            command="diff",
         )
 
         logger.info("Completed direct 'diff' subcommand execution.")

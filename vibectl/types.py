@@ -17,6 +17,9 @@ from typing import (
 # Import Config for type hinting
 from .config import Config
 
+# Type alias for the structure of examples used in format_ml_examples
+MLExampleItem = tuple[str, str, dict[str, Any]]
+
 # For prompt construction
 Examples = NewType("Examples", list[tuple[str, dict[str, Any]]])
 Fragment = NewType("Fragment", str)
@@ -45,6 +48,15 @@ class RecoverableApiError(ValueError):
     """Custom exception for potentially recoverable API errors (e.g., rate limits)."""
 
     pass
+
+
+class PredicateCheckExitCode(int, Enum):
+    """Exit codes for the 'vibectl check' command."""
+
+    TRUE = 0  # Predicate is TRUE
+    FALSE = 1  # Predicate is FALSE
+    POORLY_POSED = 2  # Predicate is poorly posed or ambiguous
+    CANNOT_DETERMINE = 3  # Cannot determine predicate truthiness
 
 
 @dataclass
@@ -131,6 +143,7 @@ class Error:
     # Default True to maintain current behavior
     halt_auto_loop: bool = True
     metrics: "LLMMetrics | None" = None
+    original_exit_code: int | None = None
 
 
 # Union type for command results
@@ -138,7 +151,7 @@ Result = Success | Error
 
 
 # --- Type Hints for Functions ---
-SummaryPromptFragmentFunc = Callable[[Config | None], PromptFragments]
+SummaryPromptFragmentFunc = Callable[[Config | None, str | None], PromptFragments]
 # -----------------------------
 
 
@@ -229,11 +242,15 @@ class StatsProtocol(Protocol):
 
 
 # For LLM command generation schema
-class ActionType(Enum):
+class ActionType(str, Enum):
+    """Enum for LLM action types."""
+
+    THOUGHT = "THOUGHT"
     COMMAND = "COMMAND"
-    ERROR = "ERROR"
     WAIT = "WAIT"
+    ERROR = "ERROR"
     FEEDBACK = "FEEDBACK"
+    DONE = "DONE"
 
 
 @runtime_checkable
@@ -255,3 +272,8 @@ class ModelResponse(Protocol):
             Any: Usage object (structure may vary by model/library version)
         """
         ...
+
+
+class ErrorSeverity(str, Enum):
+    # Add any necessary error severity definitions here
+    pass

@@ -211,6 +211,10 @@ class ConsoleManager:
         """
         self.safe_print(self.console, f"🔄 {message}", style="info")
 
+    def print_proposal(self, message: str) -> None:
+        """Print a proposal message."""
+        self.safe_print(self.console, f"💡 {message}", style="vibe")
+
     def print_vibe_welcome(self) -> None:
         """Print vibe welcome message."""
         self.safe_print(
