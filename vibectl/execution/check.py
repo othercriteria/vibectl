@@ -86,20 +86,8 @@ def _get_check_llm_plan(
             f"Length: {len(llm_response_text)}"
         )
 
-        if not llm_response_text or llm_response_text.strip() == "":
-            logger.error("LLM returned an empty response for 'check'.")
-            # update_memory(...) # Optional memory update
-            return Error("LLM returned an empty response.")
-
         response = LLMPlannerResponse.model_validate_json(llm_response_text)
         logger.debug(f"Parsed LLM response object for 'check': {response}")
-
-        if not hasattr(response, "action") or response.action is None:
-            logger.error(
-                "LLMPlannerResponse for 'check' has no action or action is None."
-            )
-            # update_memory(...) # Optional memory update
-            return Error("LLM Error: Planner response for 'check' contained no action.")
 
         logger.info(f"Validated ActionType for 'check': {response.action.action_type}")
         return Success(data=response, metrics=metrics)
@@ -264,11 +252,7 @@ async def run_check_command(
 
             command_output_str = ""
 
-            if (
-                not command_to_execute
-                or not isinstance(command_to_execute, list)
-                or not all(isinstance(part, str) for part in command_to_execute)
-            ):
+            if not command_to_execute or not isinstance(command_to_execute, list):
                 logger.warning(
                     f"LLM planned a malformed or empty command: {command_to_execute}. "
                     "Re-planning with error."
