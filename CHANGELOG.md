@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-05-21
+
 ### Added
 - **`vibectl check <predicate>` Subcommand**:
     - Implemented a new subcommand for autonomous, read-only evaluation of Kubernetes cluster state predicates.
