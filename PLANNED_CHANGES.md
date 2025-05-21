@@ -42,23 +42,25 @@ The command uses the following exit codes, formally defined in `vibectl.types.Pr
 
 A significant challenge during development was "semantic drift," where the LLM would deviate from the original user-supplied predicate after a few interactions or data gathering steps.
 
-- **Initial Observation of Drift**:
+- **Initial Observation of Drift** (Example kept for historical context):
   For a predicate like "there are pods in the current namespace with the 'CrashLoopBackOff' status":
   1. LLM correctly issued `kubectl get pods -n sandbox -o wide`. The output showed no pods in `CrashLoopBackOff`.
   2. Instead of concluding, the LLM then issued `kubectl get deployments -n sandbox` (seeking broader, less relevant context).
   3. Subsequently, the LLM errored, stating "I need a specific predicate to evaluate," having completely lost the original task.
 
-- **Mitigation Strategy - Anchoring the Predicate**:
-  The primary mitigation has been to ensure that the *original user-supplied predicate* is consistently re-introduced into the LLM's "Request Context" during each iteration of the planning loop. This provides a constant anchor, reminding the LLM of its primary goal.
+- **Current Mitigation Strategy - Anchoring the Predicate & Memory Context**:
+  The primary mitigation for semantic drift is to ensure that in each iteration of the planning loop:
+  1. The *original user-supplied predicate* is consistently re-introduced into the LLM's request context.
+  2. The *current working memory* (which is updated after each `COMMAND` action) is also provided.
+  This provides a constant anchor (the predicate) and an evolving factual basis (the memory) for the LLM, guiding it towards evaluating the original goal.
 
-- **System Prompt Reinforcement**:
-  The system prompt for the `vibectl check` planner strongly emphasizes:
-  - The goal: determine if the *original user-supplied* `<predicate>` is true.
-  - The need to maintain focus on this predicate throughout the evaluation.
-  - Instructions on using the `DONE` action with an appropriate `exit_code` based *only* on the evaluation of the original predicate.
-  - Guidance on handling ambiguity or unanswerable predicates.
+- **System Prompt Focus**:
+  The system prompt for the `vibectl check` planner emphasizes:
+  - The main goal: determine if the *original user-supplied* `<predicate>` is true based on the information gathered and available in memory.
+  - The iterative nature: expect to make multiple `COMMAND` calls, updating memory each time, before reaching a `DONE` state.
+  - Instructions on using the `DONE` action with an appropriate `exit_code` based *only* on the evaluation of the original predicate against the accumulated knowledge in memory.
 
-Ongoing monitoring and refinement of prompts are essential to ensure robust and accurate predicate evaluation across diverse scenarios.
+Ongoing monitoring and refinement of prompt examples and instructions are key to ensuring robust and accurate predicate evaluation.
 
 ### Schema Notes
 
@@ -78,8 +80,36 @@ The initial phased implementation plan has largely been completed:
 
 - **Subcommand Definition**: Implemented.
 - **LLM Planner Enhancements (`DONE` action)**: Implemented.
-- **Core Logic (Predicate Parsing, Planner Integration, Execution Loop, Error Handling)**: Implemented, with ongoing focus on semantic accuracy refinement.
+- **Core Logic (Predicate Parsing, Planner Integration, Execution Loop, Error Handling)**: Implemented, with the core semantic drift mitigation centered on re-injecting the predicate and current memory at each iteration.
 - **CLI Implementation (Click)**: Implemented.
+
+## Worked Example
+
+The following demonstrates the iterative evaluation process for a complex predicate. `vibectl check` makes multiple calls to the LLM, executing `kubectl` commands planned by the LLM to gather information, and updating its working memory with the results. The original predicate and the updated memory are provided to the LLM in each subsequent iteration until it can determine the predicate's truthiness.
+
+**Predicate:** `"k8s server version is newer than v1.28.x and there are pods in the current working namespace with the 'Failed' status"`
+
+**Execution Flow (Simplified):**
+
+1. **Iteration 1:**
+    - **LLM Input:** Predicate + Initial (empty) Memory.
+    - **LLM Plan:** `COMMAND: kubectl version --output=json` (to check server version).
+    - **Action:** `kubectl version` is executed.
+    - **Memory Update:** Output of `kubectl version` (e.g., server version is v1.32.4) is added to memory.
+
+2. **Iteration 2:**
+    - **LLM Input:** Predicate + Updated Memory (containing server version info).
+    - **LLM Plan:** `COMMAND: kubectl get pods --field-selector=status.phase=Failed` (to check for failed pods).
+    - **Action:** `kubectl get pods ...` is executed.
+    - **Memory Update:** Output of `kubectl get pods` (e.g., no pods found in 'Failed' state) is added to memory.
+
+3. **Iteration 3:**
+    - **LLM Input:** Predicate + Further Updated Memory (containing server version and failed pod status).
+    - **LLM Plan:** `DONE: exit_code=1` (Predicate is FALSE).
+        - **Explanation:** "The server version (v1.32.4) *is* newer than v1.28.x (TRUE). However, no pods were found in 'Failed' status (FALSE). Since one part of the AND condition is false, the entire predicate is FALSE."
+    - **Action:** Loop terminates. `vibectl` exits with code 1.
+
+This example shows how the LLM iteratively gathers information, using the memory to build context, until it can confidently evaluate the original, potentially complex, predicate.
 
 ## Outstanding Work & Future Enhancements
 
