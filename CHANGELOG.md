@@ -8,7 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `vibectl check <predicate>` subcommand for autonomous, read-only evaluation of cluster state predicates, returning an exit code. This includes schema enhancements (e.g., `DONE` action, `explanation` fields) and related prompt engineering.
+- **`vibectl check <predicate>` Subcommand**:
+    - Implemented a new subcommand for autonomous, read-only evaluation of Kubernetes cluster state predicates.
+    - Returns specific exit codes: `0` for TRUE, `1` for FALSE, `2` for poorly posed/ambiguous predicate, `3` for cannot determine/timeout.
+    - Employs an iterative LLM-based planning loop:
+        - Gathers information using read-only `kubectl` commands.
+        - Feeds results back into LLM memory.
+        - Continues until the predicate is resolved or max iterations/timeout is reached.
+    - Includes utility functions to strictly enforce read-only `kubectl` operations.
+    - Added `docs/predicate_evaluation.md` with a worked example.
+
+### Changed
+- **LLM Planner Schema & Prompting**:
+    - Introduced a `DONE` action to the LLM planner schema, allowing the planner to signify completion of predicate evaluation and provide an `explanation` and `exit_code`.
+    - Added an `explanation` field to the `CommandAction` and `explanation`/`suggestion` fields to `FeedbackAction` in the schema.
+    - Revised system prompts and few-shot examples (using a new `MLExampleItem` structure) for the `vibectl check` planner to be more precise, emphasizing read-only operations and clear action usage.
+    - Updated general planner prompts to leverage new schema fields for improved clarity.
+- **Core Logic & Error Handling**:
+    - Refactored core `check` logic into `vibectl.execution.check.py`.
+    - Refactored `handle_vibe_request` into `vibectl.execution.vibe.py`.
+    - Improved error handling for unhandled LLM actions, max iteration limits, malformed LLM commands, and improperly formed predicates.
+    - Standardized exit codes for the `check` command using a `PredicateCheckExitCode` enum.
+- **Command Confirmation**:
+    - Consolidated command confirmation logic, centralizing the decision based on whether a command is read-only using `is_kubectl_command_read_only`.
+- **Testing**:
+    - Added extensive tests for `vibectl check` logic and subcommand, including iterative evaluation, exit codes, and various predicate scenarios.
+    - Improved test coverage for `vibectl.execution.check`.
 
 ## [0.8.0] - 2025-05-17
 
