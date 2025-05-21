@@ -281,7 +281,7 @@ async def logs(
 
 
 # --- Helper for standard create logic ---
-def _create_command_logic(
+async def _create_command_logic(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -294,7 +294,7 @@ def _create_command_logic(
 ) -> Result:
     """Handles the logic for standard (non-vibe) create commands."""
     # Call the synchronous runner function from the subcommand module
-    return run_create_command(
+    return await run_create_command(
         resource=resource,
         args=args,
         show_raw_output=show_raw_output,
@@ -341,7 +341,7 @@ async def create(
             show_metrics=show_metrics,
         )
     else:
-        result = _create_command_logic(
+        result = await _create_command_logic(
             resource=resource,
             args=args,
             show_raw_output=show_raw_output,
@@ -959,7 +959,7 @@ def memory_clear() -> None:
 @memory_group.command(name="update")
 @click.argument("update_text", nargs=-1, required=True)
 @click.option("--model", default=None, help="The LLM model to use")
-def memory_update(update_text: tuple, model: str | None = None) -> None:
+async def memory_update(update_text: tuple, model: str | None = None) -> None:
     """Update memory with additional information or context.
 
     Uses LLM to intelligently update memory with new information
@@ -1004,7 +1004,7 @@ def memory_update(update_text: tuple, model: str | None = None) -> None:
         )
 
         # Execute using the model adapter
-        updated_memory, _ = model_adapter.execute_and_log_metrics(
+        updated_memory, _ = await model_adapter.execute_and_log_metrics(
             model=model_instance,
             system_fragments=system_fragments,
             user_fragments=UserFragments(filled_user_fragments),

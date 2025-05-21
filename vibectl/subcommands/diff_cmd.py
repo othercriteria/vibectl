@@ -85,8 +85,7 @@ async def run_diff_command(
             # Propagate the error object
             return kubectl_result
 
-        result = await asyncio.to_thread(
-            handle_command_output,
+        result = await handle_command_output(
             kubectl_result,
             output_flags=output_flags,
             summary_prompt_func=diff_output_prompt,

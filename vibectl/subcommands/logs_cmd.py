@@ -126,9 +126,8 @@ async def run_logs_command(
 
         # handle_command_output will handle truncation warnings and output display
         # Assume handle_command_output might be sync or async
-        await asyncio.to_thread(
-            handle_command_output,
-            output=output,
+        _ = await handle_command_output(
+            output=result, # Pass the entire Result object
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,
         )

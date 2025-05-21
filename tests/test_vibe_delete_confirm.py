@@ -130,7 +130,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
     Preserves memory updates while skipping other processing.
     """
 
-    def handle_output_side_effect(
+    async def handle_output_side_effect(
         output_result: Result,
         output_flags: OutputFlags,
         summary_prompt_func: Any,
@@ -144,7 +144,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
 
             # Assume vibe output generation happens somewhere and mock it
             mock_vibe_output = f"Vibe summary for {command}"
-            update_memory(command, output_result.data, mock_vibe_output)
+            await update_memory(command, output_result.data, mock_vibe_output)
         return output_result
 
     with patch("vibectl.execution.vibe.handle_command_output") as mock:

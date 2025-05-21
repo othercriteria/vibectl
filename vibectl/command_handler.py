@@ -51,7 +51,6 @@ from .types import (
     Awaitable,
 )
 from .utils import console_manager
-from typing import Coroutine, Any
 
 logger = _logger
 
@@ -70,7 +69,7 @@ async def handle_standard_command(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...] = (0,),
-) -> Coroutine[Any, Any, Result]:
+) -> Result:
     """Handle standard kubectl commands like get, describe, logs.
 
     Args:
@@ -237,8 +236,10 @@ async def handle_command_output(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
-) -> Coroutine[Any, Any, Result]:
-    """Processes and displays command output based on flags.
+) -> Result:
+    """Handle the output of a kubectl command.
+
+    Processes and displays raw output, vibe output, or summaries based on flags.
 
     Args:
         output: The command output Result object.
@@ -415,7 +416,7 @@ async def handle_command_output(
                     # The recovery path returns the modified original_error_object
                     # which now contains recovery_metrics in its .metrics field.
                     # We use result_metrics extracted earlier.
-                    pass
+                    vibe_result = original_error_object
                 else:
                     # If we started with success, generate a summary prompt
                     # Call with config
@@ -430,9 +431,9 @@ async def handle_command_output(
                     # _process_vibe_output returns Success with summary_metrics
                     # _process_vibe_output is now async
                     vibe_result = await _process_vibe_output(
-                        output_message,
-                        output_data,
-                        output_flags,
+                        output_message=output_message,
+                        output_data=output_data,
+                        output_flags=output_flags,
                         summary_system_fragments=summary_system_fragments,
                         summary_user_fragments=summary_user_fragments,
                         command=command,
@@ -586,8 +587,8 @@ async def _process_vibe_output(
     summary_user_fragments: UserFragments,
     command: str | None = None,
     original_error_object: Error | None = None,
-) -> Coroutine[Any, Any, Result]:
-    """Processes output using Vibe LLM for summary.
+) -> Result:
+    """Process and display vibe output based on flags.
 
     Args:
         output_message: The raw command output message.
@@ -603,6 +604,17 @@ async def _process_vibe_output(
     """
     # Truncate output if necessary
     processed_output = output_processor.process_auto(output_data).truncated
+
+    # Ensure the processed output is not empty before proceeding
+    if not processed_output:
+        logger.warning("Processed output is empty, cannot generate Vibe summary.")
+        # Optionally return an Error or the original data if appropriate
+        # For now, let's return the original data as Success if it exists
+        return (
+            original_error_object
+            if original_error_object
+            else Success(data=output_data, message="Original data, no Vibe summary due to empty processed output.")
+        )
 
     # Get LLM summary
     try:
@@ -949,7 +961,7 @@ async def handle_wait_with_live_display(
     # Process the result from the worker using handle_command_output
     # Create the command string for context
     command_str = f"wait {resource} {' '.join(args)}"
-    return handle_command_output(
+    return await handle_command_output(
         output=wait_result,  # Pass the Result object directly
         output_flags=output_flags,
         summary_prompt_func=summary_prompt_func,
@@ -1008,7 +1020,7 @@ async def handle_port_forward_with_live_display(
     )
 
     command_str = f"port-forward {resource} {' '.join(args)}"
-    return handle_command_output(
+    return await handle_command_output(
         output=pf_result,
         output_flags=output_flags,
         summary_prompt_func=summary_prompt_func,
@@ -1056,7 +1068,7 @@ async def handle_watch_with_live_display(
     # Process the result from the worker using handle_command_output
     # Create the command string for context
     command_str = f"{command} {resource} {' '.join(args)}"
-    return handle_command_output(
+    return await handle_command_output(
         output=watch_result,  # Pass the Result object directly
         output_flags=output_flags,
         summary_prompt_func=summary_prompt_func,

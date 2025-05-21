@@ -107,7 +107,7 @@ async def run_wait_command(
             logger.info(f"Handling standard wait command for resource: {resource}")
 
             # Use the Result returned by handle_standard_command
-            result = handle_standard_command(
+            result = await handle_standard_command(
                 command="wait",
                 resource=resource,
                 args=args,

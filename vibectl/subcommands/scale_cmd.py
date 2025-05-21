@@ -78,8 +78,7 @@ async def run_scale_command(
         if output.data:
             try:
                 # handle_command_output is synchronous
-                await asyncio.to_thread(
-                    handle_command_output,
+                _ = await handle_command_output(
                     output=output,
                     command="scale",
                     output_flags=output_flags,

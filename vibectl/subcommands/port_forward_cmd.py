@@ -82,7 +82,7 @@ async def run_port_forward_command(
             logger.info(
                 f"Handling standard port-forward command for resource: {resource}"
             )
-            result = handle_standard_command(
+            result = await handle_standard_command(
                 command="port-forward",
                 resource=resource,
                 args=args,

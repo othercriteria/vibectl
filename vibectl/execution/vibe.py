@@ -95,7 +95,7 @@ async def handle_vibe_request(
     final_user_fragments.append(Fragment(request))
 
     # Get and validate the LLM plan using the fragments
-    plan_result = _get_llm_plan(
+    plan_result = await _get_llm_plan(
         model_name,
         plan_system_fragments,
         UserFragments(final_user_fragments),
@@ -130,7 +130,7 @@ async def handle_vibe_request(
         error_message = response_action.message
         logger.info(f"LLM returned planning error: {error_message}")
 
-        memory_update_metrics = update_memory(
+        memory_update_metrics = await update_memory(
             command_message=f"command: {command} request: {request}",
             command_output=error_message,
             vibe_output="",
@@ -172,7 +172,7 @@ async def handle_vibe_request(
         duration = response_action.duration_seconds
         logger.info(f"LLM requested WAIT for {duration} seconds.")
 
-        memory_update_metrics = update_memory(
+        memory_update_metrics = await update_memory(
             command_message=f"command: {command} request: {request}",
             command_output=f"AI requested wait for {duration}s.",
             vibe_output="",
@@ -201,7 +201,7 @@ async def handle_vibe_request(
 
         console_manager.print_vibe(f"AI Thought: {thought_text}")
 
-        memory_update_metrics = update_memory(
+        memory_update_metrics = await update_memory(
             command_message=f"command: {command} request: {request}",
             command_output=f"AI Thought: {thought_text}",
             vibe_output="",
@@ -239,7 +239,7 @@ async def handle_vibe_request(
         console_manager.print_proposal(
             f"Suggested memory update: {feedback_suggestion}"
         )
-        confirmation_result = _handle_command_confirmation(
+        confirmation_result = await _handle_command_confirmation(
             display_cmd="Use suggested memory update?",
             semiauto=semiauto,
             model_name=output_flags.model_name,
@@ -252,7 +252,7 @@ async def handle_vibe_request(
 
         logger.info("Proceeding with memory update based on AI feedback.")
 
-        memory_update_metrics = update_memory(
+        memory_update_metrics = await update_memory(
             command_message=f"command: {command} request: {request}",
             command_output=f"AI Feedback: {feedback_message}",
             vibe_output=feedback_message,
@@ -354,7 +354,7 @@ async def _confirm_and_execute_plan(
 
     if confirmation_is_required:
         # _handle_command_confirmation will use the 'yes' flag to bypass prompt if True
-        confirmation_result = _handle_command_confirmation(
+        confirmation_result = await _handle_command_confirmation(
             display_cmd=display_cmd,
             semiauto=semiauto,
             model_name=output_flags.model_name,
@@ -399,7 +399,7 @@ async def _confirm_and_execute_plan(
     vibe_output_str = plan_explanation or f"Executed: {display_cmd}"
 
     try:
-        memory_update_metrics = update_memory(
+        memory_update_metrics = await update_memory(
             command_message=f"command: {display_cmd} original: {original_command_verb}",
             command_output=command_output_str,
             vibe_output=vibe_output_str,
@@ -422,7 +422,7 @@ async def _confirm_and_execute_plan(
         )
 
     try:
-        return handle_command_output(
+        return await handle_command_output(
             result,
             output_flags,
             summary_prompt_func,
@@ -446,7 +446,7 @@ async def _confirm_and_execute_plan(
         return Error(error=f"Error handling command output: {e}", exception=e)
 
 
-def _handle_command_confirmation(
+async def _handle_command_confirmation(
     display_cmd: str,
     semiauto: bool,
     model_name: str,
@@ -537,7 +537,7 @@ def _handle_command_confirmation(
 
             # If "but" is chosen, do a fuzzy memory update
             if choice == "b":
-                memory_result = _handle_fuzzy_memory_update("no but", model_name)
+                memory_result = await _handle_fuzzy_memory_update("no but", model_name)
                 if isinstance(memory_result, Error):
                     return memory_result  # Propagate memory update error
             return Success(message="Command execution cancelled by user")
@@ -558,7 +558,7 @@ def _handle_command_confirmation(
 
             # If "and" is chosen, do a fuzzy memory update *before* proceeding
             if choice == "a":
-                memory_result = _handle_fuzzy_memory_update("yes and", model_name)
+                memory_result = await _handle_fuzzy_memory_update("yes and", model_name)
                 if isinstance(memory_result, Error):
                     return memory_result  # Propagate memory update error
 
@@ -566,7 +566,7 @@ def _handle_command_confirmation(
             return None  # Indicates proceed
 
 
-def _handle_fuzzy_memory_update(
+async def _handle_fuzzy_memory_update(
     option: str,
     model_name: str,
 ) -> Result:
@@ -597,7 +597,7 @@ def _handle_fuzzy_memory_update(
         )
 
         console_manager.print_processing("Updating memory...")
-        updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
+        updated_memory_text, metrics = await model_adapter.execute_and_log_metrics(
             model,
             system_fragments=system_fragments,
             user_fragments=user_fragments,
@@ -624,7 +624,7 @@ def _handle_fuzzy_memory_update(
 
 
 # Helper function for Vibe planning
-def _get_llm_plan(
+async def _get_llm_plan(
     model_name: str,
     plan_system_fragments: SystemFragments,
     plan_user_fragments: UserFragments,
@@ -638,7 +638,7 @@ def _get_llm_plan(
     except Exception as e:
         error_msg = f"Failed to get model '{model_name}': {e}"
         logger.error(error_msg, exc_info=True)
-        error_memory_metrics = update_memory(
+        error_memory_metrics = await update_memory(
             command_message="system",
             command_output=error_msg,
             vibe_output=f"System Error: Failed to get model '{model_name}'.",
@@ -660,7 +660,7 @@ def _get_llm_plan(
 
     try:
         # Get response text and metrics using fragments
-        llm_response_text, metrics = model_adapter.execute_and_log_metrics(
+        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
             model=model,
             system_fragments=plan_system_fragments,
             user_fragments=plan_user_fragments,
@@ -670,7 +670,7 @@ def _get_llm_plan(
 
         if not llm_response_text or llm_response_text.strip() == "":
             logger.error("LLM returned an empty response.")
-            update_memory(
+            await update_memory(
                 command_message="system",
                 command_output="LLM Error: Empty response.",
                 vibe_output="LLM Error: Empty response.",
@@ -684,7 +684,7 @@ def _get_llm_plan(
 
         if not hasattr(response, "action") or response.action is None:
             logger.error("LLMPlannerResponse has no action or action is None.")
-            update_memory(
+            await update_memory(
                 command_message="system",
                 command_output="LLM Error: No action in planner response.",
                 vibe_output="LLM Error: No action in planner response.",
@@ -705,7 +705,7 @@ def _get_llm_plan(
         truncated_llm_response = output_processor.process_auto(
             llm_response_text, budget=100
         ).truncated
-        memory_update_metrics = update_memory(  # Capture metrics
+        memory_update_metrics = await update_memory(  # Capture metrics
             command_message="system",
             command_output=error_msg,
             vibe_output=(

@@ -132,8 +132,7 @@ async def run_rollout_command(
             return Error(error="Exception running kubectl", exception=e)
 
         try:
-            await asyncio.to_thread(
-                handle_command_output,
+            _ = await handle_command_output(
                 output=kubectl_result,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,

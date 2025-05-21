@@ -75,7 +75,7 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
         yield mock_adapter_instance
 
 
-def test_handle_command_output_with_raw_output_only(
+async def test_handle_command_output_with_raw_output_only(
     prevent_exit: MagicMock, default_summary_prompt: SummaryPromptFragmentFunc
 ) -> None:
     """Test handle_command_output with raw output only."""
@@ -89,14 +89,14 @@ def test_handle_command_output_with_raw_output_only(
     )
 
     # Call the function with only raw output enabled
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
     )
 
 
-def test_handle_command_output_with_vibe_only(
+async def test_handle_command_output_with_vibe_only(
     mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
@@ -133,14 +133,14 @@ def test_handle_command_output_with_vibe_only(
         )
 
         # Call the function with vibe enabled
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-def test_handle_command_output_both_outputs(
+async def test_handle_command_output_both_outputs(
     mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
@@ -177,14 +177,14 @@ def test_handle_command_output_both_outputs(
         )
 
         # Call the function with both outputs enabled
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-def test_handle_command_output_no_output(
+async def test_handle_command_output_no_output(
     prevent_exit: MagicMock, default_summary_prompt: SummaryPromptFragmentFunc
 ) -> None:
     """Test handle_command_output with no outputs enabled."""
@@ -200,7 +200,7 @@ def test_handle_command_output_no_output(
     # Call the function with no outputs enabled and warning enabled
     # Using patch but not capturing the mock since we're not inspecting its calls
     with patch("vibectl.command_handler.console_manager"):
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
@@ -210,7 +210,7 @@ def test_handle_command_output_no_output(
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.output_processor")
-def test_handle_command_output_empty_response(
+async def test_handle_command_output_empty_response(
     mock_output_processor: MagicMock,
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
@@ -240,7 +240,7 @@ def test_handle_command_output_empty_response(
     )
 
     # Call the function with vibe enabled
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
@@ -261,7 +261,7 @@ def test_handle_command_output_empty_response(
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_with_command(
+async def test_handle_command_output_with_command(
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
@@ -293,7 +293,7 @@ def test_handle_command_output_with_command(
         show_kubectl=True,
     )
 
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
@@ -417,7 +417,7 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     assert output_flags.show_kubectl is False
 
 
-def test_handle_command_output_model_name_from_config(
+async def test_handle_command_output_model_name_from_config(
     mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
@@ -440,14 +440,14 @@ def test_handle_command_output_model_name_from_config(
 
     # Call the function with model name from config
     with patch("vibectl.command_handler.console_manager"):
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
 
-def test_handle_command_output_model_name_from_env(
+async def test_handle_command_output_model_name_from_env(
     mock_get_adapter: MagicMock,
     prevent_exit: MagicMock,
     default_summary_prompt: SummaryPromptFragmentFunc,
@@ -470,17 +470,19 @@ def test_handle_command_output_model_name_from_env(
 
     # Call the function with model name from env
     with patch("vibectl.command_handler.console_manager"):
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
 
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+
 
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_model_name_from_default(
+async def test_handle_command_output_model_name_from_default(
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
@@ -508,7 +510,7 @@ def test_handle_command_output_model_name_from_default(
         show_metrics=True,
     )
 
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
@@ -524,7 +526,7 @@ def test_handle_command_output_model_name_from_default(
 
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_command_output_basic(
+async def test_handle_command_output_basic(
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
@@ -547,7 +549,7 @@ def test_handle_command_output_basic(
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
         mock_output_processor.process_auto.return_value = Truncation("output", "output")
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
@@ -559,7 +561,7 @@ def test_handle_command_output_basic(
 
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_command_output_raw(
+async def test_handle_command_output_raw(
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
@@ -586,7 +588,7 @@ def test_handle_command_output_raw(
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
         mock_output_processor.process_auto.return_value = Truncation("output", "output")
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
@@ -602,7 +604,7 @@ def test_handle_command_output_raw(
 
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
-def test_handle_command_output_no_vibe(
+async def test_handle_command_output_no_vibe(
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
     prevent_exit: MagicMock,
@@ -629,7 +631,7 @@ def test_handle_command_output_no_vibe(
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
         mock_output_processor.process_auto.return_value = Truncation("output", "output")
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="output"),
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
@@ -733,7 +735,7 @@ def test_process_vibe_output_with_autonomous_prompt_no_index_error(
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_llm_error(
+async def test_handle_command_output_llm_error(
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
@@ -757,7 +759,7 @@ def test_handle_command_output_llm_error(
         original="test output", truncated="test output"
     )
 
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
@@ -777,7 +779,7 @@ def test_handle_command_output_llm_error(
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_error_input_no_vibe(
+async def test_handle_command_output_error_input_no_vibe(
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
@@ -804,7 +806,7 @@ def test_handle_command_output_error_input_no_vibe(
         original=error_data, truncated=error_data
     )
 
-    result = handle_command_output(
+    result = await handle_command_output(
         output=error_input,
         output_flags=output_flags,
         summary_prompt_func=default_summary_prompt,
@@ -824,7 +826,7 @@ def test_handle_command_output_error_input_no_vibe(
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler.update_memory")
-def test_handle_command_output_error_input_with_vibe_recovery(
+async def test_handle_command_output_error_input_with_vibe_recovery(
     mock_update_memory: MagicMock,
     mock_console_manager: MagicMock,
     mock_output_processor: MagicMock,
@@ -863,7 +865,7 @@ def test_handle_command_output_error_input_with_vibe_recovery(
             UserFragments([Fragment("User Prompt")]),
         )
 
-        result = handle_command_output(
+        result = await handle_command_output(
             output=error_input,
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,

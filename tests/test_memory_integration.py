@@ -51,7 +51,7 @@ def test_config() -> Generator[Config, None, None]:
     yield config
 
 
-def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> None:
+async def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> None:
     """Test basic memory update functionality with mocked model adapter."""
     # Test data
     command = "kubectl get pods"
@@ -69,7 +69,7 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
     )
 
     # Call update_memory
-    update_memory(
+    await update_memory(
         command_message=command,
         command_output=command_output,
         vibe_output=vibe_output,
@@ -108,7 +108,7 @@ def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> N
 
 
 @patch("vibectl.memory.is_memory_enabled")
-def test_update_memory_disabled(
+async def test_update_memory_disabled(
     mock_is_enabled: Mock, mock_model_adapter: Mock, test_config: Config
 ) -> None:
     """Test update_memory is skipped when memory is disabled."""
@@ -116,7 +116,7 @@ def test_update_memory_disabled(
     mock_is_enabled.return_value = False
 
     # Call update_memory
-    update_memory(
+    await update_memory(
         command_message="kubectl get pods",
         command_output="No resources found",
         vibe_output="No pods found",
@@ -128,7 +128,7 @@ def test_update_memory_disabled(
     mock_model_adapter.execute_and_log_metrics.assert_not_called()
 
 
-def test_update_memory_with_error(
+async def test_update_memory_with_error(
     mock_model_adapter: Mock, test_config: Config
 ) -> None:
     """Test memory update with error output is handled correctly."""
@@ -144,7 +144,7 @@ def test_update_memory_with_error(
     )
 
     # Call update_memory
-    update_memory(
+    await update_memory(
         command_message=command,
         command_output=command_output,
         vibe_output=vibe_output,
@@ -187,7 +187,7 @@ def test_update_memory_with_error(
     assert "Error occurred" in get_memory(test_config)
 
 
-def test_update_memory_model_error(
+async def test_update_memory_model_error(
     mock_model_adapter: Mock, test_config: Config
 ) -> None:
     """Test handling when model adapter raises an exception."""
@@ -199,7 +199,7 @@ def test_update_memory_model_error(
     # Patch set_memory to verify it's not called
     with patch("vibectl.memory.set_memory") as mock_set_mem:
         # Call update_memory - should catch the exception internally
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",
             command_output="output",
             vibe_output="vibe",
@@ -212,7 +212,7 @@ def test_update_memory_model_error(
         mock_set_mem.assert_not_called()
 
 
-def test_update_memory_integration(test_config: Config) -> None:
+async def test_update_memory_integration(test_config: Config) -> None:
     """Test full integration of update_memory with a real model adapter.
 
     This test uses a mock adapter but verifies the full flow from update_memory
@@ -237,7 +237,7 @@ def test_update_memory_integration(test_config: Config) -> None:
         set_memory("Initial cluster state: unknown", test_config)
 
         # Call update_memory
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",
             command_output="3 pods running",
             vibe_output="3 pods are running",

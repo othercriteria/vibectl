@@ -148,7 +148,7 @@ class SyncLLMResponseAdapter:
                 prompt_tokens = int(getattr(actual_usage_data, 'input', 0))
                 completion_tokens = int(getattr(actual_usage_data, 'output', 0))
                 # Store the original object in details if it's not a dict
-                details_to_store = actual_usage_data if not isinstance(actual_usage_data, dict) else None
+                details_to_store = actual_usage_data # actual_usage_data is an object here
                 return cast(LLMUsage, {
                     "input": prompt_tokens,
                     "output": completion_tokens,
@@ -413,7 +413,7 @@ class LLMModelAdapter(ModelAdapter):
         # Default to None if we can't determine the provider
         return None
 
-    def _get_token_usage(
+    async def _get_token_usage(
         self, response: ModelResponse, model_id: str
     ) -> tuple[int, int]:
         """Safely extracts token usage from a model response.
@@ -428,28 +428,26 @@ class LLMModelAdapter(ModelAdapter):
         token_input = 0
         token_output = 0
         try:
-            usage_obj = response.usage()
-            if usage_obj:
-                # Log the raw usage object at DEBUG level
+            # Await the async usage() method
+            usage_data_maybe_none = await response.usage()
+            if usage_data_maybe_none:
+                # We've confirmed it's not None, so it's LLMUsage (a TypedDict)
+                usage_obj = cast(LLMUsage, usage_data_maybe_none)
                 logger.debug(
                     "Raw LLM usage object for model %s: %s", model_id, usage_obj
                 )
 
-                raw_input = getattr(usage_obj, "input", None)
-                raw_output = getattr(usage_obj, "output", None)
+                raw_input = usage_obj.input
+                raw_output = usage_obj.output
 
                 try:
                     token_input = int(raw_input) if raw_input is not None else 0
                 except (TypeError, ValueError):
-                    token_input = 0  # Default to 0 if conversion fails or type is wrong
-
+                    token_input = 0
                 try:
                     token_output = int(raw_output) if raw_output is not None else 0
                 except (TypeError, ValueError):
-                    token_output = (
-                        0  # Default to 0 if conversion fails or type is wrong
-                    )
-
+                    token_output = 0
             logger.debug(
                 "Token usage for model %s - Input: %d, Output: %d",
                 model_id,
@@ -813,7 +811,7 @@ class LLMModelAdapter(ModelAdapter):
             with TimedOperation(
                 logger, current_model_id_for_log, "_get_token_usage() call"
             ):
-                token_input, token_output = await self._get_token_usage_async(
+                token_input, token_output = await self._get_token_usage(
                     response_obj, current_model_id_for_log
                 )
 
@@ -1085,47 +1083,6 @@ class LLMModelAdapter(ModelAdapter):
             f"{provider_name} keys typically start with 'sk-' and are "
             f"longer than 20 characters."
         )
-
-    async def _get_token_usage_async(self, response: ModelResponse, model_id: str) -> tuple[int, int]:
-        """Helper to await response.usage()."""
-        token_input = 0
-        token_output = 0
-        try:
-            usage_data_maybe_none = await response.usage()
-            if usage_data_maybe_none:
-                # We've confirmed it's not None, so it's LLMUsage (a TypedDict)
-                usage_obj = cast(LLMUsage, usage_data_maybe_none)
-                
-                logger.debug(
-                    "Raw LLM usage object for model %s: %s", model_id, usage_obj
-                )
-                # Access TypedDict keys with .get() for safety
-                raw_input = usage_obj.get("input")
-                raw_output = usage_obj.get("output")
-
-                try:
-                    token_input = int(raw_input) if raw_input is not None else 0
-                except (TypeError, ValueError):
-                    token_input = 0
-                try:
-                    token_output = int(raw_output) if raw_output is not None else 0
-                except (TypeError, ValueError):
-                    token_output = 0
-            logger.debug(
-                "Token usage for model %s - Input: %d, Output: %d",
-                model_id,
-                token_input,
-                token_output,
-            )
-        except AttributeError:
-            logger.warning(
-                "Model %s response lacks usage() method for token counting.", model_id
-            )
-        except Exception as usage_err:
-            logger.warning(
-                "Failed to get token usage for model %s: %s", model_id, usage_err
-            )
-        return token_input, token_output
 
     async def stream_execute(
         self,

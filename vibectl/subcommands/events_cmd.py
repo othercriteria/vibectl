@@ -112,9 +112,8 @@ async def run_events_command(
                 return Success(message="No output from kubectl events command.")
 
             # Use asyncio.to_thread for sync output handler
-            await asyncio.to_thread(
-                handle_command_output,
-                output=output_data,
+            _ = await handle_command_output(
+                output=kubectl_result,
                 output_flags=output_flags,
                 summary_prompt_func=events_prompt,
             )

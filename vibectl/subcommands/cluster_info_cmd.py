@@ -80,8 +80,7 @@ async def run_cluster_info_command(
                 return output
 
             # Handle output display based on flags
-            await asyncio.to_thread(
-                handle_command_output,
+            _ = await handle_command_output(
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=cluster_info_prompt,

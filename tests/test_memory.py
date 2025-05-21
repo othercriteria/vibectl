@@ -167,7 +167,7 @@ def test_clear_memory(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.memory_update_prompt")
 @patch("vibectl.memory.get_model_adapter")
-def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
+async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
     """Test memory update with command and response."""
     # Setup mocks
     mock_config = Mock()
@@ -205,7 +205,7 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
     )
 
     with patch("vibectl.memory.Config", return_value=mock_config):
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",  # Corrected argument name
             command_output="pod1 Running\\npod2 Error",
             vibe_output="Pods are in mixed state",
@@ -236,13 +236,13 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
 
 @patch("vibectl.memory.is_memory_enabled")
-def test_update_memory_disabled(mock_is_enabled: Mock) -> None:
+async def test_update_memory_disabled(mock_is_enabled: Mock) -> None:
     """Test update_memory when memory is disabled."""
     # Setup
     mock_is_enabled.return_value = False
     mock_config = Mock()
     with patch("vibectl.memory.set_memory") as mock_set_memory:
-        update_memory(
+        await update_memory(
             command_message="cmd",  # Corrected argument name
             command_output="out",
             vibe_output="vibe",

@@ -13,7 +13,7 @@ from vibectl.prompt import (
 from vibectl.types import Error, Result, Success
 
 
-def run_create_command(
+async def run_create_command(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -54,7 +54,7 @@ def run_create_command(
 
         try:
             # Ensure handle_command_output is called with the Result object directly
-            handle_command_output(
+            await handle_command_output(
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=create_resource_prompt,

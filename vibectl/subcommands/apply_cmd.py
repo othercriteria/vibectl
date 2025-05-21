@@ -457,8 +457,7 @@ async def _run_intelligent_apply_workflow(
             request=request
         )
 
-        response_text, metrics = await asyncio.to_thread(
-            model_adapter.execute_and_log_metrics,
+        response_text, metrics = await model_adapter.execute_and_log_metrics(
             model=llm_for_corrections_and_summaries,
             system_fragments=system_fragments,
             user_fragments=user_fragments,
@@ -547,8 +546,7 @@ async def _run_intelligent_apply_workflow(
             )
 
             try:
-                summary_text, summary_metrics = await asyncio.to_thread(
-                    model_adapter.execute_and_log_metrics,
+                summary_text, summary_metrics = await model_adapter.execute_and_log_metrics(
                     model=llm_for_corrections_and_summaries,
                     system_fragments=summary_system_frags,
                     user_fragments=summary_user_frags,
@@ -648,11 +646,7 @@ async def _run_intelligent_apply_workflow(
                 )
 
                 try:
-                    (
-                        proposed_yaml_str,
-                        correction_metrics,
-                    ) = await asyncio.to_thread(
-                        model_adapter.execute_and_log_metrics,
+                    proposed_yaml_str, correction_metrics = await model_adapter.execute_and_log_metrics(
                         model=llm_for_corrections_and_summaries,
                         system_fragments=correction_system_frags,
                         user_fragments=correction_user_frags,
@@ -729,11 +723,7 @@ async def _run_intelligent_apply_workflow(
                             )
                         )
                         try:
-                            (
-                                new_summary_text,
-                                new_summary_metrics,
-                            ) = await asyncio.to_thread(
-                                model_adapter.execute_and_log_metrics,
+                            new_summary_text, new_summary_metrics = await model_adapter.execute_and_log_metrics(
                                 model=llm_for_corrections_and_summaries,
                                 system_fragments=new_summary_system_frags,
                                 user_fragments=new_summary_user_frags,
@@ -879,8 +869,7 @@ async def _run_intelligent_apply_workflow(
         )
 
         try:
-            response_from_adapter, final_plan_metrics = await asyncio.to_thread(
-                model_adapter.execute_and_log_metrics,
+            response_from_adapter, final_plan_metrics = await model_adapter.execute_and_log_metrics(
                 model=llm_for_corrections_and_summaries,
                 system_fragments=final_plan_system_frags,
                 user_fragments=final_plan_user_frags,
@@ -1084,8 +1073,7 @@ async def run_apply_command(
             )
             return kubectl_result_direct
 
-        result_direct_apply = await asyncio.to_thread(
-            handle_command_output,
+        result_direct_apply = await handle_command_output(
             output=kubectl_result_direct,
             output_flags=output_flags,
             summary_prompt_func=apply_output_prompt,

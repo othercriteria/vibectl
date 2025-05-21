@@ -115,7 +115,7 @@ async def test_handle_command_output_updates_memory(
         )
         # The mock_get_adapter fixture is configured to return ("Test response", None)
         # by execute_and_log_metrics, which matches the expectation for vibe_output.
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=get_test_summary_fragments,
@@ -178,7 +178,7 @@ async def test_handle_command_output_does_not_update_memory_without_command(
             original="test output", truncated="processed test output"
         )
         # The mock_get_adapter fixture is configured to return ("Test response", None)
-        handle_command_output(
+        await handle_command_output(
             output=Success(data="test output"),
             output_flags=output_flags,
             summary_prompt_func=get_test_summary_fragments,
@@ -241,7 +241,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
             UserFragments([Fragment("user")]),
         )
 
-        handle_command_output(
+        await handle_command_output(
             output=error_input,
             output_flags=output_flags,
             summary_prompt_func=get_test_summary_fragments,
@@ -291,7 +291,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
         mock_config_instance.is_memory_enabled.return_value = True
 
         # Call the function under test
-        handle_command_output(
+        await handle_command_output(
             output=success_input,
             output_flags=output_flags,
             summary_prompt_func=get_test_summary_fragments,
@@ -724,7 +724,7 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     )
 
     # Call handle_command_output
-    handle_command_output(
+    await handle_command_output(
         output=Success(data="kubectl output data"),
         output_flags=output_flags,
         summary_prompt_func=mock_summary_prompt_creator,

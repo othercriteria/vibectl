@@ -84,8 +84,7 @@ async def run_version_command(
                 logger.info("No output from kubectl version.")
                 return Success(message="No output from kubectl version.")
 
-            await asyncio.to_thread(
-                handle_command_output,
+            _ = await handle_command_output(
                 output=output,  # Pass the Success object
                 output_flags=output_flags,
                 summary_prompt_func=version_prompt,

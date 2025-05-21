@@ -72,8 +72,7 @@ async def run_delete_command(
         # Handle standard command: run sync function in thread
         try:
             # Use asyncio.to_thread to run the sync function
-            result = await asyncio.to_thread(
-                handle_standard_command,
+            result = await handle_standard_command(
                 command="delete",
                 resource=resource,
                 args=args,

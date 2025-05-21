@@ -266,8 +266,8 @@ class TestModelAdapterWithKeys:
             assert "model_keys.openai" in error_msg
 
     @patch("vibectl.model_adapter.llm")
-    def test_execute_preserves_environment(self, mock_llm: Mock) -> None:
-        """Test that execute preserves the environment."""
+    async def test_execute_preserves_environment(self, mock_llm: Mock) -> None:
+        """Test that execute method preserves environment variables."""
         # Setup mock model and response
         mock_model = Mock()
         mock_response = Mock()
@@ -302,7 +302,7 @@ class TestModelAdapterWithKeys:
                 patch.object(adapter, "get_model", return_value=mock_model),
             ):
                 # Execute
-                response_text, metrics = adapter.execute(
+                response_text, metrics = await adapter.execute(
                     mock_model,
                     system_fragments=SystemFragments([]),
                     user_fragments=UserFragments([Fragment("Test prompt")]),
