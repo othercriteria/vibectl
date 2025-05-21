@@ -10,7 +10,8 @@ from typing import cast  # Added List, Tuple
 from .config import Config
 from .model_adapter import get_model_adapter
 from .prompt import memory_update_prompt  # Import the fragment-based prompt function
-from .types import LLMMetrics, RecoverableApiError
+from .types import LLMMetrics, RecoverableApiError, SystemFragments, UserFragments, Fragment
+from .utils import console_manager
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def clear_memory(config: Config | None = None) -> None:
     cfg.save()
 
 
-def update_memory(
+async def update_memory(
     command_message: str,
     command_output: str,
     vibe_output: str,
@@ -124,7 +125,7 @@ def update_memory(
 
         # Use the wrapper function to execute and handle metrics logging
         # Pass system_fragments and the filled user_fragments list
-        updated_memory_text, metrics = model_adapter.execute_and_log_metrics(
+        updated_memory_text, metrics = await model_adapter.execute_and_log_metrics(
             model=model,
             system_fragments=system_fragments,
             user_fragments=user_fragments,
@@ -169,3 +170,11 @@ def configure_memory_flags(freeze: bool, unfreeze: bool) -> None:
         disable_memory(cfg)
     elif unfreeze:
         enable_memory(cfg)
+
+
+def get_memory_file_path() -> str:
+    # This function is not provided in the original file or the code block
+    # It's assumed to exist as it's called in the update_memory function
+    # It's also not used in the original file or the code block
+    # It's left unchanged as it's not clear what it's supposed to do
+    return ""  # Placeholder return, actual implementation needed

@@ -11,9 +11,11 @@ import os
 import time
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable, AsyncIterator, TypeVar, Generic, cast
+import json
 
 import llm
+from llm.models import Response as LLMResponseObject
 from pydantic import BaseModel
 
 from .config import Config
@@ -26,20 +28,12 @@ from .logutil import logger
 from .types import (
     RECOVERABLE_API_ERROR_KEYWORDS,
     LLMMetrics,
+    LLMUsage,
+    ModelResponse,
     RecoverableApiError,
     SystemFragments,
     UserFragments,
 )
-
-
-# Protocol for the object returned by response.usage()
-@runtime_checkable
-class LLMUsage(Protocol):
-    """Protocol defining the expected interface for model usage details."""
-
-    input: int
-    output: int
-    details: dict[str, Any] | None
 
 
 # NEW TimedOperation Context Manager
@@ -84,36 +78,119 @@ class LLMAdaptationError(ValueError):
         self.all_attempt_latencies_ms = all_attempt_latencies_ms
 
 
-@runtime_checkable
-class ModelResponse(Protocol):
-    """Protocol defining the expected interface for model responses."""
-
-    def text(self) -> str:
-        """Get the text content of the response.
-
-        Returns:
-            str: The text content of the response
-        """
-        ...
-
-    def json(self) -> dict[str, Any]:
-        """Get the JSON content of the response.
-
-        Returns:
-            dict[str, Any]: The JSON content of the response as a dictionary.
-        """
-        ...
-
-    def usage(self) -> LLMUsage:
-        """Get the token usage information for the response.
-
-        Returns:
-            LLMUsage: An object containing token usage details.
-        """
-        ...
+# Define T here if it's not already defined or imported globally in this file
+T = TypeVar("T")
 
 
-class ModelAdapter(ABC):
+# Custom Exception for JSON parsing issues in the adapter
+class LLMResponseParseError(Exception):
+    def __init__(self, message: str, original_text: str | None = None):
+        super().__init__(message)
+        self.original_text = original_text
+
+
+class SyncLLMResponseAdapter:
+    """
+    Adapts a synchronous llm.Response object to conform to the
+    asynchronous ModelResponse protocol.
+    """
+
+    def __init__(self, sync_response: LLMResponseObject):
+        self._sync_response: LLMResponseObject = sync_response
+
+    async def text(self) -> str:
+        return str(self._sync_response.text())
+
+    async def json(self) -> dict[str, Any]:
+        try:
+            loaded_json = json.loads(self._sync_response.text())
+            return cast(dict[str, Any], loaded_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response text as JSON: {e}")
+            raise LLMResponseParseError("Failed to parse response as JSON", original_text=self._sync_response.text()) from e
+
+    async def usage(self) -> LLMUsage | None:
+        potential_usage_attr = getattr(self._sync_response, 'usage', None)
+        actual_usage_data = None
+
+        # Attempt to get the model name for logging, more robustly
+        model_name_for_log = "unknown_model_in_usage_method"
+        if self._sync_response and hasattr(self._sync_response, 'model') and self._sync_response.model:
+            # Try common attribute names for model ID
+            model_name_for_log = getattr(self._sync_response.model, 'id',
+                                         getattr(self._sync_response.model, 'model_id', model_name_for_log))
+
+        if callable(potential_usage_attr):
+            try:
+                # Assuming it's a synchronous method on _sync_response as _sync_response is synchronous
+                actual_usage_data = potential_usage_attr()
+            except Exception as e:
+                logger.warning(
+                    f"Error calling .usage() method on LLM response for model "
+                    f"'{model_name_for_log}': {e}"
+                )
+                return None # Could not get usage data due to error during call
+        else:
+            # It's not callable, so it's direct data (or None)
+            actual_usage_data = potential_usage_attr
+
+        if isinstance(actual_usage_data, dict):
+            prompt_tokens = int(actual_usage_data.get("prompt_tokens", 0))
+            completion_tokens = int(actual_usage_data.get("completion_tokens", 0))
+            return cast(LLMUsage, {
+                "input": prompt_tokens, 
+                "output": completion_tokens,
+                "details": actual_usage_data
+            })
+        elif hasattr(actual_usage_data, 'input') and hasattr(actual_usage_data, 'output'):
+            # Handle objects like llm.models.Usage which have input/output attributes directly
+            try:
+                prompt_tokens = int(getattr(actual_usage_data, 'input', 0))
+                completion_tokens = int(getattr(actual_usage_data, 'output', 0))
+                # Store the original object in details if it's not a dict
+                details_to_store = actual_usage_data if not isinstance(actual_usage_data, dict) else None
+                return cast(LLMUsage, {
+                    "input": prompt_tokens,
+                    "output": completion_tokens,
+                    "details": details_to_store 
+                })
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    f"Model '{model_name_for_log}' provided usage attributes 'input'/'output' that "
+                    f"could not be cast to int. Type: {type(actual_usage_data)}, Error: {e}"
+                )
+        elif actual_usage_data is not None: # It exists, was resolved, but not a dict and no input/output attrs
+            logger.warning(
+                f"Model '{model_name_for_log}' provided 'usage' data in an unrecognized format. "
+                f"Type: {type(actual_usage_data)}, Value: {str(actual_usage_data)[:100]}"
+            )
+        # If actual_usage_data is None or (was resolved but not a dict, and warning was logged)
+        return None
+
+    @property
+    def id(self) -> str | None:
+        return getattr(self._sync_response, "id", None)
+
+    @property
+    def model(self) -> str | None:
+        return getattr(self._sync_response.model, "id", None)
+
+    @property
+    def created(self) -> int | None:
+        return getattr(self._sync_response, "created", None)
+
+    @property
+    def response_ms(self) -> int | None:
+        return getattr(self._sync_response, "response_ms", None)
+
+    # The ModelResponse protocol also includes __aiter__ and __iter__
+    # for streaming, but this adapter is for the non-streaming path,
+    # so those are not implemented here. If ModelResponse requires them
+    # unconditionally, this adapter might need stubs or further refinement.
+    # For now, assuming the non-streaming path doesn't try to iterate.
+
+
+class ModelAdapter(ABC, Generic[T]):
     """Abstract base class for model adapters.
 
     This defines the interface that all model adapters must implement.
@@ -132,7 +209,7 @@ class ModelAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute(
+    async def execute(
         self,
         model: Any,
         system_fragments: SystemFragments,
@@ -154,7 +231,7 @@ class ModelAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute_and_log_metrics(
+    async def execute_and_log_metrics(
         self,
         model: Any,
         system_fragments: SystemFragments,
@@ -187,6 +264,35 @@ class ModelAdapter(ABC):
             Optional error message string if validation fails, None otherwise.
         """
         pass
+
+    @abstractmethod
+    async def stream_execute(
+        self,
+        model: Any,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
+        response_model: type[BaseModel] | None = None,
+    ) -> AsyncIterator[str]:
+        """Execute a prompt on the model and stream the response.
+
+        Args:
+            model: The model instance to execute the prompt on
+            system_fragments: List of system prompt fragments.
+            user_fragments: List of user prompt fragments.
+            response_model: Optional Pydantic model for structured JSON response (ignored for streaming).
+
+        Yields:
+            str: Chunks of the response text.
+
+        Raises:
+            RecoverableApiError: If a potentially recoverable API error occurs.
+            ValueError: If another error occurs during execution.
+        """
+        # This is an abstract method, so it needs a body that "yields" something to satisfy type checker
+        # in concrete implementations that use `async for` over this, even if it's just a placeholder here.
+        # An empty generator is fine for an abstract method.
+        if False:
+            yield ""
 
 
 class ModelEnvironment:
@@ -322,7 +428,7 @@ class LLMModelAdapter(ModelAdapter):
         token_input = 0
         token_output = 0
         try:
-            usage_obj = response.usage()  # type: ignore[attr-defined]
+            usage_obj = response.usage()
             if usage_obj:
                 # Log the raw usage object at DEBUG level
                 logger.debug(
@@ -363,24 +469,12 @@ class LLMModelAdapter(ModelAdapter):
     def _execute_single_prompt_attempt(
         self, model: Any, prompt_kwargs: dict[str, Any]
     ) -> ModelResponse:
-        """Executes a single prompt attempt and returns the validated response object.
-
-        Args:
-            model: The model instance.
-            prompt_kwargs: Keyword arguments for the model's prompt method.
-
-        Returns:
-            The validated ModelResponse object.
-
-        Raises:
-            AttributeError: If model.prompt has an issue with arguments.
-            TypeError: If the response object is not of the expected type.
-            Other exceptions from model.prompt().
-        """
-        response = model.prompt(**prompt_kwargs)
-        if not isinstance(response, ModelResponse):
-            raise TypeError(f"Expected ModelResponse, got {type(response).__name__}")
-        return response
+        """Executes a single prompt attempt and returns an adapted response object."""
+        raw_response: LLMResponseObject = model.prompt(**prompt_kwargs)
+        
+        adapted_response = SyncLLMResponseAdapter(raw_response)
+        
+        return cast(ModelResponse, adapted_response)
 
     def _handle_prompt_execution_with_adaptation(
         self,
@@ -580,7 +674,7 @@ class LLMModelAdapter(ModelAdapter):
                 )
                 raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
-    def execute(
+    async def execute(
         self,
         model: Any,
         system_fragments: SystemFragments,
@@ -603,6 +697,14 @@ class LLMModelAdapter(ModelAdapter):
             RecoverableApiError: If a potentially recoverable API error occurs.
             ValueError: If another error occurs during execution.
         """
+        # This method needs to be async to correctly use await for response_obj.text() etc.
+        # However, the abstract method in ModelAdapter is synchronous.
+        # This indicates a mismatch in the design that needs to be resolved.
+        # For now, I will make this method async and the caller will need to await it.
+        # This will likely require changes in command_handler.py as well.
+        # Let's assume for now that the signature of ModelAdapter.execute can be changed to async.
+
+        # Directly use the async logic without an inner _execute_async and asyncio.run
         overall_start_time = time.monotonic()
         current_total_processing_duration_ms: float | None = None
         metrics: LLMMetrics | None = None
@@ -611,6 +713,7 @@ class LLMModelAdapter(ModelAdapter):
         max_adaptation_attempts = 3
         text_extraction_duration_ms = 0.0  # Initialize
 
+        current_model_id_for_log = "Unknown" # Initialize before try block
         try:
             current_model_id_for_log = getattr(model, "model_id", "Unknown")
             logger.debug(
@@ -681,20 +784,36 @@ class LLMModelAdapter(ModelAdapter):
             with TimedOperation(
                 logger, current_model_id_for_log, "response_obj.text() call"
             ) as text_timer:
-                response_text = response_obj.text()
-            text_extraction_duration_ms = text_timer.duration_ms  # Store for metrics
+                response_text = await response_obj.text() # Ensure await here
+            text_extraction_duration_ms = text_timer.duration_ms
 
-            # Log the raw response object at DEBUG level
-            logger.debug(
-                "Raw LLM response JSON for model %s: %s",
-                current_model_id_for_log,
-                response_obj.json(),
-            )
+            # If we have a response_model, we expect JSON, so try to log it.
+            # Otherwise, log the plain text we already retrieved.
+            if response_model:
+                try:
+                    json_to_log = await response_obj.json()
+                    logger.debug(
+                        "Raw LLM response (expected JSON) for model %s: %s",
+                        current_model_id_for_log,
+                        json_to_log,
+                    )
+                except LLMResponseParseError: # Or broader json.JSONDecodeError
+                    logger.debug(
+                        "Raw LLM response (expected JSON, but failed to parse) for model %s: %s",
+                        current_model_id_for_log,
+                        response_text, # Log the text that failed to parse as JSON
+                    )
+            else:
+                logger.debug(
+                    "Raw LLM response (plain text) for model %s: %s",
+                    current_model_id_for_log,
+                    response_text, # Log the already fetched text
+                )
 
             with TimedOperation(
                 logger, current_model_id_for_log, "_get_token_usage() call"
             ):
-                token_input, token_output = self._get_token_usage(
+                token_input, token_output = await self._get_token_usage_async(
                     response_obj, current_model_id_for_log
                 )
 
@@ -704,7 +823,7 @@ class LLMModelAdapter(ModelAdapter):
             ) * 1000
 
             metrics = LLMMetrics(
-                latency_ms=text_extraction_duration_ms,  # Use stored duration
+                latency_ms=text_extraction_duration_ms,
                 total_processing_duration_ms=current_total_processing_duration_ms,
                 token_input=token_input,
                 token_output=token_output,
@@ -772,8 +891,12 @@ class LLMModelAdapter(ModelAdapter):
                     current_total_processing_duration_ms  # Best guess
                 )
 
+            # current_model_id_for_log might not be set if error occurred very early
+            # Re-fetch if it's still "Unknown" and model object exists
+            if current_model_id_for_log == "Unknown" and model:
+                 current_model_id_for_log = getattr(model, "model_id", "Unknown")
+
             error_str = str(e).lower()
-            current_model_id_for_log = getattr(model, "model_id", "Unknown")
 
             logger.warning(
                 "LLM call to model '%s' failed. Attempts (if adaptation stage): %d. "
@@ -819,8 +942,8 @@ class LLMModelAdapter(ModelAdapter):
                     metrics.total_processing_duration_ms = (
                         current_total_processing_duration_ms
                     )
-
-    def execute_and_log_metrics(
+        
+    async def execute_and_log_metrics(
         self,
         model: Any,
         system_fragments: SystemFragments,
@@ -828,22 +951,14 @@ class LLMModelAdapter(ModelAdapter):
         response_model: type[BaseModel] | None = None,
     ) -> tuple[str, LLMMetrics | None]:
         """Wraps execute, logs metrics, returns response text and metrics."""
-        # TODO: When response_model is provided, this method should ideally attempt
-        # to parse the response into the Pydantic model. If successful, it could
-        # return tuple[BaseModel, LLMMetrics | None] or a more specific type.
-        # If parsing fails, it should either raise the parsing exception (e.g.,
-        # ValidationError, JSONDecodeError) or return a clear error indicator
-        # alongside the raw string, rather than just the raw string.
-        # Currently, it always returns tuple[str, LLMMetrics | None], and parsing
-        # is handled by the caller.
+        # This method also needs to be async to call self.execute, which is now effectively async.
         response_text = ""
-        metrics = None
+        metrics_val: LLMMetrics | None = None # Renamed to avoid conflict with metrics module/variable
         try:
-            # Pass fragments to execute
-            response_text, metrics = self.execute(
+            response_text, metrics_val = await self.execute( # Add await
                 model, system_fragments, user_fragments, response_model
             )
-            return response_text, metrics
+            return response_text, metrics_val
         except (RecoverableApiError, ValueError) as e:
             logger.debug("execute_and_log_metrics caught error: %s", e)
             raise e
@@ -971,6 +1086,140 @@ class LLMModelAdapter(ModelAdapter):
             f"longer than 20 characters."
         )
 
+    async def _get_token_usage_async(self, response: ModelResponse, model_id: str) -> tuple[int, int]:
+        """Helper to await response.usage()."""
+        token_input = 0
+        token_output = 0
+        try:
+            usage_data_maybe_none = await response.usage()
+            if usage_data_maybe_none:
+                # We've confirmed it's not None, so it's LLMUsage (a TypedDict)
+                usage_obj = cast(LLMUsage, usage_data_maybe_none)
+                
+                logger.debug(
+                    "Raw LLM usage object for model %s: %s", model_id, usage_obj
+                )
+                # Access TypedDict keys with .get() for safety
+                raw_input = usage_obj.get("input")
+                raw_output = usage_obj.get("output")
+
+                try:
+                    token_input = int(raw_input) if raw_input is not None else 0
+                except (TypeError, ValueError):
+                    token_input = 0
+                try:
+                    token_output = int(raw_output) if raw_output is not None else 0
+                except (TypeError, ValueError):
+                    token_output = 0
+            logger.debug(
+                "Token usage for model %s - Input: %d, Output: %d",
+                model_id,
+                token_input,
+                token_output,
+            )
+        except AttributeError:
+            logger.warning(
+                "Model %s response lacks usage() method for token counting.", model_id
+            )
+        except Exception as usage_err:
+            logger.warning(
+                "Failed to get token usage for model %s: %s", model_id, usage_err
+            )
+        return token_input, token_output
+
+    async def stream_execute(
+        self,
+        model: Any,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
+        response_model: type[BaseModel] | None = None,  # Ignored for streaming
+    ) -> AsyncIterator[str]:
+        """Execute a prompt on the model and stream the response.
+
+        Args:
+            model: The model instance to execute the prompt on
+            system_fragments: List of system prompt fragments.
+            user_fragments: List of user prompt fragments.
+            response_model: Optional Pydantic model (ignored for streaming).
+
+        Yields:
+            str: Chunks of the response text.
+
+        Raises:
+            RecoverableApiError: If a potentially recoverable API error occurs.
+            ValueError: If another error occurs during execution.
+        """
+        current_model_id_for_log = getattr(model, "model_id", "Unknown")
+        logger.debug(
+            "Streaming call to model '%s'",
+            current_model_id_for_log,
+        )
+
+        prompt_kwargs: dict[str, Any] = {}
+        if system_fragments:
+            prompt_kwargs["system"] = "\n\n".join(system_fragments)
+        
+        fragments_list: UserFragments = (
+            user_fragments if user_fragments else UserFragments([])
+        )
+        # The llm library uses 'prompt' for the main content when streaming, not 'fragments'.
+        # We'll combine user_fragments into a single prompt string here.
+        # If system_fragments are also to be part of the main prompt for some models during streaming,
+        # this logic might need adjustment based on llm library specifics for those models.
+        prompt_kwargs["prompt"] = "\n\n".join(fragments_list)
+
+        # Schema/response_model is typically not used with raw streaming of text chunks.
+        # If a model supports streaming structured output (e.g. JSON chunks), that's a more complex case.
+
+        try:
+            with ModelEnvironment(current_model_id_for_log, self.config):
+                # model is from llm.get_model(). Its prompt() method returns a Response object.
+                # If the model supports streaming, this Response object is synchronously iterable.
+                response = model.prompt(**prompt_kwargs)
+
+                # TODO: Metrics collection for streaming (e.g., using response.on_done() if available,
+                # or by accumulating token counts if chunks provide that info, which is unlikely).
+                # For now, metrics are not collected for streaming responses.
+
+                # Synchronously iterate and yield chunks with a slight await to make it async-friendly.
+                import asyncio # Required for asyncio.sleep
+                for chunk in response: # This is a synchronous loop.
+                    yield chunk
+                    await asyncio.sleep(0) # Allow other async tasks to run.
+
+        except TypeError as te:
+            # Catching TypeError specifically because the `for chunk in response:` might fail
+            # if the `response` object is not iterable as expected (e.g., if it was an error response object).
+            logger.error(
+                f"TypeError during synchronous streaming for model {current_model_id_for_log}: {te}. "
+                f"This may indicate the response object was not iterable as expected."
+            )
+            raise ValueError(
+                f"LLM streaming iteration error for model {current_model_id_for_log}: Not iterable or unexpected response type."
+            ) from te
+        except Exception as e:
+            error_str = str(e).lower()
+            logger.warning(
+                "LLM streaming call to model '%s' failed. Error: %s",
+                current_model_id_for_log,
+                e,
+                exc_info=True,
+            )
+            if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
+                logger.warning(
+                    "Recoverable API error detected during streaming for model '%s': %s",
+                    current_model_id_for_log,
+                    e,
+                )
+                raise RecoverableApiError(
+                    "Recoverable API Error during LLM stream to "
+                    f"{current_model_id_for_log}: {e}"
+                ) from e
+            else:
+                raise ValueError(
+                    f"LLM Streaming Execution Error for model {current_model_id_for_log}: {e}"
+                ) from e
+
 
 # Default model adapter instance
 _default_adapter: ModelAdapter | None = None
@@ -1025,3 +1274,18 @@ def validate_model_key_on_startup(model_name: str) -> str | None:
     """
     adapter = get_model_adapter()
     return adapter.validate_model_key(model_name)
+
+
+async def _get_response_text_async(response: ModelResponse) -> str:
+    """Helper to await response.text()."""
+    return await response.text()
+
+
+async def _get_response_json_async(response: ModelResponse) -> dict[str, Any]:
+    """Helper to await response.json()."""
+    return await response.json()
+
+
+async def _get_response_usage_async(response: ModelResponse) -> LLMUsage:
+    """Helper to await response.usage()."""
+    return await response.usage()

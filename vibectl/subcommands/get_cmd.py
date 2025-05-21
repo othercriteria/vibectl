@@ -89,8 +89,7 @@ async def run_get_command(
         else:
             # Run the sync handler in a thread
             logger.info("Handling standard 'get' command.")
-            result = await asyncio.to_thread(
-                handle_standard_command,
+            result = await handle_standard_command(
                 command="get",
                 resource=resource,
                 args=args,

@@ -12,6 +12,8 @@ from typing import (
     NewType,
     Protocol,
     runtime_checkable,
+    AsyncIterator,
+    Awaitable,
 )
 
 # Import Config for type hinting
@@ -48,6 +50,15 @@ class RecoverableApiError(ValueError):
     """Custom exception for potentially recoverable API errors (e.g., rate limits)."""
 
     pass
+
+
+@runtime_checkable
+class LLMUsage(Protocol):
+    """Protocol defining the expected interface for model usage details."""
+
+    input: int
+    output: int
+    details: dict[str, Any] | None
 
 
 class PredicateCheckExitCode(int, Enum):
@@ -255,23 +266,33 @@ class ActionType(str, Enum):
 
 @runtime_checkable
 class ModelResponse(Protocol):
-    """Protocol defining the expected interface for model responses."""
+    """Protocol defining the expected interface for model responses from the llm library,
+    covering sync, async, and streaming."""
 
-    def text(self) -> str:
-        """Get the text content of the response.
-
-        Returns:
-            str: The text content of the response
-        """
+    async def text(self) -> str:
+        """Get the text content of the response. Awaited for async responses."""
         ...
 
-    def usage(self) -> Any:
-        """Get token usage information from the response.
-
-        Returns:
-            Any: Usage object (structure may vary by model/library version)
-        """
+    async def json(self) -> dict[str, Any]:
+        """Get the JSON content of the response. Awaited for async responses."""
         ...
+
+    async def usage(self) -> LLMUsage:
+        """Get the token usage information. Awaited for async responses."""
+        ...
+
+    def __aiter__(self) -> AsyncIterator[str]:
+        """Enable `async for chunk in response:` for streaming."""
+        ...
+
+    async def on_done(self, callback: Callable[["ModelResponse"], Awaitable[None]]) -> None:
+        """Register a callback to be executed when the response is complete."""
+        ...
+
+    # For synchronous, non-streaming calls, these might be available.
+    # However, the adapter will primarily use the async versions for streaming.
+    # If a sync version of these is needed by the protocol for other reasons,
+    # they would need to be added. For now, focusing on async streaming path.
 
 
 class ErrorSeverity(str, Enum):

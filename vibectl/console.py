@@ -10,6 +10,9 @@ from rich.console import Console
 from rich.errors import MarkupError
 from rich.table import Table
 from rich.theme import Theme
+from rich.text import Text
+from rich.panel import Panel
+from rich.markdown import Markdown
 
 
 class ConsoleManager:
@@ -150,10 +153,40 @@ class ConsoleManager:
         """Print a success message."""
         self.safe_print(self.console, message, style="success")
 
-    def print_vibe(self, message: str) -> None:
-        """Print a vibe message."""
-        self.safe_print(self.console, "✨ Vibe check:", style="vibe")
-        self.safe_print(self.console, message)
+    def print_vibe(
+        self, vibe_output: str, is_stream_chunk: bool = False
+    ) -> None:
+        """Print Vibe output using Rich Console, handling streaming.
+
+        Args:
+            vibe_output: The Vibe output text to print.
+            is_stream_chunk: If True, treats vibe_output as a chunk of a stream.
+        """
+        if not vibe_output:  # Skip empty chunks or empty full messages
+            return
+
+        if is_stream_chunk:
+            # For streaming, print chunks directly. Rich handles newlines.
+            # highlight=False to avoid Rich trying to highlight incomplete markdown/code blocks.
+            # markup=False to prevent interpretation of partial Rich tags in chunks.
+            # Ensure self.console is used, not a local console.
+            self.console.print(vibe_output, end="", highlight=False, markup=False)
+            # Ensure the output is flushed immediately for streaming:
+            if hasattr(self.console.file, "flush"): # Check if flush is available
+                self.console.file.flush()
+        else:
+            # For non-streaming, or for the full accumulated message after streaming.
+            # Ensure Text, Panel, Markdown are imported if not already at the top of console.py
+            panel_title = Text("✨ Vibe", style="bold magenta")
+            # Use Markdown for better formatting of the full response
+            try:
+                markdown = Markdown(vibe_output)
+                self.console.print(Panel(markdown, title=panel_title, expand=False))
+            except Exception as e:
+                # Fallback to plain print if Markdown parsing fails
+                self.console.print(f"[bold magenta]✨ Vibe[/bold magenta]")
+                self.console.print(vibe_output)
+                self.console.print(f"Markdown rendering error: {e}", style="dim red")
 
     def print_vibe_header(self) -> None:
         """Print vibe header."""
