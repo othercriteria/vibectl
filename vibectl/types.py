@@ -4,7 +4,7 @@ Type definitions for vibectl.
 Contains common type definitions used across the application.
 """
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import (
@@ -12,8 +12,6 @@ from typing import (
     NewType,
     Protocol,
     runtime_checkable,
-    AsyncIterator,
-    Awaitable,
 )
 
 # Import Config for type hinting
@@ -266,8 +264,8 @@ class ActionType(str, Enum):
 
 @runtime_checkable
 class ModelResponse(Protocol):
-    """Protocol defining the expected interface for model responses from the llm library,
-    covering sync, async, and streaming."""
+    """Protocol defining the expected interface for model responses from the
+    llm library, covering sync, async, and streaming."""
 
     async def text(self) -> str:
         """Get the text content of the response. Awaited for async responses."""
@@ -285,7 +283,9 @@ class ModelResponse(Protocol):
         """Enable `async for chunk in response:` for streaming."""
         ...
 
-    async def on_done(self, callback: Callable[["ModelResponse"], Awaitable[None]]) -> None:
+    async def on_done(
+        self, callback: Callable[["ModelResponse"], Awaitable[None]]
+    ) -> None:
         """Register a callback to be executed when the response is complete."""
         ...
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented streaming for LLM responses in Vibe commands, providing real-time output.
 - Planned: Implement streaming LLM responses for Vibe, starting with `vibe` command output. (WIP)
 
 ## [0.8.1] - 2025-05-21

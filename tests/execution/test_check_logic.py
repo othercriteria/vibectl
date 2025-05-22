@@ -182,7 +182,7 @@ async def test_run_check_command_thought_then_done() -> None:
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
     # _get_check_llm_plan will be called twice
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_thought, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
@@ -242,7 +242,7 @@ async def test_run_check_command_command_then_done() -> None:
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_command, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
@@ -306,7 +306,7 @@ async def test_run_check_command_non_read_only_command_error() -> None:
     )
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         return_value=Success(data=mock_llm_response_command, metrics=None)
     )
 
@@ -361,7 +361,7 @@ async def test_run_check_command_wait_then_done() -> None:
     mock_llm_response_wait = LLMPlannerResponse(action=mock_wait_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_wait, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
@@ -416,7 +416,7 @@ async def test_run_check_command_error_action_then_done() -> None:
     mock_llm_response_error = LLMPlannerResponse(action=mock_error_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_error, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
@@ -471,7 +471,7 @@ async def test_run_check_command_feedback_action_then_done() -> None:
     mock_llm_response_feedback = LLMPlannerResponse(action=mock_feedback_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_feedback, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
@@ -520,7 +520,7 @@ async def test_run_check_command_max_iterations_reached() -> None:
     mock_llm_response_thought = LLMPlannerResponse(action=mock_thought_action)
 
     # _get_check_llm_plan will be called max_iterations times
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         return_value=Success(data=mock_llm_response_thought, metrics=None)
     )
 
@@ -625,7 +625,7 @@ async def test_run_check_command_kubectl_error_then_done() -> None:
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = MagicMock(
+    mock_get_plan = AsyncMock(
         side_effect=[
             Success(data=mock_llm_response_command, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),

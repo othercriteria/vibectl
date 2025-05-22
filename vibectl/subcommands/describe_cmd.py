@@ -48,12 +48,18 @@ async def run_describe_command(
         logger.error(f"Error configuring flags: {e}", exc_info=True)
         return Error(error=f"Error configuring options: {e}", exception=e)
 
-    # Handle 'vibe' command special case
-    if resource == "vibe":
-        return await _handle_vibe_describe(args, output_flags)
+    try:
+        # Handle 'vibe' command special case
+        if resource == "vibe":
+            return await _handle_vibe_describe(args, output_flags)
 
-    # Handle standard describe command
-    return _handle_standard_describe(resource, args, output_flags)
+        # Handle standard describe command
+        return await _handle_standard_describe(resource, args, output_flags)
+    except Exception as e:
+        logger.error(
+            f"Unhandled error in describe command execution: {e}", exc_info=True
+        )
+        return Error(error=f"Unhandled error in describe execution: {e}", exception=e)
 
 
 async def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Result:
@@ -93,12 +99,12 @@ async def _handle_vibe_describe(args: tuple, output_flags: OutputFlags) -> Resul
         return Error(error=f"Exception in handle_vibe_request: {e}", exception=e)
 
 
-def _handle_standard_describe(
+async def _handle_standard_describe(
     resource: str, args: tuple, output_flags: OutputFlags
 ) -> Result:
     """Handle a standard 'describe' command for a specific resource."""
     try:
-        result = handle_standard_command(
+        result = await handle_standard_command(
             command="describe",
             resource=resource,
             args=args,

@@ -48,7 +48,6 @@ from .types import (
     SummaryPromptFragmentFunc,
     SystemFragments,
     UserFragments,
-    Awaitable,
 )
 from .utils import console_manager
 
@@ -70,17 +69,7 @@ async def handle_standard_command(
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...] = (0,),
 ) -> Result:
-    """Handle standard kubectl commands like get, describe, logs.
-
-    Args:
-        command: The kubectl command (get, describe, logs, etc.)
-        resource: The resource type (e.g., pods, deployments)
-        args: Additional arguments for the command
-        output_flags: Flags controlling output format
-
-    Returns:
-        Result object containing output or error
-    """
+    """Handle standard kubectl commands (get, describe, etc.)."""
     result = _run_standard_kubectl_command(
         command,
         resource,
@@ -107,15 +96,12 @@ async def handle_standard_command(
                 f"Command {command} {resource} failed with error but "
                 f"no exception: {result.error}"
             )
-            return result  # Return the original error
+            return result
 
     # Handle empty output
     if result.data is None or result.data.strip() == "":
         return _handle_empty_output(command, resource, args)
 
-    # Process and display output based on flags
-    # Pass command type to handle_command_output
-    # output should be the Result object (Success in this path)
     try:
         return await handle_command_output(
             result,
@@ -314,14 +300,13 @@ async def handle_command_output(
                         model_adapter = get_model_adapter()
                         model = model_adapter.get_model(output_flags.model_name)
                         # Get text and metrics from the recovery call using fragments
-                        vibe_output_text, recovery_metrics = (
-                            await model_adapter.execute_and_log_metrics(
-                                model,
-                                system_fragments=SystemFragments(
-                                    recovery_system_fragments
-                                ),
-                                user_fragments=UserFragments(recovery_user_fragments),
-                            )
+                        (
+                            vibe_output_text,
+                            recovery_metrics,
+                        ) = await model_adapter.execute_and_log_metrics(
+                            model,
+                            system_fragments=SystemFragments(recovery_system_fragments),
+                            user_fragments=UserFragments(recovery_user_fragments),
                         )
                         suggestions_generated = True
                     except Exception as llm_exc:
@@ -393,19 +378,19 @@ async def handle_command_output(
                     # failure message)
                     # Wrap memory update in try-except as it's non-critical path
                     try:
-                        memory_update_metrics = await update_memory(
-                            command_message=command or "Unknown",
-                            command_output=original_error_object.error,
+                        memory_update_metrics_error = await update_memory(
+                            command_message=output_message or command or "Unknown",
+                            command_output=output_data,
                             vibe_output=vibe_output_text,
                             model_name=output_flags.model_name,
                         )
-                        if memory_update_metrics and output_flags.show_vibe:
+                        if memory_update_metrics_error and output_flags.show_vibe:
                             console_manager.print_metrics(
-                                latency_ms=memory_update_metrics.latency_ms,
-                                tokens_in=memory_update_metrics.token_input,
-                                tokens_out=memory_update_metrics.token_output,
+                                latency_ms=memory_update_metrics_error.latency_ms,
+                                tokens_in=memory_update_metrics_error.token_input,
+                                tokens_out=memory_update_metrics_error.token_output,
                                 source="LLM Memory Update (Recovery)",
-                                total_duration=memory_update_metrics.total_processing_duration_ms,
+                                total_duration=memory_update_metrics_error.total_processing_duration_ms,
                             )
 
                     except Exception as mem_err:
@@ -417,6 +402,8 @@ async def handle_command_output(
                     # which now contains recovery_metrics in its .metrics field.
                     # We use result_metrics extracted earlier.
                     vibe_result = original_error_object
+                    # If recovery was attempted and vibe_result is set, return it.
+                    return vibe_result
                 else:
                     # If we started with success, generate a summary prompt
                     # Call with config
@@ -425,8 +412,9 @@ async def handle_command_output(
                     # Call WITH config argument as required by the type hint
                     summary_system_fragments, summary_user_fragments = (
                         summary_prompt_func(
-                            cfg, current_memory_text
-                        )  # Pass memory here
+                            cfg,  # Pass config as positional
+                            current_memory_text,  # Pass current_memory as positional
+                        )
                     )
                     # _process_vibe_output returns Success with summary_metrics
                     # _process_vibe_output is now async
@@ -513,6 +501,9 @@ async def handle_command_output(
     # If vibe processing occurred and resulted in a Success/Error, return that.
     # Otherwise, return the original result (or Success if only raw was shown).
     if vibe_result:
+        logger.debug(
+            f"Vibe output processing complete. Result type: {type(vibe_result)}"
+        )
         return vibe_result
     elif original_error_object:
         # Return original error if vibe wasn't shown or only recovery happened
@@ -588,20 +579,7 @@ async def _process_vibe_output(
     command: str | None = None,
     original_error_object: Error | None = None,
 ) -> Result:
-    """Process and display vibe output based on flags.
-
-    Args:
-        output_message: The raw command output message.
-        output_data: The raw command output data.
-        output_flags: Flags controlling output format.
-        summary_system_fragments: System prompt fragments for the summary.
-        summary_user_fragments: User prompt fragments for the summary.
-        command: The original kubectl command type.
-        original_error_object: The original error object if available
-
-    Returns:
-        Result object with Vibe summary or an Error.
-    """
+    """Helper to process Vibe output, potentially stream, and update memory."""
     # Truncate output if necessary
     processed_output = output_processor.process_auto(output_data).truncated
 
@@ -613,7 +591,10 @@ async def _process_vibe_output(
         return (
             original_error_object
             if original_error_object
-            else Success(data=output_data, message="Original data, no Vibe summary due to empty processed output.")
+            else Success(
+                data=output_data,
+                message="Original data, no Vibe summary due to empty processed output.",
+            )
         )
 
     # Get LLM summary
@@ -633,16 +614,11 @@ async def _process_vibe_output(
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
 
-        # Check if streaming should be used (e.g., based on a new flag in output_flags or model capability)
-        # For now, let's assume a hypothetical `use_streaming` flag or condition.
-        # This will need to be properly defined based on how we want to trigger streaming.
-        # As a placeholder, let's say if the model_name indicates a streaming-capable model or a flag is set.
-        # For this iteration, we will always stream if show_vibe is true and no original_error_object exists.
         should_stream = not original_error_object and output_flags.show_vibe
 
         if should_stream:
             logger.info("Streaming Vibe output...")
-            console_manager.start_live_vibe_panel() # Start live display
+            console_manager.start_live_vibe_panel()  # Start live display
             full_vibe_response_text = ""
             try:
                 async for chunk in model_adapter.stream_execute(
@@ -650,16 +626,17 @@ async def _process_vibe_output(
                     system_fragments=summary_system_fragments,
                     user_fragments=UserFragments(formatted_user_fragments),
                 ):
-                    console_manager.update_live_vibe_panel(chunk) # Update live display
+                    console_manager.update_live_vibe_panel(chunk)  # Update live display
                     full_vibe_response_text += chunk
             finally:
-                # Ensure panel is stopped even if streaming errors out, though text might be incomplete.
-                # The stop_live_vibe_panel method now returns the accumulated text, 
+                # Ensure panel is stopped even if streaming errors out, though
+                # text might be incomplete.
+                # The stop_live_vibe_panel method now returns the accumulated text,
                 # but we use full_vibe_response_text which was accumulated directly.
                 console_manager.stop_live_vibe_panel()
-            
+
             vibe_output_text = full_vibe_response_text
-            metrics = None # Placeholder for streaming metrics
+            metrics = None  # Placeholder for streaming metrics
         else:
             # Non-streaming path (existing logic)
             vibe_output_text, metrics = await model_adapter.execute_and_log_metrics(
@@ -704,6 +681,23 @@ async def _process_vibe_output(
             logger.error(f"LLM summary error: {error_message}")
             # Display the full ERROR: text string
             console_manager.print_error(vibe_output_text)
+
+            # Update memory with the error message
+            memory_update_metrics = await update_memory(
+                command_message=output_message or command or "Unknown",
+                command_output=output_data,
+                vibe_output=vibe_output_text,
+                model_name=output_flags.model_name,
+            )
+            if memory_update_metrics and output_flags.show_metrics:
+                console_manager.print_metrics(
+                    latency_ms=memory_update_metrics.latency_ms,
+                    tokens_in=memory_update_metrics.token_input,
+                    tokens_out=memory_update_metrics.token_output,
+                    source="LLM Memory Update (Summary Error)",
+                    total_duration=memory_update_metrics.total_processing_duration_ms,
+                )
+
             # Treat LLM-reported errors as potentially recoverable API errors
             # Pass the error message without the ERROR: prefix
             # Attach metrics from the failed call to the Error object
@@ -892,9 +886,7 @@ def configure_output_flags(
     # Get warn_no_proxy setting - default to True (do warn when proxy not configured)
     warn_no_proxy = config.get("warn_no_proxy", True)
 
-    model_name = (
-        model if model is not None else config.get("model", DEFAULT_CONFIG["model"])
-    )
+    model_name = model if model else config.get("model", DEFAULT_CONFIG["model"])
 
     # Get show_kubectl setting - default to False
     show_kubectl_commands = (

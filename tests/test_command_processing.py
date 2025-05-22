@@ -1,6 +1,6 @@
 """Tests for command string processing functionality."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -275,6 +275,7 @@ def test_execute_command(
         mock_run_yaml.assert_not_called()
 
 
+@pytest.mark.asyncio
 @patch("vibectl.execution.vibe.get_memory", autospec=True)
 @patch("vibectl.execution.vibe.set_memory", autospec=True)
 @patch("vibectl.execution.vibe.get_model_adapter", autospec=True)
@@ -283,7 +284,7 @@ def test_execute_command(
 @patch("vibectl.execution.vibe.click.prompt", autospec=True)
 @patch("vibectl.execution.vibe.console_manager", autospec=True)
 @patch("vibectl.execution.vibe.logger", autospec=True)
-def test_fuzzy_memory_update(
+async def test_fuzzy_memory_update(
     mock_logger: Mock,
     mock_console_manager: Mock,
     mock_click_prompt_func: Mock,
@@ -324,15 +325,18 @@ def test_fuzzy_memory_update(
     mock_model_instance = Mock(name="MockedModelInstance")
     mock_model_adapter_instance.get_model.return_value = mock_model_instance
 
-    mock_model_adapter_instance.execute_and_log_metrics.return_value = (
-        final_updated_memory_text,
-        mock_llm_metrics,
+    # Ensure the mocked method is an AsyncMock to be properly awaited
+    mock_model_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(
+            final_updated_memory_text,
+            mock_llm_metrics,
+        )
     )
     mock_get_model_adapter_func.return_value = mock_model_adapter_instance
     print(f"Mocked final memory update text: {final_updated_memory_text}")
 
     print("\nCalling _handle_fuzzy_memory_update...")
-    result = _handle_fuzzy_memory_update(
+    result = await _handle_fuzzy_memory_update(
         option="yes and", model_name="claude-3.7-sonnet"
     )
     print(f"Function returned: {result}")

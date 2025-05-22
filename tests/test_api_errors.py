@@ -111,7 +111,7 @@ async def test_auto_command_continues_on_api_error(
 
 @patch("vibectl.command_handler.console_manager")
 @patch("vibectl.command_handler._process_vibe_output")
-def test_handle_command_output_api_error_marked_non_halting(
+async def test_handle_command_output_api_error_marked_non_halting(
     mock_process_vibe: Mock,
     mock_console: Mock,
 ) -> None:
@@ -136,7 +136,7 @@ def test_handle_command_output_api_error_marked_non_halting(
     mock_process_vibe.side_effect = api_exception
 
     # Call the function (now imported at top level)
-    result = handle_command_output(
+    result = await handle_command_output(
         output=Success(data="test output"),
         output_flags=output_flags,
         summary_prompt_func=get_dummy_prompt_fragments,

@@ -6,10 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from vibectl.command_handler import handle_command_output
 from vibectl.config import DEFAULT_CONFIG
-
-# Import the actual functions that will be passed to asyncio.to_thread for comparison
 from vibectl.k8s_utils import run_kubectl
 from vibectl.subcommands.rollout_cmd import (
     rollout_general_prompt,
@@ -71,7 +68,7 @@ async def test_run_rollout_command_successful_flow(
         *args_tuple,
     ]
 
-    mock_kubectl_success_output = Success(data="kubectl history data")
+    mock_kubectl_output = Success(data="kubectl history data")
     # expected_final_result now comes from the run_rollout_command itself,
     # not handle_command_output directly as handle_command_output is awaited
     # but its direct return isn't used by run_rollout_command's final return.
@@ -89,7 +86,7 @@ async def test_run_rollout_command_successful_flow(
     ) -> Result | None:
         if func_to_run_in_thread is run_kubectl:
             assert args_for_func[0] == expected_kubectl_cmd_list
-            return mock_kubectl_success_output
+            return mock_kubectl_output
         # handle_command_output is no longer called via to_thread
         raise AssertionError(
             "asyncio.to_thread called with unexpected function: "
@@ -103,12 +100,9 @@ async def test_run_rollout_command_successful_flow(
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            # For this success flow, ensure it's called and returns a success to prevent LLM.
-            # The actual summary content for this test case is not critical,
-            # as run_rollout_command constructs its own final success message.
-            return_value=Success(message="Mocked output from handle_command_output")
+            return_value=Success(message="Mocked output from handle_command_output"),
         ) as mock_handle_command_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -129,15 +123,16 @@ async def test_run_rollout_command_successful_flow(
         )
 
         assert result == expected_final_result
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl is called via to_thread
-        mock_handle_command_output_direct.assert_called_once_with(
-            output=mock_kubectl_success_output,
-            output_flags=default_rollout_output_flags,
-            summary_prompt_func=rollout_history_prompt, # Make sure correct prompt func is used
-        )
-
+        assert (
+            mock_async_to_thread.call_count == 1
+        )  # Only run_kubectl is called via to_thread
         mock_configure_output.assert_called_once()
         mock_configure_memory.assert_called_once()
+        mock_handle_command_output_direct.assert_called_once_with(
+            output=mock_kubectl_output,
+            output_flags=default_rollout_output_flags,
+            summary_prompt_func=rollout_history_prompt,
+        )
 
 
 @pytest.mark.asyncio
@@ -166,7 +161,6 @@ async def test_run_rollout_status(default_rollout_output_flags: OutputFlags) -> 
         if func is run_kubectl:
             assert args_to_func[0] == expected_kubectl_cmd_list
             return mock_kubectl_output
-        # handle_command_output is no longer called via to_thread
         raise AssertionError(
             f"asyncio.to_thread called with unexpected function: {func}"
         )
@@ -178,9 +172,9 @@ async def test_run_rollout_status(default_rollout_output_flags: OutputFlags) -> 
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -197,13 +191,13 @@ async def test_run_rollout_status(default_rollout_output_flags: OutputFlags) -> 
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
         )
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
+        assert result == expected_final_result
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
             summary_prompt_func=rollout_status_prompt,
         )
-        assert result == expected_final_result
 
 
 @pytest.mark.asyncio
@@ -244,9 +238,9 @@ async def test_run_rollout_history(default_rollout_output_flags: OutputFlags) ->
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -263,13 +257,13 @@ async def test_run_rollout_history(default_rollout_output_flags: OutputFlags) ->
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
         )
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
+        assert result == expected_final_result
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
             summary_prompt_func=rollout_history_prompt,
         )
-        assert result == expected_final_result
 
 
 @pytest.mark.asyncio
@@ -313,9 +307,9 @@ async def test_run_rollout_undo_with_confirmation(
         ) as mock_async_to_thread,
         patch("click.confirm", return_value=True) as mock_click_confirm,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -334,7 +328,7 @@ async def test_run_rollout_undo_with_confirmation(
             yes=False,  # Explicitly test confirmation path
         )
         mock_click_confirm.assert_called_once()
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
@@ -384,9 +378,9 @@ async def test_run_rollout_undo_with_yes_flag(
         ) as mock_async_to_thread,
         patch("click.confirm") as mock_click_confirm,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -405,7 +399,7 @@ async def test_run_rollout_undo_with_yes_flag(
             yes=True,  # Set yes flag
         )
         mock_click_confirm.assert_not_called()
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
@@ -428,9 +422,9 @@ async def test_run_rollout_undo_cancelled(
         patch("click.confirm", return_value=False) as mock_click_confirm,
         patch("vibectl.subcommands.rollout_cmd.console_manager") as mock_console,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -455,6 +449,7 @@ async def test_run_rollout_undo_cancelled(
         )
         assert isinstance(result, Success)
         assert result.message == expected_cancellation_result_message
+        mock_handle_output_direct.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -495,9 +490,9 @@ async def test_run_rollout_restart(default_rollout_output_flags: OutputFlags) ->
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -514,13 +509,13 @@ async def test_run_rollout_restart(default_rollout_output_flags: OutputFlags) ->
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
         )
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
+        assert result == expected_final_result
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
             summary_prompt_func=rollout_general_prompt,
         )
-        assert result == expected_final_result
 
 
 @pytest.mark.asyncio
@@ -561,9 +556,9 @@ async def test_run_rollout_pause(default_rollout_output_flags: OutputFlags) -> N
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -580,13 +575,13 @@ async def test_run_rollout_pause(default_rollout_output_flags: OutputFlags) -> N
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
         )
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
+        assert result == expected_final_result
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
             summary_prompt_func=rollout_general_prompt,
         )
-        assert result == expected_final_result
 
 
 @pytest.mark.asyncio
@@ -627,9 +622,9 @@ async def test_run_rollout_resume(default_rollout_output_flags: OutputFlags) -> 
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
+            return_value=Success(message="Mocked handler output"),
         ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
@@ -646,13 +641,13 @@ async def test_run_rollout_resume(default_rollout_output_flags: OutputFlags) -> 
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
         )
-        assert mock_async_to_thread.call_count == 1 # Only run_kubectl
+        assert mock_async_to_thread.call_count == 1  # Only run_kubectl
+        assert result == expected_final_result
         mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_output,
             output_flags=default_rollout_output_flags,
             summary_prompt_func=rollout_general_prompt,
         )
-        assert result == expected_final_result
 
 
 @pytest.mark.asyncio
@@ -694,10 +689,10 @@ async def test_run_rollout_kubectl_error_propagates(
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            return_value=Success(message="Mocked handler output") # Prevent LLM call
-        ) as mock_handle_output_direct,
+            return_value=Success(message="Mocked handler output"),
+        ),
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
             return_value=default_rollout_output_flags,
@@ -763,10 +758,10 @@ async def test_run_rollout_handle_command_output_error(
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
-            side_effect=error_exception_in_handler # Make it raise the error
-        ) as mock_handle_command_output_raises,
+            side_effect=error_exception_in_handler,
+        ) as mock_handle_output_direct,
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
             return_value=default_rollout_output_flags,
@@ -788,10 +783,10 @@ async def test_run_rollout_handle_command_output_error(
         assert isinstance(result, Error)
         assert result.error == "Exception in handle_command_output"
         assert result.exception == error_exception_in_handler
-        mock_handle_command_output_raises.assert_called_once_with(
+        mock_handle_output_direct.assert_called_once_with(
             output=mock_kubectl_success,
             output_flags=default_rollout_output_flags,
-            summary_prompt_func=rollout_status_prompt, # Ensure correct prompt func
+            summary_prompt_func=rollout_status_prompt,
         )
 
 
@@ -832,13 +827,14 @@ async def test_run_rollout_command_handles_run_kubectl_returning_string(
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
         patch(
-            "vibectl.subcommands.rollout_cmd.handle_command_output", # Patch direct call
+            "vibectl.subcommands.rollout_cmd.handle_command_output",
             new_callable=AsyncMock,
             # It should receive a Success object, even if run_kubectl returned str
             # This tests the internal adaptation in run_rollout_command.
-            # For this specific test, we don't care about its return, just that it's called.
-            return_value=Success(message="Mocked output from handler")
-        ) as mock_handle_output_direct,
+            # For this specific test, we don't care about its return, just
+            # that it's called.
+            return_value=Success(message="Mocked output from handler"),
+        ),
         patch(
             "vibectl.subcommands.rollout_cmd.configure_output_flags",
             return_value=default_rollout_output_flags,

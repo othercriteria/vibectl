@@ -546,7 +546,10 @@ async def _run_intelligent_apply_workflow(
             )
 
             try:
-                summary_text, summary_metrics = await model_adapter.execute_and_log_metrics(
+                (
+                    summary_text,
+                    summary_metrics,
+                ) = await model_adapter.execute_and_log_metrics(
                     model=llm_for_corrections_and_summaries,
                     system_fragments=summary_system_frags,
                     user_fragments=summary_user_frags,
@@ -646,7 +649,10 @@ async def _run_intelligent_apply_workflow(
                 )
 
                 try:
-                    proposed_yaml_str, correction_metrics = await model_adapter.execute_and_log_metrics(
+                    (
+                        proposed_yaml_str,
+                        correction_metrics,
+                    ) = await model_adapter.execute_and_log_metrics(
                         model=llm_for_corrections_and_summaries,
                         system_fragments=correction_system_frags,
                         user_fragments=correction_user_frags,
@@ -723,7 +729,10 @@ async def _run_intelligent_apply_workflow(
                             )
                         )
                         try:
-                            new_summary_text, new_summary_metrics = await model_adapter.execute_and_log_metrics(
+                            (
+                                new_summary_text,
+                                new_summary_metrics,
+                            ) = await model_adapter.execute_and_log_metrics(
                                 model=llm_for_corrections_and_summaries,
                                 system_fragments=new_summary_system_frags,
                                 user_fragments=new_summary_user_frags,
@@ -869,7 +878,10 @@ async def _run_intelligent_apply_workflow(
         )
 
         try:
-            response_from_adapter, final_plan_metrics = await model_adapter.execute_and_log_metrics(
+            (
+                response_from_adapter,
+                final_plan_metrics,
+            ) = await model_adapter.execute_and_log_metrics(
                 model=llm_for_corrections_and_summaries,
                 system_fragments=final_plan_system_frags,
                 user_fragments=final_plan_user_frags,

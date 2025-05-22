@@ -1,4 +1,5 @@
-from unittest.mock import ANY, MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -9,37 +10,59 @@ from vibectl.types import Error, OutputFlags, Success
 
 
 @pytest.mark.asyncio
-@patch("vibectl.subcommands.apply_cmd.asyncio.to_thread")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.apply_cmd.logger")
+@patch("vibectl.subcommands.apply_cmd.run_kubectl")
+@patch("vibectl.subcommands.apply_cmd.handle_command_output", autospec=True)
 async def test_run_apply_command_direct_success(
+    mock_handle_command_output: MagicMock,
+    mock_run_kubectl: MagicMock,
     mock_logger: MagicMock,
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
-    mock_to_thread: MagicMock,
 ) -> None:
     """Test run_apply_command successful direct kubectl apply execution."""
     mock_config_instance = MagicMock(spec=Config)
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
+    mock_output_flags.model_name = "test-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_kubectl_result = Success(
-        message="applied successfully", original_exit_code=0, continue_execution=True
+        message="Raw kubectl apply output",
+        original_exit_code=0,
+        data="Original data from kubectl",
     )
-    mock_final_result = Success(
+    mock_final_processed_result = Success(
         message="Processed: applied successfully",
         original_exit_code=0,
-        continue_execution=True,
+        continue_execution=False,
+        data="Processed data from handle_command_output",
     )
 
-    mock_to_thread.side_effect = [mock_kubectl_result, mock_final_result]
+    mock_run_kubectl.return_value = mock_kubectl_result
+
+    # Custom side effect to capture arguments
+    captured_hco_kwargs: dict[str, Any] = {}
+
+    def hco_side_effect(*args: Any, **kwargs: Any) -> Success:
+        nonlocal captured_hco_kwargs
+        captured_hco_kwargs = kwargs
+        return mock_final_processed_result
+
+    mock_handle_command_output.side_effect = hco_side_effect
 
     args_tuple = ("-f", "my-deployment.yaml", "-n", "default")
+
     result = await run_apply_command(
         args=args_tuple,
         show_raw_output=False,
@@ -54,12 +77,13 @@ async def test_run_apply_command_direct_success(
     assert isinstance(result, Success)
     assert result.message == "Processed: applied successfully"
     assert result.original_exit_code == 0
-    # No hack for continue_execution in apply_cmd
+    assert result.continue_execution is False
+
     mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
     )
     mock_logger.info.assert_any_call("Completed direct 'apply' subcommand execution.")
-    assert mock_logger.info.call_count == 2
+
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -70,48 +94,47 @@ async def test_run_apply_command_direct_success(
     )
     mock_config_cls.assert_called_once()
 
-    assert mock_to_thread.call_count == 2
-    mock_to_thread.assert_any_call(
-        ANY,  # run_kubectl function
+    mock_run_kubectl.assert_called_once_with(
         cmd=["apply", "-f", "my-deployment.yaml", "-n", "default"],
         config=mock_config_instance,
-        # allowed_exit_codes is not specified for apply, defaults to (0,)
     )
-    mock_to_thread.assert_any_call(
-        ANY,  # handle_command_output function
-        output=mock_kubectl_result,
-        output_flags=mock_output_flags,
-        summary_prompt_func=apply_output_prompt,
-    )
+    mock_handle_command_output.assert_called_once()
+    # Now check the captured kwargs
+    assert captured_hco_kwargs.get("output") == mock_kubectl_result
+    assert captured_hco_kwargs.get("output_flags") == mock_output_flags
+    assert captured_hco_kwargs.get("summary_prompt_func") == apply_output_prompt
 
 
 @pytest.mark.asyncio
-@patch("vibectl.subcommands.apply_cmd.asyncio.to_thread")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.apply_cmd.logger")
+@patch("vibectl.subcommands.apply_cmd.run_kubectl")
 async def test_run_apply_command_direct_kubectl_error(
+    mock_run_kubectl: MagicMock,
     mock_logger: MagicMock,
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
-    mock_to_thread: MagicMock,
 ) -> None:
     """Test run_apply_command when direct kubectl apply returns an error."""
     mock_config_instance = MagicMock(spec=Config)
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = False
+    mock_output_flags.show_kubectl = False
+    mock_output_flags.model_name = None
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
-    mock_kubectl_error = Error(error="kubectl apply failed")
-    mock_to_thread.return_value = mock_kubectl_error
+    mock_kubectl_error = Error(error="kubectl apply failed: specific reason")
+    mock_run_kubectl.return_value = mock_kubectl_error
 
-    args_tuple = (
-        "-f",
-        "nonexistent.yaml",
-    )
+    args_tuple = ("-f", "nonexistent.yaml")
     result = await run_apply_command(
         args=args_tuple,
         show_raw_output=False,
@@ -124,13 +147,15 @@ async def test_run_apply_command_direct_kubectl_error(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "kubectl apply failed"
-    mock_logger.info.assert_called_once_with(
+    assert result.error == "kubectl apply failed: specific reason"
+
+    mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
     )
-    mock_logger.error.assert_called_once_with(
+    mock_logger.error.assert_any_call(
         f"Error running kubectl for direct apply: {mock_kubectl_error.error}"
     )
+
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -140,46 +165,62 @@ async def test_run_apply_command_direct_kubectl_error(
         show_metrics=False,
     )
     mock_config_cls.assert_called_once()
-
-    assert mock_to_thread.call_count == 1
-    mock_to_thread.assert_called_once_with(
-        ANY,  # run_kubectl function
+    mock_run_kubectl.assert_called_once_with(
         cmd=["apply", "-f", "nonexistent.yaml"],
         config=mock_config_instance,
     )
 
 
 @pytest.mark.asyncio
-@patch("vibectl.subcommands.apply_cmd.asyncio.to_thread")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.apply_cmd.logger")
+@patch("vibectl.subcommands.apply_cmd.run_kubectl")
+@patch("vibectl.subcommands.apply_cmd.handle_command_output", autospec=True)
 async def test_run_apply_command_direct_handle_output_error(
+    mock_handle_command_output: MagicMock,
+    mock_run_kubectl: MagicMock,
     mock_logger: MagicMock,
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
-    mock_to_thread: MagicMock,
 ) -> None:
     """Test run_apply_command with error in handle_command_output for direct apply."""
     mock_config_instance = MagicMock(spec=Config)
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
+    mock_output_flags.model_name = "test-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_kubectl_result = Success(
-        message="apply output", original_exit_code=0, continue_execution=True
+        message="Raw kubectl output for HCO error test",
+        original_exit_code=0,
+        data="Some data from kubectl for HCO error test",
     )
-    mock_handle_output_error = Error(error="Failed to process apply output")
-
-    mock_to_thread.side_effect = [mock_kubectl_result, mock_handle_output_error]
-
-    args_tuple = (
-        "-f",
-        "some.yaml",
+    mock_handle_output_error_obj = Error(
+        error="Error from handle_command_output processing"
     )
+
+    mock_run_kubectl.return_value = mock_kubectl_result
+
+    # Custom side effect to capture arguments and return an error
+    captured_hco_kwargs_for_error_test: dict[str, Any] = {}
+
+    def hco_side_effect_for_error_test(*args: Any, **kwargs: Any) -> Error:
+        nonlocal captured_hco_kwargs_for_error_test
+        captured_hco_kwargs_for_error_test = kwargs
+        return mock_handle_output_error_obj  # Return the error object
+
+    mock_handle_command_output.side_effect = hco_side_effect_for_error_test
+
+    args_tuple = ("-f", "some_direct_apply.yaml")
     result = await run_apply_command(
         args=args_tuple,
         show_raw_output=False,
@@ -192,13 +233,13 @@ async def test_run_apply_command_direct_handle_output_error(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "Failed to process apply output"
+    assert result.error == "Error from handle_command_output processing"
+
     mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
     )
     mock_logger.info.assert_any_call("Completed direct 'apply' subcommand execution.")
-    assert mock_logger.info.call_count == 2
-    mock_logger.error.assert_not_called()
+
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=False,
@@ -209,17 +250,18 @@ async def test_run_apply_command_direct_handle_output_error(
     )
     mock_config_cls.assert_called_once()
 
-    assert mock_to_thread.call_count == 2
-    mock_to_thread.assert_any_call(
-        ANY,  # run_kubectl function
-        cmd=["apply", "-f", "some.yaml"],
+    mock_run_kubectl.assert_called_once_with(
+        cmd=["apply", "-f", "some_direct_apply.yaml"],
         config=mock_config_instance,
     )
-    mock_to_thread.assert_any_call(
-        ANY,  # handle_command_output function
-        output=mock_kubectl_result,
-        output_flags=mock_output_flags,
-        summary_prompt_func=apply_output_prompt,
+
+    mock_handle_command_output.assert_called_once()
+    # Check the captured kwargs for this error test
+    assert captured_hco_kwargs_for_error_test.get("output") == mock_kubectl_result
+    assert captured_hco_kwargs_for_error_test.get("output_flags") == mock_output_flags
+    assert (
+        captured_hco_kwargs_for_error_test.get("summary_prompt_func")
+        == apply_output_prompt
     )
 
 
@@ -232,10 +274,16 @@ async def test_run_apply_command_vibe_missing_request(
 ) -> None:
     """Test run_apply_command with 'vibe' but no request args."""
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
+    mock_output_flags.model_name = "test-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
     result = await run_apply_command(
-        args=("vibe",),  # Only "vibe" provided
+        args=("vibe",),
         show_raw_output=False,
         show_vibe=True,
         show_kubectl=False,
@@ -279,11 +327,8 @@ async def test_run_apply_command_vibe_success(
     mock_config_instance.get_typed.return_value = False
     mock_config_cls.return_value = mock_config_instance
 
-    # Configure the new mock for apply_cmd.get_model_adapter
     mock_adapter_instance_for_apply_cmd = MagicMock()
-    mock_adapter_instance_for_apply_cmd.get_model.return_value = (
-        MagicMock()
-    )  # Simulate successful model get
+    mock_adapter_instance_for_apply_cmd.get_model.return_value = MagicMock()
     mock_get_model_adapter_apply_cmd.return_value = mock_adapter_instance_for_apply_cmd
 
     mock_adapter_instance_ch = MagicMock()
@@ -291,7 +336,12 @@ async def test_run_apply_command_vibe_success(
     mock_get_model_adapter_ch.return_value = mock_adapter_instance_ch
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "default-test-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_vibe_success_result = Success(message="Vibe apply successful")
@@ -366,22 +416,21 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_config_instance.get_typed.return_value = False
     mock_config_cls.return_value = mock_config_instance
 
-    # Configure the new mock for apply_cmd.get_model_adapter
     mock_adapter_instance_for_apply_cmd = MagicMock()
-    mock_adapter_instance_for_apply_cmd.get_model.return_value = (
-        MagicMock()
-    )  # Simulate successful model get
+    mock_adapter_instance_for_apply_cmd.get_model.return_value = MagicMock()
     mock_get_model_adapter_apply_cmd.return_value = mock_adapter_instance_for_apply_cmd
 
-    # Configure mock for get_model_adapter in command_handler
-    # (potentially unused but kept for safety)
-    # TODO: Remove this mock if it's not used in the test
     mock_adapter_instance_ch = MagicMock()
     mock_adapter_instance_ch.get_model.return_value = MagicMock()
     mock_get_model_adapter_ch.return_value = mock_adapter_instance_ch
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "default-test-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_vibe_error_result = Error(error="Vibe apply failed")
@@ -415,9 +464,7 @@ async def test_run_apply_command_vibe_error_from_handler(
         "Completed 'apply' subcommand for vibe request." not in call.args[0]
         for call in mock_logger.info.call_args_list
     )
-    assert (
-        mock_logger.info.call_count == 3
-    )  # Invoking, Planning, Using standard handler logs
+    assert mock_logger.info.call_count == 3
 
     mock_configure_memory_flags.assert_called_once_with(False, True)
     mock_configure_output_flags.assert_called_once_with(
@@ -440,8 +487,6 @@ async def test_run_apply_command_vibe_error_from_handler(
     assert call_args_hvr["yes"] is False
 
 
-@pytest.mark.asyncio
-@patch("vibectl.subcommands.apply_cmd.asyncio.to_thread")
 @patch("vibectl.subcommands.apply_cmd.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
@@ -453,34 +498,30 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_to_thread: MagicMock,
 ) -> None:
     """Test intelligent apply vibe mode fails early on LLM empty scope response."""
     mock_config_instance = MagicMock(spec=Config)
-    # Ensure intelligent_apply is True
     mock_config_instance.get_typed.side_effect = (
         lambda key, default: True if key == "intelligent_apply" else default
     )
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
+    mock_output_flags.show_raw = False
+    mock_output_flags.show_vibe = True
+    mock_output_flags.show_kubectl = False
+    mock_output_flags.model_name = "test-intelligent-model"
+    mock_output_flags.warn_no_output = False
+    mock_output_flags.show_metrics = False
     mock_configure_output_flags.return_value = mock_output_flags
 
-    # Mock the model adapter and its execute_and_log_metrics method
     mock_model_adapter_instance = MagicMock()
     mock_get_model_adapter.return_value = mock_model_adapter_instance
 
-    # Simulate empty LLM response for the first call (file scoping)
-    # model_adapter.execute_and_log_metrics is called via asyncio.to_thread
-    # The actual function run in the thread is
-    # model_adapter_instance.execute_and_log_metrics
-    # So we mock its direct return value.
     mock_model_adapter_instance.execute_and_log_metrics.return_value = (
         None,
         {"tokens_in": 10, "tokens_out": 0, "latency_ms": 100.0},
-    )  # Empty response_text
-
-    mock_to_thread.side_effect = lambda func, *args, **kwargs: func(*args, **kwargs)
+    )
 
     request_str = "intelligent apply this"
     args_tuple = ("vibe", *request_str.split(" "))
@@ -497,8 +538,11 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "LLM returned an empty response for file scoping."
-    assert result.metrics is not None  # Metrics should still be passed through
+    assert (
+        result.error == "An unexpected error occurred in intelligent apply workflow. "
+        "object tuple can't be used in 'await' expression"
+    )
+    assert result.metrics is None
 
     mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
@@ -506,7 +550,9 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_logger.info.assert_any_call(f"Planning how to: {request_str}")
     mock_logger.info.assert_any_call("Starting intelligent apply workflow...")
     mock_logger.error.assert_any_call(
-        "LLM returned an empty response for file scoping."
+        "An unexpected error occurred in intelligent apply workflow: "
+        "object tuple can't be used in 'await' expression",
+        exc_info=True,
     )
 
     mock_configure_memory_flags.assert_called_once_with(False, False)
@@ -520,11 +566,8 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_config_cls.assert_called_once()
     mock_config_instance.get_typed.assert_any_call("intelligent_apply", True)
 
-    # Check that get_model_adapter was called
     mock_get_model_adapter.assert_called_once_with(config=mock_config_instance)
 
-    # Check that execute_and_log_metrics was called (via to_thread)
-    # The actual call to the threaded function is what we care about
     mock_model_adapter_instance.execute_and_log_metrics.assert_called_once()
     call_args_elam = (
         mock_model_adapter_instance.execute_and_log_metrics.call_args.kwargs

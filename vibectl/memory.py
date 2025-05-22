@@ -10,8 +10,10 @@ from typing import cast  # Added List, Tuple
 from .config import Config
 from .model_adapter import get_model_adapter
 from .prompt import memory_update_prompt  # Import the fragment-based prompt function
-from .types import LLMMetrics, RecoverableApiError, SystemFragments, UserFragments, Fragment
-from .utils import console_manager
+from .types import (
+    LLMMetrics,
+    RecoverableApiError,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,3 @@
-import asyncio
-
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,

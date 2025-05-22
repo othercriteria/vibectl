@@ -5,7 +5,7 @@ allowing vibectl to maintain context across commands.
 """
 
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -18,6 +18,11 @@ from vibectl.memory import (
     is_memory_enabled,
     set_memory,
     update_memory,
+)
+from vibectl.types import (
+    Fragment,
+    SystemFragments,
+    UserFragments,
 )
 
 
@@ -192,16 +197,16 @@ async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -
 
     # Setup prompt template for memory_update_prompt
     mock_update_prompt.return_value = (
-        ["SysMemPrompt"],
-        [
-            "UserMemTemplate"
-        ],  # Simplified from original, as it's not directly formatted here anymore
+        SystemFragments([Fragment("SysMemPrompt")]),
+        UserFragments([Fragment("UserMemTemplate")]),
     )
 
     mock_response_text = "Updated memory content"
-    mock_adapter.execute_and_log_metrics.return_value = (
-        mock_response_text,
-        None,  # Metrics
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(
+            mock_response_text,
+            None,  # Metrics
+        )
     )
 
     with patch("vibectl.memory.Config", return_value=mock_config):

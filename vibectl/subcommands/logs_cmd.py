@@ -117,17 +117,13 @@ async def run_logs_command(
 
         if not output:
             logger.info("No output from kubectl logs command.")
-            # Use console_manager if available, otherwise print
-            if "console_manager" in globals():
-                console_manager.print_note("No output from kubectl logs command.")
-            else:
-                print("[NOTE] No output from kubectl logs command.")
+            console_manager.print_note("No output from kubectl logs command.")
             return Success(message="No output from kubectl logs command.")
 
         # handle_command_output will handle truncation warnings and output display
         # Assume handle_command_output might be sync or async
         _ = await handle_command_output(
-            output=result, # Pass the entire Result object
+            output=result,  # Pass the entire Result object
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,
         )

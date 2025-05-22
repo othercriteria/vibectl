@@ -395,6 +395,11 @@ async def _confirm_and_execute_plan(
         command_output_str = str(result.data) if result.data is not None else ""
     elif isinstance(result, Error):
         command_output_str = str(result.error) if result.error is not None else ""
+    else:
+        # This should be impossible given Result = Union[Success, Error]
+        raise RuntimeError(
+            f"_execute_command returned an unexpected type: {type(result)}"
+        )
 
     vibe_output_str = plan_explanation or f"Executed: {display_cmd}"
 

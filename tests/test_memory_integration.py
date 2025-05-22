@@ -51,7 +51,9 @@ def test_config() -> Generator[Config, None, None]:
     yield config
 
 
-async def test_update_memory_basic(mock_model_adapter: Mock, test_config: Config) -> None:
+async def test_update_memory_basic(
+    mock_model_adapter: Mock, test_config: Config
+) -> None:
     """Test basic memory update functionality with mocked model adapter."""
     # Test data
     command = "kubectl get pods"

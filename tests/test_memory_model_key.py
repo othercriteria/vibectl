@@ -4,7 +4,7 @@ This module tests how memory functions handle API keys when interacting with mod
 """
 
 import os
-from collections.abc import Generator, AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
 from unittest.mock import Mock, patch
 

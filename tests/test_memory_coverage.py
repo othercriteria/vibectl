@@ -3,7 +3,8 @@ Tests for coverage gaps in memory functionality.
 """
 
 from collections.abc import Generator
-from unittest.mock import MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,6 +16,7 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
+from vibectl.types import LLMMetrics, Success
 
 
 @pytest.fixture
@@ -95,47 +97,78 @@ async def test_memory_set_with_editor(
 
 
 @pytest.mark.asyncio
-# @patch("vibectl.cli.llm") # Old patch, no longer correct
-@patch("vibectl.cli.get_model_adapter")  # Patch get_model_adapter at the CLI level
+# Patch the function called by the CLI command and sys.exit
+@patch("vibectl.cli.run_memory_update_logic", new_callable=AsyncMock)
+@patch("sys.exit")  # To prevent the test from exiting prematurely
 async def test_memory_update(
-    mock_get_model_adapter: MagicMock,  # New mock argument
+    mock_sys_exit: MagicMock,  # Mock for sys.exit
+    mock_run_memory_update_logic: AsyncMock,  # Mock for the core logic function
     setup_and_cleanup_memory: Generator[None, None, None],
 ) -> None:
-    """Test memory update functionality."""
+    """Test memory update functionality by invoking the CLI command directly."""
     update_cmd = memory_group.commands["update"]  # Get the update command object
 
-    # Configure the mock model adapter
-    mock_adapter_instance = (
-        Mock()
-    )  # spec=ModelAdapter can be added if ModelAdapter is importable here
-    mock_get_model_adapter.return_value = mock_adapter_instance
+    # Configure the mock for run_memory_update_logic
+    expected_updated_memory_content = "Updated memory via mock logic"
+    # Simulate the metrics object that run_memory_update_logic would include
+    mock_llm_metrics = MagicMock(
+        spec=LLMMetrics
+    )  # Use MagicMock if LLMMetrics isn't easily importable or to simplify
+    mock_llm_metrics.latency_ms = 100.0
+    mock_llm_metrics.token_input = 10
+    mock_llm_metrics.token_output = 20
+    # Other LLMMetrics attributes if they are accessed by handle_result
+    # or Success string formatting
+    mock_llm_metrics.total_processing_duration_ms = None
+    mock_llm_metrics.fragments_used = None
+    mock_llm_metrics.call_count = 1
 
-    # Mock the model that the adapter will return
-    mock_model_instance = MagicMock()
-    mock_adapter_instance.get_model.return_value = mock_model_instance
+    # Construct the data string as the real function would, for the Success object
+    success_data_str = (
+        f"Memory updated successfully.\\nUpdated Memory Content:\\n"
+        f"{expected_updated_memory_content}"
+    )
+    total_tokens = mock_llm_metrics.token_input + mock_llm_metrics.token_output
+    if total_tokens > 0:
+        success_data_str += (
+            f"\\nLLM Metrics: Latency={mock_llm_metrics.latency_ms:.2f}ms, "
+            f"Tokens={total_tokens}"
+        )
+    else:
+        success_data_str += (
+            f"\\nLLM Metrics: Latency={mock_llm_metrics.latency_ms:.2f}ms"
+        )
 
-    # Configure the response from execute_and_log_metrics
-    expected_updated_memory = "Updated memory with new information"
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        expected_updated_memory,
-        None,  # No metrics for this test
+    mock_run_memory_update_logic.return_value = Success(
+        data=success_data_str, metrics=mock_llm_metrics
     )
 
+    # We also need to mock set_memory if run_memory_update_logic is expected to call it
+    # and we want to verify its effect using get_memory() after the command.
+    # For this test structure, let's assume run_memory_update_logic's mock will
+    # simulate this.
+    # To do that, we can make the mock_run_memory_update_logic also call set_memory.
+
+    async def side_effect_for_run_logic(*args: Any, **kwargs: Any) -> Success:
+        # Simulate the core logic's call to set_memory
+        set_memory(expected_updated_memory_content)
+        return Success(data=success_data_str, metrics=mock_llm_metrics)
+
+    mock_run_memory_update_logic.side_effect = side_effect_for_run_logic
+
     # Run the memory_update command directly
-    # The command itself is synchronous, but called via async click runner
-    # Mock config within the command if needed, or assume default config is used
-    with patch("vibectl.cli.console_manager"):  # Mock console if needed by command
-        # It seems memory_update in cli.py is synchronous, so no await here on main.
-        # However, the test is marked asyncio, and calls it via await.
-        # Assuming async main.
+    with patch(
+        "vibectl.cli.console_manager"
+    ):  # Mock console if used by CLI layer before handle_result
         await update_cmd.main(["Add", "new", "information"], standalone_mode=False)
 
-    # Verify memory was updated
-    assert get_memory() == expected_updated_memory
+    # Verify memory was updated by checking get_memory()
+    assert get_memory() == expected_updated_memory_content
 
     # Verify mocks
-    mock_get_model_adapter.assert_called_once()  # Check an adapter was requested
-    # The CLI command will get a default model name from Config if not specified.
-    # For this test, we assume it gets a model, e.g., the default.
-    mock_adapter_instance.get_model.assert_called_once()  # TODO: Add model name
-    mock_adapter_instance.execute_and_log_metrics.assert_called_once()
+    mock_run_memory_update_logic.assert_called_once_with(
+        update_text_str="Add new information", model_name=None
+    )
+    mock_sys_exit.assert_called_once_with(
+        0
+    )  # handle_result should exit with 0 for Success

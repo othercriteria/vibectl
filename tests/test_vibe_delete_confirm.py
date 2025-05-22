@@ -1,9 +1,8 @@
 """Tests for vibectl delete command confirmation functionality."""
 
-import json
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,16 +29,33 @@ def mock_llm() -> Generator[MagicMock, None, None]:
     """Fixture for mocking llm model."""
     with patch("vibectl.execution.vibe.get_model_adapter") as mock:
         # Configure the mock to return a model
-        mock_model = MagicMock()
-        mock.return_value.get_model.return_value = mock_model
-        # Configure the model.execute function to return valid JSON by default
-        default_response = {
+        mock_model_adapter = MagicMock()
+        mock_model_adapter.get_model.return_value = MagicMock()
+
+        # Configure execute_and_log_metrics as an AsyncMock
+        mock_model_adapter.execute_and_log_metrics = AsyncMock()
+
+        # Default side effect for execute_and_log_metrics
+        default_response_action = {
             "action_type": ActionType.FEEDBACK.value,
+            "message": "Default feedback message",
             "explanation": "Default test response.",
         }
-        mock.return_value.execute_and_log_metrics.return_value = json.dumps(
-            default_response
+        default_llm_response_obj = LLMPlannerResponse(
+            action=FeedbackAction(**default_response_action)
         )
+        default_response_tuple = (
+            default_llm_response_obj.model_dump_json(),
+            LLMMetrics(latency_ms=10),
+        )
+
+        async def default_side_effect(
+            *args: Any, **kwargs: Any
+        ) -> tuple[str, LLMMetrics]:
+            return default_response_tuple
+
+        mock_model_adapter.execute_and_log_metrics.side_effect = default_side_effect
+        mock.return_value = mock_model_adapter
         yield mock
 
 
@@ -461,10 +477,20 @@ async def test_vibe_delete_confirmation_memory_option(
         commands=["pod", "nginx-mem"],
     )
     plan_response_data = LLMPlannerResponse(action=command_action)
-    mock_llm.return_value.execute_and_log_metrics.return_value = (
-        plan_response_data.model_dump_json(),
-        LLMMetrics(latency_ms=100),
-    )
+
+    # Configure the side_effect for the mock LLM adapter's execute_and_log_metrics
+    # This is the adapter instance returned by the mock_llm fixture
+    llm_adapter_mock = mock_llm.return_value
+
+    async def specific_plan_side_effect(
+        *args: Any, **kwargs: Any
+    ) -> tuple[str, LLMMetrics]:
+        return (
+            plan_response_data.model_dump_json(),
+            LLMMetrics(latency_ms=100),
+        )
+
+    llm_adapter_mock.execute_and_log_metrics.side_effect = specific_plan_side_effect
 
     mock_vibe_get_memory.return_value = "Memory content for test"
 

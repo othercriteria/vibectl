@@ -9,12 +9,12 @@ This document provides an overview of the project's structure and organization.
 - `cli.py` - Command-line interface implementation
 - `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) and planning prompts like `PLAN_DIFF_PROMPT`.
 - `config.py` - Configuration management and settings
-- `console.py` - Console output formatting and management
-- `command_handler.py` - Common command handling patterns (confirmation, output processing), delegates kubectl execution to `k8s_utils`, and live display to relevant modules. Manages `allowed_exit_codes` for commands. Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `execution/vibe.py`.
+- `console.py` - Console output formatting and management. Includes methods for live streaming of Vibe AI responses (e.g., `start_live_vibe_panel`, `update_live_vibe_panel`, `stop_live_vibe_panel`).
+- `command_handler.py` - Common command handling patterns (confirmation, output processing), delegates kubectl execution to `k8s_utils`, and live display to relevant modules. Manages `allowed_exit_codes` for commands. Handles streaming Vibe AI output. Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `execution/vibe.py`.
 - `k8s_utils.py` - Utilities for interacting with Kubernetes, including core `kubectl` execution logic (standard, YAML input) and async process creation. `run_kubectl` always captures output and uses an `allowed_exit_codes` parameter (defaulting to `(0,)`) to treat certain non-zero exits as success.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
-- `model_adapter.py` - Abstraction layer for LLM model interactions
+- `model_adapter.py` - Abstraction layer for LLM model interactions.
 - `proxy.py` - Proxy-related functionality
 - `py.typed` - Marker file for PEP 561 compliance
 - `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMPlannerResponse`, `CommandAction` with `explanation`, `FeedbackAction` with `explanation` and `suggestion`). Includes `allowed_exit_codes` in `CommandAction`.
@@ -136,10 +136,10 @@ This document provides an overview of the project's structure and organization.
 
 ### Console Management
 
-1. `console.py` - Typed output methods with theme support
+1. `console.py` - Typed output methods with theme support. Includes methods for live streaming of Vibe AI responses.
 2. `output_processor.py` - Format detection and intelligent processing
 3. `command_handler.py` - Standardized command execution
-   - Process command output for user feedback
+   - Process command output for user feedback, including streaming Vibe AI responses.
    - Port-forwarding functionality (partially delegated to live_display)
    - Memory integration
    - Handles `allowed_exit_codes` for commands.
@@ -160,18 +160,13 @@ This document provides an overview of the project's structure and organization.
 1. `command_handler.py` - Generic command execution patterns
    - Handle confirmation for destructive operations
    - Dispatches kubectl execution to `k8s_utils.py`
-   - Process command output for user feedback
+   - Process command output for user feedback, including streaming Vibe AI responses.
    - Port-forwarding functionality (partially delegated to live_display)
    - Memory integration
    - Handles `allowed_exit_codes` for commands.
    - Note: Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `vibectl/execution/vibe.py`.
 2. `vibectl/execution/vibe.py` - Handles the core Vibe.AI LLM interaction loop.
    - `handle_vibe_request` is the primary entry point for LLM-driven command planning and execution.
-3. `k8s_utils.py` - Core Kubernetes utilities
-   - Executes kubectl commands safely (standard sync, YAML input), respecting `allowed_exit_codes`.
-   - Creates async kubectl processes for live display commands.
-   - Handles errors specific to kubectl
-   - `Success` result objects now include `original_exit_code`.
 
 ### Memory System
 
@@ -250,7 +245,7 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Provider detection from model name prefixes
    - Context manager for environment variable handling
 2. `command_handler.py` - Uses model adapter for command execution
-   - Processes command output with model summaries
+   - Processes command output with model summaries, supports streaming of LLM summary responses
    - Provides consistent error handling for LLM interactions
    - (Note: vibe requests / LLM planning loop now in `execution/vibe.py`)
 3. `execution/vibe.py` - Central module for LLM-driven planning and execution loop (`handle_vibe_request`).

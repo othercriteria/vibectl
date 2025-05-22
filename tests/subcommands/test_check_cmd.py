@@ -1,4 +1,3 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -113,9 +112,7 @@ async def test_run_check_command_error_from_vibe(
 
 async def test_run_check_command_empty_predicate() -> None:
     """Test run_check_command with an empty predicate string."""
-    with patch(
-        "vibectl.subcommands.check_cmd.configure_memory_flags"
-    ) as mock_cfg_mem_flags:
+    with patch("vibectl.subcommands.check_cmd.configure_memory_flags"):
         # configure_output_flags is not called in the empty predicate path
         # So, the patch and assertion for it are removed.
 
@@ -138,8 +135,6 @@ async def test_run_check_command_empty_predicate() -> None:
     )
     assert result.error == expected_error_message
     assert result.original_exit_code == PredicateCheckExitCode.POORLY_POSED.value
-    mock_cfg_mem_flags.assert_called_once()
-    # mock_cfg_out_flags.assert_called_once() # Removed assertion
 
 
 # To make this file runnable, we might need PLAN_CHECK_PROMPT definition if
@@ -162,75 +157,60 @@ async def test_run_check_command_empty_predicate() -> None:
         PredicateCheckExitCode.CANNOT_DETERMINE,
     ],
 )
-# Patch targets should be where the names are looked up by the code under test.
-# For functions imported directly via 'from module import func', patch them in
-# the module where 'func' is defined.
-@patch("vibectl.subcommands.check_cmd.configure_output_flags")
-@patch("vibectl.subcommands.check_cmd.configure_memory_flags")
-@patch("vibectl.execution.check.get_model_adapter")
-# @patch("sys.exit")  # Remove patch for sys.exit
+# The CLI command wrapper is in vibectl.cli and calls run_check_command
+# (from subcommands.check_cmd), so we must patch it there.
+@patch("vibectl.cli.run_check_command", new_callable=AsyncMock)
+@patch("vibectl.execution.check.Config")  # Used by real run_check_command
 async def test_check_command_cli_exit_code_propagation(
-    # mock_sys_exit: MagicMock,  # Remove mock_sys_exit
-    mock_get_model_adapter_func: MagicMock,
-    mock_configure_memory_flags: MagicMock,
-    mock_configure_output_flags: MagicMock,
+    mock_config_class_sut: MagicMock,
+    mock_run_check_command_cli: AsyncMock,
     expected_exit_code_enum: PredicateCheckExitCode,
 ) -> None:
     """Test that vibectl check CLI command propagates original_exit_code correctly."""
+    if expected_exit_code_enum == PredicateCheckExitCode.TRUE:
+        mock_run_check_command_cli.return_value = Success(
+            data="LLM says TRUE", original_exit_code=PredicateCheckExitCode.TRUE.value
+        )
+    elif expected_exit_code_enum == PredicateCheckExitCode.FALSE:
+        mock_run_check_command_cli.return_value = Success(
+            data="LLM says FALSE", original_exit_code=PredicateCheckExitCode.FALSE.value
+        )
+    elif expected_exit_code_enum == PredicateCheckExitCode.POORLY_POSED:
+        mock_run_check_command_cli.return_value = Error(
+            error="LLM says POORLY POSED",
+            original_exit_code=PredicateCheckExitCode.POORLY_POSED.value,
+        )
+    elif expected_exit_code_enum == PredicateCheckExitCode.CANNOT_DETERMINE:
+        mock_run_check_command_cli.return_value = Error(
+            error="LLM says CANNOT DETERMINE",
+            original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
+        )
+    else:
+        # Fallback, though all enum members should be covered
+        mock_run_check_command_cli.return_value = Error(
+            error="Unknown test case", original_exit_code=99
+        )
+
     runner = CliRunner()
     predicate_text = "is the cluster super healthy?"
 
-    # Setup mock for the get_model_adapter function
-    mock_adapter_instance = MagicMock()
-    mock_get_model_adapter_func.return_value = mock_adapter_instance
-
-    # Setup mock for the get_model method on the mock_adapter_instance
-    mock_dummy_llm_model = MagicMock()
-    mock_adapter_instance.get_model.return_value = mock_dummy_llm_model
-
-    action_dict = {
-        "action_type": "DONE",
-        "exit_code": expected_exit_code_enum.value,
-        "message": (
-            f"Predicate evaluation complete with code {expected_exit_code_enum.value}"
-        ),
-    }
-
-    llm_response_dict = {"action": action_dict}
-    mock_llm_response_text = json.dumps(llm_response_dict)
-    mock_metrics = MagicMock()  # Mock for LLMMetrics
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        mock_llm_response_text,
-        mock_metrics,
+    # Execute the CLI command
+    # The --model flag here is somewhat arbitrary since
+    # the LLM call is deeply mocked by the return_value setup above.
+    # However, it's good practice to keep it if the command expects it.
+    cli_result = await runner.invoke(
+        cli, ["check", predicate_text, "--model", "test-model-check"]
     )
 
-    # Setup mock for configure_output_flags
-    mock_specific_output_flags = OutputFlags(
-        show_raw=False,
-        show_vibe=True,
-        warn_no_output=True,
-        model_name="test-cli-model",
-        show_kubectl=False,
-        show_metrics=False,
+    # Assertions
+    # Check that our mock for vibectl.cli.run_check_command was called once.
+    mock_run_check_command_cli.assert_called_once()
+
+    # The CliRunner's result.exit_code should reflect what
+    # handle_result(mock_run_check_command_cli.return_value) does. handle_result
+    # sets sys.exit with the exit_code from the Result object. CliRunner
+    # captures this sys.exit and uses it as result.exit_code.
+    assert cli_result.exit_code == expected_exit_code_enum.value, (
+        f"Expected CLI exit code {expected_exit_code_enum.value}, but "
+        f"got {cli_result.exit_code}. Output: {cli_result.output}"
     )
-    mock_configure_output_flags.return_value = mock_specific_output_flags
-
-    # Invoke with minimal args, relying on Click defaults for flags not explicitly set,
-    # which then get processed by the (now mocked) configure_output_flags
-    if not isinstance(cli, MagicMock) and hasattr(cli, "commands"):
-        command_to_invoke = cli.commands["check"]
-    else:  # Fallback or if cli is already a Command or mocked differently
-        command_to_invoke = cli
-
-    # For asyncclick.testing.CliRunner, invoke might be an async method
-    runner_result = await runner.invoke(
-        command_to_invoke, [predicate_text, "--model", "test-cli-model"]
-    )
-
-    # mock_sys_exit.assert_called_once_with(expected_exit_code_enum.value)
-    assert runner_result.exit_code == expected_exit_code_enum.value
-
-    # configure_memory_flags is called by run_check_command
-    mock_configure_memory_flags.assert_called_once()
-    # configure_output_flags is also called by run_check_command
-    mock_configure_output_flags.assert_called_once()

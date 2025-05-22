@@ -8,12 +8,13 @@ from typing import Any
 
 from rich.console import Console
 from rich.errors import MarkupError
-from rich.table import Table
-from rich.theme import Theme
-from rich.text import Text
-from rich.panel import Panel
-from rich.markdown import Markdown
 from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
+
+from .logutil import logger
 
 
 class ConsoleManager:
@@ -165,13 +166,12 @@ class ConsoleManager:
         self._accumulated_vibe_stream = ""
         self._live_vibe_text_content = Text("", no_wrap=False)
         panel_title = Text("✨ Vibe (streaming...)", style="bold magenta")
-        live_panel = Panel(self._live_vibe_text_content, title=panel_title, expand=False)
-        
+        live_panel = Panel(
+            self._live_vibe_text_content, title=panel_title, expand=False
+        )
+
         self._live_vibe_display = Live(
-            live_panel,
-            console=self.console,
-            refresh_per_second=10,
-            transient=True
+            live_panel, console=self.console, refresh_per_second=10, transient=True
         )
         self._live_vibe_display.start(refresh=True)
 
@@ -190,15 +190,13 @@ class ConsoleManager:
         accumulated_text = self._accumulated_vibe_stream
         if self._live_vibe_display:
             self._live_vibe_display.stop()
-        
+
         self._live_vibe_display = None
         self._live_vibe_text_content = None
         self._accumulated_vibe_stream = ""
         return accumulated_text
 
-    def print_vibe(
-        self, vibe_output: str, is_stream_chunk: bool = False
-    ) -> None:
+    def print_vibe(self, vibe_output: str, is_stream_chunk: bool = False) -> None:
         """Print Vibe output using Rich Console, handling streaming.
 
         Args:
@@ -217,7 +215,12 @@ class ConsoleManager:
             try:
                 self.console.print(Panel(vibe_output, title=panel_title, expand=False))
             except Exception as e:
-                self.console.print(f"[bold magenta]✨ Vibe[/bold magenta]")
+                logger.warning(
+                    f"Failed to print Vibe output with Rich Panel due to: {e}. "
+                    "Falling back to plain text."
+                )
+                self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
+                self.console.print(vibe_output, markup=False, highlight=False)
 
     def print_vibe_header(self) -> None:
         """Print vibe header."""

@@ -18,6 +18,9 @@ from pydantic import ValidationError
 from vibectl.cli import cli
 from vibectl.config import Config
 from vibectl.execution.vibe import OutputFlags, _get_llm_plan, handle_vibe_request
+from vibectl.memory import (
+    update_memory as real_update_memory_impl,
+)
 from vibectl.model_adapter import (
     LLMMetrics,
     LLMModelAdapter,
@@ -431,7 +434,8 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
 
     assert isinstance(result, Success)
 
-    # Verify LLM was called once for planning.
+    # Verify LLM was called once for planning
+    # (update_memory is mocked and won't call LLM).
     assert mock_get_adapter.execute_and_log_metrics.call_count == 1
 
     # Verify console output
@@ -476,9 +480,12 @@ async def test_handle_vibe_request_command_error(
     )
     recovery_json_str = LLMPlannerResponse(action=recovery_action).model_dump_json()
 
+    # Mock the responses for execute_and_log_metrics
+    # 1. Initial plan
+    # 2. Recovery suggestion (called by get_llm_recovery_suggestion)
     mock_get_adapter.execute_and_log_metrics.side_effect = [
-        (plan_json_str, None),  # For initial plan
-        (recovery_json_str, None),  # For recovery suggestion
+        (plan_json_str, LLMMetrics(latency_ms=10)),  # For initial plan
+        (recovery_json_str, LLMMetrics(latency_ms=10)),  # For recovery suggestion
     ]
 
     with patch("vibectl.execution.vibe._execute_command") as mock_execute_cmd:
@@ -486,27 +493,54 @@ async def test_handle_vibe_request_command_error(
         mock_execute_cmd.return_value = Error(
             error=error_message, exception=RuntimeError("simulated kubectl error")
         )
-        with patch("vibectl.execution.vibe.update_memory") as mock_update_memory_ch:
-            result = await handle_vibe_request(
-                request="run a command that fails",
-                command="get",
-                plan_prompt_func=plan_vibe_fragments,
-                summary_prompt_func=get_test_summary_fragments,
-                output_flags=default_output_flags,
-                yes=True,
-            )
+        # The request text used in handle_vibe_request
+        request_text_for_test = "run a command that fails"
+        result = await handle_vibe_request(
+            request=request_text_for_test,
+            command="get",  # This is original_command_verb
+            plan_prompt_func=plan_vibe_fragments,
+            summary_prompt_func=get_test_summary_fragments,
+            output_flags=default_output_flags,
+            yes=True,
+        )
 
     assert isinstance(result, Error)
     assert error_message in result.error
-    assert result.recovery_suggestions == recovery_message
+    # get_llm_recovery_suggestion returns JSON, but handle_command_output parses it.
+    assert (
+        result.recovery_suggestions == recovery_message
+    )  # Changed back from recovery_json_str
     mock_execute_cmd.assert_called_once_with(
         "get", ["nonexistent-resource"], None, allowed_exit_codes=(0,)
     )
-    assert mock_get_adapter.execute_and_log_metrics.call_count == 2  # Plan + Recovery
+    assert mock_get_adapter.execute_and_log_metrics.call_count == 2
+
     # Check that memory was updated after the error and after recovery suggestion
-    # This depends on how update_memory is called in the error paths.
-    # For simplicity, checking it was called at least once for the error.
-    assert mock_update_memory_ch.call_count >= 1
+    assert mock_memory["update"].call_count == 2
+
+    # Define expected calls for mock_memory["update"]
+    # Call 1: From handle_command_output during error recovery
+    call_1_kwargs = {
+        "command_message": "get",
+        "command_output": error_message,
+        "vibe_output": recovery_json_str,
+        "model_name": default_output_flags.model_name,
+    }
+
+    # Call 2: From handle_vibe_request's main error block
+    expected_cmd_msg_2 = "command: kubectl get nonexistent-resource original: get"
+    call_2_kwargs = {
+        "command_message": expected_cmd_msg_2,
+        "command_output": result.error,
+        "vibe_output": "Executed: kubectl get nonexistent-resource",
+        "model_name": default_output_flags.model_name,
+    }
+
+    # Check call 1 arguments appeared
+    mock_memory["update"].assert_any_call(**call_1_kwargs)
+
+    # Check call 2 arguments appeared
+    mock_memory["update"].assert_any_call(**call_2_kwargs)
 
 
 @pytest.mark.asyncio
@@ -630,7 +664,7 @@ async def test_get_llm_plan_parses_command_action(
         [*base_user_fragments, Fragment(f"My request is: {request_str}")]
     )
 
-    result = _get_llm_plan(
+    result = await _get_llm_plan(
         model_name=default_output_flags.model_name,
         plan_system_fragments=base_system_fragments,
         plan_user_fragments=current_user_fragments,
@@ -663,7 +697,7 @@ async def test_get_llm_plan_handles_pydantic_validation_error(
         [*base_user_fragments, Fragment(f"My request is: {request_str}")]
     )
 
-    result = _get_llm_plan(
+    result = await _get_llm_plan(
         model_name=default_output_flags.model_name,
         plan_system_fragments=base_system_fragments,
         plan_user_fragments=current_user_fragments,
@@ -1088,25 +1122,36 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
     llm_planner_response_obj = LLMPlannerResponse(action=command_action)
     plan_json_str = llm_planner_response_obj.model_dump_json()
 
-    kubectl_output_data = "pod-a\npod-b"
+    kubectl_output_data = "pod-a\\npod-b"
+
+    # Expected LLM responses
+    plan_response = (plan_json_str, LLMMetrics(latency_ms=10))
+    memory_update_response_text = "Memory updated post-command"
+    memory_update_metrics = LLMMetrics(latency_ms=5)
+    memory_update_response = (memory_update_response_text, memory_update_metrics)
+    summary_error = RecoverableApiError("Rate limit hit")
+
+    mock_get_adapter.execute_and_log_metrics.side_effect = [
+        plan_response,  # For initial plan
+        memory_update_response,  # For update_memory call by real_update_memory_impl
+    ]
+
+    # Configure the side_effect for the mock LLM adapter's stream_execute (streaming)
+    # This will be called by stream_vibe_output_and_log_metrics for the summary
+    mock_get_adapter.stream_execute.side_effect = (
+        summary_error  # The exception instance
+    )
 
     # Patch _execute_command where it's called from vibe.py
     with (
         patch("vibectl.execution.vibe._execute_command") as mock_execute_cmd,
-        patch("vibectl.memory.update_memory") as mock_update_memory_in_vibe_flow,
-    ):  # Prevent this from consuming side_effect
+        # Patch update_memory for this test to use the real implementation,
+        # which will then use the mock_get_adapter.
+        patch(
+            "vibectl.execution.vibe.update_memory", side_effect=real_update_memory_impl
+        ) as mock_actual_update_call,
+    ):
         mock_execute_cmd.return_value = Success(data=kubectl_output_data)
-        mock_update_memory_in_vibe_flow.return_value = (
-            None  # Ensure it doesn't call LLM
-        )
-
-        # Set up side_effect for the LLM calls: planning (success),
-        # summary (error in _process_vibe_output)
-        mock_get_adapter.execute_and_log_metrics.side_effect = [
-            (plan_json_str, None),  # First call for planning
-            RecoverableApiError("Rate limit hit"),  # Second call for summary
-        ]
-
         # Call function
         result = await handle_vibe_request(
             request="show me the pods",
@@ -1120,18 +1165,40 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
         # Verify _execute_command was called
         mock_execute_cmd.assert_called_once()
 
-        # Verify the LLM was called twice (plan + summary attempt
-        # in _process_vibe_output)
+        # Verify the LLM was called for planning and first memory update (non-streaming)
         assert mock_get_adapter.execute_and_log_metrics.call_count == 2
+        # Verify the LLM was called for summary (streaming)
+        assert mock_get_adapter.stream_execute.call_count == 1
 
-        # Verify the final result is the non-halting Error constructed by the handler
+        # Verify the final result is an Error because the summary LLM call failed,
+        # but it's a non-halting error.
         assert isinstance(result, Error)
-        assert not result.halt_auto_loop  # Ensure it's non-halting
-        # Check that the error message contains the specific text from the exception
-        assert (
+        assert result.halt_auto_loop is False  # Key check for recoverable API errors
+        expected_error_message_fragment = (
             "Recoverable API error during Vibe processing: Rate limit hit"
-            in result.error
         )
+        assert expected_error_message_fragment in result.error
+
+        # Check logs for the warning about the Vibe summary error
+        if caplog.records:
+            found_log = False
+            for record in caplog.records:
+                if (
+                    record.name == "vibectl"
+                    and record.levelname == "WARNING"
+                    and expected_error_message_fragment in record.getMessage()
+                ):
+                    found_log = True
+                    break
+            error_msg = (
+                f"Expected log message not found: {expected_error_message_fragment}"
+            )
+            assert found_log, error_msg
+        else:
+            raise AssertionError("Expected log records but none found")
+
+        # Check that update_memory was called
+        assert mock_actual_update_call.call_count >= 1  # Check the new patch
 
 
 @pytest.mark.asyncio

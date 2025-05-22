@@ -1,13 +1,14 @@
 import logging
 
 from .config import Config
-from .console import console_manager
 
 
 class ConsoleManagerHandler(logging.Handler):
     """Custom logging handler to forward WARNING/ERROR logs to console_manager."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        from .console import console_manager
+
         msg = self.format(record)
         if record.levelno >= logging.ERROR:
             console_manager.print_error(msg)
@@ -37,8 +38,31 @@ def init_logging() -> None:
     level = getattr(logging, str(log_level).upper(), logging.INFO)
     logger.setLevel(level)
     logger.debug(f"Logging initialized at level: {log_level}")
-    # Attach custom handler for user-facing logs
-    if not any(isinstance(h, ConsoleManagerHandler) for h in logger.handlers):
-        handler = ConsoleManagerHandler()
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(handler)
+
+    # Check if a ConsoleManagerHandler is already present or if we need to add one
+    # Also, ensure not to add duplicate StreamHandlers if one was added above.
+    # This logic can be refined to ensure only one appropriate handler is active.
+    has_console_manager_handler = any(
+        isinstance(h, ConsoleManagerHandler) for h in logger.handlers
+    )
+
+    if not has_console_manager_handler:
+        # Add ConsoleManagerHandler if not already present
+        # This handler will use the imported console_manager for its output.
+        cm_handler = ConsoleManagerHandler()
+        cm_handler.setFormatter(
+            logging.Formatter("%(message)s")
+        )  # User-facing messages typically don't need [LEVELNAME]
+        logger.addHandler(cm_handler)
+
+        # Optional: Remove the basic StreamHandler if ConsoleManagerHandler is added
+        # to avoid duplicate console output for warnings/errors.
+        # This depends on desired behavior for INFO/DEBUG logs.
+        for h in list(logger.handlers):  # Iterate over a copy
+            if isinstance(h, logging.StreamHandler) and not isinstance(
+                h, ConsoleManagerHandler
+            ):
+                logger.removeHandler(h)
+                logger.debug(
+                    "Removed default StreamHandler as ConsoleManagerHandler was added."
+                )

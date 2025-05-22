@@ -6,7 +6,6 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
-import datetime
 import sys
 from collections.abc import Callable
 
@@ -23,7 +22,7 @@ from vibectl.memory import (
 )
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
-from vibectl.subcommands.check_cmd import run_check_command as run_check_subcommand
+from vibectl.subcommands.check_cmd import run_check_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -33,6 +32,7 @@ from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
+from vibectl.subcommands.memory_update_cmd import run_memory_update_logic
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
@@ -44,19 +44,13 @@ from . import __version__
 from .config import DEFAULT_CONFIG, Config
 from .console import console_manager
 from .logutil import init_logging, logger
-from .model_adapter import get_model_adapter, validate_model_key_on_startup
-from .prompt import memory_fuzzy_update_prompt
+from .model_adapter import validate_model_key_on_startup
 from .types import (
     Error,
-    Fragment,
     Result,
     Success,
-    UserFragments,
 )
 from .utils import handle_exception
-
-# Current datetime for version command
-CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # --- Common Option Decorator ---
@@ -786,7 +780,7 @@ async def vibe(
         yes=yes,
         semiauto=False,  # Vibe command is never called in semiauto loop directly
         exit_on_error=False,  # Let handle_result manage exit
-        show_metrics=show_metrics,  # Pass show_metrics
+        show_metrics=show_metrics,
     )
     handle_result(result)
 
@@ -805,7 +799,7 @@ async def version(
     show_metrics: bool | None = None,
     yes: bool = False,
 ) -> None:
-    """Show Kubernetes version information."""
+    """Show client and server versions."""
     result = await run_version_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -966,65 +960,18 @@ async def memory_update(update_text: tuple, model: str | None = None) -> None:
     while preserving important existing context.
     """
     try:
-        cfg = Config()
-
-        # Get the current memory
-        current_memory = get_memory(cfg)
-
-        # Join the text parts to handle multi-word input
         update_text_str = " ".join(update_text)
-
-        # Get the model name from config if not specified
-        # Use .get() for model, falling back to DEFAULT_CONFIG
-        model_name_to_use = model or cfg.get("model", DEFAULT_CONFIG["model"])
-
-        # Get the model adapter and model instance
-        model_adapter = get_model_adapter(cfg)
-        model_instance = model_adapter.get_model(model_name_to_use)
-
-        # Create fragments for the fuzzy memory update
-        system_fragments, user_fragments_template = memory_fuzzy_update_prompt(
-            current_memory=current_memory, update_text=update_text_str, config=cfg
+        # Call the new logic function
+        result = await run_memory_update_logic(
+            update_text_str=update_text_str, model_name=model
         )
-
-        # ormat the user_fragments_template here.
-        filled_user_fragments = []
-        for template_str in user_fragments_template:
-            try:
-                # Try to format with update_text
-                filled_user_fragments.append(
-                    Fragment(template_str.format(update_text=update_text_str))
-                )
-            except KeyError:
-                # If {update_text} isn't in a particular template piece, use it as is.
-                filled_user_fragments.append(Fragment(template_str))
-
-        console_manager.print_processing(
-            f"Updating memory using {model_name_to_use}..."
-        )
-
-        # Execute using the model adapter
-        updated_memory, _ = await model_adapter.execute_and_log_metrics(
-            model=model_instance,
-            system_fragments=system_fragments,
-            user_fragments=UserFragments(filled_user_fragments),
-        )
-
-        # Set the updated memory
-        set_memory(updated_memory, cfg)
-        console_manager.print_success("Memory updated")
-
-        # Display the updated memory
-        console_manager.safe_print(
-            console_manager.console,
-            Panel(
-                updated_memory,
-                title="Updated Memory Content",
-                border_style="blue",
-                expand=False,
-            ),
-        )
+        # The handle_result function will now correctly show the Panel
+        # or error based on the Result object.
+        # We removed the direct console_manager.safe_print and Panel creation from here.
+        handle_result(result)
     except Exception as e:
+        # This top-level catch is a safety net.
+        # run_memory_update_logic should ideally return an Error object.
         handle_exception(e)
 
 
@@ -1307,15 +1254,6 @@ async def resume(
     )
 
 
-# Explicitly add commands if decorator registration is failing in tests
-# This is a workaround and might indicate a deeper issue
-if hasattr(rollout, "add_command"):
-    rollout.add_command(undo)  # type: ignore[attr-defined]
-    rollout.add_command(restart)  # type: ignore[attr-defined]
-    rollout.add_command(pause)  # type: ignore[attr-defined]
-    rollout.add_command(resume)  # type: ignore[attr-defined]
-
-
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
@@ -1446,26 +1384,11 @@ async def diff(
     handle_result(result)
 
 
-@cli.command(
-    "apply",
-    help="Apply a configuration to a resource by filename or stdin",
-    context_settings={
-        "ignore_unknown_options": True
-    },  # Allow arbitrary args for kubectl
-)
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output", is_flag=True, help="Show raw kubectl output")
-@click.option("--show-vibe", is_flag=True, help="Show vibe output")
-@click.option("--show-kubectl", is_flag=True, help="Show kubectl command executed")
-@click.option("--model", help="Specify the LLM model to use")
-@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
-)
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED, required=True)
+@common_command_options(include_show_kubectl=True)
 @click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
-@click.pass_context
-async def apply_command_wrapper(
-    ctx: click.Context,
+async def apply(
     args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -1489,37 +1412,11 @@ async def apply_command_wrapper(
     handle_result(result)
 
 
-# Check command
-@cli.command(
-    "check",
-    help="Evaluate a predicate about the cluster state using LLM.",
-    context_settings={
-        "ignore_unknown_options": False
-    },  # No passthrough for check args yet
-)
-@click.argument("predicate", nargs=1, type=click.STRING)
-@click.option(
-    "--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)"
-)
-@click.option(
-    "--show-vibe",
-    is_flag=True,
-    default=True,
-    help="Show LLM reasoning/decision (default: True)",
-)
-@click.option(
-    "--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one"
-)
-@click.option("--model", help="Specify the LLM model to use")
-@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
-)
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("predicate", nargs=-1, type=click.UNPROCESSED, required=True)
+@common_command_options(include_show_kubectl=True)
 @click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
-# TODO: Add --max-iterations, --timeout, --token-budget for Phase 2
-@click.pass_context
-async def check_command_wrapper(
-    ctx: click.Context,
+async def check(
     predicate: str,
     show_raw_output: bool | None,
     show_vibe: bool | None,
@@ -1529,8 +1426,8 @@ async def check_command_wrapper(
     unfreeze_memory: bool,
     show_metrics: bool | None,
 ) -> None:
-    """Wrapper for the check command."""
-    result = await run_check_subcommand(
+    """Evaluate a predicate about the cluster state using LLM."""
+    result = await run_check_command(
         predicate=predicate,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
@@ -1544,39 +1441,42 @@ async def check_command_wrapper(
 
 
 def handle_result(result: Result) -> None:
-    """Handle the Result of a subcommand, exiting if requested."""
-    logger.info(f"handle_result received: {result!r}")
+    """Handle the result of a command, print output, and exit."""
+    exit_code: int = 0
     if isinstance(result, Success):
-        if result.continue_execution:
-            logger.info(
-                f"Continuing execution as requested by Success: {result.message}"
-            )
-            return
+        if result.data:
+            # Ensure data is a string before printing
+            data_to_print = result.data
+            if not isinstance(data_to_print, str):
+                # Attempt to convert to string, or use a placeholder
+                try:
+                    data_to_print = str(data_to_print)
+                except Exception:
+                    data_to_print = "[unprintable data]"
+            console_manager.print(data_to_print)
 
-        exit_code = result.original_exit_code or 0
-        # Ensure consistent single period at the end of result.message
-        formatted_message = result.message.rstrip().rstrip(".")
-        logger.info(
-            f"Normal termination requested: {formatted_message}. "
-            f"Using original_exit_code: {result.original_exit_code}, "
-            f"effective_exit_code: {exit_code}."
-        )
-        raise click.exceptions.Exit(exit_code)
+        # Prioritize original_exit_code if it exists and is an int
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 0  # Default for Success
+        logger.debug(f"Success result, final exit_code: {exit_code}")
 
     elif isinstance(result, Error):
-        # Always print the error message to the console if available
-        if result.error:
-            console_manager.print_error(result.error)
-        elif str(result):
-            console_manager.print_error(str(result))
+        console_manager.print_error(result.error)
+        # if result.details: # result.details is not a valid attribute of Error
+        #     # Assuming details is already formatted for printing
+        #     console_manager.print_error_details(str(result.details))
 
-        # Use original_exit_code if present and non-zero, otherwise default to 1
-        exit_code_val = 1
-        if result.original_exit_code is not None and result.original_exit_code != 0:
-            exit_code_val = result.original_exit_code
+        # Prioritize original_exit_code if it exists and is an int
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 1  # Default for Error
+        logger.debug(f"Error result, final exit_code: {exit_code}")
 
-        logger.info(
-            f"Encountered an error. Error details: {result!r}. "
-            f"Using exit_code_val: {exit_code_val}"
-        )
-        raise click.exceptions.Exit(exit_code_val)
+    sys.exit(exit_code)

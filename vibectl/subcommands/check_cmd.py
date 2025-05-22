@@ -26,7 +26,6 @@ async def run_check_command(
     Returns a Result (Success or Error).
     """
     logger.info(f"Invoking 'check' subcommand with predicate: \"{predicate}\"")
-    configure_memory_flags(freeze_memory, unfreeze_memory)
 
     if not predicate:
         msg = (
@@ -48,6 +47,7 @@ async def run_check_command(
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
     )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
 
     result = await execute_check_logic(
         predicate=predicate,

@@ -41,27 +41,26 @@ def test_logger_respects_env_var(monkeypatch: MonkeyPatch) -> None:
 def test_console_manager_handler_warn_and_error(monkeypatch: MonkeyPatch) -> None:
     # Patch console_manager methods
     with (
-        patch.object(vclogmod.console_manager, "print_warning") as mock_warn,
-        patch.object(vclogmod.console_manager, "print_error") as mock_err,
+        patch("vibectl.console.console_manager.print_warning") as mock_warn,
+        patch("vibectl.console.console_manager.print_error") as mock_err,
     ):
         vclogmod.init_logging()
         logger = vclogmod.logger
-        logger.warning("warn message")
-        logger.error("error message")
-        mock_warn.assert_called_with("warn message")
-        mock_err.assert_called_with("error message")
+        logger.warning("Test warning")
+        logger.error("Test error")
+        mock_warn.assert_called_with("Test warning")
+        mock_err.assert_called_with("Test error")
 
 
 def test_console_manager_handler_info_and_debug(monkeypatch: MonkeyPatch) -> None:
     # Patch console_manager methods
     with (
-        patch.object(vclogmod.console_manager, "print_warning") as mock_warn,
-        patch.object(vclogmod.console_manager, "print_error") as mock_err,
+        patch("vibectl.console.console_manager.print_warning") as mock_warn,
+        patch("vibectl.console.console_manager.print_error") as mock_err,
     ):
         vclogmod.init_logging()
         logger = vclogmod.logger
-        logger.info("info message")
-        logger.debug("debug message")
+        logger.info("Test info")
         mock_warn.assert_not_called()
         mock_err.assert_not_called()
 
