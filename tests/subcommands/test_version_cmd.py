@@ -88,7 +88,17 @@ async def test_run_version_command_success() -> None:
             "vibectl.subcommands.version_cmd.configure_memory_flags", MagicMock()
         ) as mock_configure_memory,
     ):
-        result = await run_version_command(args=())
+        result = await run_version_command(
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_kubectl=None,
+            show_metrics=None,
+            show_streaming=True,
+        )
 
         # configure_output_flags is called by run_version_command internally
         mock_configure_output_flags.assert_called_once()
@@ -145,7 +155,17 @@ async def test_run_version_command_normal(
     )
 
     logger.debug("[TEST] About to call run_version_command")
-    result = await run_version_command(args=())
+    result = await run_version_command(
+        args=(),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     logger.debug(f"[TEST] run_version_command returned: {result!r}")
 
     assert isinstance(result, Success)
@@ -184,7 +204,17 @@ async def test_run_version_command_no_output(
         ),  # run_kubectl returns Success with no data
     )
 
-    result = await run_version_command(args=())
+    result = await run_version_command(
+        args=(),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     assert isinstance(result, Success)
     assert "No output from kubectl version." in result.message
     mock_handle_command_output.assert_not_called()
@@ -219,7 +249,17 @@ async def test_run_version_command_error_in_run_kubectl(
         Mock(return_value=simulated_error),
     )
 
-    result = await run_version_command(args=())
+    result = await run_version_command(
+        args=(),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     assert (
         result is simulated_error
     )  # run_version_command should return the error from run_kubectl
@@ -247,7 +287,17 @@ async def test_run_version_command_vibe_path(
         "vibectl.subcommands.version_cmd.handle_vibe_request", mock_handle_vibe
     )
 
-    result = await run_version_command(args=("vibe", "do", "something"))
+    result = await run_version_command(
+        args=("vibe", "do", "something"),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     assert isinstance(result, Success)
     assert result.message == "Vibe success"
     mock_console.print_processing.assert_called_once()
@@ -284,7 +334,17 @@ async def test_run_version_command_vibe_missing_request(
         mock_handle_vibe,
     )
 
-    result = await run_version_command(args=("vibe",))
+    result = await run_version_command(
+        args=("vibe",),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     assert isinstance(result, Error)
     assert "Missing request after 'vibe'" in result.error
     assert result.exception is None
@@ -314,7 +374,17 @@ async def test_run_version_command_vibe_error_in_handle_vibe_request(
         "vibectl.subcommands.version_cmd.handle_vibe_request", mock_vibe_handler
     )
 
-    result = await run_version_command(args=("vibe", "do", "something"))
+    result = await run_version_command(
+        args=("vibe", "do", "something"),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     assert isinstance(result, Error)
     assert "Exception in handle_vibe_request" in result.error
     assert result.exception is not None
@@ -350,7 +420,17 @@ async def test_run_version_command_error_in_handle_command_output(
         Mock(return_value=Success(data="output")),
     )
 
-    result = await run_version_command(args=())
+    result = await run_version_command(
+        args=(),
+        show_raw_output=None,
+        show_vibe=None,
+        model=None,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=True,
+    )
     # The exception from handle_command_output (run in a thread) is caught
     # by the outer try-except in run_version_command
     assert isinstance(result, Error)
@@ -459,7 +539,7 @@ async def test_cli_version_memory_flags() -> None:
             f"Output: {result_freeze.output}"
         )
 
-        mock_configure_mem_sub.assert_any_call(True, False)
+        mock_configure_mem_sub.assert_any_call(True, None)
 
 
 @pytest.mark.asyncio

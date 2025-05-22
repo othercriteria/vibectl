@@ -23,6 +23,7 @@ async def run_scale_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """Executes the scale command logic."""
 
@@ -33,6 +34,7 @@ async def run_scale_command(
         model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
         # freeze_memory and unfreeze_memory are handled separately
     )
 

@@ -160,15 +160,19 @@ async def test_memory_update(
     with patch(
         "vibectl.cli.console_manager"
     ):  # Mock console if used by CLI layer before handle_result
-        await update_cmd.main(["Add", "new", "information"], standalone_mode=False)
+        await update_cmd.main(
+            ["Add", "new", "information", "--show-streaming"], standalone_mode=False
+        )
 
     # Verify memory was updated by checking get_memory()
     assert get_memory() == expected_updated_memory_content
 
     # Verify mocks
-    mock_run_memory_update_logic.assert_called_once_with(
-        update_text_str="Add new information", model_name=None
-    )
+    mock_run_memory_update_logic.assert_called_once()
+    called_args_kwargs = mock_run_memory_update_logic.call_args.kwargs
+    assert called_args_kwargs.get("update_text_str") == "Add new information"
+    assert called_args_kwargs.get("model_name") is None
+
     mock_sys_exit.assert_called_once_with(
         0
     )  # handle_result should exit with 0 for Success

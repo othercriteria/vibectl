@@ -196,31 +196,40 @@ class ConsoleManager:
         self._accumulated_vibe_stream = ""
         return accumulated_text
 
-    def print_vibe(self, vibe_output: str, is_stream_chunk: bool = False) -> None:
+    def print_vibe(
+        self, vibe_output: str, is_stream_chunk: bool = False, use_panel: bool = True
+    ) -> None:
         """Print Vibe output using Rich Console, handling streaming.
 
         Args:
             vibe_output: The Vibe output text to print.
-            is_stream_chunk: If True, treats vibe_output as a chunk of a stream.
+            is_stream_chunk: True if this is a chunk of a streaming response.
+            use_panel: Whether to wrap the output in a Rich Panel.
         """
-        if not vibe_output:
-            return
-
-        if is_stream_chunk:
-            self.console.print(vibe_output, end="", highlight=False, markup=False)
-            if hasattr(self.console.file, "flush"):
-                self.console.file.flush()
+        if self._live_vibe_display and is_stream_chunk:
+            self.update_live_vibe_panel(vibe_output)
         else:
-            panel_title = Text("✨ Vibe", style="bold magenta")
-            try:
-                self.console.print(Panel(vibe_output, title=panel_title, expand=False))
-            except Exception as e:
-                logger.warning(
-                    f"Failed to print Vibe output with Rich Panel due to: {e}. "
-                    "Falling back to plain text."
-                )
-                self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
-                self.console.print(vibe_output, markup=False, highlight=False)
+            if use_panel:
+                panel_title = Text("✨ Vibe", style="bold magenta")
+                try:
+                    self.console.print(
+                        Panel(vibe_output, title=panel_title, expand=False)
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to print Vibe output with Rich Panel due to: {e}. "
+                        "Falling back to plain text."
+                    )
+                    self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
+                    self.console.print(vibe_output, markup=False, highlight=False)
+            else:
+                # Print without panel, but still with Vibe header for context if
+                # it's not a stream chunk
+                if (
+                    not is_stream_chunk
+                ):  # Avoid header for every non-paneled chunk if that case arises
+                    self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
+                self.console.print(vibe_output)  # Allows Rich markup in vibe_output
 
     def print_vibe_header(self) -> None:
         """Print vibe header."""

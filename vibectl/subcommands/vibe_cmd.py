@@ -22,6 +22,7 @@ async def run_vibe_command(
     semiauto: bool = False,
     exit_on_error: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'vibe' subcommand logic, including logging and error handling.
@@ -43,6 +44,7 @@ async def run_vibe_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

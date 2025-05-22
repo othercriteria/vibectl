@@ -47,6 +47,8 @@ async def test_run_check_command_success(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=False,
+        yes=False,
+        show_streaming=True,
     )
 
     assert result == expected_result
@@ -99,6 +101,8 @@ async def test_run_check_command_error_from_vibe(
         freeze_memory=True,
         unfreeze_memory=False,
         show_metrics=True,
+        yes=False,
+        show_streaming=True,
     )
 
     assert result == expected_error
@@ -125,6 +129,8 @@ async def test_run_check_command_empty_predicate() -> None:
             freeze_memory=False,
             unfreeze_memory=False,
             show_metrics=False,
+            yes=False,
+            show_streaming=True,
         )
 
     assert isinstance(result, Error)

@@ -25,6 +25,7 @@ async def run_get_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'get' subcommand logic, including logging and error handling.
@@ -38,6 +39,7 @@ async def run_get_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

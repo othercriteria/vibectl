@@ -6,6 +6,7 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
+import os
 import sys
 from collections.abc import Callable
 
@@ -59,6 +60,8 @@ def common_command_options(
     include_live_display: bool = False,
     include_yes: bool = False,
     include_show_metrics: bool = True,
+    include_show_streaming: bool = True,
+    include_freeze_memory: bool = True,
 ) -> Callable:
     """Decorator to DRY out common CLI options for subcommands."""
 
@@ -69,17 +72,24 @@ def common_command_options(
             ),
             click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None),
             click.option("--model", default=None, help="The LLM model to use"),
-            click.option(
-                "--freeze-memory",
-                is_flag=True,
-                help="Prevent memory updates for this command",
-            ),
-            click.option(
-                "--unfreeze-memory",
-                is_flag=True,
-                help="Enable memory updates for this command",
-            ),
         ]
+        if include_freeze_memory:
+            options.append(
+                click.option(
+                    "--freeze-memory",
+                    is_flag=True,
+                    default=None,
+                    help="Prevent memory updates for this command",
+                )
+            )
+            options.append(
+                click.option(
+                    "--unfreeze-memory",
+                    is_flag=True,
+                    default=None,
+                    help="Enable memory updates for this command",
+                )
+            )
         if include_show_kubectl:
             options.append(
                 click.option(
@@ -111,6 +121,15 @@ def common_command_options(
                     is_flag=True,
                     default=None,
                     help="Show LLM latency and token usage metrics",
+                )
+            )
+        if include_show_streaming:
+            options.append(
+                click.option(
+                    "--show-streaming/--no-show-streaming",
+                    is_flag=True,
+                    default=None,
+                    help="Show intermediate streaming output for LLM summary",
                 )
             )
         for option in reversed(options):
@@ -153,7 +172,6 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
 async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
-    import os
 
     if verbose:
         os.environ["VIBECTL_LOG_LEVEL"] = "DEBUG"
@@ -197,6 +215,7 @@ async def get(
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
     # Await the call to the now-async runner function
@@ -210,6 +229,7 @@ async def get(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -228,6 +248,7 @@ async def describe(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     result = await run_describe_command(
@@ -240,6 +261,7 @@ async def describe(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -258,6 +280,7 @@ async def logs(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
     result = await run_logs_command(
@@ -270,6 +293,7 @@ async def logs(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -285,6 +309,7 @@ async def _create_command_logic(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """Handles the logic for standard (non-vibe) create commands."""
     # Call the synchronous runner function from the subcommand module
@@ -298,6 +323,7 @@ async def _create_command_logic(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
 
@@ -315,6 +341,7 @@ async def create(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
     if resource == "vibe":
@@ -333,6 +360,7 @@ async def create(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
     else:
         result = await _create_command_logic(
@@ -345,6 +373,7 @@ async def create(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
     handle_result(result)
 
@@ -364,6 +393,7 @@ async def delete(
     show_kubectl: bool | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Delete a resource."""
 
@@ -379,6 +409,7 @@ async def delete(
         show_kubectl=show_kubectl,
         yes=yes,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -609,7 +640,12 @@ def theme_set(theme_name: str) -> None:
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True, include_yes=True)
+@common_command_options(
+    include_show_kubectl=True,
+    include_yes=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
+)
 @click.option(
     "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
 )
@@ -628,6 +664,7 @@ async def auto(
     limit: int | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -645,6 +682,7 @@ async def auto(
             semiauto=False,
             limit=limit,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         handle_result(result)
     except Exception as e:
@@ -732,6 +770,7 @@ async def events(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """List events in the cluster."""
     result = await run_events_command(
@@ -743,6 +782,38 @@ async def events(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("predicate", nargs=-1, type=click.UNPROCESSED, required=True)
+@common_command_options(include_show_kubectl=True, include_yes=True)
+async def check(
+    predicate: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    yes: bool,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
+) -> None:
+    """Determine if a predicate about the cluster is true."""
+    result = await run_check_command(
+        predicate=" ".join(predicate),
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        yes=yes,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -766,6 +837,7 @@ async def vibe(
     unfreeze_memory: bool = False,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """LLM interprets natural language request and runs fitting kubectl command."""
     # Call run_vibe_command instead of handle_vibe_request directly
@@ -781,6 +853,7 @@ async def vibe(
         semiauto=False,  # Vibe command is never called in semiauto loop directly
         exit_on_error=False,  # Let handle_result manage exit
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -798,6 +871,7 @@ async def version(
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
     yes: bool = False,
+    show_streaming: bool | None = None,
 ) -> None:
     """Show client and server versions."""
     result = await run_version_command(
@@ -809,6 +883,7 @@ async def version(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -826,6 +901,7 @@ async def cluster_info(
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
     yes: bool = False,
+    show_streaming: bool | None = None,
 ) -> None:
     """Get cluster information."""
     result = await run_cluster_info_command(
@@ -837,6 +913,7 @@ async def cluster_info(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -953,26 +1030,26 @@ def memory_clear() -> None:
 @memory_group.command(name="update")
 @click.argument("update_text", nargs=-1, required=True)
 @click.option("--model", default=None, help="The LLM model to use")
-async def memory_update(update_text: tuple, model: str | None = None) -> None:
-    """Update memory with additional information or context.
-
-    Uses LLM to intelligently update memory with new information
-    while preserving important existing context.
-    """
-    try:
-        update_text_str = " ".join(update_text)
-        # Call the new logic function
-        result = await run_memory_update_logic(
-            update_text_str=update_text_str, model_name=model
-        )
-        # The handle_result function will now correctly show the Panel
-        # or error based on the Result object.
-        # We removed the direct console_manager.safe_print and Panel creation from here.
-        handle_result(result)
-    except Exception as e:
-        # This top-level catch is a safety net.
-        # run_memory_update_logic should ideally return an Error object.
-        handle_exception(e)
+@click.option(
+    "--show-streaming/--no-show-streaming",
+    is_flag=True,
+    default=None,
+    help="Show streaming output for LLM responses.",
+)
+@click.pass_context
+async def memory_update(
+    ctx: click.Context,
+    update_text: tuple,
+    model: str | None = None,
+    show_streaming: bool | None = None,
+) -> None:
+    """Update memory with new content using LLM summarization."""
+    update_text_str = " ".join(update_text)
+    result = await run_memory_update_logic(
+        update_text_str=update_text_str,
+        model_name=model,
+    )
+    handle_result(result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -989,6 +1066,7 @@ async def scale(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Scale resources.
 
@@ -1012,6 +1090,7 @@ async def scale(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -1030,9 +1109,21 @@ def rollout(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Manage rollouts of deployments, statefulsets, and daemonsets."""
     if ctx.invoked_subcommand is not None:
+        # Store common flags in context to pass to subcommands
+        ctx.obj = {
+            "show_raw_output": show_raw_output,
+            "show_vibe": show_vibe,
+            "model": model,
+            "freeze_memory": freeze_memory,
+            "unfreeze_memory": unfreeze_memory,
+            "show_kubectl": show_kubectl,
+            "show_metrics": show_metrics,
+            "show_streaming": show_streaming,
+        }
         return
 
     console_manager.print_error(
@@ -1046,6 +1137,7 @@ async def _rollout_common(
     subcommand: str,
     resource: str,
     args: tuple,
+    # These will now come from ctx.obj
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
@@ -1054,6 +1146,7 @@ async def _rollout_common(
     show_kubectl: bool | None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     # Await run_rollout_command
     result = await run_rollout_command(
@@ -1257,18 +1350,11 @@ async def resume(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--live-display/--no-live-display",
-    is_flag=True,
-    default=True,
-    help="Show a live spinner with elapsed time during waiting",
-)
-@click.option(
-    "--show-metrics/--no-show-metrics",
-    is_flag=True,
-    default=None,
-    help="Show LLM latency and token usage metrics",
+@common_command_options(
+    include_show_kubectl=True,
+    include_live_display=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
 )
 async def wait(
     resource: str,
@@ -1281,13 +1367,9 @@ async def wait(
     unfreeze_memory: bool = False,
     live_display: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Wait for a specific condition on one or more resources.
-
-    Shows a live spinner with elapsed time while waiting for resources
-    to meet their specified conditions.
-    """
-    # Await the call to the async runner function
+    """Wait for a specific condition on one or more resources."""
     cmd_result = await run_wait_command(
         resource=resource,
         args=args,
@@ -1299,26 +1381,19 @@ async def wait(
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
-    # Pass the awaited result to handle_result
     handle_result(cmd_result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--live-display/--no-live-display",
-    is_flag=True,
-    default=True,
-    help="Show a live display with connection status during port forwarding",
-)
-@click.option(
-    "--show-metrics/--no-show-metrics",
-    is_flag=True,
-    default=None,
-    help="Show LLM latency and token usage metrics",
+@common_command_options(
+    include_show_kubectl=True,
+    include_live_display=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
 )
 async def port_forward(
     resource: str,
@@ -1331,13 +1406,9 @@ async def port_forward(
     unfreeze_memory: bool = False,
     live_display: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Forward one or more local ports to a pod, service, or deployment.
-
-    Shows a live display with connection status and elapsed time while
-    forwarding ports between your local system and Kubernetes resources.
-    """
-    # Await the call to the async runner function
+    """Forward one or more local ports to a pod, service, or deployment."""
     cmd_result = await run_port_forward_command(
         resource=resource,
         args=args,
@@ -1349,15 +1420,17 @@ async def port_forward(
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
-    # Pass the awaited result to handle_result
     handle_result(cmd_result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(
+    include_show_kubectl=True, include_show_metrics=True, include_show_streaming=True
+)
 async def diff(
     resource: str,
     args: tuple[str, ...],
@@ -1368,6 +1441,7 @@ async def diff(
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Diff configurations between local files/stdin and the live cluster state."""
     result = await run_diff_command(
@@ -1380,6 +1454,7 @@ async def diff(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -1387,18 +1462,18 @@ async def diff(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("args", nargs=-1, type=click.UNPROCESSED, required=True)
 @common_command_options(include_show_kubectl=True)
-@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
 async def apply(
     args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Wrapper for the apply command."""
+    """Apply a configuration to a resource by filename or stdin."""
     result = await run_apply_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -1408,34 +1483,7 @@ async def apply(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
-    )
-    handle_result(result)
-
-
-@cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("predicate", nargs=-1, type=click.UNPROCESSED, required=True)
-@common_command_options(include_show_kubectl=True)
-@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
-async def check(
-    predicate: str,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: bool | None,
-) -> None:
-    """Evaluate a predicate about the cluster state using LLM."""
-    result = await run_check_command(
-        predicate=predicate,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 

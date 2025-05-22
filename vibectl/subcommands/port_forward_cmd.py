@@ -21,6 +21,7 @@ async def run_port_forward_command(
     unfreeze_memory: bool = False,
     live_display: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
     exit_on_error: bool = True,
 ) -> Result:
     """
@@ -39,6 +40,7 @@ async def run_port_forward_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

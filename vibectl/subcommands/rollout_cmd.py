@@ -23,16 +23,17 @@ from vibectl.types import Error, Result, Success
 async def run_rollout_command(
     subcommand: str,
     resource: str,
-    args: tuple,
-    show_raw_output: bool | None = None,
-    show_vibe: bool | None = None,
-    show_kubectl: bool | None = None,
-    model: str | None = None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    yes: bool = False,
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    yes: bool,
     exit_on_error: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'rollout' subcommands logic, including logging and error handling.
@@ -54,6 +55,7 @@ async def run_rollout_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

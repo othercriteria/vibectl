@@ -21,9 +21,10 @@ async def run_logs_command(
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_metrics: bool | None = None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'logs' subcommand logic, including logging and error handling.
@@ -37,6 +38,7 @@ async def run_logs_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 

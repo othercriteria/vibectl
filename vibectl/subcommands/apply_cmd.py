@@ -382,8 +382,7 @@ async def _execute_planned_commands(
             continue
 
         # Process output of successful command
-        summary_result = await asyncio.to_thread(
-            handle_command_output,
+        summary_result = await handle_command_output(
             output=kubectl_result,  # Success[str]
             output_flags=output_flags,
             summary_prompt_func=apply_output_prompt,
@@ -1017,6 +1016,7 @@ async def run_apply_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'apply' subcommand logic, including logging and error handling.
@@ -1031,6 +1031,7 @@ async def run_apply_command(
         model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
     cfg = Config()

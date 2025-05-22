@@ -81,6 +81,9 @@ class OutputFlags:
     warn_no_proxy: bool = (
         True  # Flag to control warnings about missing proxy configuration
     )
+    show_streaming: bool = (
+        True  # Whether to show intermediate streaming output for Vibe (default True)
+    )
 
     def replace(self, **kwargs: Any) -> "OutputFlags":
         """Create a new OutputFlags instance with specified fields replaced.
@@ -102,6 +105,7 @@ class OutputFlags:
         show_metrics = self.show_metrics
         show_kubectl = self.show_kubectl
         warn_no_proxy = self.warn_no_proxy
+        show_streaming = self.show_streaming
 
         # Update with any provided values
         for key, value in kwargs.items():
@@ -119,6 +123,8 @@ class OutputFlags:
                 show_kubectl = value
             elif key == "warn_no_proxy":
                 warn_no_proxy = value
+            elif key == "show_streaming":
+                show_streaming = value
 
         # Create new instance with updated values
         return OutputFlags(
@@ -129,6 +135,7 @@ class OutputFlags:
             show_metrics=show_metrics,
             show_kubectl=show_kubectl,
             warn_no_proxy=warn_no_proxy,
+            show_streaming=show_streaming,
         )
 
 

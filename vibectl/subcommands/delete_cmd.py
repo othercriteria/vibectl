@@ -20,6 +20,7 @@ async def run_delete_command(
     show_kubectl: bool | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -36,6 +37,7 @@ async def run_delete_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)

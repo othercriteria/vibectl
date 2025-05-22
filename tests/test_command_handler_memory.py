@@ -343,6 +343,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
         command_output="Error from server: not found",
         vibe_output=expected_recovery_suggestion_text,
         model_name="test-model",
+        config=ANY,
     )
 
 
@@ -423,6 +424,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
         command_output="Normal output",
         vibe_output=overloaded_error_msg,  # The streamed error message
         model_name="test-model",
+        config=ANY,
     )
 
 

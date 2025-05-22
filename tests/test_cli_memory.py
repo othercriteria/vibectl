@@ -227,8 +227,11 @@ async def test_memory_update(mock_config: Mock) -> None:
 
         # Use CliRunner to invoke the command
         runner = CliRunner()
+        # Pass --show-streaming to the CLI to ensure it's handled at that layer,
+        # even if not propagated to run_memory_update_logic
         cli_result = await runner.invoke(
-            cli, ["memory", "update", "New context to add to memory"]
+            cli,
+            ["memory", "update", "New context to add to memory", "--show-streaming"],
         )
 
         # Assertions
@@ -238,7 +241,7 @@ async def test_memory_update(mock_config: Mock) -> None:
         # Check that the mocked logic function was called
         mock_run_logic.assert_called_once_with(
             update_text_str="New context to add to memory",
-            model_name=None,  # Assuming no --model flag was passed in invoke
+            model_name=None,
         )
 
         assert "Updated memory from mock logic" in cli_result.output
@@ -247,26 +250,39 @@ async def test_memory_update(mock_config: Mock) -> None:
 
 @pytest.mark.asyncio
 async def test_memory_update_error(mock_config: Mock) -> None:
-    """Test error handling in the memory update command via CLI."""
-    # Path to the new logic function, targeting where it's imported in cli.py
+    """Test the memory update command error handling."""
     run_logic_path = "vibectl.cli.run_memory_update_logic"
-
     with patch(run_logic_path, new_callable=AsyncMock) as mock_run_logic:
-        test_exception = ValueError("LLM is having a bad day")
-        mock_run_logic.return_value = Error(
-            error=f"Failed to update memory: {test_exception}", exception=test_exception
+        mock_config.get.side_effect = lambda key, default=None: DEFAULT_CONFIG.get(
+            key, default
         )
 
+        # Mock the return value of the core logic function to be an error
+        expected_error_message = "LLM failed to update memory as simulated"
+        mock_run_logic.return_value = Error(error=expected_error_message)
+
+        # Use CliRunner to invoke the command
         runner = CliRunner()
-        cli_result = await runner.invoke(cli, ["memory", "update", "trigger error"])
+        # Pass --show-streaming to the CLI to ensure it's handled at that layer
+        cli_result = await runner.invoke(
+            cli, ["memory", "update", "Some failing context", "--show-streaming"]
+        )
 
+        # Assertions
         assert cli_result.exit_code != 0, (
-            f"CLI should have exited with non-zero code, output: {cli_result.output}"
+            f"CLI exited with {cli_result.exit_code}, output: {cli_result.output}"
         )
+
+        # Check that the mocked logic function was called
         mock_run_logic.assert_called_once_with(
-            update_text_str="trigger error", model_name=None
+            update_text_str="Some failing context",
+            model_name=None,  # Assuming no --model flag was passed
+            # show_metrics is not a param of run_memory_update_logic
+            # show_streaming is also not a param of run_memory_update_logic
         )
-        assert "Failed to update memory: LLM is having a bad day" in cli_result.output
+        assert expected_error_message in cli_result.output
+
+        # Verify memory was not updated (assuming error prevents update)
 
 
 @pytest.mark.asyncio

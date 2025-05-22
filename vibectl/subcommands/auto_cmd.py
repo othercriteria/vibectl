@@ -32,6 +32,7 @@ async def run_auto_command(
     exit_on_error: bool = True,
     limit: int | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the auto subcommand logic, including looping
@@ -53,6 +54,7 @@ async def run_auto_command(
            If False, errors are returned as Error objects for tests.
         limit: Maximum number of iterations to run (None for unlimited)
         show_metrics: Whether to show metrics
+        show_streaming: Whether to show streaming output
 
     Returns:
         Result object (Success or Error)
@@ -155,6 +157,7 @@ async def run_auto_command(
                     yes=yes_to_pass_to_vibe,
                     semiauto=semiauto,
                     exit_on_error=False,
+                    show_streaming=show_streaming,
                 )
 
                 # Handle user exit request
@@ -236,6 +239,7 @@ async def run_semiauto_command(
     exit_on_error: bool = False,
     limit: int | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the semiauto subcommand logic, which is sugar
@@ -256,6 +260,7 @@ async def run_semiauto_command(
            and the loop continues.
         limit: Maximum number of iterations to run (None for unlimited)
         show_metrics: Whether to show metrics
+        show_streaming: Whether to show streaming output
 
     Returns:
         Result object (Success or Error)
@@ -278,4 +283,5 @@ async def run_semiauto_command(
         exit_on_error=exit_on_error,
         limit=limit,  # Pass the iteration limit
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )

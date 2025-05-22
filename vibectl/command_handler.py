@@ -131,7 +131,9 @@ def _run_standard_kubectl_command(
         Result with Success or Error information
     """
     # Build command list
-    cmd_args = [command, resource]
+    cmd_args = [command]
+    if resource:  # Only add resource if it's not empty
+        cmd_args.append(resource)
     if args:
         cmd_args.extend(args)
 
@@ -383,6 +385,7 @@ async def handle_command_output(
                             command_output=output_data,
                             vibe_output=vibe_output_text,
                             model_name=output_flags.model_name,
+                            config=Config(),
                         )
                         if memory_update_metrics_error and output_flags.show_vibe:
                             console_manager.print_metrics(
@@ -583,11 +586,8 @@ async def _process_vibe_output(
     # Truncate output if necessary
     processed_output = output_processor.process_auto(output_data).truncated
 
-    # Ensure the processed output is not empty before proceeding
     if not processed_output:
         logger.warning("Processed output is empty, cannot generate Vibe summary.")
-        # Optionally return an Error or the original data if appropriate
-        # For now, let's return the original data as Success if it exists
         return (
             original_error_object
             if original_error_object
@@ -597,28 +597,31 @@ async def _process_vibe_output(
             )
         )
 
-    # Get LLM summary
     try:
-        # Format the {output} placeholder in user fragments
         formatted_user_fragments: UserFragments = UserFragments([])
         for frag_template in summary_user_fragments:
             try:
-                # Ensure formatted string is cast to Fragment
                 formatted_user_fragments.append(
                     Fragment(frag_template.format(output=processed_output))
                 )
             except KeyError:
-                # Keep fragments without the placeholder as they are (already Fragment)
                 formatted_user_fragments.append(frag_template)
 
         model_adapter = get_model_adapter()
         model = model_adapter.get_model(output_flags.model_name)
 
-        should_stream = not original_error_object and output_flags.show_vibe
+        should_stream_live = (
+            not original_error_object
+            and output_flags.show_vibe
+            and output_flags.show_streaming  # User wants to see live streaming
+        )
 
-        if should_stream:
-            logger.info("Streaming Vibe output...")
-            console_manager.start_live_vibe_panel()  # Start live display
+        vibe_output_text = ""
+        metrics: LLMMetrics | None = None
+
+        if should_stream_live:
+            logger.info("Streaming Vibe output live...")
+            console_manager.start_live_vibe_panel()
             full_vibe_response_text = ""
             try:
                 async for chunk in model_adapter.stream_execute(
@@ -626,30 +629,63 @@ async def _process_vibe_output(
                     system_fragments=summary_system_fragments,
                     user_fragments=UserFragments(formatted_user_fragments),
                 ):
-                    console_manager.update_live_vibe_panel(chunk)  # Update live display
+                    console_manager.update_live_vibe_panel(chunk)
                     full_vibe_response_text += chunk
+                vibe_output_text = full_vibe_response_text
+                # Metrics are typically not available or hard to get accurately
+                # for pure streaming
             finally:
-                # Ensure panel is stopped even if streaming errors out, though
-                # text might be incomplete.
-                # The stop_live_vibe_panel method now returns the accumulated text,
-                # but we use full_vibe_response_text which was accumulated directly.
+                # stop_live_vibe_panel will display the final accumulated content
+                # in the panel
                 console_manager.stop_live_vibe_panel()
+            # vibe_output_text is already set, metrics is None for streaming path
+            # Explicitly print the final panel if streaming occurred and Vibe should
+            # be shown
+            if output_flags.show_vibe:
+                console_manager.print_vibe(vibe_output_text, use_panel=True)
 
-            vibe_output_text = full_vibe_response_text
-            metrics = None  # Placeholder for streaming metrics
-        else:
-            # Non-streaming path (existing logic)
+        elif (
+            not original_error_object and output_flags.show_vibe
+        ):  # Not live streaming, but show_vibe is true
+            logger.info(
+                "Fetching Vibe output (non-streaming or streaming suppressed)..."
+            )
+            # This path is taken if show_streaming is False OR if it's an
+            # error recovery.
+            # For error recovery (original_error_object is not None), we always
+            # fetch non-streamed.
             vibe_output_text, metrics = await model_adapter.execute_and_log_metrics(
                 model=model,
                 system_fragments=summary_system_fragments,
                 user_fragments=UserFragments(formatted_user_fragments),
             )
+            # Display the fetched output. If show_streaming was false, print
+            # without panel.
+            # If it was an error recovery, print with panel.
+            use_panel_for_final_display = True  # Default to panel for recovery
+            if (
+                not original_error_object and not output_flags.show_streaming
+            ):  # Normal summary, streaming off
+                use_panel_for_final_display = False
 
-        # If this function was called with an original_error_object,
-        # then vibe_output_text is a recovery suggestion.
-        if original_error_object:
+            if vibe_output_text.startswith("ERROR:"):
+                error_message = vibe_output_text[7:].strip()
+                logger.error(f"LLM summary error: {error_message}")
+                console_manager.print_error(vibe_output_text)  # Show raw error
+            elif vibe_output_text and vibe_output_text.strip():
+                console_manager.print_vibe(
+                    vibe_output_text, use_panel=use_panel_for_final_display
+                )
+            else:
+                logger.debug("Vibe output is empty, not displaying.")
+
+        # --- Post-fetching/streaming Vibe output processing ---
+
+        if original_error_object:  # This means we were in recovery mode
+            # The vibe_output_text here is the recovery suggestion from
+            # non-streaming path
             logger.info(f"LLM recovery suggestion: {vibe_output_text}")
-            parsed_suggestion = vibe_output_text  # Default to raw text
+            parsed_suggestion = vibe_output_text
             try:
                 parsed_recovery_response = LLMPlannerResponse.model_validate_json(
                     vibe_output_text
@@ -659,77 +695,78 @@ async def _process_vibe_output(
                     and parsed_recovery_response.action.message is not None
                 ):
                     parsed_suggestion = parsed_recovery_response.action.message
-                # else: keep raw vibe_output_text if not FeedbackAction, message is None
             except (JSONDecodeError, ValidationError) as parse_error:
                 logger.warning(
                     f"Could not parse recovery suggestion '{vibe_output_text}' "
                     f"as LLMPlannerResponse: {parse_error}"
                 )
-
             original_error_object.recovery_suggestions = parsed_suggestion
-            # Attach metrics (if any) from the recovery call
-            original_error_object.metrics = metrics
+            original_error_object.metrics = (
+                metrics  # Metrics from non-streaming recovery call
+            )
             logger.info(
                 "Marking error as non-halting due to successful recovery suggestion."
             )
-            original_error_object.halt_auto_loop = False  # Ensure it's non-halting
-            return original_error_object  # Return the modified original error
+            original_error_object.halt_auto_loop = False
+            return original_error_object
 
-        # If not original_error_object, proceed as normal summary processing
+        # If not original_error_object, it was a normal summary attempt
         if vibe_output_text.startswith("ERROR:"):
             error_message = vibe_output_text[7:].strip()
-            logger.error(f"LLM summary error: {error_message}")
-            # Display the full ERROR: text string
-            console_manager.print_error(vibe_output_text)
+            # console_manager.print_error(vibe_output_text) already done if
+            # not should_stream_live
+            # If it was streamed live, the error would be part of the stream.
+            # For non-streamed that resulted in error, it was printed above.
+            # What's important is to return an Error object.
 
-            # Update memory with the error message
-            memory_update_metrics = await update_memory(
-                command_message=output_message or command or "Unknown",
+            memory_update_metrics_err = await update_memory(
+                command_message=command
+                if command
+                else (output_message or "Unknown"),  # Prioritize command
                 command_output=output_data,
-                vibe_output=vibe_output_text,
+                vibe_output=vibe_output_text,  # The error message from LLM
                 model_name=output_flags.model_name,
+                config=Config(),
             )
-            if memory_update_metrics and output_flags.show_metrics:
+            if memory_update_metrics_err and output_flags.show_metrics:
                 console_manager.print_metrics(
-                    latency_ms=memory_update_metrics.latency_ms,
-                    tokens_in=memory_update_metrics.token_input,
-                    tokens_out=memory_update_metrics.token_output,
+                    latency_ms=memory_update_metrics_err.latency_ms,
+                    tokens_in=memory_update_metrics_err.token_input,
+                    tokens_out=memory_update_metrics_err.token_output,
                     source="LLM Memory Update (Summary Error)",
-                    total_duration=memory_update_metrics.total_processing_duration_ms,
+                    total_duration=memory_update_metrics_err.total_processing_duration_ms,
                 )
-
-            # Treat LLM-reported errors as potentially recoverable API errors
-            # Pass the error message without the ERROR: prefix
-            # Attach metrics from the failed call to the Error object
             return create_api_error(error_message, metrics=metrics)
 
-        _display_vibe_output(vibe_output_text)  # Display only the text
+        # If we reached here, Vibe summary was successful (not an "ERROR:" string)
+        # and not an original_error_object path.
+        # The display was handled either by stop_live_vibe_panel() or by the
+        # console_manager.print_vibe(..., use_panel=...) call.
 
-        # Update memory only if Vibe summary succeeded
-        memory_update_metrics = await update_memory(
-            command_message=output_message or command or "Unknown",
+        memory_update_metrics_ok = await update_memory(
+            command_message=command
+            if command
+            else (output_message or "Unknown"),  # Prioritize command
             command_output=output_data,
-            vibe_output=vibe_output_text,
+            vibe_output=vibe_output_text,  # Successful Vibe summary
             model_name=output_flags.model_name,
+            config=Config(),
         )
-        if memory_update_metrics and output_flags.show_metrics:
+        if memory_update_metrics_ok and output_flags.show_metrics:
             console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
+                latency_ms=memory_update_metrics_ok.latency_ms,
+                tokens_in=memory_update_metrics_ok.token_input,
+                tokens_out=memory_update_metrics_ok.token_output,
                 source="LLM Memory Update (Summary)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
+                total_duration=memory_update_metrics_ok.total_processing_duration_ms,
             )
-
-        # Return Success with the summary text and its metrics
         return Success(message=vibe_output_text, metrics=metrics)
+
     except RecoverableApiError as api_err:
-        # Catch specific recoverable errors from _get_llm_summary
         logger.warning(
             f"Recoverable API error during Vibe processing: {api_err}", exc_info=True
         )
         console_manager.print_error(f"API Error: {api_err}")
-        # Create a non-halting error using the more detailed log message
         return create_api_error(
             f"Recoverable API error during Vibe processing: {api_err}", api_err
         )
@@ -738,39 +775,15 @@ async def _process_vibe_output(
         error_str = str(e)
         formatted_error_msg = f"Error getting Vibe summary: {error_str}"
         console_manager.print_error(formatted_error_msg)
-        # Create a standard halting error for Vibe summary failures
-        # using the formatted message
         vibe_error = Error(error=formatted_error_msg, exception=e)
-
         if original_error_object:
-            # Combine the original error with the Vibe failure
-            # Use the formatted vibe_error message here too
             combined_error_msg = (
-                f"Original Error: {original_error_object.error}\n"
+                f"Original Error: {original_error_object.error}\\n"
                 f"Vibe Failure: {vibe_error.error}"
             )
             exc = original_error_object.exception or vibe_error.exception
-            # Return combined error, keeping original exception if possible
-            combined_error = Error(error=combined_error_msg, exception=exc)
-            return combined_error
-        else:
-            # If there was no original error, just return the Vibe error
-            return vibe_error
-
-
-def _display_vibe_output(vibe_output: str) -> None:
-    """Display the vibe output.
-
-    Args:
-        vibe_output: Vibe output to display
-    """
-    if (
-        vibe_output and vibe_output.strip()
-    ):  # Check if vibe_output is not empty or just whitespace
-        logger.debug("Displaying vibe summary output.")
-        console_manager.print_vibe(vibe_output)
-    else:
-        logger.debug("Vibe output is empty, not displaying.")
+            return Error(error=combined_error_msg, exception=exc)
+        return vibe_error
 
 
 def _quote_args(args: list[str]) -> list[str]:
@@ -842,74 +855,60 @@ def _execute_command(
 
 def configure_output_flags(
     show_raw_output: bool | None = None,
-    vibe: bool | None = None,
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> OutputFlags:
-    """Configure output flags based on config.
-
-    Args:
-        show_raw_output: Optional override for showing raw output
-        yaml: Optional override for showing YAML output
-        json: Optional override for showing JSON output
-        vibe: Optional override for showing vibe output
-        show_vibe: Optional override for showing vibe output
-        model: Optional override for LLM model
-        show_kubectl: Optional override for showing kubectl commands
-        show_metrics: Optional override for showing metrics
-
-    Returns:
-        OutputFlags instance containing the configured flags
-    """
+    """Configure output flags based on config."""
     config = Config()
 
-    # Use provided values or get from config with defaults
-    show_raw = (
+    show_raw_output_flag = (
         show_raw_output
         if show_raw_output is not None
         else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"])
     )
 
-    show_vibe_output = (
+    show_vibe_flag = (
         show_vibe
         if show_vibe is not None
-        else vibe
-        if vibe is not None
         else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"])
     )
 
-    # Get warn_no_output setting - default to True (do warn when no output)
-    warn_no_output = config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"])
+    warn_no_output_flag = config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"])
 
-    # Get warn_no_proxy setting - default to True (do warn when proxy not configured)
-    warn_no_proxy = config.get("warn_no_proxy", True)
+    warn_no_proxy_flag = config.get("warn_no_proxy", True)
 
     model_name = model if model else config.get("model", DEFAULT_CONFIG["model"])
 
-    # Get show_kubectl setting - default to False
-    show_kubectl_commands = (
+    show_kubectl_flag = (
         show_kubectl
         if show_kubectl is not None
         else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
     )
 
-    # Get show_metrics setting - default to True
-    show_metrics_output = (
+    show_metrics_flag = (
         show_metrics
         if show_metrics is not None
         else config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
     )
 
+    show_streaming_flag = (
+        show_streaming
+        if show_streaming is not None
+        else config.get("show_streaming", DEFAULT_CONFIG["show_streaming"])
+    )
+
     return OutputFlags(
-        show_raw=show_raw,
-        show_vibe=show_vibe_output,
-        warn_no_output=warn_no_output,
+        show_raw=show_raw_output_flag,
+        show_vibe=show_vibe_flag,
+        warn_no_output=warn_no_output_flag,
         model_name=model_name,
-        show_kubectl=show_kubectl_commands,
-        warn_no_proxy=warn_no_proxy,
-        show_metrics=show_metrics_output,
+        show_metrics=show_metrics_flag,
+        show_kubectl=show_kubectl_flag,
+        warn_no_proxy=warn_no_proxy_flag,
+        show_streaming=show_streaming_flag,
     )
 
 

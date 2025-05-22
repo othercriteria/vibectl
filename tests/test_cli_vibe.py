@@ -127,6 +127,7 @@ async def test_vibe_command_without_request(
         show_kubectl=None,
         model=None,
         exit_on_error=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)  # Can now assert Success
@@ -140,6 +141,7 @@ async def test_vibe_command_without_request(
         model=None,
         show_kubectl=None,
         show_metrics=None,
+        show_streaming=True,
     )
 
 
@@ -243,6 +245,7 @@ async def test_vibe_command_with_no_arguments_plan_prompt(
         show_kubectl=None,
         model=None,
         exit_on_error=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -274,6 +277,7 @@ async def test_vibe_command_with_existing_memory_plan_prompt(
         show_kubectl=None,
         model=None,
         exit_on_error=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -305,6 +309,7 @@ async def test_vibe_command_with_explicit_request_plan_prompt(
         show_kubectl=None,
         model=None,
         exit_on_error=False,  # Important for testing the return value
+        show_streaming=True,
     )
 
     # Verify results
@@ -331,7 +336,7 @@ async def test_vibe_command_handle_vibe_request_exception(
     """Test that an exception in handle_vibe_request is caught and returns Error."""
     mock_get_memory.return_value = "mem"
     result = await run_vibe_command(
-        "do something", None, None, None, None, exit_on_error=False
+        "do something", None, None, None, None, exit_on_error=False, show_streaming=True
     )
     assert isinstance(result, Error)
     assert "fail!" in result.error
@@ -359,7 +364,9 @@ async def test_vibe_command_logs_and_console_for_empty_request(
     mock_get_memory.return_value = "mem"
     mock_handle_vibe.return_value = Success()
 
-    result = await run_vibe_command("", None, None, None, None, exit_on_error=False)
+    result = await run_vibe_command(
+        "", None, None, None, None, exit_on_error=False, show_streaming=True
+    )
     assert isinstance(result, Success)
     mock_logger.info.assert_any_call("Invoking 'vibe' subcommand with request: ''")
     mock_logger.info.assert_any_call(
@@ -372,6 +379,7 @@ async def test_vibe_command_logs_and_console_for_empty_request(
         model=None,
         show_kubectl=None,
         show_metrics=None,
+        show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
 
@@ -389,7 +397,9 @@ async def test_vibe_command_logs_and_console_for_nonempty_request(
     mock_get_memory.return_value = "mem"
     mock_handle_vibe.return_value = Success()
 
-    result = await run_vibe_command("do something", None, None, None, None)
+    result = await run_vibe_command(
+        "do something", None, None, None, None, show_streaming=True
+    )
     assert isinstance(result, Success)
     mock_logger.info.assert_any_call(
         "Invoking 'vibe' subcommand with request: 'do something'"
@@ -415,7 +425,13 @@ async def test_vibe_command_handle_vibe_request_exception_exit_on_error_true(
     mock_get_memory.return_value = "mem"
     with pytest.raises(Exception, match="fail!"):
         await run_vibe_command(
-            "do something", None, None, None, None, exit_on_error=True
+            "do something",
+            None,
+            None,
+            None,
+            None,
+            exit_on_error=True,
+            show_streaming=True,
         )
     mock_handle_vibe.assert_called_once()
     # Expect logger.error to be called twice due to re-raise
@@ -439,7 +455,7 @@ async def test_vibe_command_handle_vibe_request_value_error(
     """Test ValueError from handler returns Error(halt_auto_loop=False)."""
     mock_get_memory.return_value = "mem"
     result = await run_vibe_command(
-        "do something", None, None, None, None, exit_on_error=False
+        "do something", None, None, None, None, exit_on_error=False, show_streaming=True
     )
     assert isinstance(result, Error)
     assert "LLM parse error" in result.error

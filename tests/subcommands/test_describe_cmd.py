@@ -34,6 +34,7 @@ async def test_describe_basic(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     # Assert the result and mock calls
@@ -85,6 +86,7 @@ async def test_describe_args_variants(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     if should_succeed:
@@ -127,6 +129,7 @@ async def test_describe_with_flags(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -137,6 +140,7 @@ async def test_describe_with_flags(
         model=None,
         show_kubectl=True,
         show_metrics=True,
+        show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
 
@@ -167,6 +171,7 @@ async def test_describe_error_handling(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     # Assert Error is returned and mock was called
@@ -201,6 +206,7 @@ async def test_describe_vibe_request(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     # Assert Success is returned
@@ -237,6 +243,7 @@ async def test_describe_vibe_no_request(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     # Assert an Error is returned with the correct message
@@ -289,6 +296,7 @@ async def test_run_describe_command_normal(monkeypatch: pytest.MonkeyPatch) -> N
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert result == mock_result
 
@@ -333,6 +341,7 @@ async def test_run_describe_command_vibe(monkeypatch: pytest.MonkeyPatch) -> Non
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert result == mock_result
 
@@ -369,6 +378,7 @@ async def test_run_describe_command_vibe_no_args(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert isinstance(result, Error)
     assert "Missing request after 'vibe' command" in result.error
@@ -415,6 +425,7 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert isinstance(result, Error)
     assert "Unhandled error in describe execution: Test vibe error" in result.error
@@ -461,6 +472,7 @@ async def test_run_describe_command_standard_command_exception(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert isinstance(result, Error)
     assert "Unhandled error in describe execution: Test standard error" in result.error
@@ -490,6 +502,7 @@ async def test_run_describe_command_configure_output_flags_exception(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert isinstance(result, Error)
     assert "Error configuring options: Test config error" in result.error
@@ -527,6 +540,7 @@ async def test_run_describe_command_configure_memory_flags_exception(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
     assert isinstance(result, Error)
     assert "Error configuring options: Test memory config error" in result.error

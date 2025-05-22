@@ -58,11 +58,12 @@ def init_logging() -> None:
         # Optional: Remove the basic StreamHandler if ConsoleManagerHandler is added
         # to avoid duplicate console output for warnings/errors.
         # This depends on desired behavior for INFO/DEBUG logs.
-        for h in list(logger.handlers):  # Iterate over a copy
-            if isinstance(h, logging.StreamHandler) and not isinstance(
-                h, ConsoleManagerHandler
-            ):
-                logger.removeHandler(h)
-                logger.debug(
-                    "Removed default StreamHandler as ConsoleManagerHandler was added."
-                )
+        # --- DO NOT REMOVE THE DEFAULT STREAM HANDLER ---
+        # for h in list(logger.handlers):  # Iterate over a copy
+        #     if isinstance(h, logging.StreamHandler) and not isinstance(
+        #         h, ConsoleManagerHandler
+        #     ):
+        #         logger.removeHandler(h)
+        #         logger.debug(
+        #             "Removed default StreamHandler; ConsoleManagerHandler was added."
+        #         )

@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Implemented streaming for LLM responses in Vibe commands, providing real-time output.
 - Planned: Implement streaming LLM responses for Vibe, starting with `vibe` command output. (WIP)
+- Added `show_streaming` flag to control display of intermediate Vibe output streams globally and in `OutputFlags`.
+
+### Changed
+- Refactored `vibectl events` command to use `handle_standard_command` and `handle_watch_with_live_display` for better consistency and simplified logic.
+- Modified `configure_output_flags` to include `show_streaming` and updated all subcommand callsites.
+- Updated `ConsoleManager.print_vibe` to handle `use_panel` argument for controlling panel display, especially for streamed vs. non-streamed Vibe output.
 
 ## [0.8.1] - 2025-05-21
 

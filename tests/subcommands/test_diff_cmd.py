@@ -63,6 +63,7 @@ async def test_run_diff_command_success_no_differences(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -84,6 +85,7 @@ async def test_run_diff_command_success_no_differences(
         model="test-model",
         show_kubectl=False,
         show_metrics=False,
+        show_streaming=True,
     )
     mock_config_cls.assert_called_once()
 
@@ -159,6 +161,7 @@ async def test_run_diff_command_success_with_differences(
         freeze_memory=True,
         unfreeze_memory=False,
         show_metrics=True,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -178,6 +181,7 @@ async def test_run_diff_command_success_with_differences(
         model=None,
         show_kubectl=True,
         show_metrics=True,
+        show_streaming=True,
     )
     mock_config_cls.assert_called_once()
 
@@ -239,6 +243,7 @@ async def test_run_diff_command_kubectl_error(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Error)
@@ -256,6 +261,7 @@ async def test_run_diff_command_kubectl_error(
         model=None,
         show_kubectl=False,
         show_metrics=False,
+        show_streaming=True,
     )
     mock_config_cls.assert_called_once()
 
@@ -324,6 +330,7 @@ async def test_run_diff_command_handle_output_error(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)  # It is a Success object
@@ -349,6 +356,7 @@ async def test_run_diff_command_handle_output_error(
         model="test-model",
         show_kubectl=False,
         show_metrics=False,
+        show_streaming=True,
     )
     mock_config_cls.assert_called_once()
 
@@ -396,6 +404,7 @@ async def test_run_diff_command_vibe_missing_request(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Error)
@@ -407,6 +416,7 @@ async def test_run_diff_command_vibe_missing_request(
         model="test-model",
         show_kubectl=False,
         show_metrics=False,
+        show_streaming=True,
     )
 
 
@@ -449,6 +459,7 @@ async def test_run_diff_command_vibe_error_from_handler(
         freeze_memory=False,
         unfreeze_memory=True,
         show_metrics=False,
+        show_streaming=True,
     )
 
     assert result is mock_vibe_error_result
@@ -475,6 +486,7 @@ async def test_run_diff_command_vibe_error_from_handler(
         model=None,
         show_kubectl=False,
         show_metrics=False,
+        show_streaming=True,
     )
     mock_handle_vibe_request.assert_called_once()
     call_args_hvr = mock_handle_vibe_request.call_args.kwargs

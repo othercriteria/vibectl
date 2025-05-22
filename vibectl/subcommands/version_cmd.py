@@ -15,14 +15,15 @@ from vibectl.types import Error, Result, Success
 
 
 async def run_version_command(
-    args: tuple,
-    show_raw_output: bool | None = None,
-    show_vibe: bool | None = None,
-    model: str | None = None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'version' subcommand logic, including logging and error handling.
@@ -39,6 +40,7 @@ async def run_version_command(
         model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     config = Config()  # Restored Config instantiation
 

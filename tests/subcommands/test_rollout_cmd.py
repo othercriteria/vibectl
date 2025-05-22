@@ -120,6 +120,10 @@ async def test_run_rollout_command_successful_flow(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
 
         assert result == expected_final_result
@@ -190,6 +194,10 @@ async def test_run_rollout_status(default_rollout_output_flags: OutputFlags) -> 
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         assert result == expected_final_result
@@ -256,6 +264,10 @@ async def test_run_rollout_history(default_rollout_output_flags: OutputFlags) ->
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         assert result == expected_final_result
@@ -325,7 +337,10 @@ async def test_run_rollout_undo_with_confirmation(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
-            yes=False,  # Explicitly test confirmation path
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         mock_click_confirm.assert_called_once()
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -396,7 +411,10 @@ async def test_run_rollout_undo_with_yes_flag(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
-            yes=True,  # Set yes flag
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=True,
+            show_streaming=True,
         )
         mock_click_confirm.assert_not_called()
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -440,7 +458,10 @@ async def test_run_rollout_undo_cancelled(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
             yes=False,
+            show_streaming=True,
         )
         mock_click_confirm.assert_called_once()
         mock_async_to_thread.assert_not_called()
@@ -508,6 +529,10 @@ async def test_run_rollout_restart(default_rollout_output_flags: OutputFlags) ->
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         assert result == expected_final_result
@@ -574,6 +599,10 @@ async def test_run_rollout_pause(default_rollout_output_flags: OutputFlags) -> N
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         assert result == expected_final_result
@@ -640,6 +669,10 @@ async def test_run_rollout_resume(default_rollout_output_flags: OutputFlags) -> 
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
         assert result == expected_final_result
@@ -707,6 +740,10 @@ async def test_run_rollout_kubectl_error_propagates(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
 
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -776,6 +813,10 @@ async def test_run_rollout_handle_command_output_error(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
 
         assert mock_async_to_thread.call_count == 1
@@ -851,6 +892,10 @@ async def test_run_rollout_command_handles_run_kubectl_returning_string(
             show_vibe=default_rollout_output_flags.show_vibe,
             model=default_rollout_output_flags.model_name,
             show_kubectl=default_rollout_output_flags.show_kubectl,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            yes=False,
+            show_streaming=True,
         )
 
         assert isinstance(result, Error)

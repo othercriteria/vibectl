@@ -5,6 +5,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any, NoReturn
 from unittest.mock import (
+    ANY,
     AsyncMock,
     MagicMock,
     Mock,
@@ -483,9 +484,18 @@ async def test_handle_vibe_request_command_error(
     # Mock the responses for execute_and_log_metrics
     # 1. Initial plan
     # 2. Recovery suggestion (called by get_llm_recovery_suggestion)
+    plan_metrics = LLMMetrics(latency_ms=10)
+    recovery_metrics = LLMMetrics(
+        token_input=0,
+        token_output=0,
+        latency_ms=10,
+        total_processing_duration_ms=None,
+        fragments_used=None,
+        call_count=0,
+    )
     mock_get_adapter.execute_and_log_metrics.side_effect = [
-        (plan_json_str, LLMMetrics(latency_ms=10)),  # For initial plan
-        (recovery_json_str, LLMMetrics(latency_ms=10)),  # For recovery suggestion
+        (plan_json_str, plan_metrics),  # For initial plan
+        (recovery_json_str, recovery_metrics),  # For recovery suggestion
     ]
 
     with patch("vibectl.execution.vibe._execute_command") as mock_execute_cmd:
@@ -525,6 +535,7 @@ async def test_handle_vibe_request_command_error(
         "command_output": error_message,
         "vibe_output": recovery_json_str,
         "model_name": default_output_flags.model_name,
+        "config": ANY,
     }
 
     # Call 2: From handle_vibe_request's main error block
