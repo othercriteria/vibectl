@@ -161,6 +161,7 @@ log "Configuring vibectl settings..."
 vibectl config set model "${VIBECTL_MODEL}"
 vibectl config set memory_max_chars ${MEMORY_MAX_CHARS}
 vibectl config set show_memory true
+vibectl config set show_streaming false
 vibectl config set show_iterations true
 
 # Configure output options based on verbose mode

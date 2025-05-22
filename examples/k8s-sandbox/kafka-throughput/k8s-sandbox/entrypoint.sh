@@ -356,6 +356,7 @@ EOF
     vibectl config set kubectl_command kubectl
     vibectl config set show_memory true
     vibectl config set show_iterations true
+    vibectl config set show_streaming false
     if [ "${VIBECTL_VERBOSE:-false}" = "true" ]; then
         echo "Verbose mode enabled: showing raw output and kubectl commands"
         vibectl config set show_raw_output true
