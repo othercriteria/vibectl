@@ -153,6 +153,9 @@ def test_handle_standard_command_empty_output(
     mock_run_kubectl.return_value = Success(
         data="", message="kubectl success no output"
     )
+    # Set a specific return value for mock_handle_output to assert against
+    expected_handle_output_result = Success(message="Processed by mock_handle_output")
+    mock_handle_output.return_value = expected_handle_output_result
 
     result = asyncio.run(
         handle_standard_command(
@@ -165,10 +168,15 @@ def test_handle_standard_command_empty_output(
     )
 
     mock_run_kubectl.assert_called_once_with(["get", "pods"], allowed_exit_codes=(0,))
-    mock_handle_output.assert_not_called()
-
-    assert isinstance(result, Success)
-    assert result.message == "Command returned no output"
-    mock_console_mgr.print_processing.assert_called_once_with(
-        "Command returned no output"
+    # handle_command_output should now be called
+    mock_handle_output.assert_called_once_with(
+        mock_run_kubectl.return_value,  # It's called with the Success object
+        default_output_flags,
+        mock_summary_prompt,
+        command="get",
     )
+
+    assert result == expected_handle_output_result
+    # This console print is from _handle_empty_output,
+    # which is no longer directly called in this path
+    mock_console_mgr.print_processing.assert_not_called()

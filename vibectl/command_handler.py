@@ -98,10 +98,6 @@ async def handle_standard_command(
             )
             return result
 
-    # Handle empty output
-    if result.data is None or result.data.strip() == "":
-        return _handle_empty_output(command, resource, args)
-
     try:
         return await handle_command_output(
             result,
@@ -585,17 +581,6 @@ async def _process_vibe_output(
     """Helper to process Vibe output, potentially stream, and update memory."""
     # Truncate output if necessary
     processed_output = output_processor.process_auto(output_data).truncated
-
-    if not processed_output:
-        logger.warning("Processed output is empty, cannot generate Vibe summary.")
-        return (
-            original_error_object
-            if original_error_object
-            else Success(
-                data=output_data,
-                message="Original data, no Vibe summary due to empty processed output.",
-            )
-        )
 
     try:
         formatted_user_fragments: UserFragments = UserFragments([])
