@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Implement `vibectl patch` command with intelligent patching capabilities (WIP)
+
+### Changed
+
 ## [0.8.2] - 2025-05-23
 
 ### Added
