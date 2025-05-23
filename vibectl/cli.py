@@ -34,6 +34,7 @@ from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
 from vibectl.subcommands.memory_update_cmd import run_memory_update_logic
+from vibectl.subcommands.patch_cmd import run_patch_command
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
@@ -1081,6 +1082,57 @@ async def scale(
     """
     # Await the call to the async runner function
     result = await run_scale_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@common_command_options(include_show_kubectl=True)
+async def patch(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
+) -> None:
+    """Apply patches to Kubernetes resources in place.
+
+    Supports strategic merge patches, JSON merge patches, and JSON patches.
+    Can patch resources by file or by type/name.
+
+    Supports vibe mode for natural language patch descriptions:
+
+    Examples:
+        # Strategic merge patch with inline patch
+        vibectl patch deployment frontend -p '{"spec":{"replicas":3}}'
+
+        # Apply patch from file
+        vibectl patch deployment frontend --patch-file patch.yaml
+
+        # Vibe mode for natural language patches
+        vibectl patch vibe "scale the frontend deployment to 3 replicas"
+        vibectl patch vibe "update nginx image to version 1.21"
+        vibectl patch vibe "add label environment=prod to the frontend service"
+    """
+    # Await the call to the async runner function
+    result = await run_patch_command(
         resource=resource,
         args=args,
         show_raw_output=show_raw_output,

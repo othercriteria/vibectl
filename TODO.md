@@ -154,11 +154,6 @@ Below is a prioritized list of remaining kubectl subcommands to be implemented i
 
 ### High Priority
 
-1. **patch** - Important for making specific changes to resources
-   - Requires understanding JSON patch or strategic merge patch formats
-   - Implementation complexity: Medium
-   - Considerations: Validation of patch syntax, error handling
-
 1. **edit** - Important for interactive resource modification
    - Requires launching an editor and capturing modified content
    - Implementation complexity: Medium-high
@@ -314,3 +309,127 @@ Implementation should prioritize commands that provide the most value to users w
 - **Schema Clarity**: Rename `CommandAction.commands` to `CommandAction.args` in `vibectl/schema.py` for better clarity.
 - **Token Budget**: Implement a token budget for LLM interactions within the `vibectl check` loop to manage costs and prevent overly long interactions.
 - **Ongoing Prompt Refinement**: Continuously monitor `vibectl check` behavior with various complex predicates and real-world scenarios, refining system and user prompts as needed to improve clarity, accuracy, and robustness against semantic drift. Ensure the LLM's explanations in `DoneAction` clearly articulate how gathered information relates to the *original user-supplied predicate*.
+
+## Patch Command Future Enhancements
+
+### Vibe Command Validation Framework
+
+The core challenge with patch validation is that vibe commands generate kubectl commands from natural language, but there's no standardized way to preview and confirm operations before execution. Current flow has the LLM generate a command, user confirms, and command executes. But for validation (dry-run), we'd need to show dry-run results, let user confirm, then re-run the LLM (which might generate a different command).
+
+**Proposed Solution - Command Caching with Validation Mode:**
+- Add a general `--preview` flag to vibe commands that:
+  1. LLM generates kubectl command from natural language
+  2. Cache the exact command generated
+  3. Run the cached command with `--dry-run=client` or `--dry-run=server`
+  4. Display dry-run results to user
+  5. Prompt for confirmation showing both the command and its predicted effects
+  6. Execute the exact cached command (not re-generating from LLM)
+- Implement in `handle_vibe_request` as a new execution mode
+- Benefits: Ensures command executed matches command previewed, works across all vibe commands
+- Technical considerations: Command caching, dry-run output parsing, confirmation UI integration
+
+**Alternative - Validation-Aware LLM Planning:**
+- Extend the LLM action schema to include validation steps
+- LLM can plan: "COMMAND with validation" followed by "EXECUTE cached command"
+- More complex but gives LLM control over when validation is needed
+
+### Natural Language Batch Patching
+
+Implement custom logic (similar to `check_cmd.py`) for commands like "patch all deployments in namespace X to use image Y" or "scale all services with label app=frontend to 3 replicas".
+
+**Architecture:**
+- Create `vibectl batch-patch` command with custom execution logic in `execution/batch_patch.py`
+- LLM plans a multi-step approach:
+  1. `DISCOVERY`: Identify target resources matching criteria
+  2. `PLAN`: Generate patch operations for each resource
+  3. `VALIDATE`: Optional dry-run of all planned patches
+  4. `EXECUTE`: Apply patches with progress tracking and error handling
+  5. `SUMMARY`: Report results across all resources
+
+**Key Features:**
+- **Resource Discovery**: Use kubectl with selectors, namespaces, resource types to find targets
+- **Patch Generation**: LLM generates appropriate patch for each resource type/state
+- **Progress Tracking**: Show live progress across multiple resources with rich display
+- **Partial Failure Handling**: Continue on errors, collect failures, show summary
+- **Rollback Planning**: Track successful operations for potential rollback
+- **Confirmation Batching**: Show all planned operations before executing any
+
+**Implementation Considerations:**
+- Follow `check_cmd.py` pattern with custom action types (DISCOVERY, PLAN, EXECUTE, etc.)
+- Integrate with existing live display patterns for progress visualization
+- Use asyncio for concurrent patch operations with configurable parallelism
+- Memory integration to track batch operation context across steps
+
+### General Undo Capability
+
+Rather than patch-specific history, implement a comprehensive undo system that works across all vibectl operations.
+
+**Proposed `vibectl undo` Command:**
+- **Operation Tracking**: Store operation history including:
+  - Command executed (original vibectl command and generated kubectl commands)
+  - Timestamp and user context
+  - Resource state before operation (using kubectl get -o yaml)
+  - Operation results and any errors
+  - Undo strategy for the specific operation type
+- **Undo Strategies by Operation Type**:
+  - `patch`: Store original resource state, restore with kubectl apply
+  - `scale`: Store original replica count, restore with kubectl scale
+  - `delete`: Store deleted resource manifests, restore with kubectl apply
+  - `apply`: Store previous resource state or use kubectl rollout undo for deployments
+  - `create`: Delete created resources
+- **Smart Undo Planning**:
+  - LLM analyzes operation history and current cluster state
+  - Generates appropriate undo commands
+  - Handles conflicts (resource changed since original operation)
+  - Warns about potential side effects
+- **Safety Features**:
+  - Dry-run undo operations by default
+  - Require confirmation for potentially destructive undos
+  - Detect and warn about conflicting changes since original operation
+  - Support partial undo (undo specific resources from a batch operation)
+
+**Technical Implementation:**
+- Local SQLite database for operation history storage
+- Integration with memory system for undo context
+- Configurable retention period for undo history
+- Export/import capabilities for undo history backup
+
+### Additional Patch Enhancements
+
+**Patch Generation from Resource Diff:**
+- `vibectl patch generate <resource>`: Interactively edit resource and generate patch
+- Use temporary files and `kubectl edit` workflow
+- Generate strategic merge patch, JSON merge patch, or JSON patch automatically
+- Show generated patch for review before application
+
+**Patch Templates and Reusable Patterns:**
+- `vibectl patch template save <name>`: Save common patch patterns
+- `vibectl patch template apply <name> <resource>`: Apply saved template
+- Template variables for resource names, namespaces, values
+- Share templates across team via git repos or config
+
+**Patch Impact Analysis:**
+- Analyze potential impact of patches before application
+- Check for breaking changes (image updates, port changes, etc.)
+- Identify affected resources (services pointing to patched deployments)
+- Integration with admission controllers and policy engines
+- Warning system for potentially disruptive patches
+
+**Advanced Patch Validation:**
+- Integration with cluster admission controllers
+- Policy validation (OPA, Kyverno, etc.) before patch application
+- Resource quota impact analysis
+- Dependency validation (ensure required configmaps/secrets exist)
+- Scheduling feasibility checks (node resources, affinity rules)
+
+**Patch Conflict Resolution:**
+- Detect when patches conflict with concurrent changes
+- LLM-assisted conflict resolution with suggested merge strategies
+- Three-way merge capabilities for complex conflicts
+- Automatic retry with conflict resolution for transient issues
+
+**Enhanced Patch Syntax Support:**
+- Support for kubectl patch --local for offline patch generation
+- Enhanced JSON patch with variables and templating
+- Strategic merge patch with array merge strategies
+- Server-side apply integration for field management
