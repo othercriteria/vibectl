@@ -141,19 +141,20 @@ You can configure the demo by setting environment variables or using command-lin
 export VIBECTL_ANTHROPIC_API_KEY=your_api_key_here
 
 # Set model (defaults to claude-3.7-sonnet)
-export VIBECTL_MODEL=claude-3.7-haiku
+export VIBECTL_MODEL=claude-3.7-sonnet
 
 # Set durations in minutes (defaults are 5min passive, 25min active)
 export PASSIVE_DURATION=10
 export ACTIVE_DURATION=50
 
 # Run with specific configuration via command line options
-./run.sh --passive-duration 10 --active-duration 50 --verbose
+./run.sh --passive-duration 10 --active-duration 50 --vibectl-model claude-3.7-sonnet --verbose
 ```
 
 Available command-line options:
 - `--passive-duration MINUTES`: Set how long the initial read-only phase should run.
 - `--active-duration MINUTES`: Set how long the main attack/defense phase should run.
+- `--vibectl-model MODEL`: Set the model for vibectl (default: claude-3.7-sonnet).
 - `--verbose`: Enable detailed logging from the entrypoint script.
 - `--use-stable-versions`: Use stable, known good versions of packages from PyPI instead of the local repository.
 

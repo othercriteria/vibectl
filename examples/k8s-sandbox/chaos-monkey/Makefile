@@ -3,6 +3,7 @@
 # Default values for environment variables
 export PASSIVE_DURATION ?= 5
 export ACTIVE_DURATION ?= 25
+export VIBECTL_MODEL ?= claude-3.7-sonnet
 export VERBOSE ?= false
 export USE_STABLE_VERSIONS ?= false
 
@@ -27,6 +28,7 @@ help:
 	@echo "Variables:"
 	@echo "  PASSIVE_DURATION     Passive phase duration in minutes (default: 5)"
 	@echo "  ACTIVE_DURATION      Active phase duration in minutes (default: 25)"
+	@echo "  VIBECTL_MODEL        The model for vibectl (default: claude-3.7-sonnet)"
 	@echo "  VERBOSE              Enable verbose logging (true/false, default: false)"
 	@echo "  USE_STABLE_VERSIONS  Use stable PyPI packages (true/false, default: false)"
 	@echo ""
@@ -41,6 +43,7 @@ run:
 	./run.sh \
 		--passive-duration $(PASSIVE_DURATION) \
 		--active-duration $(ACTIVE_DURATION) \
+		--vibectl-model $(VIBECTL_MODEL) \
 		$$( [ "$(VERBOSE)" = "true" ] && echo "--verbose" ) \
 		$$( [ "$(USE_STABLE_VERSIONS)" = "true" ] && echo "--use-stable-versions" )
 

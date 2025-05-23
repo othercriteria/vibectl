@@ -87,16 +87,12 @@ if [ "${USE_STABLE_VERSIONS}" = "true" ]; then
 else
     # Local development path
     log "Installing required dependencies for local development (llm, llm-anthropic, anthropic)..."
-    # Use potentially defined versions, falling back to latest
-    LLM_VERSION=${LLM_VERSION:-latest}
-    LLM_ANTHROPIC_VERSION=${LLM_ANTHROPIC_VERSION:-latest}
-    ANTHROPIC_SDK_VERSION=${ANTHROPIC_SDK_VERSION:-latest}
 
-    echo -e "${COLOR_CODE}Installing dependencies: llm==${LLM_VERSION}, llm-anthropic==${LLM_ANTHROPIC_VERSION}, anthropic==${ANTHROPIC_SDK_VERSION}${NO_COLOR}"
+    echo -e "${COLOR_CODE}Installing dependencies: llm, llm-anthropic, anthropic${ANTHROPIC_SDK_VERSION}${NO_COLOR}"
     if ! pip install --no-cache-dir \
-        "llm==${LLM_VERSION}" \
-        "llm-anthropic==${LLM_ANTHROPIC_VERSION}" \
-        "anthropic==${ANTHROPIC_SDK_VERSION}"; then
+        llm \
+        llm-anthropic \
+        anthropic; then
         echo -e "${COLOR_CODE}ERROR: Failed to install core dependencies (llm, llm-anthropic, anthropic).${NO_COLOR}"
         exit 1
     fi

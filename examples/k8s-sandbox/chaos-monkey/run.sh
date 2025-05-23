@@ -4,12 +4,10 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Remove debug tracing now that we've fixed the issue
-# set -x
-
 # Default values
-export PASSIVE_DURATION=${PASSIVE_DURATION:-5} # Default 5 minutes
-export ACTIVE_DURATION=${ACTIVE_DURATION:-25} # Default 25 minutes
+export PASSIVE_DURATION=${PASSIVE_DURATION:-5}
+export ACTIVE_DURATION=${ACTIVE_DURATION:-25}
+export VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
 export VERBOSE=${VERBOSE:-false}
 export USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
 
@@ -48,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       export ACTIVE_DURATION="$2"
       shift 2
       ;;
+    --vibectl-model)
+      export VIBECTL_MODEL="$2"
+      shift 2
+      ;;
     --verbose)
       export VERBOSE="true"
       shift
@@ -61,6 +63,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --passive-duration MINUTES  Set passive phase duration (default: 5 min)"
       echo "  --active-duration MINUTES   Set active phase duration (default: 25 min)"
+      echo "  --vibectl-model MODEL       Set the model for vibectl (default: claude-3.7-sonnet)"
       echo "  --verbose                   Enable verbose logging"
       echo "  --use-stable-versions       Use stable, known good versions of packages from PyPI"
       echo "  --help                      Show this help message"
@@ -103,8 +106,8 @@ fi
 echo "Starting Chaos Monkey demo with the following configuration:"
 echo "  Passive phase duration: ${PASSIVE_DURATION} minutes"
 echo "  Active phase duration: ${ACTIVE_DURATION} minutes"
+echo "  Vibectl model: ${VIBECTL_MODEL}"
 echo "  Verbose mode: ${VERBOSE}"
-
 if [ "${USE_STABLE_VERSIONS}" = "true" ]; then
   echo "  Using stable package versions from PyPI:"
   echo "    - vibectl: ${VIBECTL_VERSION}"

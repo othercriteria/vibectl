@@ -6,10 +6,10 @@ services:
       dockerfile: Dockerfile
     container_name: chaos-monkey-overseer
     environment:
-      - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
-      - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
+      - PASSIVE_DURATION=${PASSIVE_DURATION}
+      - ACTIVE_DURATION=${ACTIVE_DURATION}
       - FLASK_ENV=production
-      - VERBOSE=${VERBOSE:-false}
+      - VERBOSE=${VERBOSE}
       - PORT=8080
       - HOST=0.0.0.0
       # Configuration for overseer polling intervals and thresholds
@@ -49,10 +49,10 @@ services:
     environment:
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
-      - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
-      - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
-      - VERBOSE=${VERBOSE:-false}
+      - VIBECTL_MODEL=${VIBECTL_MODEL}
+      - PASSIVE_DURATION=${PASSIVE_DURATION}
+      - ACTIVE_DURATION=${ACTIVE_DURATION}
+      - VERBOSE=${VERBOSE}
       - KIND_CONTAINER=chaos-monkey-control-plane
     healthcheck:
       # Check not just for node readiness, but also for agent kubeconfig files
@@ -110,19 +110,19 @@ services:
     environment:
       - AGENT_ROLE=blue
       - AGENT_KUBECONFIG_PATH=/config/kube/blue-agent-config
-      - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
-      - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
+      - PASSIVE_DURATION=${PASSIVE_DURATION}
+      - ACTIVE_DURATION=${ACTIVE_DURATION}
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - VIBECTL_MODEL=${VIBECTL_MODEL}
       - MEMORY_MAX_CHARS=${BLUE_MEMORY_MAX_CHARS:-2500}
       - ACTION_PAUSE_TIME=${BLUE_ACTION_PAUSE_TIME:-2}
-      - VERBOSE=${VERBOSE:-false}
+      - VERBOSE=${VERBOSE}
       - AGENT_NAME=defender
       - MEMORY_INIT_FILE=/config/memory-init.txt
       - PLAYBOOK_FILE=/playbooks/defense-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
-      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS}
     networks:
       - chaos-monkey-network
     volumes:
@@ -151,19 +151,19 @@ services:
     environment:
       - AGENT_ROLE=red
       - AGENT_KUBECONFIG_PATH=/config/kube/red-agent-config
-      - PASSIVE_DURATION=${PASSIVE_DURATION:-5}
-      - ACTIVE_DURATION=${ACTIVE_DURATION:-25}
+      - PASSIVE_DURATION=${PASSIVE_DURATION}
+      - ACTIVE_DURATION=${ACTIVE_DURATION}
       - VIBECTL_ANTHROPIC_API_KEY=${VIBECTL_ANTHROPIC_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - VIBECTL_MODEL=${VIBECTL_MODEL:-claude-3.7-sonnet}
+      - VIBECTL_MODEL=${VIBECTL_MODEL}
       - MEMORY_MAX_CHARS=${RED_MEMORY_MAX_CHARS:-2500}
       - ACTION_PAUSE_TIME=${RED_ACTION_PAUSE_TIME:-2}
-      - VERBOSE=${VERBOSE:-false}
+      - VERBOSE=${VERBOSE}
       - AGENT_NAME=chaos-monkey
       - MEMORY_INIT_FILE=/config/memory-init.txt
       - PLAYBOOK_FILE=/playbooks/attack-playbook.txt
       - CUSTOM_INSTRUCTIONS_FILE=/config/custom-instructions.txt
-      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS:-false}
+      - USE_STABLE_VERSIONS=${USE_STABLE_VERSIONS}
     networks:
       - chaos-monkey-network
     volumes:
