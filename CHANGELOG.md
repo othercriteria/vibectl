@@ -8,7 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- Planned: Implement `vibectl patch` command with intelligent patching capabilities (WIP)
+- **`vibectl patch` Command**: Complete implementation of intelligent Kubernetes resource patching with natural language support.
+  - Supports strategic merge patches, JSON merge patches, and JSON patches
+  - Can patch resources by file or by type/name
+  - Includes "vibe mode" for natural language patch descriptions (e.g., "scale the frontend deployment to 3 replicas", "add label environment=prod to the frontend service")
+  - Comprehensive test coverage with 13 tests achieving 100% code coverage
+  - Full integration with existing vibectl CLI options and output formatting
+
+### Fixed
+- **[Demo]** Chaos Monkey configuration and model selection:
+  - Fixed inconsistent `VIBECTL_MODEL` defaults across files (unified to `claude-3.7-sonnet`)
+  - Simplified configuration flow by removing redundant defaults in docker-compose.yaml
+  - Fixed documentation gaps by adding missing `--vibectl-model` flag to README
+  - Fixed library version pinning that was blocking claude-4-sonnet support
+  - Resolved over-engineered configuration system that was preventing proper model selection
 
 ### Changed
 
