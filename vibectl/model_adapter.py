@@ -21,7 +21,7 @@ from typing import (
 )
 
 import llm
-from llm.models import Response as LLMResponseObject
+from llm.models import Response as LLMResponseObject  # type: ignore
 from pydantic import BaseModel
 
 from .config import Config
