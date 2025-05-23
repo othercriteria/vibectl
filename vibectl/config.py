@@ -48,6 +48,7 @@ DEFAULT_CONFIG = {
     "live_display_default_filter_regex": None,  # Default regex filter (string or None)
     "live_display_save_dir": ".",  # Default directory to save watch output logs
     "intelligent_apply": True,  # Enable intelligent apply features
+    "intelligent_edit": True,  # Enable intelligent edit features
     "max_correction_retries": 1,
     "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
     "show_streaming": True,  # Default for showing intermediate streaming Vibe output
@@ -91,6 +92,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "live_display_default_filter_regex": (str, type(None)),  # Allow str or None
     "live_display_save_dir": str,
     "intelligent_apply": bool,
+    "intelligent_edit": bool,
     "max_correction_retries": int,
     "check_max_iterations": int,
     "show_streaming": bool,

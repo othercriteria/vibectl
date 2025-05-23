@@ -29,6 +29,7 @@ from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.subcommands.diff_cmd import run_diff_command
+from vibectl.subcommands.edit_cmd import run_edit_command
 from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
@@ -1133,6 +1134,57 @@ async def patch(
     """
     # Await the call to the async runner function
     result = await run_patch_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("resource", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@common_command_options(include_show_kubectl=True)
+async def edit(
+    resource: str,
+    args: tuple,
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
+) -> None:
+    """Edit Kubernetes resources in place.
+
+    Opens resources in an editor for interactive modification.
+    Supports both traditional kubectl edit and intelligent vibe mode editing.
+
+    Supports vibe mode for AI-assisted editing:
+
+    Examples:
+        # Traditional kubectl edit
+        vibectl edit deployment frontend
+
+        # Edit with specific editor
+        vibectl edit service api-server --editor=vim
+
+        # Vibe mode for AI-assisted editing
+        vibectl edit vibe "nginx deployment liveness and readiness config"
+        vibectl edit vibe "add resource limits to the frontend deployment"
+        vibectl edit vibe "configure ingress for the api service"
+    """
+    # Await the call to the async runner function
+    result = await run_edit_command(
         resource=resource,
         args=args,
         show_raw_output=show_raw_output,

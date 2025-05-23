@@ -26,6 +26,9 @@ This document provides an overview of the project's structure and organization.
 - `logutil.py` - Logging setup and configuration
 - `execution/` - Modules related to command execution logic.
   - `vibe.py` - Handles the core Vibe.AI LLM interaction loop, including `handle_vibe_request`.
+- `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
+  - `__init__.py` - Package initialization for prompts directory.
+  - `edit.py` - Prompts specific to the edit command (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`).
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation
@@ -44,6 +47,9 @@ This document provides an overview of the project's structure and organization.
   - `cluster_info_cmd.py` - Cluster-info command implementation
   - `diff_cmd.py` - Diff command implementation
   - `check_cmd.py` - Check command implementation (evaluates predicates about cluster state)
+  - `edit_cmd.py` - Edit command implementation with intelligent edit capabilities
+  - `patch_cmd.py` - Patch command implementation
+  - `apply_cmd.py` - Apply command implementation
 
 ### Testing (`tests/`)
 
@@ -132,6 +138,9 @@ This document provides an overview of the project's structure and organization.
    - `just_cmd.py` - Plain execution with memory
    - `diff_cmd.py` - Diff configurations against live state or Vibe.AI plans.
    - `check_cmd.py` - Evaluates predicates about cluster state using read-only commands.
+   - `edit_cmd.py` - Resource editing with intelligent features (configurable via `intelligent_edit`)
+   - `patch_cmd.py` - Resource patching with merge and JSON patches
+   - `apply_cmd.py` - Resource application with intelligent features
    - `version_cmd.py` - Version information
 
 ### Console Management
@@ -154,6 +163,9 @@ This document provides an overview of the project's structure and organization.
    - `Config` objects are passed to prompt functions to allow for configuration-driven prompt variations.
    - Resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) also follow this fragment-based approach.
    - Memory integration is handled by including memory content within relevant fragments.
+2. `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
+   - `edit.py` - Edit-specific prompts (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`) for the edit command.
+   - More command-specific prompt modules will be added here as the system grows.
 
 ### Common Command Patterns
 
