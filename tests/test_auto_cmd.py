@@ -485,6 +485,7 @@ async def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         exit_on_error=False,  # Should be False by default now
         limit=None,  # Should pass through as None by default
         show_metrics=None,  # Add missing show_metrics expectation
+        show_streaming=None,  # Expect show_streaming=None as it's passed down as None
     )
 
     # Test with exit_on_error explicitly set to True

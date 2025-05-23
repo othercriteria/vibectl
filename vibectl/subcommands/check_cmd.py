@@ -19,14 +19,15 @@ async def run_check_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    yes: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'check' subcommand logic, including logging and error handling.
     Returns a Result (Success or Error).
     """
     logger.info(f"Invoking 'check' subcommand with predicate: \"{predicate}\"")
-    configure_memory_flags(freeze_memory, unfreeze_memory)
 
     if not predicate:
         msg = (
@@ -47,7 +48,9 @@ async def run_check_command(
         model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
 
     result = await execute_check_logic(
         predicate=predicate,

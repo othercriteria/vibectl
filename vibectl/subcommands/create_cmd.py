@@ -13,9 +13,9 @@ from vibectl.prompt import (
 from vibectl.types import Error, Result, Success
 
 
-def run_create_command(
+async def run_create_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
@@ -23,6 +23,7 @@ def run_create_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'create' subcommand logic, including logging and error handling.
@@ -36,6 +37,7 @@ def run_create_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -54,7 +56,7 @@ def run_create_command(
 
         try:
             # Ensure handle_command_output is called with the Result object directly
-            handle_command_output(
+            await handle_command_output(
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=create_resource_prompt,

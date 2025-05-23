@@ -4,7 +4,7 @@ Type definitions for vibectl.
 Contains common type definitions used across the application.
 """
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import (
@@ -50,6 +50,15 @@ class RecoverableApiError(ValueError):
     pass
 
 
+@runtime_checkable
+class LLMUsage(Protocol):
+    """Protocol defining the expected interface for model usage details."""
+
+    input: int
+    output: int
+    details: dict[str, Any] | None
+
+
 class PredicateCheckExitCode(int, Enum):
     """Exit codes for the 'vibectl check' command."""
 
@@ -72,6 +81,9 @@ class OutputFlags:
     warn_no_proxy: bool = (
         True  # Flag to control warnings about missing proxy configuration
     )
+    show_streaming: bool = (
+        True  # Whether to show intermediate streaming output for Vibe (default True)
+    )
 
     def replace(self, **kwargs: Any) -> "OutputFlags":
         """Create a new OutputFlags instance with specified fields replaced.
@@ -93,6 +105,7 @@ class OutputFlags:
         show_metrics = self.show_metrics
         show_kubectl = self.show_kubectl
         warn_no_proxy = self.warn_no_proxy
+        show_streaming = self.show_streaming
 
         # Update with any provided values
         for key, value in kwargs.items():
@@ -110,6 +123,8 @@ class OutputFlags:
                 show_kubectl = value
             elif key == "warn_no_proxy":
                 warn_no_proxy = value
+            elif key == "show_streaming":
+                show_streaming = value
 
         # Create new instance with updated values
         return OutputFlags(
@@ -120,6 +135,7 @@ class OutputFlags:
             show_metrics=show_metrics,
             show_kubectl=show_kubectl,
             warn_no_proxy=warn_no_proxy,
+            show_streaming=show_streaming,
         )
 
 
@@ -255,23 +271,35 @@ class ActionType(str, Enum):
 
 @runtime_checkable
 class ModelResponse(Protocol):
-    """Protocol defining the expected interface for model responses."""
+    """Protocol defining the expected interface for model responses from the
+    llm library, covering sync, async, and streaming."""
 
-    def text(self) -> str:
-        """Get the text content of the response.
-
-        Returns:
-            str: The text content of the response
-        """
+    async def text(self) -> str:
+        """Get the text content of the response. Awaited for async responses."""
         ...
 
-    def usage(self) -> Any:
-        """Get token usage information from the response.
-
-        Returns:
-            Any: Usage object (structure may vary by model/library version)
-        """
+    async def json(self) -> dict[str, Any]:
+        """Get the JSON content of the response. Awaited for async responses."""
         ...
+
+    async def usage(self) -> LLMUsage:
+        """Get the token usage information. Awaited for async responses."""
+        ...
+
+    def __aiter__(self) -> AsyncIterator[str]:
+        """Enable `async for chunk in response:` for streaming."""
+        ...
+
+    async def on_done(
+        self, callback: Callable[["ModelResponse"], Awaitable[None]]
+    ) -> None:
+        """Register a callback to be executed when the response is complete."""
+        ...
+
+    # For synchronous, non-streaming calls, these might be available.
+    # However, the adapter will primarily use the async versions for streaming.
+    # If a sync version of these is needed by the protocol for other reasons,
+    # they would need to be added. For now, focusing on async streaming path.
 
 
 class ErrorSeverity(str, Enum):

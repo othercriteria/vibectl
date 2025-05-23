@@ -21,9 +21,10 @@ async def run_logs_command(
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_metrics: bool | None = None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'logs' subcommand logic, including logging and error handling.
@@ -37,6 +38,7 @@ async def run_logs_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -117,18 +119,13 @@ async def run_logs_command(
 
         if not output:
             logger.info("No output from kubectl logs command.")
-            # Use console_manager if available, otherwise print
-            if "console_manager" in globals():
-                console_manager.print_note("No output from kubectl logs command.")
-            else:
-                print("[NOTE] No output from kubectl logs command.")
+            console_manager.print_note("No output from kubectl logs command.")
             return Success(message="No output from kubectl logs command.")
 
         # handle_command_output will handle truncation warnings and output display
         # Assume handle_command_output might be sync or async
-        await asyncio.to_thread(
-            handle_command_output,
-            output=output,
+        _ = await handle_command_output(
+            output=result,  # Pass the entire Result object
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,
         )

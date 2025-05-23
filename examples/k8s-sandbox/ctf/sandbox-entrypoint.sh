@@ -186,7 +186,7 @@ echo "📝 Configuring vibectl..."
 vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}
 vibectl config set model "$VIBECTL_MODEL"
 vibectl config set show_memory true
-
+vibectl config set show_streaming false
 # Configure output options based on verbose mode
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode enabled: showing raw output and kubectl commands"

@@ -1,7 +1,8 @@
 """Tests for standard command handling functionality."""
 
+import asyncio
 from collections.abc import Callable
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -42,7 +43,7 @@ def mock_summary_prompt() -> Callable[[Config | None, str | None], PromptFragmen
 @patch("vibectl.command_handler.console_manager")
 def test_handle_standard_command_logs(
     mock_console: Mock,
-    mock_handle_output: Mock,
+    mock_handle_output: AsyncMock,
     mock_subprocess_run: Mock,
     mock_run_kubectl: Mock,
 ) -> None:
@@ -72,8 +73,10 @@ def test_handle_standard_command_logs(
             (SystemFragments([]), UserFragments([Fragment("Summarize logs: {output}")]))
         )
 
-    result = handle_standard_command(
-        "logs", "pod/my-pod", ("-c", "my-container"), output_flags, summary_func
+    result = asyncio.run(
+        handle_standard_command(
+            "logs", "pod/my-pod", ("-c", "my-container"), output_flags, summary_func
+        )
     )
 
     # Verify run_kubectl was called with correct args (no capture kwarg)
@@ -103,7 +106,7 @@ def test_handle_standard_command_logs(
 @patch("vibectl.command_handler.console_manager")
 def test_handle_standard_command_error_with_exception(
     mock_console_mgr: Mock,
-    mock_handle_output: MagicMock,
+    mock_handle_output: AsyncMock,
     mock_run_kubectl: MagicMock,
     default_output_flags: OutputFlags,
     mock_summary_prompt: Callable[[Config | None, str | None], PromptFragments],
@@ -115,12 +118,14 @@ def test_handle_standard_command_error_with_exception(
     )
     mock_run_kubectl.return_value = kubectl_error_result
 
-    result = handle_standard_command(
-        command="get",
-        resource="pods",
-        args=("mypod",),
-        output_flags=default_output_flags,
-        summary_prompt_func=mock_summary_prompt,
+    result = asyncio.run(
+        handle_standard_command(
+            command="get",
+            resource="pods",
+            args=("mypod",),
+            output_flags=default_output_flags,
+            summary_prompt_func=mock_summary_prompt,
+        )
     )
 
     mock_run_kubectl.assert_called_once_with(
@@ -139,7 +144,7 @@ def test_handle_standard_command_error_with_exception(
 @patch("vibectl.command_handler.console_manager")
 def test_handle_standard_command_empty_output(
     mock_console_mgr: Mock,
-    mock_handle_output: MagicMock,
+    mock_handle_output: AsyncMock,
     mock_run_kubectl: MagicMock,
     default_output_flags: OutputFlags,
     mock_summary_prompt: Callable[[Config | None, str | None], PromptFragments],
@@ -148,20 +153,30 @@ def test_handle_standard_command_empty_output(
     mock_run_kubectl.return_value = Success(
         data="", message="kubectl success no output"
     )
+    # Set a specific return value for mock_handle_output to assert against
+    expected_handle_output_result = Success(message="Processed by mock_handle_output")
+    mock_handle_output.return_value = expected_handle_output_result
 
-    result = handle_standard_command(
-        command="get",
-        resource="pods",
-        args=(),
-        output_flags=default_output_flags,
-        summary_prompt_func=mock_summary_prompt,
+    result = asyncio.run(
+        handle_standard_command(
+            command="get",
+            resource="pods",
+            args=(),
+            output_flags=default_output_flags,
+            summary_prompt_func=mock_summary_prompt,
+        )
     )
 
     mock_run_kubectl.assert_called_once_with(["get", "pods"], allowed_exit_codes=(0,))
-    mock_handle_output.assert_not_called()
-
-    assert isinstance(result, Success)
-    assert result.message == "Command returned no output"
-    mock_console_mgr.print_processing.assert_called_once_with(
-        "Command returned no output"
+    # handle_command_output should now be called
+    mock_handle_output.assert_called_once_with(
+        mock_run_kubectl.return_value,  # It's called with the Success object
+        default_output_flags,
+        mock_summary_prompt,
+        command="get",
     )
+
+    assert result == expected_handle_output_result
+    # This console print is from _handle_empty_output,
+    # which is no longer directly called in this path
+    mock_console_mgr.print_processing.assert_not_called()

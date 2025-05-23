@@ -95,9 +95,14 @@ def test_console_print_vibe(test_console: ConsoleManager) -> None:
 
     # Vibe summary
     test_console.print_vibe("Test vibe summary")
-    output = test_console.console.export_text()
-    assert "✨ Vibe check:" in output
-    assert "Test vibe summary" in output
+    output = test_console.console.export_text(clear=True)
+    expected_panel_content = (
+        "╭───── ✨ Vibe ─────╮\n│ Test vibe summary │\n╰───────────────────╯\n"
+    )
+    assert output == expected_panel_content
+    # More specific check for the title part if needed,
+    # but the full panel check is better.
+    assert "✨ Vibe" in output
 
 
 def test_console_print_warnings(test_console: ConsoleManager) -> None:
@@ -211,8 +216,8 @@ def test_console_print_vibe_with_markup_errors(test_console: ConsoleManager) -> 
     test_console.print_vibe(text_with_malformed_markup)
 
     # Verify that the output was printed (with markup stripped)
-    output = test_console.console.export_text()
-    assert "✨ Vibe check:" in output
+    output = test_console.console.export_text(clear=True)
+    assert "✨ Vibe" in output
     assert "- Worker nodes running in separate [/yellow] pods" in output
 
 
@@ -264,7 +269,7 @@ def test_logging_handler_with_markup_errors(
 
     # Monkeypatch the console_manager used by ConsoleManagerHandler
     # to use our test console
-    monkeypatch.setattr("vibectl.logutil.console_manager", test_console)
+    monkeypatch.setattr("vibectl.console.console_manager", test_console)
 
     # Create a message with problematic markup similar to what an LLM might generate
     error_message = (
@@ -311,7 +316,7 @@ def test_stack_trace_reproduction(
     logger.addHandler(handler)
 
     # Monkeypatch the console_manager
-    monkeypatch.setattr("vibectl.logutil.console_manager", test_console)
+    monkeypatch.setattr("vibectl.console.console_manager", test_console)
 
     # This is the exact problematic pattern from the stack trace
     error_message = (

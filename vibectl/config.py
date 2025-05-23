@@ -50,6 +50,7 @@ DEFAULT_CONFIG = {
     "intelligent_apply": True,  # Enable intelligent apply features
     "max_correction_retries": 1,
     "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
+    "show_streaming": True,  # Default for showing intermediate streaming Vibe output
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -92,6 +93,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "intelligent_apply": bool,
     "max_correction_retries": int,
     "check_max_iterations": int,
+    "show_streaming": bool,
 }
 
 # Valid values for specific keys

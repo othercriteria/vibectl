@@ -8,8 +8,13 @@ from typing import Any
 
 from rich.console import Console
 from rich.errors import MarkupError
+from rich.live import Live
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
+
+from .logutil import logger
 
 
 class ConsoleManager:
@@ -77,6 +82,9 @@ class ConsoleManager:
         }
         self.console = Console(theme=self._theme)
         self.error_console = Console(stderr=True, theme=self._theme)
+        self._live_vibe_display: Live | None = None
+        self._live_vibe_text_content: Text | None = None
+        self._accumulated_vibe_stream: str = ""
 
     def get_available_themes(self) -> list[str]:
         """Get list of available theme names.
@@ -150,10 +158,78 @@ class ConsoleManager:
         """Print a success message."""
         self.safe_print(self.console, message, style="success")
 
-    def print_vibe(self, message: str) -> None:
-        """Print a vibe message."""
-        self.safe_print(self.console, "✨ Vibe check:", style="vibe")
-        self.safe_print(self.console, message)
+    def start_live_vibe_panel(self) -> None:
+        """Start a live-updating panel for streaming Vibe output."""
+        if self._live_vibe_display is not None:
+            self.stop_live_vibe_panel()
+
+        self._accumulated_vibe_stream = ""
+        self._live_vibe_text_content = Text("", no_wrap=False)
+        panel_title = Text("✨ Vibe (streaming...)", style="bold magenta")
+        live_panel = Panel(
+            self._live_vibe_text_content, title=panel_title, expand=False
+        )
+
+        self._live_vibe_display = Live(
+            live_panel, console=self.console, refresh_per_second=10, transient=True
+        )
+        self._live_vibe_display.start(refresh=True)
+
+    def update_live_vibe_panel(self, chunk: str) -> None:
+        """Update the content of the live Vibe panel with a new chunk of text."""
+        if self._live_vibe_display and self._live_vibe_text_content is not None:
+            self._accumulated_vibe_stream += chunk
+            self._live_vibe_text_content.plain = self._accumulated_vibe_stream
+        else:
+            self.console.print(chunk, end="", highlight=False, markup=False)
+            if hasattr(self.console.file, "flush"):
+                self.console.file.flush()
+
+    def stop_live_vibe_panel(self) -> str:
+        """Stop the live-updating Vibe panel and return the accumulated text."""
+        accumulated_text = self._accumulated_vibe_stream
+        if self._live_vibe_display:
+            self._live_vibe_display.stop()
+
+        self._live_vibe_display = None
+        self._live_vibe_text_content = None
+        self._accumulated_vibe_stream = ""
+        return accumulated_text
+
+    def print_vibe(
+        self, vibe_output: str, is_stream_chunk: bool = False, use_panel: bool = True
+    ) -> None:
+        """Print Vibe output using Rich Console, handling streaming.
+
+        Args:
+            vibe_output: The Vibe output text to print.
+            is_stream_chunk: True if this is a chunk of a streaming response.
+            use_panel: Whether to wrap the output in a Rich Panel.
+        """
+        if self._live_vibe_display and is_stream_chunk:
+            self.update_live_vibe_panel(vibe_output)
+        else:
+            if use_panel:
+                panel_title = Text("✨ Vibe", style="bold magenta")
+                try:
+                    self.console.print(
+                        Panel(vibe_output, title=panel_title, expand=False)
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to print Vibe output with Rich Panel due to: {e}. "
+                        "Falling back to plain text."
+                    )
+                    self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
+                    self.console.print(vibe_output, markup=False, highlight=False)
+            else:
+                # Print without panel, but still with Vibe header for context if
+                # it's not a stream chunk
+                if (
+                    not is_stream_chunk
+                ):  # Avoid header for every non-paneled chunk if that case arises
+                    self.console.print("[bold magenta]✨ Vibe[/bold magenta]")
+                self.console.print(vibe_output)  # Allows Rich markup in vibe_output
 
     def print_vibe_header(self) -> None:
         """Print vibe header."""

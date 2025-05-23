@@ -11,6 +11,9 @@ from click.testing import CliRunner
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
 
+# Ensure DEFAULT_MODEL is always a string for use in OutputFlags
+DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
+
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
 @patch("vibectl.subcommands.logs_cmd.handle_command_output")
@@ -106,8 +109,9 @@ async def test_logs_with_flags(
         show_raw_output=True,
         show_vibe=False,
         model="test-model-foo",
-        show_kubectl=None,  # Assert None, as flag wasn't passed and default is None
-        show_metrics=None,  # Expect None when flag not explicitly passed
+        show_kubectl=None,
+        show_metrics=None,
+        show_streaming=None,
     )
     # Verify the original mock object attribute wasn't changed
     assert mock_configure_flags.model_name_check == "test-model-bar"
@@ -317,49 +321,52 @@ async def test_logs_follow_with_show_vibe_flag(
     mock_configure_output_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
-    """Test \'logs --follow --show-vibe\' configures output flags correctly."""
-    import typing  # For cast
-
+    """Test logs --follow with --show-vibe uses live display and correct flags."""
     from vibectl.command_handler import OutputFlags
+    from vibectl.prompt import logs_prompt
     from vibectl.types import Success
 
-    # Expected OutputFlags when --show-vibe is passed and --model is not.
-    # model_name should fall back to the default model from config.
-    # Cast to str to satisfy linter, as DEFAULT_CONFIG["model"] might be typed broadly.
-    default_model = typing.cast(str, DEFAULT_CONFIG["model"])
-    expected_flags = OutputFlags(
-        show_vibe=True,
-        show_raw=False,
-        model_name=default_model,  # Use default model (casted)
-        show_kubectl=False,
-        warn_no_output=True,
-        show_metrics=True,
+    # Configure output flags mock
+    mock_flags = OutputFlags(
+        show_raw=False,  # Default for this test path
+        show_vibe=True,  # Explicitly set by --show-vibe flag
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,  # Use defined DEFAULT_MODEL
+        show_kubectl=False,  # Default
+        show_metrics=False,  # Default
+        show_streaming=True,  # Assumed True when show_vibe is True for logs
     )
-    mock_configure_output_flags.return_value = expected_flags
+    mock_configure_output_flags.return_value = mock_flags
+
+    # Mock handle_watch_with_live_display behavior
     mock_handle_watch_with_live_display.return_value = Success(
-        data="live display output"
+        data="Live display finished"
     )
 
     cmd_obj = cli.commands["logs"]
     with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(["my-pod", "--follow", "--show-vibe"])
+        await cmd_obj.main(["podname", "--follow", "--show-vibe"])
 
     assert exc_info.value.code == 0
-    mock_handle_watch_with_live_display.assert_called_once()
 
-    # Verify configure_output_flags was called correctly by run_logs_command
+    # Verify configure_output_flags was called correctly
     mock_configure_output_flags.assert_called_once_with(
-        show_raw_output=None,
-        show_vibe=True,
-        model=None,
-        show_kubectl=None,
-        show_metrics=None,  # Expect None when flag not explicitly passed
+        show_raw_output=None,  # CLI passes None if not specified
+        show_vibe=True,  # Explicitly passed by --show-vibe
+        model=None,  # CLI passes None if not specified
+        show_kubectl=None,  # Default from common_command_options
+        show_metrics=None,  # Default from common_command_options
+        show_streaming=None,  # CLI passes None if not specified
     )
 
-    # Verify that the OutputFlags instance passed to handle_watch_with_live_display
-    # is the one returned by our mock_configure_output_flags
-    call_kwargs = mock_handle_watch_with_live_display.call_args.kwargs
-    assert call_kwargs["output_flags"] == expected_flags
+    # Verify handle_watch_with_live_display was called correctly
+    mock_handle_watch_with_live_display.assert_called_once_with(
+        command="logs",
+        resource="podname",
+        args=("--follow",),
+        output_flags=mock_flags,
+        summary_prompt_func=logs_prompt,
+    )
 
 
 @patch(

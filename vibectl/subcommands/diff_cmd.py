@@ -27,6 +27,7 @@ async def run_diff_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'diff' subcommand logic, including logging and error handling.
@@ -41,6 +42,7 @@ async def run_diff_command(
         model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
     cfg = Config()
@@ -85,8 +87,7 @@ async def run_diff_command(
             # Propagate the error object
             return kubectl_result
 
-        result = await asyncio.to_thread(
-            handle_command_output,
+        result = await handle_command_output(
             kubectl_result,
             output_flags=output_flags,
             summary_prompt_func=diff_output_prompt,

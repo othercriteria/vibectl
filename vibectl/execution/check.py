@@ -47,7 +47,7 @@ def _format_command_for_display(command_parts: list[str]) -> str:
     return " ".join(f'"{part}"' if " " in part else part for part in command_parts)
 
 
-def _get_check_llm_plan(
+async def _get_check_llm_plan(
     model_name: str,
     plan_system_fragments: SystemFragments,
     plan_user_fragments: UserFragments,
@@ -74,7 +74,7 @@ def _get_check_llm_plan(
     )
 
     try:
-        llm_response_text, metrics = model_adapter.execute_and_log_metrics(
+        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
             model=model,
             system_fragments=plan_system_fragments,
             user_fragments=plan_user_fragments,
@@ -153,7 +153,7 @@ async def run_check_command(
             ]
         )
 
-        plan_result = _get_check_llm_plan(
+        plan_result = await _get_check_llm_plan(
             output_flags.model_name,
             system_fragments,
             user_fragments,
@@ -210,7 +210,7 @@ async def run_check_command(
                 console_manager.print_vibe(
                     f"Result: {done_message} (Exit Code: {exit_code.value})"
                 )
-            update_memory(
+            await update_memory(
                 command_message=f"Checking predicate: {predicate} (Result)",
                 command_output=f"Determined: {done_message} (Exit: {exit_code.name})",
                 vibe_output="",
@@ -232,7 +232,7 @@ async def run_check_command(
             logger.info(f"LLM Thought: {action.text}")
             if output_flags.show_vibe:
                 console_manager.print_vibe(f"AI Thought: {action.text}")
-            update_memory(
+            await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1})",
                 command_output=f"Thought: {action.text}",
@@ -257,7 +257,7 @@ async def run_check_command(
                     f"LLM planned a malformed or empty command: {command_to_execute}. "
                     "Re-planning with error."
                 )
-                update_memory(
+                await update_memory(
                     command_message=f"Checking predicate: {predicate} "
                     f"(Iter {iteration + 1}) - Malformed Command",
                     command_output=f"LLM planned: {command_to_execute!s}",
@@ -274,7 +274,7 @@ async def run_check_command(
                     f"CRITICAL: LLM for 'check' planned a non-read-only command: "
                     f"{display_command}. Terminating."
                 )
-                update_memory(
+                await update_memory(
                     command_message=f"Checking predicate: {predicate} "
                     f"(Iter {iteration + 1}) - Non-Read-Only Command",
                     command_output=f"LLM planned: {display_command}",
@@ -320,7 +320,7 @@ async def run_check_command(
                 if output_flags.show_raw:
                     console_manager.print(command_output_str)
 
-            update_memory(
+            await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - Ran command: {display_command}",
                 command_output=command_output_str,
@@ -337,7 +337,7 @@ async def run_check_command(
             logger.info(f"WaitAction received. Waiting for {duration}s.")
             if output_flags.show_vibe:
                 console_manager.print_vibe(f"AI requests wait for {duration}s.")
-            update_memory(
+            await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - Wait requested",
                 command_output=f"AI requested wait for {duration}s.",
@@ -360,7 +360,7 @@ async def run_check_command(
                     "or re-planning."
                 )
 
-            update_memory(
+            await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - {action_type_str} received",
                 command_output=f"{action_type_str}: {message}",
@@ -377,7 +377,7 @@ async def run_check_command(
     # Loop finished due to max_iterations
     logger.warning(f"'check' command reached max iterations ({check_max_iterations}).")
 
-    update_memory(
+    await update_memory(
         command_message=f"Checking predicate: {predicate} "
         f"(Max Iterations Reached) - {check_max_iterations} iterations",
         command_output="",

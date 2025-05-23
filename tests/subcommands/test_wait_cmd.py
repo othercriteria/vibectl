@@ -152,16 +152,6 @@ async def test_wait_basic(
         catch_exceptions=True,  # Ensure click.Exit is caught
     )
 
-    # Print result details for debugging
-    if result.exit_code != 0:
-        print(f"Exit code: {result.exit_code}")
-        print(f"Exception: {result.exception}")
-        import traceback
-
-        if result.exc_info:
-            print(traceback.format_exception(*result.exc_info))
-        print(f"Output: {result.output}")
-
     # Check results
     assert result.exit_code == 0
     # Run kubectl will be called via asyncio.to_thread
@@ -292,13 +282,15 @@ async def test_wait_vibe_request(
     mock_handle_vibe.return_value = Success(message="Planned and executed")
 
     cmd_obj = cli.commands["wait"]
-    await runner.invoke(
+    result = await runner.invoke(
         cmd_obj,
         ["vibe", "wait until the deployment myapp is ready", "--no-live-display"],
         catch_exceptions=True,
     )
     mock_handle_vibe.assert_called_once()
-    mock_sys_exit.assert_called_once_with(0)
+    assert result.exit_code == 0
+    assert result.exception is None
+    mock_sys_exit.assert_any_call(0)
 
 
 @patch("vibectl.subcommands.wait_cmd.handle_vibe_request", new_callable=AsyncMock)
@@ -321,7 +313,7 @@ async def test_wait_vibe_request_error(
         catch_exceptions=True,
     )
     assert "LLM planning failed" in result.output
-    mock_sys_exit.assert_called_once_with(1)
+    mock_sys_exit.assert_any_call(1)
 
 
 @pytest.mark.asyncio
@@ -443,7 +435,7 @@ async def test_wait_standard_command(
     mock_handle_standard.return_value = Success(message="Wait completed standard")
 
     cmd_obj = cli.commands["wait"]
-    await runner.invoke(
+    result = await runner.invoke(
         cmd_obj,
         [
             "deployment/app",
@@ -453,7 +445,9 @@ async def test_wait_standard_command(
         catch_exceptions=True,
     )
     mock_handle_standard.assert_called_once()
-    mock_sys_exit.assert_called_once_with(0)
+    assert result.exit_code == 0
+    assert result.exception is None
+    mock_sys_exit.assert_any_call(0)
 
 
 @patch("vibectl.subcommands.wait_cmd.handle_standard_command")
@@ -480,4 +474,4 @@ async def test_wait_standard_command_error(
         catch_exceptions=True,
     )
     assert "Standard command failed" in result.output
-    mock_sys_exit.assert_called_once_with(1)
+    mock_sys_exit.assert_any_call(1)

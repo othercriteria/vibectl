@@ -1,5 +1,3 @@
-import asyncio
-
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
@@ -27,6 +25,7 @@ async def run_get_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'get' subcommand logic, including logging and error handling.
@@ -40,6 +39,7 @@ async def run_get_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -89,8 +89,7 @@ async def run_get_command(
         else:
             # Run the sync handler in a thread
             logger.info("Handling standard 'get' command.")
-            result = await asyncio.to_thread(
-                handle_standard_command,
+            result = await handle_standard_command(
                 command="get",
                 resource=resource,
                 args=args,

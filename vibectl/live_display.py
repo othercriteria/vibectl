@@ -859,7 +859,7 @@ async def _execute_port_forward_with_live_display(
                 "Vibe Port-forward Summary User Fragments: {filled_user_fragments}"
             )
 
-            response_text, _ = model_adapter.execute(
+            response_text, _ = await model_adapter.execute(
                 model,
                 system_fragments=system_fragments,
                 user_fragments=UserFragments(
@@ -878,7 +878,7 @@ async def _execute_port_forward_with_live_display(
             logger.error(f"Error generating port-forward summary: {e}", exc_info=True)
 
     # Update memory with the port-forward information
-    update_memory(
+    await update_memory(
         command_str,
         forward_info,
         vibe_output,

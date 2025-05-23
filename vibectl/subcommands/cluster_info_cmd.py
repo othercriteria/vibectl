@@ -13,14 +13,15 @@ from vibectl.types import Error, Result, Success
 
 
 async def run_cluster_info_command(
-    args: tuple,
-    show_raw_output: bool | None = None,
-    show_vibe: bool | None = None,
-    model: str | None = None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    args: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    show_kubectl: bool | None,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'cluster-info' subcommand logic, including logging and error
@@ -37,6 +38,7 @@ async def run_cluster_info_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         # Configure memory flags (for consistency, even if not used)
         configure_memory_flags(freeze_memory, unfreeze_memory)
@@ -80,8 +82,7 @@ async def run_cluster_info_command(
                 return output
 
             # Handle output display based on flags
-            await asyncio.to_thread(
-                handle_command_output,
+            _ = await handle_command_output(
                 output=output,
                 output_flags=output_flags,
                 summary_prompt_func=cluster_info_prompt,

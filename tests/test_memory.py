@@ -5,7 +5,7 @@ allowing vibectl to maintain context across commands.
 """
 
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -18,6 +18,11 @@ from vibectl.memory import (
     is_memory_enabled,
     set_memory,
     update_memory,
+)
+from vibectl.types import (
+    Fragment,
+    SystemFragments,
+    UserFragments,
 )
 
 
@@ -167,7 +172,7 @@ def test_clear_memory(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.memory_update_prompt")
 @patch("vibectl.memory.get_model_adapter")
-def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
+async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
     """Test memory update with command and response."""
     # Setup mocks
     mock_config = Mock()
@@ -192,20 +197,20 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
     # Setup prompt template for memory_update_prompt
     mock_update_prompt.return_value = (
-        ["SysMemPrompt"],
-        [
-            "UserMemTemplate"
-        ],  # Simplified from original, as it's not directly formatted here anymore
+        SystemFragments([Fragment("SysMemPrompt")]),
+        UserFragments([Fragment("UserMemTemplate")]),
     )
 
     mock_response_text = "Updated memory content"
-    mock_adapter.execute_and_log_metrics.return_value = (
-        mock_response_text,
-        None,  # Metrics
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(
+            mock_response_text,
+            None,  # Metrics
+        )
     )
 
     with patch("vibectl.memory.Config", return_value=mock_config):
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",  # Corrected argument name
             command_output="pod1 Running\\npod2 Error",
             vibe_output="Pods are in mixed state",
@@ -236,13 +241,13 @@ def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None
 
 
 @patch("vibectl.memory.is_memory_enabled")
-def test_update_memory_disabled(mock_is_enabled: Mock) -> None:
+async def test_update_memory_disabled(mock_is_enabled: Mock) -> None:
     """Test update_memory when memory is disabled."""
     # Setup
     mock_is_enabled.return_value = False
     mock_config = Mock()
     with patch("vibectl.memory.set_memory") as mock_set_memory:
-        update_memory(
+        await update_memory(
             command_message="cmd",  # Corrected argument name
             command_output="out",
             vibe_output="vibe",

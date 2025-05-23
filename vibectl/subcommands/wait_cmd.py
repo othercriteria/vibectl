@@ -13,15 +13,16 @@ from vibectl.types import Error, Result, Success
 
 async def run_wait_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    live_display: bool = True,
-    show_metrics: bool | None = None,
+    live_display: bool,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'wait' subcommand logic, including logging and error handling.
@@ -38,6 +39,7 @@ async def run_wait_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -107,7 +109,7 @@ async def run_wait_command(
             logger.info(f"Handling standard wait command for resource: {resource}")
 
             # Use the Result returned by handle_standard_command
-            result = handle_standard_command(
+            result = await handle_standard_command(
                 command="wait",
                 resource=resource,
                 args=args,

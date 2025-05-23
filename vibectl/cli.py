@@ -6,7 +6,7 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
-import datetime
+import os
 import sys
 from collections.abc import Callable
 
@@ -23,7 +23,7 @@ from vibectl.memory import (
 )
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
-from vibectl.subcommands.check_cmd import run_check_command as run_check_subcommand
+from vibectl.subcommands.check_cmd import run_check_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
 from vibectl.subcommands.create_cmd import run_create_command
 from vibectl.subcommands.delete_cmd import run_delete_command
@@ -33,6 +33,7 @@ from vibectl.subcommands.events_cmd import run_events_command
 from vibectl.subcommands.get_cmd import run_get_command
 from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
+from vibectl.subcommands.memory_update_cmd import run_memory_update_logic
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
@@ -44,19 +45,13 @@ from . import __version__
 from .config import DEFAULT_CONFIG, Config
 from .console import console_manager
 from .logutil import init_logging, logger
-from .model_adapter import get_model_adapter, validate_model_key_on_startup
-from .prompt import memory_fuzzy_update_prompt
+from .model_adapter import validate_model_key_on_startup
 from .types import (
     Error,
-    Fragment,
     Result,
     Success,
-    UserFragments,
 )
 from .utils import handle_exception
-
-# Current datetime for version command
-CURRENT_DATETIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # --- Common Option Decorator ---
@@ -65,6 +60,8 @@ def common_command_options(
     include_live_display: bool = False,
     include_yes: bool = False,
     include_show_metrics: bool = True,
+    include_show_streaming: bool = True,
+    include_freeze_memory: bool = True,
 ) -> Callable:
     """Decorator to DRY out common CLI options for subcommands."""
 
@@ -75,17 +72,24 @@ def common_command_options(
             ),
             click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None),
             click.option("--model", default=None, help="The LLM model to use"),
-            click.option(
-                "--freeze-memory",
-                is_flag=True,
-                help="Prevent memory updates for this command",
-            ),
-            click.option(
-                "--unfreeze-memory",
-                is_flag=True,
-                help="Enable memory updates for this command",
-            ),
         ]
+        if include_freeze_memory:
+            options.append(
+                click.option(
+                    "--freeze-memory",
+                    is_flag=True,
+                    default=None,
+                    help="Prevent memory updates for this command",
+                )
+            )
+            options.append(
+                click.option(
+                    "--unfreeze-memory",
+                    is_flag=True,
+                    default=None,
+                    help="Enable memory updates for this command",
+                )
+            )
         if include_show_kubectl:
             options.append(
                 click.option(
@@ -117,6 +121,15 @@ def common_command_options(
                     is_flag=True,
                     default=None,
                     help="Show LLM latency and token usage metrics",
+                )
+            )
+        if include_show_streaming:
+            options.append(
+                click.option(
+                    "--show-streaming/--no-show-streaming",
+                    is_flag=True,
+                    default=None,
+                    help="Show intermediate streaming output for LLM summary",
                 )
             )
         for option in reversed(options):
@@ -159,7 +172,6 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
 async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
-    import os
 
     if verbose:
         os.environ["VIBECTL_LOG_LEVEL"] = "DEBUG"
@@ -203,6 +215,7 @@ async def get(
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
     # Await the call to the now-async runner function
@@ -216,6 +229,7 @@ async def get(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -234,6 +248,7 @@ async def describe(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     result = await run_describe_command(
@@ -246,6 +261,7 @@ async def describe(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -264,6 +280,7 @@ async def logs(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
     result = await run_logs_command(
@@ -276,12 +293,13 @@ async def logs(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
 
 # --- Helper for standard create logic ---
-def _create_command_logic(
+async def _create_command_logic(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
@@ -291,10 +309,11 @@ def _create_command_logic(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """Handles the logic for standard (non-vibe) create commands."""
     # Call the synchronous runner function from the subcommand module
-    return run_create_command(
+    return await run_create_command(
         resource=resource,
         args=args,
         show_raw_output=show_raw_output,
@@ -304,6 +323,7 @@ def _create_command_logic(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
 
@@ -321,6 +341,7 @@ async def create(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
     if resource == "vibe":
@@ -339,9 +360,10 @@ async def create(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
     else:
-        result = _create_command_logic(
+        result = await _create_command_logic(
             resource=resource,
             args=args,
             show_raw_output=show_raw_output,
@@ -351,6 +373,7 @@ async def create(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
     handle_result(result)
 
@@ -370,6 +393,7 @@ async def delete(
     show_kubectl: bool | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Delete a resource."""
 
@@ -385,6 +409,7 @@ async def delete(
         show_kubectl=show_kubectl,
         yes=yes,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -615,7 +640,12 @@ def theme_set(theme_name: str) -> None:
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True, include_yes=True)
+@common_command_options(
+    include_show_kubectl=True,
+    include_yes=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
+)
 @click.option(
     "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
 )
@@ -634,6 +664,7 @@ async def auto(
     limit: int | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -651,6 +682,7 @@ async def auto(
             semiauto=False,
             limit=limit,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         handle_result(result)
     except Exception as e:
@@ -738,6 +770,7 @@ async def events(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """List events in the cluster."""
     result = await run_events_command(
@@ -749,6 +782,38 @@ async def events(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
+    handle_result(result)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("predicate", nargs=-1, type=click.UNPROCESSED, required=True)
+@common_command_options(include_show_kubectl=True, include_yes=True)
+async def check(
+    predicate: tuple[str, ...],
+    show_raw_output: bool | None,
+    show_vibe: bool | None,
+    show_kubectl: bool | None,
+    model: str | None,
+    freeze_memory: bool,
+    unfreeze_memory: bool,
+    yes: bool,
+    show_metrics: bool | None,
+    show_streaming: bool | None,
+) -> None:
+    """Determine if a predicate about the cluster is true."""
+    result = await run_check_command(
+        predicate=" ".join(predicate),
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        yes=yes,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -772,6 +837,7 @@ async def vibe(
     unfreeze_memory: bool = False,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """LLM interprets natural language request and runs fitting kubectl command."""
     # Call run_vibe_command instead of handle_vibe_request directly
@@ -786,7 +852,8 @@ async def vibe(
         yes=yes,
         semiauto=False,  # Vibe command is never called in semiauto loop directly
         exit_on_error=False,  # Let handle_result manage exit
-        show_metrics=show_metrics,  # Pass show_metrics
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -804,8 +871,9 @@ async def version(
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
     yes: bool = False,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Show Kubernetes version information."""
+    """Show client and server versions."""
     result = await run_version_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -815,6 +883,7 @@ async def version(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -832,6 +901,7 @@ async def cluster_info(
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
     yes: bool = False,
+    show_streaming: bool | None = None,
 ) -> None:
     """Get cluster information."""
     result = await run_cluster_info_command(
@@ -843,6 +913,7 @@ async def cluster_info(
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -959,73 +1030,26 @@ def memory_clear() -> None:
 @memory_group.command(name="update")
 @click.argument("update_text", nargs=-1, required=True)
 @click.option("--model", default=None, help="The LLM model to use")
-def memory_update(update_text: tuple, model: str | None = None) -> None:
-    """Update memory with additional information or context.
-
-    Uses LLM to intelligently update memory with new information
-    while preserving important existing context.
-    """
-    try:
-        cfg = Config()
-
-        # Get the current memory
-        current_memory = get_memory(cfg)
-
-        # Join the text parts to handle multi-word input
-        update_text_str = " ".join(update_text)
-
-        # Get the model name from config if not specified
-        # Use .get() for model, falling back to DEFAULT_CONFIG
-        model_name_to_use = model or cfg.get("model", DEFAULT_CONFIG["model"])
-
-        # Get the model adapter and model instance
-        model_adapter = get_model_adapter(cfg)
-        model_instance = model_adapter.get_model(model_name_to_use)
-
-        # Create fragments for the fuzzy memory update
-        system_fragments, user_fragments_template = memory_fuzzy_update_prompt(
-            current_memory=current_memory, update_text=update_text_str, config=cfg
-        )
-
-        # ormat the user_fragments_template here.
-        filled_user_fragments = []
-        for template_str in user_fragments_template:
-            try:
-                # Try to format with update_text
-                filled_user_fragments.append(
-                    Fragment(template_str.format(update_text=update_text_str))
-                )
-            except KeyError:
-                # If {update_text} isn't in a particular template piece, use it as is.
-                filled_user_fragments.append(Fragment(template_str))
-
-        console_manager.print_processing(
-            f"Updating memory using {model_name_to_use}..."
-        )
-
-        # Execute using the model adapter
-        updated_memory, _ = model_adapter.execute_and_log_metrics(
-            model=model_instance,
-            system_fragments=system_fragments,
-            user_fragments=UserFragments(filled_user_fragments),
-        )
-
-        # Set the updated memory
-        set_memory(updated_memory, cfg)
-        console_manager.print_success("Memory updated")
-
-        # Display the updated memory
-        console_manager.safe_print(
-            console_manager.console,
-            Panel(
-                updated_memory,
-                title="Updated Memory Content",
-                border_style="blue",
-                expand=False,
-            ),
-        )
-    except Exception as e:
-        handle_exception(e)
+@click.option(
+    "--show-streaming/--no-show-streaming",
+    is_flag=True,
+    default=None,
+    help="Show streaming output for LLM responses.",
+)
+@click.pass_context
+async def memory_update(
+    ctx: click.Context,
+    update_text: tuple,
+    model: str | None = None,
+    show_streaming: bool | None = None,
+) -> None:
+    """Update memory with new content using LLM summarization."""
+    update_text_str = " ".join(update_text)
+    result = await run_memory_update_logic(
+        update_text_str=update_text_str,
+        model_name=model,
+    )
+    handle_result(result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1042,6 +1066,7 @@ async def scale(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Scale resources.
 
@@ -1065,6 +1090,7 @@ async def scale(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -1083,9 +1109,21 @@ def rollout(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Manage rollouts of deployments, statefulsets, and daemonsets."""
     if ctx.invoked_subcommand is not None:
+        # Store common flags in context to pass to subcommands
+        ctx.obj = {
+            "show_raw_output": show_raw_output,
+            "show_vibe": show_vibe,
+            "model": model,
+            "freeze_memory": freeze_memory,
+            "unfreeze_memory": unfreeze_memory,
+            "show_kubectl": show_kubectl,
+            "show_metrics": show_metrics,
+            "show_streaming": show_streaming,
+        }
         return
 
     console_manager.print_error(
@@ -1099,6 +1137,7 @@ async def _rollout_common(
     subcommand: str,
     resource: str,
     args: tuple,
+    # These will now come from ctx.obj
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
@@ -1107,6 +1146,7 @@ async def _rollout_common(
     show_kubectl: bool | None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     # Await run_rollout_command
     result = await run_rollout_command(
@@ -1307,30 +1347,14 @@ async def resume(
     )
 
 
-# Explicitly add commands if decorator registration is failing in tests
-# This is a workaround and might indicate a deeper issue
-if hasattr(rollout, "add_command"):
-    rollout.add_command(undo)  # type: ignore[attr-defined]
-    rollout.add_command(restart)  # type: ignore[attr-defined]
-    rollout.add_command(pause)  # type: ignore[attr-defined]
-    rollout.add_command(resume)  # type: ignore[attr-defined]
-
-
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--live-display/--no-live-display",
-    is_flag=True,
-    default=True,
-    help="Show a live spinner with elapsed time during waiting",
-)
-@click.option(
-    "--show-metrics/--no-show-metrics",
-    is_flag=True,
-    default=None,
-    help="Show LLM latency and token usage metrics",
+@common_command_options(
+    include_show_kubectl=True,
+    include_live_display=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
 )
 async def wait(
     resource: str,
@@ -1343,13 +1367,9 @@ async def wait(
     unfreeze_memory: bool = False,
     live_display: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Wait for a specific condition on one or more resources.
-
-    Shows a live spinner with elapsed time while waiting for resources
-    to meet their specified conditions.
-    """
-    # Await the call to the async runner function
+    """Wait for a specific condition on one or more resources."""
     cmd_result = await run_wait_command(
         resource=resource,
         args=args,
@@ -1361,26 +1381,19 @@ async def wait(
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
-    # Pass the awaited result to handle_result
     handle_result(cmd_result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
-@click.option(
-    "--live-display/--no-live-display",
-    is_flag=True,
-    default=True,
-    help="Show a live display with connection status during port forwarding",
-)
-@click.option(
-    "--show-metrics/--no-show-metrics",
-    is_flag=True,
-    default=None,
-    help="Show LLM latency and token usage metrics",
+@common_command_options(
+    include_show_kubectl=True,
+    include_live_display=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
 )
 async def port_forward(
     resource: str,
@@ -1393,13 +1406,9 @@ async def port_forward(
     unfreeze_memory: bool = False,
     live_display: bool = True,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Forward one or more local ports to a pod, service, or deployment.
-
-    Shows a live display with connection status and elapsed time while
-    forwarding ports between your local system and Kubernetes resources.
-    """
-    # Await the call to the async runner function
+    """Forward one or more local ports to a pod, service, or deployment."""
     cmd_result = await run_port_forward_command(
         resource=resource,
         args=args,
@@ -1411,15 +1420,17 @@ async def port_forward(
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
-    # Pass the awaited result to handle_result
     handle_result(cmd_result)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(
+    include_show_kubectl=True, include_show_metrics=True, include_show_streaming=True
+)
 async def diff(
     resource: str,
     args: tuple[str, ...],
@@ -1430,6 +1441,7 @@ async def diff(
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Diff configurations between local files/stdin and the live cluster state."""
     result = await run_diff_command(
@@ -1442,40 +1454,26 @@ async def diff(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
 
-@cli.command(
-    "apply",
-    help="Apply a configuration to a resource by filename or stdin",
-    context_settings={
-        "ignore_unknown_options": True
-    },  # Allow arbitrary args for kubectl
-)
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--show-raw-output", is_flag=True, help="Show raw kubectl output")
-@click.option("--show-vibe", is_flag=True, help="Show vibe output")
-@click.option("--show-kubectl", is_flag=True, help="Show kubectl command executed")
-@click.option("--model", help="Specify the LLM model to use")
-@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
-)
-@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
-@click.pass_context
-async def apply_command_wrapper(
-    ctx: click.Context,
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED, required=True)
+@common_command_options(include_show_kubectl=True)
+async def apply(
     args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_kubectl: bool | None = None,
+    show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
-    """Wrapper for the apply command."""
+    """Apply a configuration to a resource by filename or stdin."""
     result = await run_apply_command(
         args=args,
         show_raw_output=show_raw_output,
@@ -1485,98 +1483,48 @@ async def apply_command_wrapper(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
-    )
-    handle_result(result)
-
-
-# Check command
-@cli.command(
-    "check",
-    help="Evaluate a predicate about the cluster state using LLM.",
-    context_settings={
-        "ignore_unknown_options": False
-    },  # No passthrough for check args yet
-)
-@click.argument("predicate", nargs=1, type=click.STRING)
-@click.option(
-    "--show-raw-output", is_flag=True, help="Show raw LLM plan/output (if any)"
-)
-@click.option(
-    "--show-vibe",
-    is_flag=True,
-    default=True,
-    help="Show LLM reasoning/decision (default: True)",
-)
-@click.option(
-    "--show-kubectl", is_flag=True, help="Show kubectl command if LLM plans one"
-)
-@click.option("--model", help="Specify the LLM model to use")
-@click.option("--freeze-memory", is_flag=True, help="Freeze memory (no new updates)")
-@click.option(
-    "--unfreeze-memory", is_flag=True, help="Unfreeze memory (allow new updates)"
-)
-@click.option("--show-metrics", is_flag=True, help="Show LLM metrics")
-# TODO: Add --max-iterations, --timeout, --token-budget for Phase 2
-@click.pass_context
-async def check_command_wrapper(
-    ctx: click.Context,
-    predicate: str,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: bool | None,
-) -> None:
-    """Wrapper for the check command."""
-    result = await run_check_subcommand(
-        predicate=predicate,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
     handle_result(result)
 
 
 def handle_result(result: Result) -> None:
-    """Handle the Result of a subcommand, exiting if requested."""
-    logger.info(f"handle_result received: {result!r}")
+    """Handle the result of a command, print output, and exit."""
+    exit_code: int = 0
     if isinstance(result, Success):
-        if result.continue_execution:
-            logger.info(
-                f"Continuing execution as requested by Success: {result.message}"
-            )
-            return
+        if result.data:
+            # Ensure data is a string before printing
+            data_to_print = result.data
+            if not isinstance(data_to_print, str):
+                # Attempt to convert to string, or use a placeholder
+                try:
+                    data_to_print = str(data_to_print)
+                except Exception:
+                    data_to_print = "[unprintable data]"
+            console_manager.print(data_to_print)
 
-        exit_code = result.original_exit_code or 0
-        # Ensure consistent single period at the end of result.message
-        formatted_message = result.message.rstrip().rstrip(".")
-        logger.info(
-            f"Normal termination requested: {formatted_message}. "
-            f"Using original_exit_code: {result.original_exit_code}, "
-            f"effective_exit_code: {exit_code}."
-        )
-        raise click.exceptions.Exit(exit_code)
+        # Prioritize original_exit_code if it exists and is an int
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 0  # Default for Success
+        logger.debug(f"Success result, final exit_code: {exit_code}")
 
     elif isinstance(result, Error):
-        # Always print the error message to the console if available
-        if result.error:
-            console_manager.print_error(result.error)
-        elif str(result):
-            console_manager.print_error(str(result))
+        console_manager.print_error(result.error)
+        # if result.details: # result.details is not a valid attribute of Error
+        #     # Assuming details is already formatted for printing
+        #     console_manager.print_error_details(str(result.details))
 
-        # Use original_exit_code if present and non-zero, otherwise default to 1
-        exit_code_val = 1
-        if result.original_exit_code is not None and result.original_exit_code != 0:
-            exit_code_val = result.original_exit_code
+        # Prioritize original_exit_code if it exists and is an int
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 1  # Default for Error
+        logger.debug(f"Error result, final exit_code: {exit_code}")
 
-        logger.info(
-            f"Encountered an error. Error details: {result!r}. "
-            f"Using exit_code_val: {exit_code_val}"
-        )
-        raise click.exceptions.Exit(exit_code_val)
+    sys.exit(exit_code)

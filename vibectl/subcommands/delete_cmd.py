@@ -1,5 +1,3 @@
-import asyncio
-
 from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
@@ -22,6 +20,7 @@ async def run_delete_command(
     show_kubectl: bool | None = None,
     yes: bool = False,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -38,6 +37,7 @@ async def run_delete_command(
             model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)
@@ -72,8 +72,7 @@ async def run_delete_command(
         # Handle standard command: run sync function in thread
         try:
             # Use asyncio.to_thread to run the sync function
-            result = await asyncio.to_thread(
-                handle_standard_command,
+            result = await handle_standard_command(
                 command="delete",
                 resource=resource,
                 args=args,

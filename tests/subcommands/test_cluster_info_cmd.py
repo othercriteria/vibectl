@@ -46,6 +46,9 @@ async def test_cluster_info_basic(
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
         show_metrics=default_cluster_info_output_flags.show_metrics,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     # Assert
@@ -74,6 +77,9 @@ async def test_cluster_info_with_args(
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
         show_metrics=default_cluster_info_output_flags.show_metrics,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -114,6 +120,9 @@ async def test_cluster_info_with_flags(
         model="custom-model",
         show_kubectl=True,
         show_metrics=True,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -126,6 +135,7 @@ async def test_cluster_info_with_flags(
         model="custom-model",
         show_kubectl=True,
         show_metrics=True,
+        show_streaming=True,
     )
     # Also check that handle_command_output received the flags from mock_configure_flags
     handle_output_call_kwargs = mock_handle_output.call_args.kwargs
@@ -150,6 +160,9 @@ async def test_cluster_info_no_output(
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
         show_metrics=default_cluster_info_output_flags.show_metrics,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -189,6 +202,9 @@ async def test_cluster_info_vibe_no_request_direct(  # Renamed for clarity
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
         show_metrics=default_cluster_info_output_flags.show_metrics,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Error)
@@ -223,6 +239,9 @@ async def test_cluster_info_error_handling_direct(
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
         show_metrics=default_cluster_info_output_flags.show_metrics,
+        freeze_memory=False,
+        unfreeze_memory=False,
+        show_streaming=True,
     )
 
     assert isinstance(result, Error)

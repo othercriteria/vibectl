@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import subprocess
-import sys
 import traceback
 import types
 
@@ -19,9 +18,7 @@ from .console import console_manager
 error_console = Console(stderr=True)
 
 
-def handle_exception(
-    e: Exception, exit_on_error: bool = True, tb: types.TracebackType | None = None
-) -> None:
+def handle_exception(e: Exception, tb: types.TracebackType | None = None) -> None:
     """
     Handle exceptions with nice error messages.
     Optionally print tracebacks if VIBECTL_TRACEBACK=1 or log level is DEBUG.
@@ -30,9 +27,7 @@ def handle_exception(
     # Handle 'Missing request after vibe' errors first to avoid duplicate output
     if "missing request after 'vibe'" in str(e).lower():
         console_manager.print_missing_request_error()
-        if exit_on_error:
-            sys.exit(1)
-        return None
+        return
 
     # Optionally print traceback if VIBECTL_TRACEBACK=1 or log level is DEBUG
     show_traceback = (
@@ -102,6 +97,4 @@ def handle_exception(
             error_message = "Unknown error occurred"
         console_manager.print_error(error_message)
 
-    if exit_on_error:
-        sys.exit(1)
-    return None
+    return

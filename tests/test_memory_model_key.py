@@ -4,7 +4,7 @@ This module tests how memory functions handle API keys when interacting with mod
 """
 
 import os
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -38,7 +38,7 @@ def test_config() -> Generator[Config, None, None]:
     yield config
 
 
-def test_memory_with_anthropic_api_key(
+async def test_memory_with_anthropic_api_key(
     test_config: Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test memory correctly uses Anthropic API key during updates."""
@@ -82,7 +82,7 @@ def test_memory_with_anthropic_api_key(
             mock_model = Mock()
             return mock_model
 
-        def execute(
+        async def execute(
             self,
             model: Mock,
             system_fragments: SystemFragments,
@@ -108,7 +108,7 @@ def test_memory_with_anthropic_api_key(
             return None
 
         # Add mock implementation for the abstract method
-        def execute_and_log_metrics(
+        async def execute_and_log_metrics(
             self,
             model: Mock,
             system_fragments: SystemFragments,
@@ -124,6 +124,18 @@ def test_memory_with_anthropic_api_key(
 
             return "Updated memory content", None
 
+        async def stream_execute(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> AsyncIterator[str]:
+            if False:
+                yield ""
+            # Or raise NotImplementedError if this mock shouldn't be used for streaming
+            # raise NotImplementedError("MockLLMAdapter.stream_execute not implemented")
+
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
     set_model_adapter(mock_adapter)
@@ -131,7 +143,7 @@ def test_memory_with_anthropic_api_key(
     # Apply the mocked adapter
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
         # Call update_memory with a Claude model
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
@@ -147,7 +159,7 @@ def test_memory_with_anthropic_api_key(
     assert os.environ.get("ANTHROPIC_API_KEY") != "test-anthropic-key"
 
 
-def test_memory_with_openai_api_key(test_config: Config) -> None:
+async def test_memory_with_openai_api_key(test_config: Config) -> None:
     """Test memory correctly uses OpenAI API key during updates."""
     # Set a mock API key in the config
     test_config.set_model_key("openai", "test-openai-key")
@@ -181,7 +193,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             mock_model = Mock()
             return mock_model
 
-        def execute(
+        async def execute(
             self,
             model: Mock,
             system_fragments: SystemFragments,
@@ -207,7 +219,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
             return None
 
         # Add mock implementation for the abstract method
-        def execute_and_log_metrics(
+        async def execute_and_log_metrics(
             self,
             model: Mock,
             system_fragments: SystemFragments,
@@ -223,6 +235,18 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
 
             return "Updated memory content", None
 
+        async def stream_execute(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> AsyncIterator[str]:
+            if False:
+                yield ""
+            # Or raise NotImplementedError if this mock shouldn't be used for streaming
+            # raise NotImplementedError("MockLLMAdapter.stream_execute not implemented")
+
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
     set_model_adapter(mock_adapter)
@@ -230,7 +254,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
     # Apply the mocked adapter
     with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
         # Call update_memory with a GPT model
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
@@ -245,7 +269,7 @@ def test_memory_with_openai_api_key(test_config: Config) -> None:
     assert os.environ.get("OPENAI_API_KEY") != "test-openai-key"
 
 
-def test_memory_update_missing_api_key(test_config: Config) -> None:
+async def test_memory_update_missing_api_key(test_config: Config) -> None:
     """Test memory update behavior when API key is missing."""
     # Create a mock adapter that simulates a missing API key error
     mock_adapter = Mock(spec=ModelAdapter)
@@ -263,7 +287,7 @@ def test_memory_update_missing_api_key(test_config: Config) -> None:
         patch("vibectl.memory.set_memory") as mock_set_mem,
     ):
         # Call update_memory - should catch the exception internally
-        update_memory(
+        await update_memory(
             command_message="kubectl get pods",
             command_output="No resources found",
             vibe_output="No pods found",
@@ -277,7 +301,7 @@ def test_memory_update_missing_api_key(test_config: Config) -> None:
         mock_set_mem.assert_not_called()
 
 
-def test_memory_update_with_environment_key(test_config: Config) -> None:
+async def test_memory_update_with_environment_key(test_config: Config) -> None:
     """Test memory update when key is provided via environment."""
     # Save original environment
     original_env = os.environ.get("ANTHROPIC_API_KEY")
@@ -304,7 +328,7 @@ def test_memory_update_with_environment_key(test_config: Config) -> None:
         # Apply the mocked adapter
         with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
             # Call update_memory
-            update_memory(
+            await update_memory(
                 command_message="kubectl get pods",
                 command_output="output",
                 vibe_output="vibe",

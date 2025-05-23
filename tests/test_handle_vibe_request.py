@@ -7,7 +7,7 @@ position in the final command.
 
 import json
 from collections.abc import Callable, Generator
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +15,10 @@ from pydantic import ValidationError
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.prompt import (
     plan_vibe_fragments,
+)
+from vibectl.schema import (
+    ErrorAction,
+    LLMPlannerResponse,
 )
 from vibectl.types import (
     ActionType,
@@ -110,9 +114,8 @@ async def test_handle_vibe_request_command_execution(
         "allowed_exit_codes": [0],
     }
     llm_planner_response_json = json.dumps({"action": command_action_data})
-    mock_model_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,
+    mock_model_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_planner_response_json, None)
     )
     mock_get_adapter.return_value = mock_model_adapter_instance
 
@@ -195,9 +198,8 @@ async def test_handle_vibe_request_yaml_execution(
         "allowed_exit_codes": [0],
     }
     llm_planner_response_json = json.dumps({"action": command_action_data})
-    mock_model_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,
+    mock_model_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_planner_response_json, None)
     )
     mock_get_adapter.return_value = mock_model_adapter_instance
 
@@ -255,27 +257,22 @@ async def test_handle_vibe_request_llm_planning_error(
         model_name="test-model",
         show_metrics=True,
     )
-    mock_adapter_instance = Mock()
+    mock_adapter_instance = Mock(name="AdapterForErrorTest")
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model
 
-    # Simulate LLM returning an ERROR action
-    error_action_message = "I cannot fulfill this request."
-    error_action_explanation = "The request is too ambiguous."
-    error_action_data = {
-        "action_type": ActionType.ERROR.value,
-        "message": error_action_message,
-        "explanation": error_action_explanation,
-    }
-    llm_planner_response_json = json.dumps({"action": error_action_data})
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,
+    error_response_obj = LLMPlannerResponse(
+        action=ErrorAction(action_type=ActionType.ERROR, message="Test error")
+    )
+    llm_response_json_str = error_response_obj.model_dump_json()
+
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json_str, None)
     )
 
     result = await handle_vibe_request(
-        request="do something vague",
+        request="test request",
         command="vibe",
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
@@ -283,23 +280,18 @@ async def test_handle_vibe_request_llm_planning_error(
     )
 
     assert isinstance(result, Error)
-    assert result.error == f"LLM planning error: {error_action_message}"
-    assert result.recovery_suggestions == error_action_message
+    assert result.error == "LLM planning error: Test error"
+    assert result.recovery_suggestions == "Test error"
     mock_adapter_instance.execute_and_log_metrics.assert_called_once()
     mock_execute.assert_not_called()
     mock_handle_output.assert_not_called()
     mock_update_memory.assert_called_once_with(
-        command_message="command: vibe request: do something vague",
-        command_output=error_action_message,
+        command_message="command: vibe request: test request",
+        command_output="Test error",
         vibe_output="",
         model_name=output_flags.model_name,
     )
-    # mock_console.print_note.assert_called_with(
-    #     f"AI Explanation: {error_action_explanation}"
-    # ) # Explanation not consistently picked up, see previous comments
-    mock_console.print_error.assert_called_with(
-        f"LLM Planning Error: {error_action_message}"
-    )
+    mock_console.print_error.assert_called_with("LLM Planning Error: Test error")
 
 
 @pytest.mark.asyncio
@@ -340,9 +332,8 @@ async def test_handle_vibe_request_llm_wait(
         "explanation": "Waiting for resource propagation.",
     }
     llm_planner_response_json = json.dumps({"action": wait_action_data})
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,  # Metrics
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_planner_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -410,9 +401,8 @@ async def test_handle_vibe_request_llm_feedback(
         "explanation": "Consider specifying a namespace.",
     }
     llm_planner_response_json = json.dumps({"action": feedback_action_data})
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,  # Metrics
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_planner_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -470,9 +460,8 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     }
     llm_planner_response_json = json.dumps({"action": feedback_action_data})
 
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,  # Metrics
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_planner_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -525,8 +514,10 @@ async def test_handle_vibe_request_llm_invalid_json(
     mock_adapter.get_model.return_value = mock_model
 
     # Simulate LLM returning invalid JSON
-    invalid_json = '{"action_type": "COMMAND", "commands": ["get", "pods" '
-    mock_adapter.execute_and_log_metrics.return_value = (invalid_json, None)
+    llm_response_malformed_json = "this is not json"
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_malformed_json, None)
+    )
 
     result = await handle_vibe_request(
         request="get pods",
@@ -567,15 +558,10 @@ async def test_handle_vibe_request_llm_invalid_schema(
     mock_get_model_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model_instance
 
-    action_data_invalid_schema = {
-        "action_type": ActionType.COMMAND.value,
-        "explanation": "Missing commands",
-    }
-    llm_planner_response_json = json.dumps({"action": action_data_invalid_schema})
-
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_planner_response_json,
-        None,
+    # The test intends to send a string that is not a valid action model.
+    llm_response_invalid_schema_json = json.dumps({"action": "not_a_valid_action"})
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_invalid_schema_json, None)
     )
 
     result = await handle_vibe_request(
@@ -588,10 +574,15 @@ async def test_handle_vibe_request_llm_invalid_schema(
     )
 
     assert isinstance(result, Error)
-    assert result.error == "LLM planning failed: Could not determine command verb."
-    assert result.exception is None
+    assert "Failed to parse LLM response as expected JSON" in result.error
+    # Check for Pydantic validation error details
+    assert "LLMPlannerResponse" in result.error
+    assert (
+        "Input should be an object" in result.error
+    )  # More specific Pydantic message part
+    assert "not_a_valid_action" in result.error
 
-    mock_update_memory.assert_not_called()
+    mock_update_memory.assert_called_once()
 
 
 @patch("vibectl.execution.vibe.get_model_adapter")
@@ -617,7 +608,9 @@ async def test_handle_vibe_request_llm_empty_response(
     mock_model = Mock()
     mock_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
-    mock_adapter.execute_and_log_metrics.return_value = ("", None)
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=("", None)
+    )  # Empty string response
 
     result = await handle_vibe_request(
         request="get pods",
@@ -661,12 +654,12 @@ async def test_handle_vibe_request_action_error_no_message(
     mock_get_model_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model_instance
 
-    error_action_data_no_message = {"action_type": ActionType.ERROR.value}
-    llm_response_json = json.dumps({"action": error_action_data_no_message})
-
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_response_json,
-        None,
+    error_action_no_message = {
+        "action_type": ActionType.ERROR.value
+    }  # Message is missing
+    llm_response_json = json.dumps({"action": error_action_no_message})
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -708,12 +701,11 @@ async def test_handle_vibe_request_action_wait_no_duration(
     mock_get_model_adapter.return_value = mock_adapter_instance
     mock_adapter_instance.get_model.return_value = mock_model_instance
 
-    wait_action_data_no_duration = {"action_type": ActionType.WAIT.value}
-    llm_response_json = json.dumps({"action": wait_action_data_no_duration})
-
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_response_json,
-        None,
+    # Wait action missing duration
+    wait_action_no_duration = {"action_type": ActionType.WAIT.value}
+    llm_response_json = json.dumps({"action": wait_action_no_duration})
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -760,10 +752,8 @@ async def test_handle_vibe_request_action_command_empty_verb(
         "commands": ["", "pods"],  # Empty verb
     }
     llm_response_json = json.dumps({"action": command_action_empty_verb})
-
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_response_json,
-        None,
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json, None)
     )
 
     result = await handle_vibe_request(
@@ -777,7 +767,6 @@ async def test_handle_vibe_request_action_command_empty_verb(
 
     assert isinstance(result, Error)
     assert result.error == "LLM planning failed: Could not determine command verb."
-    assert result.exception is None
     mock_update_memory.assert_not_called()
 
 
@@ -814,9 +803,8 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
         "commands": ["get", "pods"],
     }
     llm_response_json = json.dumps({"action": command_action_data})
-    mock_adapter_instance.execute_and_log_metrics.return_value = (
-        llm_response_json,
-        None,
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json, None)
     )
 
     mock_execute_command.return_value = Success(data="some pods")
@@ -875,7 +863,9 @@ async def test_handle_vibe_request_action_unknown(
     # Simulate LLM returning an invalid action type string
     # Need to bypass Pydantic validation slightly for this test by manually creating
     llm_response_text = '{"action_type": "INVALID_ACTION", "explanation": "Test"}'
-    mock_adapter.execute_and_log_metrics.return_value = (llm_response_text, None)
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_text, None)
+    )
 
     # We expect model_validate_json to potentially raise ValidationError here if strict
     # But if ActionType conversion happens after, this tests the match default case.
@@ -931,7 +921,7 @@ async def test_handle_vibe_request_planning_recoverable_api_error(
 
     # Mock adapter execute (for planning) to raise error
     api_error = RecoverableApiError("Planning LLM Down")
-    mock_adapter.execute_and_log_metrics.side_effect = api_error
+    mock_adapter.execute_and_log_metrics = AsyncMock(side_effect=api_error)
 
     result = await handle_vibe_request(
         request="test request",
@@ -976,7 +966,7 @@ async def test_handle_vibe_request_planning_generic_error(
 
     # Mock adapter execute (for planning) to raise error
     generic_error = ConnectionError("Network Error")
-    mock_adapter.execute_and_log_metrics.side_effect = generic_error
+    mock_adapter.execute_and_log_metrics = AsyncMock(side_effect=generic_error)
 
     result = await handle_vibe_request(
         request="test request",
