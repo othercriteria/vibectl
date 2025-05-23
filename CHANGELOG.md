@@ -8,9 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Implemented streaming for LLM responses in Vibe commands, providing real-time output.
-- Planned: Implement streaming LLM responses for Vibe, starting with `vibe` command output. (WIP)
-- Added `show_streaming` flag to control display of intermediate Vibe output streams globally and in `OutputFlags`.
+- Implemented streaming for LLM responses in Vibe commands, providing real-time output and a `show_streaming` flag (configurable globally and via `OutputFlags`) to control live display of intermediate Vibe output streams.
+- Added test coverage for LLM response streaming, including scenarios where streaming display is suppressed (`show_streaming=False`).
 
 ### Changed
 - Enabled Vibe summarization and memory updates even when the underlying `kubectl` command returns empty output. This allows for contextual memory updates (e.g., "No PVCs found in namespace X") where previously summaries were suppressed.
@@ -156,15 +155,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
 - Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
 - Update `ModelAdapter` to support passing JSON schemas to compatible LLM models.
-- Update `handle_vibe_request` to generate schema, parse JSON response, and dispatch based on `action_type`.
-- Add basic schema validation via Pydantic model and handler checks.
-- Correct prompt formatting in `semiauto` mode to properly include memory context, preventing incorrect LLM requests.
-- Resolved `AttributeError` related to asyncio patching in tests.
-- Corrected assertions for error string handling in `command_handler` memory tests.
-- Fixed `IndexError` and lint warnings in `port-forward` keyboard interrupt tests.
-- Added missing `summary_prompt_func` arguments to internal subcommand calls.
-
-### Changed
-
-- Refactor `PLAN_VIBE_PROMPT` to use the JSON schema approach for planning.
-- Update `model_adapter.py` to use `schema=` parameter for `llm`
+- Update `

@@ -1055,3 +1055,97 @@ async def test_handle_command_output_model_name_from_config(
             output_flags=output_flags,
             summary_prompt_func=default_summary_prompt,
         )
+
+
+@pytest.mark.asyncio
+@patch("vibectl.command_handler.update_memory")  # To avoid side effects
+@patch("vibectl.command_handler.output_processor")  # To control output processing
+@patch("vibectl.command_handler.console_manager")  # To assert console calls
+async def test_process_vibe_output_show_streaming_false(
+    mock_console_manager: MagicMock,
+    mock_output_processor: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_adapter: MagicMock,  # Fixture
+    default_summary_prompt: SummaryPromptFragmentFunc,  # Fixture
+    prevent_exit: MagicMock,  # Fixture to prevent sys.exit
+) -> None:
+    """Test _process_vibe_output when show_streaming is False and show_vibe is True.
+
+    Ensures that live panel updates are skipped and only the final result is displayed,
+    and that the correct adapter method is called.
+    """
+    # 1. Configure Mocks
+    # For this path (show_streaming=False), the code currently calls
+    # execute_and_log_metrics
+    full_expected_response = "This is the non-streamed response."
+
+    # Mock execute_and_log_metrics because show_streaming=False currently uses this path
+    llm_metrics = LLMMetrics(token_input=10, token_output=20, latency_ms=100)
+    mock_get_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(full_expected_response, llm_metrics)
+    )
+
+    # Mock stream_execute as well to assert it's NOT called in this specific scenario
+    async def mock_stream_async_not_called() -> AsyncIterator[str]:  # pragma: no cover
+        # This should not be entered
+        yield "unexpected stream chunk"
+        if False:  # pragma: no cover
+            yield
+
+    mock_get_adapter.stream_execute.return_value = mock_stream_async_not_called()
+
+    # Mock output_processor.process_auto as it's called early in _process_vibe_output
+    # It processes output_data, not the vibe_output_text directly for this test's scope
+    mock_output_processor.process_auto.return_value = Truncation(
+        original="Original Kubectl Output Data",
+        truncated="Processed Kubectl Output Data",
+    )
+
+    # 2. Create OutputFlags
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name=DEFAULT_MODEL,
+        show_metrics=False,
+        show_streaming=False,  # KEY FLAG: Streaming display is off
+    )
+
+    # 3. Prepare arguments for _process_vibe_output
+    system_fragments, user_fragments = default_summary_prompt(None, None)
+
+    # 4. Call _process_vibe_output
+    result = await _process_vibe_output(
+        output_message="Test Vibe Message",
+        output_data="Original Kubectl Output Data",
+        output_flags=output_flags,
+        summary_system_fragments=system_fragments,
+        summary_user_fragments=user_fragments,
+        command="test-command",
+        original_error_object=None,
+    )
+
+    # 5. Assertions
+    # Live streaming methods should not be called
+    mock_console_manager.start_live_vibe_panel.assert_not_called()
+    mock_console_manager.update_live_vibe_panel.assert_not_called()
+    mock_console_manager.stop_live_vibe_panel.assert_not_called()
+
+    # Final display should use print_vibe with use_panel=False
+    mock_console_manager.print_vibe.assert_called_once_with(
+        full_expected_response, use_panel=False
+    )
+
+    # Check the result from _process_vibe_output
+    assert isinstance(result, Success)
+    assert result.message == full_expected_response  # Assert against message, not data
+    assert result.metrics is not None
+    assert result.metrics.token_input == 10
+    assert result.metrics.token_output == 20
+
+    # Ensure the correct adapter method was called
+    mock_get_adapter.execute_and_log_metrics.assert_called_once()
+    mock_get_adapter.stream_execute.assert_not_called()
+
+    # Ensure update_memory was called (as it's part of successful vibe processing)
+    mock_update_memory.assert_called_once()
