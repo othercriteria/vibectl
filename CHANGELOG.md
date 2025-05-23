@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.8.3] - 2025-05-23
+
 ### Added
 - **`vibectl patch` Command**: Complete implementation of intelligent Kubernetes resource patching with natural language support.
   - Supports strategic merge patches, JSON merge patches, and JSON patches
