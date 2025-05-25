@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.8.4] - 2025-05-25
+
 ### Added
 - `vibectl edit` command with intelligent editing capabilities
   - Standard kubectl edit functionality when `intelligent_edit` config is disabled
