@@ -168,6 +168,39 @@ class ApplyFileScopeResponse(BaseModel):
     }
 
 
+class EditResourceScopeResponse(BaseModel):
+    """Schema for LLM response when scoping resources for kubectl edit."""
+
+    resource_selectors: list[str] = Field(
+        ...,
+        description=(
+            "List of resource specifications identified for kubectl edit. "
+            "Each should be a valid kubectl resource specification like "
+            "'deployment/nginx', 'service nginx', 'pods --selector=app=web', etc."
+        ),
+    )
+    kubectl_arguments: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of kubectl arguments and flags that should be passed to kubectl edit "
+            "(e.g., ['-n', 'staging', '--editor=vim', '--output-patch']). "
+            "Do not include the resource specification here."
+        ),
+    )
+    edit_context: str = Field(
+        ...,
+        description=(
+            "Semantic context about what the user wants to edit or focus on "
+            "(e.g., 'readiness and liveness checks', 'resource limits', "
+            "'environment variables'). This will be used to guide the intelligent "
+            "editing process."
+        ),
+    )
+    model_config = {
+        "extra": "forbid",
+    }
+
+
 class LLMFinalApplyPlanResponse(BaseModel):
     """Schema for LLM response containing the final list of planned apply commands."""
 

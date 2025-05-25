@@ -85,9 +85,14 @@ def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
 
     def mock_create_task(coro: Any) -> MagicMock:
         """Mock create_task to return a MagicMock instead of a Task object."""
+        # If we get a coroutine, close it to prevent warnings
+        if hasattr(coro, "close"):
+            coro.close()
         task = MagicMock()
         task.done.return_value = False
         task.cancel.return_value = None
+        task.cancelled.return_value = False
+        task.result.return_value = None
         return task
 
     # Use a patch context manager to replace all asyncio functions we use

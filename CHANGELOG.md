@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: `vibectl edit` command with intelligent editing capabilities (WIP)
+  - Standard kubectl edit functionality when `intelligent_edit` config is disabled
+  - Intelligent editing workflow when enabled: fetch resource → summarize to natural language → user edits text → LLM generates patch → apply patch
+  - Integration with existing vibe mode and patch command logic
+  - Support for both standard usage and natural language editing via `click.edit()` interface
+
 ## [0.8.3] - 2025-05-23
 
 ### Added
