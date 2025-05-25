@@ -58,7 +58,7 @@ __all__ = ["Table"]
 
 
 # Initialize output processor
-output_processor = OutputProcessor(max_chars=2000, llm_max_chars=2000)
+output_processor = OutputProcessor(max_chars=5000, llm_max_chars=5000)
 
 
 async def handle_standard_command(

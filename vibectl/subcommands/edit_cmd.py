@@ -3,6 +3,10 @@ from vibectl.command_handler import (
     handle_standard_command,
 )
 from vibectl.config import Config
+from vibectl.execution.edit import (
+    run_intelligent_edit_workflow,
+    run_intelligent_vibe_edit_workflow,
+)
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -56,16 +60,11 @@ async def run_edit_command(
         logger.info(f"Planning edit operation: {request}")
 
         if intelligent_edit_enabled:
-            # TODO: Implement intelligent edit workflow
-            logger.info("Intelligent edit enabled - using intelligent workflow")
-            # For now, fall back to basic vibe handling
-            result = await handle_vibe_request(
+            # Use intelligent vibe edit workflow for vibe requests
+            logger.info("Intelligent edit enabled - using intelligent vibe workflow")
+            result = await run_intelligent_vibe_edit_workflow(
                 request=request,
-                command="edit",
-                plan_prompt_func=lambda: PLAN_EDIT_PROMPT,
                 output_flags=output_flags,
-                summary_prompt_func=edit_resource_prompt,
-                semiauto=False,
                 config=cfg,
             )
         else:
@@ -86,19 +85,16 @@ async def run_edit_command(
 
     # Standard kubectl edit or intelligent edit workflow
     if intelligent_edit_enabled:
-        # TODO: Implement intelligent edit workflow for standard resources
+        # Use intelligent edit workflow for standard resources
         logger.info(
             "Intelligent edit enabled for standard resource - "
             "using intelligent workflow"
         )
-        # For now, fall back to standard kubectl edit
-        logger.info("Falling back to standard 'edit' command.")
-        result = await handle_standard_command(
-            command="edit",
+        result = await run_intelligent_edit_workflow(
             resource=resource,
             args=args,
             output_flags=output_flags,
-            summary_prompt_func=edit_resource_prompt,
+            config=cfg,
         )
     else:
         # Standard kubectl edit

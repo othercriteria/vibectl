@@ -15,6 +15,7 @@ from .config import Config
 from .schema import (
     ActionType,
     ApplyFileScopeResponse,
+    EditResourceScopeResponse,
     LLMAction,
     LLMFinalApplyPlanResponse,
     LLMPlannerResponse,
@@ -32,6 +33,9 @@ from .types import (
 _SCHEMA_DEFINITION_JSON = json.dumps(LLMPlannerResponse.model_json_schema(), indent=2)
 _APPLY_FILESCOPE_SCHEMA_JSON = json.dumps(
     ApplyFileScopeResponse.model_json_schema(), indent=2
+)
+_EDIT_RESOURCESCOPE_SCHEMA_JSON = json.dumps(
+    EditResourceScopeResponse.model_json_schema(), indent=2
 )
 # Schema for the new response structure that wraps a list of commands
 _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON = json.dumps(
