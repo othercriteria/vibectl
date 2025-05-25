@@ -154,12 +154,14 @@ Below is a prioritized list of remaining kubectl subcommands to be implemented i
 
 ### High Priority
 
-1. **edit** - Important for interactive resource modification
-   - Requires launching an editor and capturing modified content
-   - Implementation complexity: Medium-high
-   - Considerations: Similar to custom instructions editor implementation
+*No high priority commands remaining - edit command has been implemented.*
 
 ### Medium Priority
+
+1. **debug** - Debug pods and containers
+   - Implementation complexity: Medium-high
+   - Considerations: Requires interactive terminal handling and container troubleshooting capabilities
+   - May require custom debugging workflows and enhanced output formatting
 
 1. **exec** - Execute commands in container
    - Implementation complexity: High
