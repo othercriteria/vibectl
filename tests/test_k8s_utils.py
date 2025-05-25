@@ -16,7 +16,41 @@ from vibectl.k8s_utils import (
 )
 from vibectl.types import Error, Success
 
-# --- Tests for create_kubectl_error ---
+
+@pytest.fixture
+def yaml_content() -> str:
+    """Provide simple test YAML content for kubectl operations."""
+    return """
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: test-container
+    image: busybox
+"""
+
+
+@pytest.fixture
+def multi_yaml_content() -> str:
+    """Provide multi-document YAML content for kubectl operations."""
+    return """
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-ns
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+  namespace: test-ns
+spec:
+  containers:
+  - name: test-container
+    image: busybox
+"""
 
 
 def test_create_kubectl_error_from_string() -> None:
@@ -101,9 +135,6 @@ def test_create_kubectl_error_unexpected_type() -> None:
     assert result.error == "Unexpected error message type: int"
     assert result.exception is None
     assert result.halt_auto_loop is True  # Always halt for unexpected types
-
-
-# --- Tests for run_kubectl ---
 
 
 @patch("subprocess.run")
@@ -221,7 +252,7 @@ def test_run_kubectl_with_config(
     assert result.data == "success data"
     mock_config_instance.get.assert_called_once_with("kubeconfig")
     mock_run.assert_called_once_with(
-        ["kubectl", "get", "svc", "--kubeconfig", "/path/to/my/kubeconfig"],
+        ["kubectl", "--kubeconfig", "/path/to/my/kubeconfig", "get", "svc"],
         capture_output=True,
         check=False,
         text=True,
@@ -288,47 +319,17 @@ def test_run_kubectl_generic_exception(mock_run: unittest.mock.MagicMock) -> Non
     assert result.halt_auto_loop is True
 
 
-# --- Tests for run_kubectl_with_yaml ---
-
-YAML_CONTENT = """
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-pod
-spec:
-  containers:
-  - name: test-container
-    image: busybox
-"""
-
-MULTI_YAML_CONTENT = """
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-pod
-  namespace: test-ns
-spec:
-  containers:
-  - name: test-container
-    image: busybox
-"""
-
-
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_success(
     mock_popen: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (b"pod/test-pod created", b"")
     mock_process.returncode = 0
     mock_popen.return_value = mock_process
 
-    result = run_kubectl_with_yaml(["apply", "-f", "-"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["apply", "-f", "-"], yaml_content)
 
     assert isinstance(result, Success)
     assert result.data == "pod/test-pod created"
@@ -342,12 +343,13 @@ def test_run_kubectl_with_yaml_stdin_success(
     written_bytes = mock_process.communicate.call_args[1]["input"]
     # Check if the input starts with ---, handles potential initial whitespace
     assert written_bytes.strip().startswith(b"---")
-    assert YAML_CONTENT.encode("utf-8") in written_bytes
+    assert yaml_content.encode("utf-8") in written_bytes
 
 
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_multi_doc_success(
     mock_popen: unittest.mock.MagicMock,
+    multi_yaml_content: str,
 ) -> None:
     mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (
@@ -357,7 +359,7 @@ def test_run_kubectl_with_yaml_stdin_multi_doc_success(
     mock_process.returncode = 0
     mock_popen.return_value = mock_process
 
-    result = run_kubectl_with_yaml(["apply", "-f", "-"], MULTI_YAML_CONTENT)
+    result = run_kubectl_with_yaml(["apply", "-f", "-"], multi_yaml_content)
 
     assert isinstance(result, Success)
     assert result.data == "namespace/test-ns created\npod/test-pod created"
@@ -366,19 +368,20 @@ def test_run_kubectl_with_yaml_stdin_multi_doc_success(
     written_bytes = mock_process.communicate.call_args[1]["input"]
     # Ensure multi-doc format is preserved or correctly handled
     assert b"---\napiVersion" in written_bytes
-    assert MULTI_YAML_CONTENT.encode("utf-8") in written_bytes
+    assert multi_yaml_content.encode("utf-8") in written_bytes
 
 
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_failure(
     mock_popen: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_process = unittest.mock.MagicMock()
     mock_process.communicate.return_value = (b"", b"Error applying YAML")
     mock_process.returncode = 1
     mock_popen.return_value = mock_process
 
-    result = run_kubectl_with_yaml(["create", "-f", "-"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["create", "-f", "-"], yaml_content)
 
     assert isinstance(result, Error)
     assert result.error == "Error applying YAML"
@@ -388,6 +391,7 @@ def test_run_kubectl_with_yaml_stdin_failure(
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_timeout(
     mock_popen: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_process = unittest.mock.MagicMock()
     mock_process.communicate.side_effect = [
@@ -397,7 +401,7 @@ def test_run_kubectl_with_yaml_stdin_timeout(
     mock_process.returncode = -9  # SIGKILL often results in -9
     mock_popen.return_value = mock_process
 
-    result = run_kubectl_with_yaml(["apply", "-f", "-"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["apply", "-f", "-"], yaml_content)
 
     assert isinstance(result, Error)
     assert result.error == "Command timed out after 30 seconds"
@@ -415,6 +419,7 @@ def test_run_kubectl_with_yaml_tempfile_success(
     mock_unlink: unittest.mock.MagicMock,
     mock_run: unittest.mock.MagicMock,
     mock_tempfile: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     # Mock the temporary file context manager
     mock_temp_file = unittest.mock.MagicMock()
@@ -428,7 +433,7 @@ def test_run_kubectl_with_yaml_tempfile_success(
     )
 
     result = run_kubectl_with_yaml(
-        ["apply"], YAML_CONTENT
+        ["apply"], yaml_content
     )  # No '-f -', should use temp file
 
     assert isinstance(result, Success)
@@ -436,7 +441,7 @@ def test_run_kubectl_with_yaml_tempfile_success(
     # Check tempfile was used
     mock_tempfile.assert_called_once_with(mode="w", suffix=".yaml", delete=False)
     mock_temp_file.write.assert_called_once_with(
-        "---\n" + YAML_CONTENT
+        "---\n" + yaml_content
     )  # Check prepended '---'
     # Check subprocess call
     mock_run.assert_called_once()
@@ -456,6 +461,7 @@ def test_run_kubectl_with_yaml_tempfile_failure(
     mock_unlink: unittest.mock.MagicMock,
     mock_run: unittest.mock.MagicMock,
     mock_tempfile: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_temp_file = unittest.mock.MagicMock()
     mock_temp_file.name = "/tmp/fail.yaml"
@@ -466,7 +472,7 @@ def test_run_kubectl_with_yaml_tempfile_failure(
         returncode=1, stdout="", stderr="Temp file error"
     )
 
-    result = run_kubectl_with_yaml(["create"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["create"], yaml_content)
 
     assert isinstance(result, Error)
     assert result.error == "Temp file error"
@@ -483,6 +489,7 @@ def test_run_kubectl_with_yaml_tempfile_cleanup_error(
     mock_unlink: unittest.mock.MagicMock,
     mock_run: unittest.mock.MagicMock,
     mock_tempfile: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_temp_file = unittest.mock.MagicMock()
     mock_temp_file.name = "/tmp/cleanup_fail.yaml"
@@ -495,7 +502,7 @@ def test_run_kubectl_with_yaml_tempfile_cleanup_error(
     )
 
     # We expect success from run, but the cleanup failure should be logged (not crash)
-    result = run_kubectl_with_yaml(["delete"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["delete"], yaml_content)
 
     assert isinstance(result, Success)  # Command itself succeeded
     assert result.data == "Deleted successfully"
@@ -508,10 +515,11 @@ def test_run_kubectl_with_yaml_tempfile_cleanup_error(
 @patch("tempfile.NamedTemporaryFile")
 def test_run_kubectl_with_yaml_tempfile_creation_error(
     mock_tempfile: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     mock_tempfile.side_effect = OSError("Disk full")
 
-    result = run_kubectl_with_yaml(["apply"], YAML_CONTENT)
+    result = run_kubectl_with_yaml(["apply"], yaml_content)
 
     assert isinstance(result, Error)
     assert "Error executing YAML command: Disk full" in result.error
@@ -521,6 +529,7 @@ def test_run_kubectl_with_yaml_tempfile_creation_error(
 @patch("subprocess.Popen")
 def test_run_kubectl_with_yaml_stdin_already_starts_with_dashes(
     mock_popen: unittest.mock.MagicMock,
+    yaml_content: str,
 ) -> None:
     """Test stdin execution when input YAML already starts with ---."""
     mock_process = unittest.mock.MagicMock()
@@ -528,7 +537,7 @@ def test_run_kubectl_with_yaml_stdin_already_starts_with_dashes(
     mock_process.returncode = 0
     mock_popen.return_value = mock_process
 
-    yaml_with_dashes = "---" + YAML_CONTENT  # Start with dashes
+    yaml_with_dashes = "---" + yaml_content  # Start with dashes
 
     result = run_kubectl_with_yaml(["apply", "-f", "-"], yaml_with_dashes)
 
@@ -575,17 +584,19 @@ def test_run_kubectl_with_yaml_uses_vibectl_config_kubeconfig(
     called_args = mock_popen.call_args[0][0]
     assert "--kubeconfig" in called_args
     assert custom_kubeconfig_path in called_args
-    # Ensure it's added correctly after the main command and args
-    expected_cmd_prefix = ["kubectl", "apply", "-f", "-"]
-    assert called_args[: len(expected_cmd_prefix)] == expected_cmd_prefix
-    kubeconfig_index = called_args.index("--kubeconfig")
-    assert called_args[kubeconfig_index + 1] == custom_kubeconfig_path
+    # Ensure it's added correctly: kubectl --kubeconfig path apply -f -
+    expected_cmd = [
+        "kubectl",
+        "--kubeconfig",
+        custom_kubeconfig_path,
+        "apply",
+        "-f",
+        "-",
+    ]
+    assert called_args == expected_cmd
 
     # Verify that Config().get('kubeconfig') was called
     mock_config_instance.get.assert_called_once_with("kubeconfig")
-
-
-# --- Tests for create_async_kubectl_process ---
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- Fixed kubectl kubeconfig placement in commands with trailing arguments after `--` separator
+  - `--kubeconfig` flag now correctly placed immediately after `kubectl` instead of at command end
+  - Resolves issue where commands like `kubectl exec deployment/nginx -- curl http://localhost` would fail with "curl: option --kubeconfig: is unknown"
+  - Affects both `run_kubectl()` and `run_kubectl_with_yaml()` functions
+
 ## [0.8.4] - 2025-05-25
 
 ### Added

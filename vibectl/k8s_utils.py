@@ -96,9 +96,9 @@ def run_kubectl(
         cfg = config or Config()
         kubeconfig = cfg.get("kubeconfig")
         kubectl_full_cmd = ["kubectl"]  # Renamed to avoid conflict with cmd parameter
-        kubectl_full_cmd.extend(cmd)  # cmd is the list of args for kubectl
         if kubeconfig:
             kubectl_full_cmd.extend(["--kubeconfig", str(kubeconfig)])
+        kubectl_full_cmd.extend(cmd)  # cmd is the list of args for kubectl
 
         display_cmd = " ".join(kubectl_full_cmd)
 
@@ -198,10 +198,10 @@ def run_kubectl_with_yaml(
             for i, arg in enumerate(args)
         )
 
-        full_cmd_list = [kubectl_executable, *args]
+        full_cmd_list = [kubectl_executable]
         if kubeconfig_path:
-            # For consistency with run_kubectl, append it.
             full_cmd_list.extend(["--kubeconfig", str(kubeconfig_path)])
+        full_cmd_list.extend(args)
 
         display_cmd = " ".join(full_cmd_list)
 
