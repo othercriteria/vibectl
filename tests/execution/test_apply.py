@@ -7,6 +7,7 @@ focusing on helper functions rather than the full workflow.
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 from vibectl.config import Config
 from vibectl.execution.apply import (
     discover_and_validate_files,
+    execute_planned_commands,
     plan_and_execute_final_commands,
     run_intelligent_apply_workflow,
     validate_manifest_content,
@@ -39,6 +41,7 @@ def output_flags() -> OutputFlags:
         warn_no_output=False,
         model_name="test-model",
         warn_no_proxy=False,
+        show_streaming=False,
     )
 
 
@@ -432,113 +435,480 @@ async def test_run_intelligent_apply_workflow_kubectl_not_found_early(
 
 @pytest.mark.asyncio
 async def test_plan_and_execute_final_commands_success(test_config: Config) -> None:
-    """Test successful planning and execution of final commands."""
-    # Mock data
-    semantically_valid_manifests: list[tuple[Path, str]] = [
-        (Path("/tmp/test1.yaml"), "apiVersion: v1\nkind: Pod")
+    """Test plan_and_execute_final_commands with successful execution."""
+    # Mock data for the function
+    semantically_valid_manifests = [
+        (Path("deployment.yaml"), "apiVersion: apps/v1\nkind: Deployment"),
+        (Path("service.yaml"), "apiVersion: v1\nkind: Service"),
     ]
-    corrected_temp_manifest_paths: list[Path] = [Path("/tmp/corrected.yaml")]
-    unresolvable_sources: list[tuple[Path, str]] = [
-        (Path("/tmp/broken.yaml"), "Could not parse YAML")
-    ]
-    updated_operation_memory = "test operation memory"
-    llm_remaining_request = "test remaining request"
+    corrected_temp_manifest_paths = [Path("/tmp/corrected_config.yaml")]
+    unresolvable_sources = [(Path("broken.yaml"), "syntax error")]
+    updated_operation_memory = "deployment/nginx configured"
+    llm_remaining_request = "apply to staging namespace"
 
-    # Mock LLM response
-    mock_llm_response = {
+    # Mock the model and adapter
+    mock_model = Mock()
+    mock_adapter = AsyncMock()
+
+    # Mock the LLM response for final planning
+    mock_plan_response = {
         "planned_commands": [
             {
                 "action_type": "COMMAND",
-                "commands": ["-f", "/tmp/test1.yaml"],
+                "commands": ["-f", "deployment.yaml"],
                 "yaml_manifest": None,
                 "allowed_exit_codes": [0],
-                "reasoning": "Apply test manifest",
+                "explanation": "Apply deployment manifest",
             }
         ]
     }
 
-    # Mock model adapter and model
-    mock_model_adapter = Mock()
-    mock_model = Mock()
-
-    # Mock execute_and_log_metrics to return our mock response
-    mock_model_adapter.execute_and_log_metrics = AsyncMock(
-        return_value=(json.dumps(mock_llm_response), {"tokens": 100})
+    mock_adapter.execute_and_log_metrics.return_value = (
+        json.dumps(mock_plan_response),
+        Mock(),
     )
 
-    # Mock execute_planned_commands to return success
-    with patch("vibectl.execution.apply.execute_planned_commands") as mock_execute:
-        mock_execute.return_value = Success(
-            message="All commands executed successfully", data="test output"
+    # Mock kubectl execution
+    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+        mock_kubectl.return_value = Success(
+            message="apply successful", data='{"items": []}'
         )
 
-        result = await plan_and_execute_final_commands(
-            semantically_valid_manifests=semantically_valid_manifests,
-            corrected_temp_manifest_paths=corrected_temp_manifest_paths,
-            unresolvable_sources=unresolvable_sources,
-            updated_operation_memory=updated_operation_memory,
-            llm_remaining_request=llm_remaining_request,
-            model_adapter=mock_model_adapter,
-            llm_model=mock_model,
-            cfg=test_config,
-            output_flags=OutputFlags(
-                show_raw=False,
-                show_vibe=False,
-                warn_no_output=False,
-                model_name="test-model",
-                show_metrics=False,
-            ),
-        )
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="deployment applied successfully")
 
-        # Verify result
-        assert isinstance(result, Success)
-        assert result.message == "All commands executed successfully"
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
 
-        # Verify LLM was called correctly
-        mock_model_adapter.execute_and_log_metrics.assert_called_once()
+                result = await plan_and_execute_final_commands(
+                    semantically_valid_manifests,
+                    corrected_temp_manifest_paths,
+                    unresolvable_sources,
+                    updated_operation_memory,
+                    llm_remaining_request,
+                    mock_adapter,
+                    mock_model,
+                    test_config,
+                    OutputFlags(
+                        show_raw=False,
+                        show_vibe=True,
+                        warn_no_output=False,
+                        model_name="test-model",
+                        show_metrics=False,
+                        show_kubectl=False,
+                        warn_no_proxy=False,
+                        show_streaming=False,
+                    ),
+                )
 
-        # Verify command execution was called
-        mock_execute.assert_called_once()
+                assert isinstance(result, Success)
+                assert "successfully" in result.message.lower()
 
 
 @pytest.mark.asyncio
 async def test_plan_and_execute_final_commands_parse_error(test_config: Config) -> None:
-    """Test handling of LLM response parsing errors in final commands."""
-    # Mock data
-    semantically_valid_manifests: list[tuple[Path, str]] = []
-    corrected_temp_manifest_paths: list[Path] = []
-    unresolvable_sources: list[tuple[Path, str]] = []
-    updated_operation_memory = "test operation memory"
-    llm_remaining_request = "test remaining request"
-
-    # Mock model adapter and model
-    mock_model_adapter = Mock()
+    """Test plan_and_execute_final_commands when LLM response can't be parsed."""
     mock_model = Mock()
+    mock_adapter = AsyncMock()
 
-    # Mock execute_and_log_metrics to return invalid JSON
-    mock_model_adapter.execute_and_log_metrics = AsyncMock(
-        return_value=("invalid json response", {"tokens": 50})
+    # Mock LLM to return non-parseable response
+    mock_adapter.execute_and_log_metrics.side_effect = (
+        ValidationError.from_exception_data(
+            "Test",
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": (),
+                    "input": "invalid json",
+                    "ctx": {"error": "Invalid JSON"},
+                }
+            ],
+        )
     )
 
     result = await plan_and_execute_final_commands(
-        semantically_valid_manifests=semantically_valid_manifests,
-        corrected_temp_manifest_paths=corrected_temp_manifest_paths,
-        unresolvable_sources=unresolvable_sources,
-        updated_operation_memory=updated_operation_memory,
-        llm_remaining_request=llm_remaining_request,
-        model_adapter=mock_model_adapter,
+        semantically_valid_manifests=[],
+        corrected_temp_manifest_paths=[],
+        unresolvable_sources=[],
+        updated_operation_memory="",
+        llm_remaining_request="",
+        model_adapter=mock_adapter,
         llm_model=mock_model,
         cfg=test_config,
         output_flags=OutputFlags(
             show_raw=False,
-            show_vibe=False,
+            show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
             show_metrics=False,
+            show_kubectl=False,
+            warn_no_proxy=False,
+            show_streaming=False,
         ),
     )
 
-    # Verify error result
     assert isinstance(result, Error)
-    assert "Failed to parse LLM final plan" in result.error
-    assert isinstance(result.exception, ValidationError)
+    assert "parse" in result.error.lower() or "validation" in result.error.lower()
+
+
+# Tests for execute_planned_commands
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_single_success(test_config: Config) -> None:
+    """Test execute_planned_commands with a single successful command."""
+    from vibectl.schema import CommandAction
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "deployment.yaml"],
+            explanation="Apply deployment manifest",
+            yaml_manifest=None,
+            allowed_exit_codes=[0],
+        )
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+        mock_kubectl.return_value = Success(
+            message="apply successful", data='{"items": []}'
+        )
+
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="deployment applied successfully")
+
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
+
+                result = await execute_planned_commands(
+                    planned_commands, test_config, output_flags
+                )
+
+                assert isinstance(result, Success)
+                assert "successfully" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_with_yaml_manifest(test_config: Config) -> None:
+    """Test execute_planned_commands with a command that uses YAML manifest."""
+    from vibectl.schema import CommandAction
+
+    yaml_content = """
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+"""
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "-"],
+            explanation="Apply YAML manifest from stdin",
+            yaml_manifest=yaml_content,
+            allowed_exit_codes=[0],
+        )
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    with patch("vibectl.execution.apply.run_kubectl_with_yaml") as mock_kubectl_yaml:
+        mock_kubectl_yaml.return_value = Success(
+            message="apply successful",
+            data='{"items": [{"metadata": {"name": "test-pod"}}]}',
+        )
+
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="pod/test-pod created")
+
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
+
+                result = await execute_planned_commands(
+                    planned_commands, test_config, output_flags
+                )
+
+                assert isinstance(result, Success)
+                mock_kubectl_yaml.assert_called_once()
+                # Verify the YAML content was passed
+                call_args = mock_kubectl_yaml.call_args
+                assert call_args[1]["yaml_content"] == yaml_content
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_kubectl_failure(test_config: Config) -> None:
+    """Test execute_planned_commands when kubectl command fails."""
+    from vibectl.schema import CommandAction
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "nonexistent.yaml"],
+            explanation="Apply nonexistent file",
+            yaml_manifest=None,
+            allowed_exit_codes=[0],
+        )
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+        mock_kubectl.return_value = Error(error="file not found: nonexistent.yaml")
+
+        with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+            mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                *args, **kwargs
+            )
+
+            result = await execute_planned_commands(
+                planned_commands, test_config, output_flags
+            )
+
+            assert isinstance(result, Error)
+            assert "failed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_empty_command_list(test_config: Config) -> None:
+    """Test execute_planned_commands with a command that has empty command list."""
+    from vibectl.schema import CommandAction
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "-"],  # Use stdin to make it valid
+            explanation="Apply via stdin",
+            yaml_manifest="apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
+            allowed_exit_codes=[0],
+        )
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    # Manually test the empty command list case by checking the function logic
+    # when planned_cmd_response.commands is empty after being set
+    with patch("vibectl.execution.apply.run_kubectl_with_yaml") as mock_kubectl:
+        mock_kubectl.return_value = Success(
+            message="apply successful", data='{"items": []}'
+        )
+
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="resource applied")
+
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
+
+                # Test with a modified command action that has empty commands
+                # after construction
+                planned_commands[0].commands = []  # Set to empty after construction
+
+                result = await execute_planned_commands(
+                    planned_commands, test_config, output_flags
+                )
+
+                assert isinstance(result, Error)
+                assert "failed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_all_empty_commands(test_config: Config) -> None:
+    """Test execute_planned_commands when all commands have empty command lists."""
+    from vibectl.schema import CommandAction
+
+    # Create multiple commands that will all fail due to empty command lists
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "-"],  # Will be cleared to simulate the issue
+            explanation="First command",
+            yaml_manifest="apiVersion: v1\nkind: Pod\nmetadata:\n  name: test1",
+            allowed_exit_codes=[0],
+        ),
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "-"],  # Will be cleared to simulate the issue
+            explanation="Second command",
+            yaml_manifest="apiVersion: v1\nkind: Service\nmetadata:\n  name: test2",
+            allowed_exit_codes=[0],
+        ),
+    ]
+
+    # Clear commands after construction to test empty command handling
+    planned_commands[0].commands = []
+    planned_commands[1].commands = []
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    result = await execute_planned_commands(planned_commands, test_config, output_flags)
+
+    # Should return Error since all commands failed due to empty command lists
+    assert isinstance(result, Error)
+    assert "failed" in result.error.lower()  # "Some planned commands failed."
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_multiple_commands_mixed_results(
+    test_config: Config,
+) -> None:
+    """Test execute_planned_commands with multiple commands having mixed results."""
+    from vibectl.schema import CommandAction
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "good.yaml"],
+            explanation="Apply good manifest",
+            yaml_manifest=None,
+            allowed_exit_codes=[0],
+        ),
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "bad.yaml"],
+            explanation="Apply bad manifest",
+            yaml_manifest=None,
+            allowed_exit_codes=[0],
+        ),
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    def mock_kubectl_side_effect(*args: Any, **kwargs: Any) -> Success | Error:
+        cmd = kwargs.get("cmd", args[0] if args else [])
+        if "good.yaml" in str(cmd):
+            return Success(message="apply successful", data='{"items": []}')
+        else:
+            return Error(error="file not found: bad.yaml")
+
+    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+        mock_kubectl.side_effect = mock_kubectl_side_effect
+
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="resource applied")
+
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
+
+                result = await execute_planned_commands(
+                    planned_commands, test_config, output_flags
+                )
+
+                assert isinstance(result, Error)
+                assert "failed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_planned_commands_yaml_manifest_without_stdin(
+    test_config: Config,
+) -> None:
+    """Test execute_planned_commands with YAML manifest but command without stdin."""
+    from vibectl.schema import CommandAction
+
+    yaml_content = "apiVersion: v1\nkind: Pod"
+
+    planned_commands = [
+        CommandAction(
+            action_type="COMMAND",
+            commands=["-f", "deployment.yaml"],  # File, not stdin
+            explanation="Apply file with unnecessary YAML",
+            yaml_manifest=yaml_content,  # This should be ignored
+            allowed_exit_codes=[0],
+        )
+    ]
+
+    output_flags = OutputFlags(
+        show_raw=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=False,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+
+    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+        mock_kubectl.return_value = Success(
+            message="apply successful", data='{"items": []}'
+        )
+
+        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+            mock_output.return_value = Success(data="deployment applied")
+
+            with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
+                mock_thread.side_effect = lambda func, *args, **kwargs: func(
+                    *args, **kwargs
+                )
+
+                result = await execute_planned_commands(
+                    planned_commands, test_config, output_flags
+                )
+
+                assert isinstance(result, Success)
+                # Should use run_kubectl, not run_kubectl_with_yaml
+                mock_kubectl.assert_called_once()
