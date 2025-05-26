@@ -26,12 +26,12 @@ from vibectl.logutil import logger
 from vibectl.model_adapter import get_model_adapter
 from vibectl.prompt import (
     _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
-    apply_output_prompt,
     correct_apply_manifest_prompt_fragments,
     plan_apply_filescope_prompt_fragments,
     plan_final_apply_command_prompt_fragments,
     summarize_apply_manifest_prompt_fragments,
 )
+from vibectl.prompts.apply import apply_output_prompt
 from vibectl.schema import (
     ApplyFileScopeResponse,
     CommandAction,

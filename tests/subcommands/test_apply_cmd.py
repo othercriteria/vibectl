@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from vibectl.config import Config
-from vibectl.prompt import apply_output_prompt
+from vibectl.prompts.apply import apply_output_prompt
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.types import Error, OutputFlags, Success
 

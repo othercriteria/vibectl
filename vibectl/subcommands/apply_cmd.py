@@ -12,7 +12,7 @@ from vibectl.execution.vibe import (
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import (
+from vibectl.prompts.apply import (
     PLAN_APPLY_PROMPT,
     apply_output_prompt,
 )
