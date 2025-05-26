@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.8.6] - 2025-05-26
+
 ### Changed
-- Refactored `vibectl apply` implementation to match `vibectl edit` structure (COMPLETED)
+
+- Refactored `vibectl apply` implementation to match `vibectl edit` structure
   - Extracted execution logic to dedicated `vibectl/execution/apply.py` module (875 lines)
   - Extracted prompts to dedicated `vibectl/prompts/apply.py` module
   - Improved testability and consistency with edit implementation patterns
@@ -20,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.5] - 2025-05-25
 
 ### Fixed
+
 - Fixed kubectl kubeconfig placement in commands with trailing arguments after `--` separator
   - `--kubeconfig` flag now correctly placed immediately after `kubectl` instead of at command end
   - Resolves issue where commands like `kubectl exec deployment/nginx -- curl http://localhost` would fail with "curl: option --kubeconfig: is unknown"
@@ -28,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.4] - 2025-05-25
 
 ### Added
+
 - `vibectl edit` command with intelligent editing capabilities
   - Standard kubectl edit functionality when `intelligent_edit` config is disabled
   - Intelligent editing workflow when enabled: fetch resource → summarize to natural language → user edits text → LLM generates patch → apply patch
@@ -37,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.3] - 2025-05-23
 
 ### Added
+
 - **`vibectl patch` Command**: Complete implementation of intelligent Kubernetes resource patching with natural language support.
   - Supports strategic merge patches, JSON merge patches, and JSON patches
   - Can patch resources by file or by type/name
@@ -45,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full integration with existing vibectl CLI options and output formatting
 
 ### Fixed
+
 - **[Demo]** Chaos Monkey configuration and model selection:
   - Fixed inconsistent `VIBECTL_MODEL` defaults across files (unified to `claude-3.7-sonnet`)
   - Simplified configuration flow by removing redundant defaults in docker-compose.yaml
@@ -57,10 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.2] - 2025-05-23
 
 ### Added
+
 - Implemented streaming for LLM responses in Vibe commands, providing real-time output and a `show_streaming` flag (configurable globally and via `OutputFlags`) to control live display of intermediate Vibe output streams.
 - Added test coverage for LLM response streaming, including scenarios where streaming display is suppressed (`show_streaming=False`).
 
 ### Changed
+
 - Enabled Vibe summarization and memory updates even when the underlying `kubectl` command returns empty output. This allows for contextual memory updates (e.g., "No PVCs found in namespace X") where previously summaries were suppressed.
 - Refactored `vibectl events` command to use `handle_standard_command` and `handle_watch_with_live_display` for better consistency and simplified logic.
 - Modified `configure_output_flags` to include `show_streaming` and updated all subcommand call sites.
@@ -69,32 +78,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.1] - 2025-05-21
 
 ### Added
+
 - **`vibectl check <predicate>` Subcommand**:
-    - Implemented a new subcommand for autonomous, read-only evaluation of Kubernetes cluster state predicates.
-    - Returns specific exit codes: `0` for TRUE, `1` for FALSE, `2` for poorly posed/ambiguous predicate, `3` for cannot determine/timeout.
-    - Employs an iterative LLM-based planning loop:
-        - Gathers information using read-only `kubectl` commands.
-        - Feeds results back into LLM memory.
-        - Continues until the predicate is resolved or max iterations/timeout is reached.
-    - Includes utility functions to strictly enforce read-only `kubectl` operations.
-    - Added `docs/predicate_evaluation.md` with a worked example.
+  - Implemented a new subcommand for autonomous, read-only evaluation of Kubernetes cluster state predicates.
+  - Returns specific exit codes: `0` for TRUE, `1` for FALSE, `2` for poorly posed/ambiguous predicate, `3` for cannot determine/timeout.
+  - Employs an iterative LLM-based planning loop:
+    - Gathers information using read-only `kubectl` commands.
+    - Feeds results back into LLM memory.
+    - Continues until the predicate is resolved or max iterations/timeout is reached.
+  - Includes utility functions to strictly enforce read-only `kubectl` operations.
+  - Added `docs/predicate_evaluation.md` with a worked example.
 
 ### Changed
+
 - **LLM Planner Schema & Prompting**:
-    - Introduced a `DONE` action to the LLM planner schema, allowing the planner to signify completion of predicate evaluation and provide an `explanation` and `exit_code`.
-    - Added an `explanation` field to the `CommandAction` and `explanation`/`suggestion` fields to `FeedbackAction` in the schema.
-    - Revised system prompts and few-shot examples (using a new `MLExampleItem` structure) for the `vibectl check` planner to be more precise, emphasizing read-only operations and clear action usage.
-    - Updated general planner prompts to leverage new schema fields for improved clarity.
+  - Introduced a `DONE` action to the LLM planner schema, allowing the planner to signify completion of predicate evaluation and provide an `explanation` and `exit_code`.
+  - Added an `explanation` field to the `CommandAction` and `explanation`/`suggestion` fields to `FeedbackAction` in the schema.
+  - Revised system prompts and few-shot examples (using a new `MLExampleItem` structure) for the `vibectl check` planner to be more precise, emphasizing read-only operations and clear action usage.
+  - Updated general planner prompts to leverage new schema fields for improved clarity.
 - **Core Logic & Error Handling**:
-    - Refactored core `check` logic into `vibectl.execution.check.py`.
-    - Refactored `handle_vibe_request` into `vibectl.execution.vibe.py`.
-    - Improved error handling for unhandled LLM actions, max iteration limits, malformed LLM commands, and improperly formed predicates.
-    - Standardized exit codes for the `check` command using a `PredicateCheckExitCode` enum.
+  - Refactored core `check` logic into `vibectl.execution.check.py`.
+  - Refactored `handle_vibe_request` into `vibectl.execution.vibe.py`.
+  - Improved error handling for unhandled LLM actions, max iteration limits, malformed LLM commands, and improperly formed predicates.
+  - Standardized exit codes for the `check` command using a `PredicateCheckExitCode` enum.
 - **Command Confirmation**:
-    - Consolidated command confirmation logic, centralizing the decision based on whether a command is read-only using `is_kubectl_command_read_only`.
+  - Consolidated command confirmation logic, centralizing the decision based on whether a command is read-only using `is_kubectl_command_read_only`.
 - **Testing**:
-    - Added extensive tests for `vibectl check` logic and subcommand, including iterative evaluation, exit codes, and various predicate scenarios.
-    - Improved test coverage for `vibectl.execution.check`.
+  - Added extensive tests for `vibectl check` logic and subcommand, including iterative evaluation, exit codes, and various predicate scenarios.
+  - Improved test coverage for `vibectl.execution.check`.
 
 ## [0.8.0] - 2025-05-17
 
@@ -204,4 +215,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
 - Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
 - Update `ModelAdapter` to support passing JSON schemas to compatible LLM models.
-- Update `
