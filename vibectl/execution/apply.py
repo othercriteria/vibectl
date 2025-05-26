@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from json import JSONDecodeError
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -23,7 +24,7 @@ from vibectl.command_handler import handle_command_output
 from vibectl.config import Config
 from vibectl.k8s_utils import run_kubectl, run_kubectl_with_yaml
 from vibectl.logutil import logger
-from vibectl.model_adapter import get_model_adapter
+from vibectl.model_adapter import ModelAdapter, get_model_adapter
 from vibectl.prompts.apply import (
     _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
     apply_output_prompt,
@@ -198,13 +199,11 @@ async def discover_and_validate_files(
                 continue
 
             # Check if the file is "definitely not a Kubernetes manifest"
-            # ... existing logic ...
             is_likely_kubernetes_yaml = (
                 "apiVersion" in content
                 and "kind" in content
                 and (
-                    content.strip().endswith(".yaml")
-                    or content.strip().endswith(".yml")
+                    file_path.suffix.lower() in [".yaml", ".yml"]
                     or any(
                         keyword in content
                         for keyword in ["metadata:", "spec:", "namespace:"]
@@ -239,6 +238,294 @@ async def discover_and_validate_files(
                 )
 
     return semantically_valid_manifests, invalid_sources_to_correct
+
+
+async def summarize_manifests_and_build_memory(
+    semantically_valid_manifests: list[tuple[Path, str]],
+    model_adapter: ModelAdapter,
+    llm_model: Any,
+    invalid_sources_to_correct: list[tuple[Path, str | None, str]],
+) -> tuple[str, list[tuple[Path, str | None, str]]]:
+    """
+    Summarize valid manifests and build operation memory.
+
+    Returns:
+        Tuple of (operation_memory_string, updated_invalid_sources_list)
+    """
+    apply_operation_memory = ""
+    updated_invalid_sources = list(invalid_sources_to_correct)  # Copy the list
+
+    for file_path, manifest_content in semantically_valid_manifests:
+        logger.info(f"Summarizing manifest: {file_path}")
+
+        current_op_mem_for_prompt = (
+            apply_operation_memory
+            if apply_operation_memory
+            else "No prior summaries for this operation yet."
+        )
+        summary_system_frags, summary_user_frags = (
+            summarize_apply_manifest_prompt_fragments(
+                current_memory=current_op_mem_for_prompt,
+                manifest_content=manifest_content,
+            )
+        )
+
+        try:
+            (
+                summary_text,
+                summary_metrics,
+            ) = await model_adapter.execute_and_log_metrics(
+                model=llm_model,
+                system_fragments=summary_system_frags,
+                user_fragments=summary_user_frags,
+                response_model=None,
+            )
+
+            if not summary_text or summary_text.strip() == "":
+                logger.warning(
+                    f"LLM returned empty summary for {file_path}. "
+                    "Skipping update to operation memory."
+                )
+                continue
+
+            logger.debug(f"LLM summary for {file_path}:\n{summary_text}")
+            apply_operation_memory += (
+                f"Summary for {file_path}:\n{summary_text}\n\n--------------------\n"
+            )
+            logger.info(f"Updated operation memory after summarizing {file_path}")
+
+        except Exception as e_summary:
+            logger.error(
+                f"Error summarizing manifest {file_path}: {e_summary}",
+                exc_info=True,
+            )
+            updated_invalid_sources.append(
+                (
+                    file_path,
+                    manifest_content,
+                    f"summary_error_during_step3: {e_summary}",
+                )
+            )
+
+    return apply_operation_memory, updated_invalid_sources
+
+
+async def correct_and_generate_manifests(
+    invalid_sources_to_correct: list[tuple[Path, str | None, str]],
+    apply_operation_memory: str,
+    llm_remaining_request: str,
+    model_adapter: ModelAdapter,
+    llm_model: Any,
+    cfg: Config,
+    temp_dir_path: Path,
+    max_correction_retries: int,
+) -> tuple[list[Path], list[tuple[Path, str]], str]:
+    """
+    Correct and generate manifests for invalid sources.
+
+    Returns:
+        Tuple of (
+            corrected_temp_manifest_paths,
+            unresolvable_sources,
+            updated_operation_memory,
+        )
+    """
+    corrected_temp_manifest_paths: list[Path] = []
+    unresolvable_sources: list[tuple[Path, str]] = []
+    updated_operation_memory = apply_operation_memory
+
+    for (
+        original_path,
+        original_content,
+        error_reason_full,
+    ) in invalid_sources_to_correct:
+        # Skip if critical error like kubectl not found, already handled
+        if (
+            "CRITICAL:" in error_reason_full
+            or "summary_error_during_step3:" in error_reason_full
+        ):
+            logger.warning(
+                f"Skipping correction for {original_path} due to prior "
+                f"critical/summary error: {error_reason_full}"
+            )
+            unresolvable_sources.append((original_path, error_reason_full))
+            continue
+
+        logger.info(
+            f"Attempting to correct/generate manifest for: {original_path} "
+            f"(Reason: {error_reason_full})"
+        )
+        corrected_successfully = False
+        for attempt in range(max_correction_retries + 1):
+            logger.debug(
+                f"Correction attempt {attempt + 1}/{max_correction_retries + 1} "
+                f"for {original_path}"
+            )
+
+            current_op_mem_for_prompt = (
+                updated_operation_memory
+                if updated_operation_memory
+                else "No operation memory available yet."
+            )
+            original_content_for_prompt = (
+                original_content
+                if original_content is not None
+                else "File content was not readable or applicable."
+            )
+
+            correction_system_frags, correction_user_frags = (
+                correct_apply_manifest_prompt_fragments(
+                    original_file_path=str(original_path),
+                    original_file_content=original_content_for_prompt,
+                    error_reason=error_reason_full,
+                    current_operation_memory=current_op_mem_for_prompt,
+                    remaining_user_request=llm_remaining_request,
+                )
+            )
+
+            try:
+                (
+                    proposed_yaml_str,
+                    correction_metrics,
+                ) = await model_adapter.execute_and_log_metrics(
+                    model=llm_model,
+                    system_fragments=correction_system_frags,
+                    user_fragments=correction_user_frags,
+                    response_model=None,  # Expecting raw YAML string
+                )
+
+                if (
+                    not proposed_yaml_str
+                    or proposed_yaml_str.strip() == ""
+                    or proposed_yaml_str.strip().startswith("#")
+                ):
+                    intent_to_retry = (
+                        "Not retrying."
+                        if attempt == max_correction_retries
+                        else "Retrying..."
+                    )
+                    logger.warning(
+                        f"LLM returned empty or comment-only YAML for "
+                        f"{original_path} on attempt {attempt + 1}. "
+                        f"{intent_to_retry}"
+                    )
+                    if attempt == max_correction_retries:
+                        unresolvable_sources.append(
+                            (
+                                original_path,
+                                "LLM provided no usable YAML after "
+                                f"{max_correction_retries + 1} attempts. "
+                                f"Last reason: {error_reason_full}",
+                            )
+                        )
+                    continue  # To next retry or next file
+
+                # Validate the proposed YAML
+                temp_correction_path = (
+                    temp_dir_path
+                    / f"corrected_{original_path.name}_{uuid.uuid4().hex[:8]}.yaml"
+                )
+                validation_result = await validate_manifest_content(
+                    proposed_yaml_str, temp_correction_path, cfg
+                )
+
+                if isinstance(validation_result, Success):
+                    temp_correction_path.write_text(proposed_yaml_str)
+                    corrected_temp_manifest_paths.append(temp_correction_path)
+                    logger.info(
+                        "Successfully corrected/generated and validated manifest "
+                        f"for {original_path}, saved to {temp_correction_path}."
+                    )
+
+                    # Summarize newly corrected manifest
+                    current_op_mem_for_summary = (
+                        updated_operation_memory
+                        if updated_operation_memory
+                        else "No prior summaries."
+                    )
+                    new_summary_system_frags, new_summary_user_frags = (
+                        summarize_apply_manifest_prompt_fragments(
+                            current_memory=current_op_mem_for_summary,
+                            manifest_content=proposed_yaml_str,
+                        )
+                    )
+                    try:
+                        (
+                            new_summary_text,
+                            new_summary_metrics,
+                        ) = await model_adapter.execute_and_log_metrics(
+                            model=llm_model,
+                            system_fragments=new_summary_system_frags,
+                            user_fragments=new_summary_user_frags,
+                            response_model=None,
+                        )
+                        if new_summary_text and new_summary_text.strip():
+                            updated_operation_memory += (
+                                f"Summary for newly corrected {original_path} "
+                                f"(as {temp_correction_path.name}):\n"
+                                f"{new_summary_text}\n\n"
+                                f"--------------------\n"
+                            )
+                            logger.info(
+                                f"Updated operation memory after summarizing "
+                                f"corrected manifest {temp_correction_path.name}"
+                            )
+                    except Exception as e_new_summary:
+                        logger.error(
+                            "Error summarizing corrected manifest "
+                            f"{temp_correction_path.name}: {e_new_summary}",
+                            exc_info=True,
+                        )
+
+                    corrected_successfully = True
+                    break  # Break from retry loop for this source
+                else:  # Validation failed
+                    validation_error_full_message = validation_result.error
+                    logger.warning(
+                        f"Proposed YAML for {original_path} failed validation "
+                        f"on attempt {attempt + 1}: {validation_error_full_message}"
+                    )
+                    error_reason_full = validation_error_full_message
+                    if attempt == max_correction_retries:
+                        unresolvable_sources.append(
+                            (
+                                original_path,
+                                "Failed to validate LLM output for "
+                                f"{original_path} after "
+                                f"{max_correction_retries + 1} attempts. "
+                                f"Last error: {error_reason_full}",
+                            )
+                        )
+
+            except Exception as e_correction:
+                logger.error(
+                    f"Error during correction/generation for {original_path} "
+                    f"on attempt {attempt + 1}: {e_correction}",
+                    exc_info=True,
+                )
+                error_reason_full = f"correction_exception: {e_correction}"
+                if attempt == max_correction_retries:
+                    unresolvable_sources.append(
+                        (
+                            original_path,
+                            f"Exception during correction for {original_path} "
+                            f"after {max_correction_retries + 1} attempts. "
+                            f"Last error: {error_reason_full}",
+                        )
+                    )
+
+        if not corrected_successfully and not any(
+            u_path == original_path for u_path, _ in unresolvable_sources
+        ):
+            unresolvable_sources.append(
+                (
+                    original_path,
+                    f"Correction attempts failed for {original_path}. "
+                    f"Last reason: {error_reason_full}",
+                )
+            )
+
+    return corrected_temp_manifest_paths, unresolvable_sources, updated_operation_memory
 
 
 async def execute_planned_commands(
@@ -474,257 +761,34 @@ async def run_intelligent_apply_workflow(
         logger.info(
             "Starting Step 3: Summarize Valid Manifests & Build Operation Memory"
         )
-        apply_operation_memory = ""
-        for file_path, manifest_content in semantically_valid_manifests:
-            logger.info(f"Summarizing manifest: {file_path}")
-
-            current_op_mem_for_prompt = (
-                apply_operation_memory
-                if apply_operation_memory
-                else "No prior summaries for this operation yet."
-            )
-            summary_system_frags, summary_user_frags = (
-                summarize_apply_manifest_prompt_fragments(
-                    current_memory=current_op_mem_for_prompt,
-                    manifest_content=manifest_content,
-                )
-            )
-
-            try:
-                (
-                    summary_text,
-                    summary_metrics,
-                ) = await model_adapter.execute_and_log_metrics(
-                    model=llm_for_corrections_and_summaries,
-                    system_fragments=summary_system_frags,
-                    user_fragments=summary_user_frags,
-                    response_model=None,
-                )
-                metrics = summary_metrics  # type: ignore
-
-                if not summary_text or summary_text.strip() == "":
-                    logger.warning(
-                        f"LLM returned empty summary for {file_path}. "
-                        "Skipping update to operation memory."
-                    )
-                    continue
-
-                logger.debug(f"LLM summary for {file_path}:\n{summary_text}")
-                apply_operation_memory += (
-                    f"Summary for {file_path}:\n{summary_text}\n\n"
-                    f"--------------------\n"
-                )
-                logger.info(f"Updated operation memory after summarizing {file_path}")
-
-            except Exception as e_summary:
-                logger.error(
-                    f"Error summarizing manifest {file_path}: {e_summary}",
-                    exc_info=True,
-                )
-                invalid_sources_to_correct.append(
-                    (
-                        file_path,
-                        manifest_content,
-                        f"summary_error_during_step3: {e_summary}",
-                    )
-                )
+        (
+            apply_operation_memory,
+            updated_invalid_sources,
+        ) = await summarize_manifests_and_build_memory(
+            semantically_valid_manifests,
+            model_adapter,
+            llm_for_corrections_and_summaries,
+            invalid_sources_to_correct,
+        )
 
         # Step 4: Correction/Generation Loop for Invalid Sources (LLM)
         logger.info("Starting Step 4: Correction/Generation Loop for Invalid Sources")
         max_correction_retries = cfg.get_typed("max_correction_retries", 1)
 
-        for (
-            original_path,
-            original_content,
-            error_reason_full,
-        ) in invalid_sources_to_correct:
-            # Skip if critical error like kubectl not found, already handled
-            if (
-                "CRITICAL:" in error_reason_full
-                or "summary_error_during_step3:" in error_reason_full
-            ):
-                logger.warning(
-                    f"Skipping correction for {original_path} due to prior "
-                    f"critical/summary error: {error_reason_full}"
-                )
-                unresolvable_sources.append((original_path, error_reason_full))
-                continue
-
-            logger.info(
-                f"Attempting to correct/generate manifest for: {original_path} "
-                f"(Reason: {error_reason_full})"
-            )
-            corrected_successfully = False
-            for attempt in range(max_correction_retries + 1):
-                logger.debug(
-                    f"Correction attempt {attempt + 1}/{max_correction_retries + 1} "
-                    f"for {original_path}"
-                )
-
-                current_op_mem_for_prompt = (
-                    apply_operation_memory
-                    if apply_operation_memory
-                    else "No operation memory available yet."
-                )
-                original_content_for_prompt = (
-                    original_content
-                    if original_content is not None
-                    else "File content was not readable or applicable."
-                )
-
-                correction_system_frags, correction_user_frags = (
-                    correct_apply_manifest_prompt_fragments(
-                        original_file_path=str(original_path),
-                        original_file_content=original_content_for_prompt,
-                        error_reason=error_reason_full,
-                        current_operation_memory=current_op_mem_for_prompt,
-                        remaining_user_request=llm_remaining_request,
-                    )
-                )
-
-                try:
-                    (
-                        proposed_yaml_str,
-                        correction_metrics,
-                    ) = await model_adapter.execute_and_log_metrics(
-                        model=llm_for_corrections_and_summaries,
-                        system_fragments=correction_system_frags,
-                        user_fragments=correction_user_frags,
-                        response_model=None,  # Expecting raw YAML string
-                    )
-                    metrics = correction_metrics  # type: ignore
-
-                    if (
-                        not proposed_yaml_str
-                        or proposed_yaml_str.strip() == ""
-                        or proposed_yaml_str.strip().startswith("#")
-                    ):
-                        intent_to_retry = (
-                            "Not retrying."
-                            if attempt == max_correction_retries
-                            else "Retrying..."
-                        )
-                        logger.warning(
-                            f"LLM returned empty or comment-only YAML for "
-                            f"{original_path} on attempt {attempt + 1}. "
-                            f"{intent_to_retry}"
-                        )
-                        if attempt == max_correction_retries:
-                            unresolvable_sources.append(
-                                (
-                                    original_path,
-                                    "LLM provided no usable YAML after "
-                                    f"{max_correction_retries + 1} attempts. "
-                                    f"Last reason: {error_reason_full}",
-                                )
-                            )
-                        continue  # To next retry or next file
-
-                    # Validate the proposed YAML
-                    temp_correction_path = (
-                        temp_dir_path
-                        / f"corrected_{original_path.name}_{uuid.uuid4().hex[:8]}.yaml"
-                    )
-                    validation_result = await validate_manifest_content(
-                        proposed_yaml_str, temp_correction_path, cfg
-                    )
-
-                    if isinstance(validation_result, Success):
-                        temp_correction_path.write_text(proposed_yaml_str)
-                        corrected_temp_manifest_paths.append(temp_correction_path)
-                        logger.info(
-                            "Successfully corrected/generated and validated manifest "
-                            f"for {original_path}, saved to {temp_correction_path}."
-                        )
-
-                        # Summarize newly corrected manifest
-                        current_op_mem_for_summary = (
-                            apply_operation_memory
-                            if apply_operation_memory
-                            else "No prior summaries."
-                        )
-                        new_summary_system_frags, new_summary_user_frags = (
-                            summarize_apply_manifest_prompt_fragments(
-                                current_memory=current_op_mem_for_summary,
-                                manifest_content=proposed_yaml_str,
-                            )
-                        )
-                        try:
-                            (
-                                new_summary_text,
-                                new_summary_metrics,
-                            ) = await model_adapter.execute_and_log_metrics(
-                                model=llm_for_corrections_and_summaries,
-                                system_fragments=new_summary_system_frags,
-                                user_fragments=new_summary_user_frags,
-                                response_model=None,
-                            )
-                            metrics = new_summary_metrics  # type: ignore
-                            if new_summary_text and new_summary_text.strip():
-                                apply_operation_memory += (
-                                    f"Summary for newly corrected {original_path} "
-                                    f"(as {temp_correction_path.name}):\n"
-                                    f"{new_summary_text}\n\n"
-                                    f"--------------------\n"
-                                )
-                                logger.info(
-                                    f"Updated operation memory after summarizing "
-                                    f"corrected manifest {temp_correction_path.name}"
-                                )
-                        except Exception as e_new_summary:
-                            logger.error(
-                                "Error summarizing corrected manifest "
-                                f"{temp_correction_path.name}: {e_new_summary}",
-                                exc_info=True,
-                            )
-
-                        corrected_successfully = True
-                        break  # Break from retry loop for this source
-                    else:  # Validation failed
-                        validation_error_full_message = validation_result.error
-                        logger.warning(
-                            f"Proposed YAML for {original_path} failed validation "
-                            f"on attempt {attempt + 1}: {validation_error_full_message}"
-                        )
-                        error_reason_full = validation_error_full_message
-                        if attempt == max_correction_retries:
-                            unresolvable_sources.append(
-                                (
-                                    original_path,
-                                    "Failed to validate LLM output for "
-                                    f"{original_path} after "
-                                    f"{max_correction_retries + 1} attempts. "
-                                    f"Last error: {error_reason_full}",
-                                )
-                            )
-
-                except Exception as e_correction:
-                    logger.error(
-                        f"Error during correction/generation for {original_path} "
-                        f"on attempt {attempt + 1}: {e_correction}",
-                        exc_info=True,
-                    )
-                    error_reason_full = f"correction_exception: {e_correction}"
-                    if attempt == max_correction_retries:
-                        unresolvable_sources.append(
-                            (
-                                original_path,
-                                f"Exception during correction for {original_path} "
-                                f"after {max_correction_retries + 1} attempts. "
-                                f"Last error: {error_reason_full}",
-                            )
-                        )
-
-            if not corrected_successfully and not any(
-                u_path == original_path for u_path, _ in unresolvable_sources
-            ):
-                unresolvable_sources.append(
-                    (
-                        original_path,
-                        f"Correction attempts failed for {original_path}. "
-                        f"Last reason: {error_reason_full}",
-                    )
-                )
+        (
+            corrected_temp_manifest_paths,
+            unresolvable_sources,
+            updated_operation_memory,
+        ) = await correct_and_generate_manifests(
+            invalid_sources_to_correct,
+            apply_operation_memory,
+            llm_remaining_request,
+            model_adapter,
+            llm_for_corrections_and_summaries,
+            cfg,
+            temp_dir_path,
+            max_correction_retries,
+        )
 
         # Step 5: Plan Final kubectl apply Command(s) (LLM)
         logger.info("Starting Step 5: Plan Final kubectl apply Command(s)")
@@ -736,8 +800,8 @@ async def run_intelligent_apply_workflow(
         ]
 
         current_op_mem_for_final_plan = (
-            apply_operation_memory
-            if apply_operation_memory
+            updated_operation_memory
+            if updated_operation_memory
             else "No operation memory generated."
         )
         remaining_req_for_final_plan = (

@@ -35,17 +35,19 @@ Refactor the `vibectl apply` implementation to bring it in line with the `vibect
 
 **Phase 1 Summary**: Successfully extracted 875 lines of execution logic to `vibectl/execution/apply.py`, cleaned up 985 lines of dead code from `apply_cmd.py`, and achieved clean separation of concerns. All tests passing with 100% coverage for the command handler.
 
-### Phase 2: Extract Prompts
-- [ ] Create `vibectl/prompts/apply.py` module
-- [ ] Move apply-related prompts from `vibectl/prompt.py`:
+### Phase 2: Extract Prompts ✅ COMPLETED
+- [x] Create `vibectl/prompts/apply.py` module
+- [x] Move apply-related prompts from `vibectl/prompt.py`:
   - `plan_apply_filescope_prompt_fragments()`
   - `summarize_apply_manifest_prompt_fragments()`
   - `correct_apply_manifest_prompt_fragments()`
   - `plan_final_apply_command_prompt_fragments()`
   - `apply_output_prompt()`
   - `PLAN_APPLY_PROMPT`
-- [ ] Update imports in execution and command modules
-- [ ] Remove apply prompts from main `prompt.py`
+- [x] Update imports in execution and command modules
+- [x] Remove apply prompts from main `prompt.py`
+
+**Phase 2 Summary**: Successfully extracted all apply-related prompts to dedicated `vibectl/prompts/apply.py` module. The execution module now imports prompts from the dedicated module, achieving clean separation of concerns consistent with the edit implementation pattern.
 
 ### Phase 3: Testing Improvements
 - [ ] Add comprehensive unit tests for `vibectl/execution/apply.py`
