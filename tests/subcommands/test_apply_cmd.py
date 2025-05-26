@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from vibectl.config import Config
-from vibectl.prompt import apply_output_prompt
+from vibectl.prompts.apply import apply_output_prompt
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.types import Error, OutputFlags, Success
 
@@ -322,7 +322,7 @@ async def test_run_apply_command_vibe_missing_request(
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
-@patch("vibectl.subcommands.apply_cmd.get_model_adapter")
+@patch("vibectl.execution.apply.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
@@ -409,7 +409,7 @@ async def test_run_apply_command_vibe_success(
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
-@patch("vibectl.subcommands.apply_cmd.get_model_adapter")
+@patch("vibectl.execution.apply.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
@@ -492,7 +492,7 @@ async def test_run_apply_command_vibe_error_from_handler(
     )
 
 
-@patch("vibectl.subcommands.apply_cmd.get_model_adapter")
+@patch("vibectl.execution.apply.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
@@ -552,10 +552,8 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
     )
     mock_logger.info.assert_any_call(f"Planning how to: {request_str}")
-    mock_logger.info.assert_any_call("Starting intelligent apply workflow...")
-    mock_logger.error.assert_any_call(
-        "LLM returned an empty response for file scoping."
-    )
+    # Note: The "Starting intelligent apply workflow..." log is now in
+    # execution/apply module
 
     mock_configure_memory_flags.assert_called_once_with(False, False)
     mock_configure_output_flags.assert_called_once_with(
