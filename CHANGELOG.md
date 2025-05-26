@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- Planned: Refactor `vibectl apply` implementation to match `vibectl edit` structure (WIP)
+  - Extract execution logic to dedicated `vibectl/execution/apply.py` module
+  - Extract prompts to dedicated `vibectl/prompts/apply.py` module
+  - Improve testability and consistency with edit implementation patterns
+  - Maintain all existing functionality while enabling better separation of concerns
+
 ## [0.8.5] - 2025-05-25
 
 ### Fixed
@@ -53,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Enabled Vibe summarization and memory updates even when the underlying `kubectl` command returns empty output. This allows for contextual memory updates (e.g., "No PVCs found in namespace X") where previously summaries were suppressed.
 - Refactored `vibectl events` command to use `handle_standard_command` and `handle_watch_with_live_display` for better consistency and simplified logic.
-- Modified `configure_output_flags` to include `show_streaming` and updated all subcommand callsites.
+- Modified `configure_output_flags` to include `show_streaming` and updated all subcommand call sites.
 - Updated `ConsoleManager.print_vibe` to handle `use_panel` argument for controlling panel display, especially for streamed vs. non-streamed Vibe output.
 
 ## [0.8.1] - 2025-05-21
