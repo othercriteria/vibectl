@@ -209,7 +209,7 @@ def summarize_apply_manifest_prompt_fragments(
                 command.
 
                 Focus on:
-                - The kind, name, and namespace (if specified) of the primary
+                - The kind, name, and (if specified) namespace of the primary
                   resource(s) in the manifest.
                 - Key distinguishing features (e.g., for a Deployment: replica
                   count, main container image; for a Service: type, ports; for a
@@ -218,6 +218,14 @@ def summarize_apply_manifest_prompt_fragments(
                   not a reformatted YAML or a full resource dump.
                 - If multiple documents are in the manifest, summarize each briefly
                   or provide a collective summary if appropriate.
+
+                NAMESPACE GUIDANCE:
+                - If a manifest specifies a particular namespace, note it but emphasize
+                  that the resource type and configuration are the primary focus
+                - Avoid letting specific namespace values influence the summary's
+                  general applicability to other namespaces
+                - Frame namespace information as "currently configured for [namespace]"
+                  rather than as a permanent characteristic
 
                 Consider the 'Current Operation Memory' which contains summaries of
                 previously processed valid manifests for this same `kubectl apply`
@@ -272,6 +280,17 @@ def correct_apply_manifest_prompt_fragments(
                 2. Generate a new manifest that fulfills the likely intent for the
                    given file path, especially if the original content is
                    irrelevant, unreadable, or significantly flawed.
+
+                CRITICAL NAMESPACE GUIDANCE:
+                - Do NOT hardcode specific namespace values in manifests
+                - Generate namespace-agnostic resources that can be applied to
+                  any namespace
+                - If a manifest needs a namespace, use a generic placeholder
+                  like "default" or omit the namespace field entirely to let
+                  kubectl apply with -n flag
+                - The user's request may specify multiple target namespaces
+                  for deployment, so avoid locking manifests to specific
+                  namespace values
 
                 Output ONLY the proposed YAML manifest string. Do not include
                 any explanations, apologies, or preamble. If you are highly

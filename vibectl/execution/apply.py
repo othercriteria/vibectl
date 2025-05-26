@@ -420,16 +420,20 @@ async def correct_and_generate_manifests(
                         )
                     continue  # To next retry or next file
 
-                # Validate the proposed YAML
+                # Create a unique temp path for this correction attempt
                 temp_correction_path = (
                     temp_dir_path
                     / f"corrected_{original_path.name}_{uuid.uuid4().hex[:8]}.yaml"
                 )
+
+                # Validate the proposed YAML using original_path for logging
+                # to avoid referencing non-existent temp file in error messages
                 validation_result = await validate_manifest_content(
-                    proposed_yaml_str, temp_correction_path, cfg
+                    proposed_yaml_str, original_path, cfg
                 )
 
                 if isinstance(validation_result, Success):
+                    # Only write the file after successful validation
                     temp_correction_path.write_text(proposed_yaml_str)
                     corrected_temp_manifest_paths.append(temp_correction_path)
                     logger.info(
@@ -437,7 +441,7 @@ async def correct_and_generate_manifests(
                         f"for {original_path}, saved to {temp_correction_path}."
                     )
 
-                    # Summarize newly corrected manifest
+                    # Summarize newly corrected manifest with namespace-neutral prompt
                     current_op_mem_for_summary = (
                         updated_operation_memory
                         if updated_operation_memory
@@ -539,21 +543,11 @@ async def execute_planned_commands(
     final_metrics = None
 
     for i, planned_cmd_response in enumerate(planned_commands):
+        logger.info(f"Executing planned command {i + 1}/{len(planned_commands)}")
+
         commands_to_log = planned_cmd_response.commands
         if commands_to_log is None:  # Should not happen if action_type is COMMAND
             commands_to_log = ["<no commands specified>"]
-
-        full_kubectl_command_list = ["apply"] + (
-            planned_cmd_response.commands if planned_cmd_response.commands else []
-        )
-
-        logger.info(
-            f"Executing planned command {i + 1}/{len(planned_commands)}: "
-            f"{' '.join(full_kubectl_command_list)}"
-        )
-        logger.debug(
-            f"Planned command details: {planned_cmd_response.model_dump_json(indent=2)}"
-        )
 
         if planned_cmd_response.action_type != "COMMAND":
             logger.warning(
@@ -566,16 +560,21 @@ async def execute_planned_commands(
             continue
 
         # Validate the constructed full command list
-        if (
-            not full_kubectl_command_list or len(full_kubectl_command_list) == 1
-        ):  # Only contains "apply"
-            logger.error(
-                "Planned command list is effectively empty after prepending 'apply'. "
-                f"Original: {planned_cmd_response.commands}"
-            )
-            final_results_summary += "Error: Planned command list effectively empty.\n"
+        if len(planned_cmd_response.commands) == 0:
+            logger.error("Planned command list is empty.")
+            final_results_summary += "Error: Planned command list is empty.\n"
             overall_success = False
             continue
+
+        full_kubectl_command_list = [
+            "apply",
+            *planned_cmd_response.commands,
+            "--output=json",
+        ]
+
+        logger.debug(
+            f"Planned command details: {planned_cmd_response.model_dump_json(indent=2)}"
+        )
 
         kubectl_result: Result
         uses_stdin = False
@@ -588,9 +587,11 @@ async def execute_planned_commands(
         ):
             uses_stdin = True
 
+        full_kubect_command_str = " ".join(full_kubectl_command_list)
+
         if planned_cmd_response.yaml_manifest and uses_stdin:
             logger.debug(
-                f"Executing command {' '.join(full_kubectl_command_list)} "
+                f"Executing command {full_kubect_command_str} "
                 "with YAML manifest via stdin."
             )
             kubectl_result = await asyncio.to_thread(
@@ -606,12 +607,12 @@ async def execute_planned_commands(
             if planned_cmd_response.yaml_manifest and not uses_stdin:
                 logger.warning(
                     "LLM provided a YAML manifest for command "
-                    f"{' '.join(full_kubectl_command_list)} but the command "
+                    f"{full_kubect_command_str} but the command "
                     "does not use '-f -'. The manifest will be ignored."
                 )
 
             logger.debug(
-                f"Executing command {' '.join(full_kubectl_command_list)} without "
+                f"Executing command {full_kubect_command_str} without "
                 "direct YAML input."
             )
             kubectl_result = await asyncio.to_thread(
@@ -626,11 +627,10 @@ async def execute_planned_commands(
         if isinstance(kubectl_result, Error):
             logger.error(
                 "Error executing planned command: "
-                f"{' '.join(full_kubectl_command_list)}. Error: {kubectl_result.error}"
+                f"{full_kubect_command_str}. Error: {kubectl_result.error}"
             )
             final_results_summary += (
-                f"Failed: {' '.join(full_kubectl_command_list)}\n"
-                f"Error: {kubectl_result.error}\n"
+                f"Failed: {full_kubect_command_str}\nError: {kubectl_result.error}\n"
             )
             overall_success = False
             if kubectl_result.metrics:
@@ -642,6 +642,7 @@ async def execute_planned_commands(
             output=kubectl_result,  # Success[str]
             output_flags=output_flags,
             summary_prompt_func=apply_output_prompt,
+            command=full_kubect_command_str,
         )
 
         if isinstance(summary_result, Success):
