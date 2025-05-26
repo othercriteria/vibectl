@@ -674,15 +674,139 @@ async def execute_planned_commands(
         )
 
 
+async def plan_and_execute_final_commands(
+    semantically_valid_manifests: list[tuple[Path, str]],
+    corrected_temp_manifest_paths: list[Path],
+    unresolvable_sources: list[tuple[Path, str]],
+    updated_operation_memory: str,
+    llm_remaining_request: str,
+    model_adapter: ModelAdapter,
+    llm_model: Any,
+    cfg: Config,
+    output_flags: OutputFlags,
+) -> Result:
+    """Plan and execute final kubectl apply commands based on discovered manifests."""
+    logger.info("Starting Step 5: Plan Final kubectl apply Command(s)")
+
+    # Prepare data for final planning prompt
+    valid_original_paths_str = [str(p) for p, _ in semantically_valid_manifests]
+    corrected_paths_str = [str(p) for p in corrected_temp_manifest_paths]
+    unresolvable_sources_str = [f"{p}: {reason}" for p, reason in unresolvable_sources]
+
+    current_op_mem_for_final_plan = (
+        updated_operation_memory
+        if updated_operation_memory
+        else "No operation memory generated."
+    )
+    remaining_req_for_final_plan = (
+        llm_remaining_request
+        if llm_remaining_request
+        else "No specific remaining user request context."
+    )
+    unresolvable_for_final_plan = (
+        "\n".join(unresolvable_sources_str)
+        if unresolvable_sources_str
+        else "All sources were processed or resolved."
+    )
+    valid_originals_for_final_plan = (
+        "\n".join(valid_original_paths_str) if valid_original_paths_str else "None"
+    )
+    corrected_temps_for_final_plan = (
+        "\n".join(corrected_paths_str) if corrected_paths_str else "None"
+    )
+
+    # Generate final plan prompt
+    final_plan_system_frags, final_plan_user_frags = (
+        plan_final_apply_command_prompt_fragments(
+            valid_original_manifest_paths=valid_originals_for_final_plan,
+            corrected_temp_manifest_paths=corrected_temps_for_final_plan,
+            remaining_user_request=remaining_req_for_final_plan,
+            current_operation_memory=current_op_mem_for_final_plan,
+            unresolvable_sources=unresolvable_for_final_plan,
+            final_plan_schema_json=_LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
+        )
+    )
+
+    # Execute LLM call for final planning
+    try:
+        (
+            response_from_adapter,
+            final_plan_metrics,
+        ) = await model_adapter.execute_and_log_metrics(
+            model=llm_model,
+            system_fragments=final_plan_system_frags,
+            user_fragments=final_plan_user_frags,
+            response_model=LLMFinalApplyPlanResponse,
+        )
+
+        final_plan_obj = LLMFinalApplyPlanResponse.model_validate_json(
+            response_from_adapter
+        )
+
+        planned_final_commands = final_plan_obj.planned_commands
+        logger.info(
+            f"LLM planned {len(planned_final_commands)} final apply command(s)."
+        )
+
+        # Execute the planned commands
+        execution_result = await execute_planned_commands(
+            planned_commands=planned_final_commands,
+            cfg=cfg,
+            output_flags=output_flags,
+        )
+
+        if isinstance(execution_result, Error):
+            logger.error(
+                f"Intelligent apply final execution failed: {execution_result.error}"
+            )
+            return Error(
+                error="Intelligent apply failed during final execution: "
+                f"{execution_result.error}",
+                metrics=getattr(execution_result, "metrics", final_plan_metrics),
+            )
+        else:
+            logger.info("Intelligent apply final execution completed.")
+            return Success(
+                message=execution_result.message,
+                metrics=getattr(execution_result, "metrics", final_plan_metrics),
+            )
+
+    except (
+        yaml.YAMLError,
+        ValidationError,
+        JSONDecodeError,
+    ) as e_final_plan_parse:
+        response_content_for_log = (
+            str(response_from_adapter)[:500]
+            if "response_from_adapter" in locals()
+            else "Response content unavailable for logging"
+        )
+        logger.error(
+            "Failed to parse LLM final plan response: "
+            f"{e_final_plan_parse}. Raw/intermediate response "
+            f"(first 500 chars): '{response_content_for_log}...'"
+        )
+        return Error(
+            error=f"Failed to parse LLM final plan: {e_final_plan_parse}",
+            exception=e_final_plan_parse,
+        )
+    except Exception as e_final_plan_general:
+        logger.error(
+            f"Error during final apply planning or execution: {e_final_plan_general}",
+            exc_info=True,
+        )
+        return Error(
+            error=f"Error in final apply stage: {e_final_plan_general}",
+            exception=e_final_plan_general,
+        )
+
+
 async def run_intelligent_apply_workflow(
     request: str, cfg: Config, output_flags: OutputFlags
 ) -> Result:
     """Runs the full intelligent apply workflow, from scoping to execution."""
     logger.info("Starting intelligent apply workflow...")
     metrics = None  # Initialize metrics for this workflow
-
-    corrected_temp_manifest_paths: list[Path] = []
-    unresolvable_sources: list[tuple[Path, str]] = []
 
     temp_dir_for_corrected_manifests = tempfile.TemporaryDirectory(
         prefix="vibectl-apply-"
@@ -781,7 +905,7 @@ async def run_intelligent_apply_workflow(
             unresolvable_sources,
             updated_operation_memory,
         ) = await correct_and_generate_manifests(
-            invalid_sources_to_correct,
+            updated_invalid_sources,
             apply_operation_memory,
             llm_remaining_request,
             model_adapter,
@@ -792,156 +916,45 @@ async def run_intelligent_apply_workflow(
         )
 
         # Step 5: Plan Final kubectl apply Command(s) (LLM)
-        logger.info("Starting Step 5: Plan Final kubectl apply Command(s)")
-
-        valid_original_paths_str = [str(p) for p, _ in semantically_valid_manifests]
-        corrected_paths_str = [str(p) for p in corrected_temp_manifest_paths]
-        unresolvable_sources_str = [
-            f"{p}: {reason}" for p, reason in unresolvable_sources
-        ]
-
-        current_op_mem_for_final_plan = (
-            updated_operation_memory
-            if updated_operation_memory
-            else "No operation memory generated."
-        )
-        remaining_req_for_final_plan = (
-            llm_remaining_request
-            if llm_remaining_request
-            else "No specific remaining user request context."
-        )
-        unresolvable_for_final_plan = (
-            "\n".join(unresolvable_sources_str)
-            if unresolvable_sources_str
-            else "All sources were processed or resolved."
-        )
-        valid_originals_for_final_plan = (
-            "\n".join(valid_original_paths_str) if valid_original_paths_str else "None"
-        )
-        corrected_temps_for_final_plan = (
-            "\n".join(corrected_paths_str) if corrected_paths_str else "None"
+        return await plan_and_execute_final_commands(
+            semantically_valid_manifests,
+            corrected_temp_manifest_paths,
+            unresolvable_sources,
+            updated_operation_memory,
+            llm_remaining_request,
+            model_adapter,
+            llm_for_corrections_and_summaries,
+            cfg,
+            output_flags,
         )
 
-        final_plan_system_frags, final_plan_user_frags = (
-            plan_final_apply_command_prompt_fragments(
-                valid_original_manifest_paths=valid_originals_for_final_plan,
-                corrected_temp_manifest_paths=corrected_temps_for_final_plan,
-                remaining_user_request=remaining_req_for_final_plan,
-                current_operation_memory=current_op_mem_for_final_plan,
-                unresolvable_sources=unresolvable_for_final_plan,
-                final_plan_schema_json=_LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
-            )
-        )
-
-        try:
-            (
-                response_from_adapter,
-                final_plan_metrics,
-            ) = await model_adapter.execute_and_log_metrics(
-                model=llm_for_corrections_and_summaries,
-                system_fragments=final_plan_system_frags,
-                user_fragments=final_plan_user_frags,
-                response_model=LLMFinalApplyPlanResponse,
-            )
-            metrics = final_plan_metrics  # type: ignore
-
-            final_plan_obj = LLMFinalApplyPlanResponse.model_validate_json(
-                response_from_adapter
-            )
-
-            planned_final_commands = final_plan_obj.planned_commands
-            logger.info(
-                f"LLM planned {len(planned_final_commands)} final apply command(s)."
-            )
-
-            # Execute these commands
-            execution_result = await execute_planned_commands(
-                planned_commands=planned_final_commands,
-                cfg=cfg,
-                output_flags=output_flags,
-            )
-
-            if isinstance(execution_result, Error):
-                logger.error(
-                    "Intelligent apply final execution failed: "
-                    f"{execution_result.error}"
-                )
-                return Error(
-                    error="Intelligent apply failed during final execution: "
-                    f"{execution_result.error}",
-                    metrics=getattr(execution_result, "metrics", metrics),
-                )
-            else:
-                logger.info("Intelligent apply final execution completed.")
-                return Success(
-                    message=execution_result.message,
-                    metrics=getattr(execution_result, "metrics", metrics),
-                )
-
-        except (
-            yaml.YAMLError,
-            ValidationError,
-            JSONDecodeError,
-        ) as e_final_plan_parse:
-            response_content_for_log = (
-                str(response_from_adapter)[:500]
-                if "response_from_adapter" in locals()
-                else "Response content unavailable for logging"
-            )
-            logger.error(
-                "Failed to parse LLM final plan response: "
-                f"{e_final_plan_parse}. Raw/intermediate response "
-                f"(first 500 chars): '{response_content_for_log}...'"
-            )
-            return Error(
-                error=f"Failed to parse LLM final plan: {e_final_plan_parse}",
-                metrics=metrics,
-                exception=e_final_plan_parse,
-            )
-        except Exception as e_final_plan_general:
-            logger.error(
-                "Error during final apply planning or execution: "
-                f"{e_final_plan_general}",
-                exc_info=True,
-            )
-            return Error(
-                error=f"Error in final apply stage: {e_final_plan_general}",
-                metrics=metrics,
-                exception=e_final_plan_general,
-            )
-
-    except (JSONDecodeError, ValidationError) as e_outer:
+    except (JSONDecodeError, ValidationError) as e_scope_parse:
+        response_snippet = response_text[:500] if "response_text" in locals() else "N/A"
         logger.warning(
             "Failed to parse LLM file scope response as JSON "
-            f"({type(e_outer).__name__}). "
-            f"Response Text: {response_text[:500]}..."
+            f"({type(e_scope_parse).__name__}). "
+            f"Response Text: {response_snippet}..."
         )
         return Error(
-            error=f"Failed to parse LLM file scope response: {e_outer}",
-            exception=e_outer,
-            metrics=getattr(
-                e_outer, "metrics", metrics
-            ),  # metrics might not be updated if error is in first LLM call
+            error=f"Failed to parse LLM file scope response: {e_scope_parse}",
+            exception=e_scope_parse,
+            metrics=metrics,
         )
-    except Exception as e_outer_general:
+    except Exception as e_workflow:
         logger.error(
-            "An unexpected error occurred in intelligent apply workflow: "
-            f"{e_outer_general}",
+            f"An unexpected error occurred in intelligent apply workflow: {e_workflow}",
             exc_info=True,
         )
-        error_metrics = getattr(e_outer_general, "metrics", None)
-        current_metrics_state = metrics if "metrics" in locals() else error_metrics
-
         return Error(
-            error="An unexpected error occurred in intelligent apply workflow. "
-            f"{e_outer_general}",
-            exception=e_outer_general,
-            metrics=current_metrics_state,
+            error=(
+                "An unexpected error occurred in intelligent apply workflow: "
+                f"{e_workflow}"
+            ),
+            exception=e_workflow,
+            metrics=metrics,
         )
     finally:
-        if temp_dir_for_corrected_manifests:
-            logger.info(
-                "Cleaning up temporary directory: "
-                f"{temp_dir_for_corrected_manifests.name}"
-            )
-            temp_dir_for_corrected_manifests.cleanup()
+        logger.info(
+            f"Cleaning up temporary directory: {temp_dir_for_corrected_manifests.name}"
+        )
+        temp_dir_for_corrected_manifests.cleanup()

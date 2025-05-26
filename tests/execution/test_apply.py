@@ -5,14 +5,17 @@ This module tests the core functions in vibectl.execution.apply,
 focusing on helper functions rather than the full workflow.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from vibectl.config import Config
 from vibectl.execution.apply import (
     discover_and_validate_files,
+    plan_and_execute_final_commands,
     run_intelligent_apply_workflow,
     validate_manifest_content,
 )
@@ -425,3 +428,117 @@ async def test_run_intelligent_apply_workflow_kubectl_not_found_early(
         assert isinstance(result, Error)
         assert "Critical setup error" in result.error
         assert "kubectl not found" in result.error
+
+
+@pytest.mark.asyncio
+async def test_plan_and_execute_final_commands_success(test_config: Config) -> None:
+    """Test successful planning and execution of final commands."""
+    # Mock data
+    semantically_valid_manifests: list[tuple[Path, str]] = [
+        (Path("/tmp/test1.yaml"), "apiVersion: v1\nkind: Pod")
+    ]
+    corrected_temp_manifest_paths: list[Path] = [Path("/tmp/corrected.yaml")]
+    unresolvable_sources: list[tuple[Path, str]] = [
+        (Path("/tmp/broken.yaml"), "Could not parse YAML")
+    ]
+    updated_operation_memory = "test operation memory"
+    llm_remaining_request = "test remaining request"
+
+    # Mock LLM response
+    mock_llm_response = {
+        "planned_commands": [
+            {
+                "action_type": "COMMAND",
+                "commands": ["-f", "/tmp/test1.yaml"],
+                "yaml_manifest": None,
+                "allowed_exit_codes": [0],
+                "reasoning": "Apply test manifest",
+            }
+        ]
+    }
+
+    # Mock model adapter and model
+    mock_model_adapter = Mock()
+    mock_model = Mock()
+
+    # Mock execute_and_log_metrics to return our mock response
+    mock_model_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(json.dumps(mock_llm_response), {"tokens": 100})
+    )
+
+    # Mock execute_planned_commands to return success
+    with patch("vibectl.execution.apply.execute_planned_commands") as mock_execute:
+        mock_execute.return_value = Success(
+            message="All commands executed successfully", data="test output"
+        )
+
+        result = await plan_and_execute_final_commands(
+            semantically_valid_manifests=semantically_valid_manifests,
+            corrected_temp_manifest_paths=corrected_temp_manifest_paths,
+            unresolvable_sources=unresolvable_sources,
+            updated_operation_memory=updated_operation_memory,
+            llm_remaining_request=llm_remaining_request,
+            model_adapter=mock_model_adapter,
+            llm_model=mock_model,
+            cfg=test_config,
+            output_flags=OutputFlags(
+                show_raw=False,
+                show_vibe=False,
+                warn_no_output=False,
+                model_name="test-model",
+                show_metrics=False,
+            ),
+        )
+
+        # Verify result
+        assert isinstance(result, Success)
+        assert result.message == "All commands executed successfully"
+
+        # Verify LLM was called correctly
+        mock_model_adapter.execute_and_log_metrics.assert_called_once()
+
+        # Verify command execution was called
+        mock_execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_plan_and_execute_final_commands_parse_error(test_config: Config) -> None:
+    """Test handling of LLM response parsing errors in final commands."""
+    # Mock data
+    semantically_valid_manifests: list[tuple[Path, str]] = []
+    corrected_temp_manifest_paths: list[Path] = []
+    unresolvable_sources: list[tuple[Path, str]] = []
+    updated_operation_memory = "test operation memory"
+    llm_remaining_request = "test remaining request"
+
+    # Mock model adapter and model
+    mock_model_adapter = Mock()
+    mock_model = Mock()
+
+    # Mock execute_and_log_metrics to return invalid JSON
+    mock_model_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=("invalid json response", {"tokens": 50})
+    )
+
+    result = await plan_and_execute_final_commands(
+        semantically_valid_manifests=semantically_valid_manifests,
+        corrected_temp_manifest_paths=corrected_temp_manifest_paths,
+        unresolvable_sources=unresolvable_sources,
+        updated_operation_memory=updated_operation_memory,
+        llm_remaining_request=llm_remaining_request,
+        model_adapter=mock_model_adapter,
+        llm_model=mock_model,
+        cfg=test_config,
+        output_flags=OutputFlags(
+            show_raw=False,
+            show_vibe=False,
+            warn_no_output=False,
+            model_name="test-model",
+            show_metrics=False,
+        ),
+    )
+
+    # Verify error result
+    assert isinstance(result, Error)
+    assert "Failed to parse LLM final plan" in result.error
+    assert isinstance(result.exception, ValidationError)
