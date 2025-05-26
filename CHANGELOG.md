@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- Planned: Refactor large `vibectl/prompt.py` file (2134 lines) into separate subcommand-specific modules for better maintainability and organization (WIP)
+
 ## [0.8.7] - 2025-05-26
 
 ### Fixed
@@ -178,53 +181,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[Demo]** Kafka Throughput Demo:
   - Updated `README.md` and `STRUCTURE.md` to reflect the current implementation:
     - `README.md`: Removed outdated Makefile targets (e.g., `check-latency`) and the "Troubleshooting & Past Issues" section. Updated demo stop command to `make down && make clean-cluster`.
-    - `STRUCTURE.md`: Added `k8s-sandbox/port_forward_manager.py` and the `k8s-sandbox/manifests/` directory. Updated descriptions for `compose.yml` (reflecting `status-volume` as a host bind mount and adding the `kminion` service) and `k8s-sandbox/entrypoint.sh` (mentioning `port_forward_manager.py` for Kafka port-forwarding).
-  - Standardized `TARGET_LATENCY_MS` usage across components. This environment variable is now consistently used for latency thresholds and is propagated from the host to the producer.
-  - Improved producer's adaptive rate logic: it now holds or adjusts its target send rate based on a comparison of actual consumer p99 latency against the `TARGET_LATENCY_MS`.
-- **[Demo]** Refined Chaos Monkey agent RBAC permissions for Blue and Red agents:
-  - Restricted Red Agent's ability to create/delete Deployments/ReplicaSets.
-  - Scoped Red Agent's pod creation to the `services` namespace.
-  - Hardened Blue and Red agent access to the `system-monitoring` namespace (no access to common resources).
-  - Granted Blue Agent explicit read-only access to the `protected` namespace.
-  - Ensured Blue Agent retains necessary defensive capabilities in the `services` namespace via a dedicated Role, while its ClusterRole is now primarily read-only cluster-wide.
-  - Stabilized ServiceAccount (SA) handling in Chaos Monkey demo to ensure reliable token authentication:
-    - Agent SAs (blue-agent, red-agent) are now created once via a dedicated manifest (`agent-serviceaccounts.yaml`).
-    - SA definitions were removed from passive and active RBAC YAML files.
-    - `k8s-entrypoint.sh` updated to apply the standalone SA manifest early.
-    - Kubeconfig regeneration during the passive-to-active RBAC switch is now skipped, as the SA token remains valid.
-    - This resolves intermittent "Unauthorized" errors previously faced by agents post-RBAC switch.
-
-## [0.6.2] - 2025-05-08
-
-### Fixed
-
-- Update example Dockerfiles (bootstrap, ctf) to use Python 3.11+.
-- Fix `TypeError` in `vibectl auto` command when `--yes` flag is used.
-- Fix `click.Abort` error in non-interactive `auto` mode by correctly handling the `yes` flag during command confirmation for dangerous commands.
-- Fix `No module named pip` error in bootstrap example Dockerfile by adding `ensurepip` step.
-
-## [0.6.1] - 2025-05-07
-
-### Added
-
-- Interactive live display for commands using `--watch` (`get`, `events`) or `--follow` (`logs`), replacing simple pass-through. Includes keybindings for Exit (E), Pause (P), Wrap (W), Save (S), and Filter (F).
-- Status bar for live display showing elapsed time, line count, and spinner.
-- Live display feature for `vibectl get --watch` using Rich Live.
-- Planned: Enhanced watch/follow functionality for relevant vibectl commands (WIP)
-
-### Changed
-
-- Refactored tests for `get` subcommand into `tests/subcommands/test_get_cmd.py`.
-- Improved test coverage for `vibectl/subcommands/get_cmd.py`.
-- Refactored watch/follow logic from `command_handler.py` into new `live_display_watch.py` module.
-- Vibe summarization for watched/followed commands now occurs after the live display is exited, using the captured output.
-
-## [0.6.0] - 2025-05-04
-
-### Added
-
-- Define `RecoverableApiError` exception and `RECOVERABLE_API_ERROR_KEYWORDS` for better handling of transient API issues (rate limits, etc.).
-- New `yaml_manifest` field to `LLMCommandResponse` schema to handle YAML input for commands like `create -f -`.
-- Implement JSON schema (`LLMCommandResponse`) for structured LLM command planning responses.
-- Update command planning prompts (get, describe, logs, version, etc.) to request JSON output conforming to the schema.
-- Update `ModelAdapter` to support passing JSON schemas to compatible LLM models.
+    - `STRUCTURE.md`: Added `k8s-sandbox/port_forward_manager.py` and the `k8s-sandbox/manifests/` directory. Updated descriptions for `compose.yml`
