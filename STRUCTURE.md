@@ -26,9 +26,11 @@ This document provides an overview of the project's structure and organization.
 - `logutil.py` - Logging setup and configuration
 - `execution/` - Modules related to command execution logic.
   - `vibe.py` - Handles the core Vibe.AI LLM interaction loop, including `handle_vibe_request`.
+  - `apply.py` - Handles intelligent apply workflow execution logic, including file discovery, validation, correction/generation, and command planning.
 - `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
   - `__init__.py` - Package initialization for prompts directory.
   - `edit.py` - Prompts specific to the edit command (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`).
+  - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation
@@ -62,6 +64,9 @@ This document provides an overview of the project's structure and organization.
 - `subcommands/` - Test modules for individual subcommands
   - `test_diff_cmd.py` - Tests for the `vibectl diff` subcommand.
   - `test_apply_cmd.py` - Tests for the `vibectl apply` subcommand.
+- `execution/` - Test modules for execution logic
+  - `test_apply.py` - Tests for the `vibectl/execution/apply.py` module.
+- `test_prompts_apply.py` - Tests for the `vibectl/prompts/apply.py` module.
 
 ### Examples (`examples/`)
 
@@ -165,6 +170,7 @@ This document provides an overview of the project's structure and organization.
    - Memory integration is handled by including memory content within relevant fragments.
 2. `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
    - `edit.py` - Edit-specific prompts (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`) for the edit command.
+   - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
    - More command-specific prompt modules will be added here as the system grows.
 
 ### Common Command Patterns
