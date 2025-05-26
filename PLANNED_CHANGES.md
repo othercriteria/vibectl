@@ -49,6 +49,14 @@ Refactor the `vibectl apply` implementation to bring it in line with the `vibect
 
 **Phase 2 Summary**: Successfully extracted all apply-related prompts to dedicated `vibectl/prompts/apply.py` module. The execution module now imports prompts from the dedicated module, achieving clean separation of concerns consistent with the edit implementation pattern.
 
+**Prompt Enhancement**: Enhanced apply prompts with comprehensive examples to improve Claude 4 compatibility and ensure reliable multi-namespace fan-out behavior. Added detailed examples to both file scoping and command planning prompts that guide the LLM toward creating separate kubectl apply commands for each target namespace. Updated documentation to clearly explain the fan-out behavior with practical examples.
+
+**Critical Bug Fixes**: Resolved critical async-related bugs in the apply workflow:
+- Fixed variable scope issue where temp file paths were created before YAML validation, causing "file does not exist" errors
+- Fixed namespace contamination in correction prompts that was causing deployment conflicts between target namespaces
+- Updated correction and summary prompts to generate namespace-agnostic manifests that work correctly with fan-out deployment pattern
+- Ensured temp files are only created when valid YAML is successfully generated and validated
+
 ### Phase 3: Testing Improvements
 - [ ] Add comprehensive unit tests for `vibectl/execution/apply.py`
 - [ ] Add unit tests for `vibectl/prompts/apply.py`
