@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **Improved Error UX and Logging**:
+  - Fixed duplicate error output that was causing multiple `[ERROR]` messages with repeated tracebacks
+  - Fixed warnings being completely filtered out - now properly displayed to users (e.g., validation failures, retry attempts)
+  - Implemented centralized exception handling at CLI entry point following logging best practices
+  - Updated CLI entry point in `pyproject.toml` to use `main()` wrapper function for proper error handling
+  - Simplified logging setup to prevent handler duplication and inconsistent output
+  - ERROR messages now handled centrally with user-friendly output and tracebacks only when `VIBECTL_TRACEBACK=1` is set
+  - Updated tests to match new centralized exception handling behavior
+
 ## [0.8.6] - 2025-05-26
 
 ### Changed

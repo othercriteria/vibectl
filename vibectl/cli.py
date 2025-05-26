@@ -530,19 +530,10 @@ async def instructions_set(
         if not sys.stdin.isatty():
             instructions_text = sys.stdin.read().strip()
             if not instructions_text:
-                console_manager.print_error(
-                    "Error: No instructions provided via stdin."
-                )
-                # Use handle_exception for consistency, though it exits
-                handle_exception(ValueError("No instructions provided via stdin"))
-                return
+                raise ValueError("No instructions provided via stdin")
             logger.info("Instructions received from stdin")
         else:
-            console_manager.print_error("Error: No instructions text provided.")
-            console_manager.print_note("Use --edit to open an editor or pipe input.")
-            # Use handle_exception for consistency
-            handle_exception(ValueError("No instructions text provided."))
-            return
+            raise ValueError("No instructions text provided.")
 
     try:
         cfg.set("custom_instructions", instructions_text)
@@ -687,16 +678,9 @@ async def auto(
             show_streaming=show_streaming,
         )
         handle_result(result)
-    except Exception as e:
-        # Always print the error message to console if available
-        if hasattr(e, "error") and e.error:
-            console_manager.print_error(e.error)
-        # Otherwise, print the standard exception string representation
-        elif str(e):
-            console_manager.print_error(str(e))
-
-        # Use Click's abort mechanism to exit with non-zero status
-        raise click.Abort() from e
+    except Exception:
+        # Let exceptions propagate to main() for centralized handling
+        raise
 
 
 @cli.command()
@@ -732,32 +716,11 @@ async def semiauto(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             limit=limit,
-            # No exit_on_error parameter needed - defaults to False
         )
-
-        # Check for error result (should only happen with programmatic API)
-        if not isinstance(result, Success):
-            # Always print the error message to console if available
-            if hasattr(result, "error") and result.error:
-                console_manager.print_error(result.error)
-            else:
-                console_manager.print_error(f"Unknown error occurred: {result!s}")
-
-            # Use Click's abort mechanism to exit with non-zero status
-            # This is only reached if there's a catastrophic error that couldn't be
-            # handled gracefully within the semiauto command itself
-            raise click.Abort() from None
-    except Exception as e:
-        # Always print the error message to console if available
-        if hasattr(e, "error") and e.error:
-            console_manager.print_error(e.error)
-        else:
-            console_manager.print_error(f"Unknown error occurred: {e!s}")
-
-        # Use Click's abort mechanism to exit with non-zero status
-        # This is only reached if there's a catastrophic error that couldn't be
-        # handled gracefully within the semiauto command itself
-        raise click.Abort() from e
+        handle_result(result)
+    except Exception:
+        # Let exceptions propagate to main() for centralized handling
+        raise
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -1632,3 +1595,20 @@ def handle_result(result: Result) -> None:
         logger.debug(f"Error result, final exit_code: {exit_code}")
 
     sys.exit(exit_code)
+
+
+def main() -> None:
+    """Main entry point that wraps the CLI and handles all exceptions centrally."""
+    try:
+        # Initialize logging first
+        init_logging()
+        # Run the CLI with standalone_mode=False to handle exceptions ourselves
+        cli(standalone_mode=False)
+    except Exception as e:
+        # Centralized exception handling - print user-friendly errors only
+        handle_exception(e)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

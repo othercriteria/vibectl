@@ -9,7 +9,6 @@ import logging
 import os
 import subprocess
 import traceback
-import types
 
 from rich.console import Console
 
@@ -18,28 +17,34 @@ from .console import console_manager
 error_console = Console(stderr=True)
 
 
-def handle_exception(e: Exception, tb: types.TracebackType | None = None) -> None:
+def handle_exception(e: Exception, exit_on_error: bool = False) -> None:
     """
     Handle exceptions with nice error messages.
-    Optionally print tracebacks if VIBECTL_TRACEBACK=1 or log level is DEBUG.
-    Accepts an optional traceback object for robust traceback printing.
+    Print tracebacks only if VIBECTL_TRACEBACK=1 or log level is DEBUG.
+
+    Args:
+        e: The exception to handle
+        exit_on_error: Whether to exit after handling (for backwards compatibility)
     """
     # Handle 'Missing request after vibe' errors first to avoid duplicate output
     if "missing request after 'vibe'" in str(e).lower():
         console_manager.print_missing_request_error()
+        if exit_on_error:
+            import sys
+
+            sys.exit(1)
         return
 
-    # Optionally print traceback if VIBECTL_TRACEBACK=1 or log level is DEBUG
+    # Show traceback only if VIBECTL_TRACEBACK=1 or log level is DEBUG
     show_traceback = (
         os.environ.get("VIBECTL_TRACEBACK") == "1"
-        or logging.getLogger().getEffectiveLevel() <= logging.DEBUG
+        or logging.getLogger("vibectl").getEffectiveLevel() <= logging.DEBUG
     )
 
-    if show_traceback and tb is not None:
-        console_manager.safe_print(
-            console_manager.error_console, "[red]Traceback (most recent call last):[/]"
-        )
-        traceback.print_exception(type(e), e, tb)
+    if show_traceback:
+        import sys
+
+        traceback.print_exc(file=sys.stderr)
 
     # Handle API key related errors
     if (
@@ -97,4 +102,7 @@ def handle_exception(e: Exception, tb: types.TracebackType | None = None) -> Non
             error_message = "Unknown error occurred"
         console_manager.print_error(error_message)
 
-    return
+    if exit_on_error:
+        import sys
+
+        sys.exit(1)

@@ -75,13 +75,9 @@ async def test_instructions_set_editor_cancelled(
 
 @pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("vibectl.cli.console_manager")
-@patch("vibectl.cli.handle_exception")
 @patch("sys.stdin")
 async def test_instructions_set_no_text(
     mock_stdin: Mock,
-    mock_handle_exception: Mock,
-    mock_console: Mock,
     mock_config_class: Mock,
 ) -> None:
     """Test handling when no instructions text is provided (and not TTY)."""
@@ -90,14 +86,11 @@ async def test_instructions_set_no_text(
     mock_stdin.isatty.return_value = False
     mock_stdin.read.return_value = ""
 
-    await set_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
+    # With centralized exception handling, the ValueError should propagate
+    with pytest.raises(ValueError, match="No instructions provided via stdin"):
+        await set_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
     mock_config_class.return_value.set.assert_not_called()
-    mock_console.print_error.assert_any_call(
-        "Error: No instructions provided via stdin."
-    )
-    mock_handle_exception.assert_called_once()
-    assert isinstance(mock_handle_exception.call_args[0][0], ValueError)
 
 
 @pytest.mark.asyncio

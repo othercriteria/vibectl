@@ -55,7 +55,7 @@ dev = [
 ]
 
 [project.scripts]
-vibectl = "vibectl.cli:cli"
+vibectl = "vibectl.cli:main"
 
 [build-system]
 requires = ["hatchling"]
