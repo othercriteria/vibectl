@@ -25,27 +25,29 @@ import pytest
 
 from vibectl.config import Config
 from vibectl.prompt import (
-    PLAN_CLUSTER_INFO_PROMPT,
-    PLAN_CREATE_PROMPT,
-    PLAN_DELETE_PROMPT,
-    PLAN_DESCRIBE_PROMPT,
-    PLAN_EVENTS_PROMPT,
-    PLAN_GET_PROMPT,
-    PLAN_LOGS_PROMPT,
-    PLAN_PORT_FORWARD_PROMPT,
-    PLAN_ROLLOUT_PROMPT,
-    PLAN_SCALE_PROMPT,
-    PLAN_VERSION_PROMPT,
-    PLAN_WAIT_PROMPT,
     create_planning_prompt,
     get_formatting_fragments,
-    memory_fuzzy_update_prompt,
-    memory_update_prompt,
-    port_forward_prompt,
-    recovery_prompt,
-    vibe_autonomous_prompt,
-    wait_resource_prompt,
 )
+from vibectl.prompts.cluster_info import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
+from vibectl.prompts.create import PLAN_CREATE_PROMPT, create_resource_prompt
+from vibectl.prompts.delete import PLAN_DELETE_PROMPT, delete_resource_prompt
+from vibectl.prompts.describe import PLAN_DESCRIBE_PROMPT, describe_resource_prompt
+from vibectl.prompts.events import PLAN_EVENTS_PROMPT, events_prompt
+from vibectl.prompts.get import PLAN_GET_PROMPT, get_resource_prompt
+from vibectl.prompts.logs import PLAN_LOGS_PROMPT, logs_prompt
+from vibectl.prompts.memory import memory_fuzzy_update_prompt, memory_update_prompt
+from vibectl.prompts.port_forward import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
+from vibectl.prompts.recovery import recovery_prompt
+from vibectl.prompts.rollout import (
+    PLAN_ROLLOUT_PROMPT,
+    rollout_general_prompt,
+    rollout_history_prompt,
+    rollout_status_prompt,
+)
+from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.version import PLAN_VERSION_PROMPT, version_prompt
+from vibectl.prompts.vibe import vibe_autonomous_prompt
+from vibectl.prompts.wait import PLAN_WAIT_PROMPT, wait_resource_prompt
 from vibectl.schema import ActionType, LLMPlannerResponse
 
 # Import new types
@@ -171,17 +173,31 @@ def test_prompt_semantic_requirements(
     port_forward_prompt takes an optional config and returns PromptFragments,
     similar to other summarized prompts.
     """
-    # Dynamically get the function from vibectl.prompt
-    # Ensure vibectl.prompt is imported or use getattr on the imported module
-    import vibectl.prompt
+    # Mapping of function names to the actual imported functions
+    prompt_functions = {
+        "get_resource_prompt": get_resource_prompt,
+        "describe_resource_prompt": describe_resource_prompt,
+        "logs_prompt": logs_prompt,
+        "create_resource_prompt": create_resource_prompt,
+        "cluster_info_prompt": cluster_info_prompt,
+        "version_prompt": version_prompt,
+        "events_prompt": events_prompt,
+        "delete_resource_prompt": delete_resource_prompt,
+        "scale_resource_prompt": scale_resource_prompt,
+        "wait_resource_prompt": wait_resource_prompt,
+        "rollout_status_prompt": rollout_status_prompt,
+        "rollout_history_prompt": rollout_history_prompt,
+        "rollout_general_prompt": rollout_general_prompt,
+        "port_forward_prompt": port_forward_prompt,
+    }
 
-    prompt_func = getattr(vibectl.prompt, prompt_func_name)
+    prompt_func = prompt_functions[prompt_func_name]
 
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
 
         # All listed prompt functions take optional config and return PromptFragments.
         system_fragments, user_fragments = prompt_func(config=test_config)
@@ -220,9 +236,25 @@ def test_prompt_structure(
     prompt_func_name: str, required_placeholder: str, test_config: Config
 ) -> None:
     """Test basic structure of prompts that return PromptFragments."""
-    import vibectl.prompt
+    # Mapping of function names to the actual imported functions
+    prompt_functions = {
+        "get_resource_prompt": get_resource_prompt,
+        "describe_resource_prompt": describe_resource_prompt,
+        "logs_prompt": logs_prompt,
+        "create_resource_prompt": create_resource_prompt,
+        "cluster_info_prompt": cluster_info_prompt,
+        "version_prompt": version_prompt,
+        "events_prompt": events_prompt,
+        "delete_resource_prompt": delete_resource_prompt,
+        "scale_resource_prompt": scale_resource_prompt,
+        "wait_resource_prompt": wait_resource_prompt,
+        "rollout_status_prompt": rollout_status_prompt,
+        "rollout_history_prompt": rollout_history_prompt,
+        "rollout_general_prompt": rollout_general_prompt,
+        "port_forward_prompt": port_forward_prompt,
+    }
 
-    prompt_func = getattr(vibectl.prompt, prompt_func_name)
+    prompt_func = prompt_functions[prompt_func_name]
 
     if prompt_func_name == "port_forward_prompt":
         system_fragments, user_fragments = prompt_func(config=test_config)  # type: ignore[operator]
@@ -355,8 +387,8 @@ def test_memory_update_prompt(test_config: Config) -> None:
     dummy_memory_content = "dummy_current_memory"
     expected_memory_fragment_str = f"Previous Memory:\n{dummy_memory_content}"
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = memory_update_prompt(
             command_message="dummy_command",
             command_output="dummy_command_output",
@@ -397,8 +429,8 @@ def test_memory_fuzzy_update_prompt(test_config: Config) -> None:
     fuzzy_memory_content = "fuzzy_current_memory"
     expected_fuzzy_memory_fragment_str = f"Previous Memory:\n{fuzzy_memory_content}"
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = memory_fuzzy_update_prompt(
             current_memory=fuzzy_memory_content,
             update_text="fuzzy_update_text",
@@ -430,8 +462,8 @@ def test_recovery_prompt(test_config: Config) -> None:  # Added test_config
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     test_config.set("memory_max_chars", 250)
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = recovery_prompt(
             failed_command=command,
             error_output=error,
@@ -457,8 +489,8 @@ def test_vibe_autonomous_prompt(test_config: Config) -> None:
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = vibe_autonomous_prompt(config=test_config)
 
     combined_text = "\n".join(system_fragments + user_fragments)
@@ -488,9 +520,9 @@ def test_vibe_autonomous_prompt_formatting(test_config: Config) -> None:
     ) -> tuple[SystemFragments, UserFragments]:
         # Simulate datetime.now being called inside the real get_formatting_fragments
         # or rather, fragment_current_time which it calls.
-        # This mock needs to be for vibectl.prompt.datetime.now if
+        # This mock needs to be for vibectl.prompts.shared.datetime.now if
         # fragment_current_time calls it directly.
-        with patch("vibectl.prompt.datetime") as mock_inner_dt:
+        with patch("vibectl.prompts.shared.datetime") as mock_inner_dt:
             mock_inner_dt.now.return_value = fixed_dt
             # Construct what get_formatting_fragments would return
             # Base formatting + custom + time
@@ -514,7 +546,8 @@ def test_vibe_autonomous_prompt_formatting(test_config: Config) -> None:
         return mock_sys_frags, mock_user_frags
 
     with patch(
-        "vibectl.prompt.get_formatting_fragments", side_effect=mock_gff_side_effect
+        "vibectl.prompts.vibe.get_formatting_fragments",
+        side_effect=mock_gff_side_effect,
     ):
         system_fragments, user_fragments_template = vibe_autonomous_prompt(
             config=test_config
@@ -548,8 +581,8 @@ def test_wait_resource_prompt(
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = wait_resource_prompt(config=test_config)
 
     combined_text = "\n".join(system_fragments + user_fragments)
@@ -566,8 +599,8 @@ def test_port_forward_prompt(test_config: Config) -> None:  # Uses create_summar
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = port_forward_prompt(config=test_config)
 
     combined_text = "\n".join(system_fragments + user_fragments)
@@ -607,8 +640,8 @@ def test_recovery_prompt_with_original_explanation(
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     test_config.set("memory_max_chars", 200)  # Different from other recovery test
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
+    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+        mock_shared_datetime.now.return_value = fixed_dt
 
         # Test with original_explanation = None
         system_fragments_no_expl, user_fragments_no_expl = recovery_prompt(
@@ -629,9 +662,9 @@ def test_recovery_prompt_with_original_explanation(
     # Check prompt when original explanation is available
     mock_error_explanation = "Deploying nginx"
     with patch(
-        "vibectl.prompt.datetime"
-    ) as mock_prompt_datetime_2:  # New patch context
-        mock_prompt_datetime_2.now.return_value = (
+        "vibectl.prompts.shared.datetime"
+    ) as mock_shared_datetime_2:  # New patch context
+        mock_shared_datetime_2.now.return_value = (
             fixed_dt  # Use same fixed_dt for consistency
         )
         system_fragments_expl, user_fragments_expl = recovery_prompt(

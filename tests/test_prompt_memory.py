@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vibectl.config import Config
-from vibectl.prompt import get_formatting_fragments
+from vibectl.prompts.shared import get_formatting_fragments
 
 # Constants
 TEST_MEMORY_CONTENT = "Memory content for tests"
@@ -79,7 +79,7 @@ def test_get_formatting_fragments_with_provided_config() -> None:
 
     # Patch datetime.now() to return a fixed datetime object
     fixed_datetime = dt(2023, 1, 1, 12, 0, 0)
-    with patch("vibectl.prompt.datetime") as mock_datetime:
+    with patch("vibectl.prompts.shared.datetime") as mock_datetime:
         mock_datetime.now.return_value = fixed_datetime
         # Execute
         system_fragments, user_fragments = get_formatting_fragments(mock_config)

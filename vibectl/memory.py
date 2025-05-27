@@ -9,7 +9,9 @@ from typing import cast  # Added List, Tuple
 
 from .config import Config
 from .model_adapter import get_model_adapter
-from .prompt import memory_update_prompt  # Import the fragment-based prompt function
+from .prompts.memory import (
+    memory_update_prompt,  # Import the fragment-based prompt function
+)
 from .types import (
     LLMMetrics,
     RecoverableApiError,

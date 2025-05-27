@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
-from vibectl.prompt import PLAN_EVENTS_PROMPT, events_prompt
+from vibectl.prompts.events import PLAN_EVENTS_PROMPT, events_prompt
 
 # from asyncclick.testing import CliRunner # No longer needed if using main directly
 from vibectl.types import Error, OutputFlags, Success

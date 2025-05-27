@@ -12,7 +12,7 @@ from vibectl.cli import create  # Keep create for vibe tests
 
 # Import OutputFlags and the prompt func for assertions
 from vibectl.command_handler import OutputFlags
-from vibectl.prompt import create_resource_prompt
+from vibectl.prompts.create import create_resource_prompt
 
 # Add CliRunner back
 # Import cli for vibe tests, and the helper for standard tests

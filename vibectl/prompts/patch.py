@@ -130,9 +130,3 @@ def patch_resource_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_PATCH_PROMPT",
-    "patch_resource_prompt",
-]

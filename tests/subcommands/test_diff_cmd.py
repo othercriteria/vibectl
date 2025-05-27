@@ -3,7 +3,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from vibectl.config import Config
-from vibectl.prompt import diff_output_prompt
+from vibectl.prompts.diff import diff_output_prompt
 from vibectl.subcommands.diff_cmd import run_diff_command
 from vibectl.types import Error, OutputFlags, Success
 

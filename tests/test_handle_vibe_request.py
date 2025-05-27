@@ -13,9 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from vibectl.execution.vibe import handle_vibe_request
-from vibectl.prompt import (
-    plan_vibe_fragments,
-)
+from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import (
     ErrorAction,
     LLMPlannerResponse,

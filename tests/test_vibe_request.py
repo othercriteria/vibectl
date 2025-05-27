@@ -27,9 +27,7 @@ from vibectl.model_adapter import (
     LLMModelAdapter,
     RecoverableApiError,
 )
-from vibectl.prompt import (
-    plan_vibe_fragments,
-)
+from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import (
     CommandAction,
     ErrorAction,

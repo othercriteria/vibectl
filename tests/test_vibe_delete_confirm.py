@@ -9,9 +9,7 @@ import pytest
 from vibectl.config import Config
 from vibectl.execution.vibe import ActionType, OutputFlags, handle_vibe_request
 from vibectl.model_adapter import LLMMetrics
-from vibectl.prompt import (
-    plan_vibe_fragments,
-)
+from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import CommandAction, FeedbackAction, LLMPlannerResponse
 from vibectl.types import (
     Error,

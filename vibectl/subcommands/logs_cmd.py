@@ -10,7 +10,7 @@ from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import PLAN_LOGS_PROMPT, logs_prompt
+from vibectl.prompts.logs import PLAN_LOGS_PROMPT, logs_prompt
 from vibectl.types import Error, Result, Success
 
 

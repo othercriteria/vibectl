@@ -9,7 +9,7 @@ from vibectl.command_handler import (
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
-from vibectl.prompt import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
 from vibectl.types import Error, Result, Success
 
 

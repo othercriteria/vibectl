@@ -8,7 +8,7 @@ from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
 )
-from vibectl.prompt import (
+from vibectl.prompts.describe import (
     PLAN_DESCRIBE_PROMPT,
     describe_resource_prompt,
 )

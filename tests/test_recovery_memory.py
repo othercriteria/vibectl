@@ -18,7 +18,7 @@ import pytest
 from vibectl.config import Config
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.model_adapter import LLMModelAdapter
-from vibectl.prompt import plan_vibe_fragments
+from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import ActionType, CommandAction, LLMPlannerResponse
 from vibectl.types import (
     Error,

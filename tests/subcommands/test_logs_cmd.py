@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
+from vibectl.prompts.logs import logs_prompt
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
 DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
@@ -248,7 +249,6 @@ async def test_logs_follow_uses_live_display(
     cli_runner: CliRunner,
 ) -> None:
     """Test \'logs --follow\' uses handle_watch_with_live_display."""
-    from vibectl.prompt import logs_prompt
     from vibectl.types import Success
 
     mock_handle_watch_with_live_display.return_value = Success(
@@ -287,7 +287,6 @@ async def test_logs_follow_short_flag_uses_live_display(
     cli_runner: CliRunner,
 ) -> None:
     """Test \'logs -f\' uses handle_watch_with_live_display."""
-    from vibectl.prompt import logs_prompt
     from vibectl.types import Success
 
     mock_handle_watch_with_live_display.return_value = Success(
@@ -323,7 +322,6 @@ async def test_logs_follow_with_show_vibe_flag(
 ) -> None:
     """Test logs --follow with --show-vibe uses live display and correct flags."""
     from vibectl.command_handler import OutputFlags
-    from vibectl.prompt import logs_prompt
     from vibectl.types import Success
 
     # Configure output flags mock

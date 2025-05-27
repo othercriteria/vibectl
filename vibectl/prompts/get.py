@@ -71,9 +71,3 @@ def get_resource_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_GET_PROMPT",
-    "get_resource_prompt",
-]

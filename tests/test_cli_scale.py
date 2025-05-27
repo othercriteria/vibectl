@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vibectl.cli import cli
-from vibectl.prompt import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
 from vibectl.types import Error, Success
 
 

@@ -84,9 +84,3 @@ def events_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_EVENTS_PROMPT",
-    "events_prompt",
-]

@@ -74,9 +74,3 @@ def describe_resource_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_DESCRIBE_PROMPT",
-    "describe_resource_prompt",
-]

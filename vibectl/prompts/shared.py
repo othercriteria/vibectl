@@ -227,6 +227,9 @@ Focus on:
         examples_text = "Expected output format:\n" + "\n".join(example_format)
         system_fragments.append(Fragment(examples_text))
 
+    # User: The actual output to summarize (with placeholder)
+    user_fragments.append(Fragment("Here's the output:\n\n{output}"))
+
     return PromptFragments((system_fragments, user_fragments))
 
 
@@ -319,17 +322,3 @@ IMPORTANT: Do NOT include any prefixes like \"Updated memory:\" or headings in
 your response. Just provide the direct memory content itself with no additional
 labels or headers.
 """)
-
-
-__all__ = [
-    "FRAGMENT_MEMORY_ASSISTANT",
-    "create_planning_prompt",
-    "create_summary_prompt",
-    "format_examples",
-    "format_ml_examples",
-    "fragment_concision",
-    "fragment_current_time",
-    "fragment_json_schema_instruction",
-    "fragment_memory_context",
-    "get_formatting_fragments",
-]

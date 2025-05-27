@@ -14,8 +14,3 @@ _SCHEMA_DEFINITION_JSON = json.dumps(LLMPlannerResponse.model_json_schema(), ind
 _EDIT_RESOURCESCOPE_SCHEMA_JSON = json.dumps(
     EditResourceScopeResponse.model_json_schema(), indent=2
 )
-
-__all__ = [
-    "_EDIT_RESOURCESCOPE_SCHEMA_JSON",
-    "_SCHEMA_DEFINITION_JSON",
-]

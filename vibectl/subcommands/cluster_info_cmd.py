@@ -8,7 +8,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
+from vibectl.prompts.cluster_info import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
 from vibectl.types import Error, Result, Success
 
 

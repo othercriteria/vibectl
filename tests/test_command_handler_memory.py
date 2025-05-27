@@ -17,9 +17,7 @@ from vibectl.execution.vibe import (
     handle_command_output,
     handle_vibe_request,
 )
-from vibectl.prompt import (
-    plan_vibe_fragments,
-)
+from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import ActionType, CommandAction, ErrorAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
@@ -107,7 +105,9 @@ def mock_memory_functions() -> Generator[tuple[Mock, Mock, Mock, Mock], None, No
         patch("vibectl.execution.vibe.get_memory") as mock_get_memory,
         patch("vibectl.memory.set_memory") as mock_set_memory,
         patch("vibectl.command_handler.update_memory") as mock_update_memory,
-        patch("vibectl.prompt.memory_update_prompt") as mock_memory_update_prompt_func,
+        patch(
+            "vibectl.prompts.memory.memory_update_prompt"
+        ) as mock_memory_update_prompt_func,
     ):
         mock_get_memory.return_value = "Initial memory context for testing."
 
@@ -305,7 +305,7 @@ async def test_handle_command_output_updates_memory_with_error_output(
     )
 
     with (
-        patch("vibectl.prompt.recovery_prompt") as mock_recovery_prompt,
+        patch("vibectl.prompts.recovery.recovery_prompt") as mock_recovery_prompt,
         patch("vibectl.command_handler.Config") as mock_vibe_config_cls,
         patch(
             "vibectl.command_handler.update_memory", new_callable=AsyncMock
@@ -594,7 +594,7 @@ async def test_handle_vibe_request_error_recovery_flow(
     with (
         patch("vibectl.execution.vibe._execute_command") as mock_execute_cmd,
         patch("vibectl.execution.vibe.console_manager"),
-        patch("vibectl.command_handler.recovery_prompt") as mock_recovery_prompt,
+        patch("vibectl.prompts.recovery.recovery_prompt") as mock_recovery_prompt,
         patch(
             "vibectl.execution.vibe.handle_command_output"
         ) as mock_handle_output_wrapper,

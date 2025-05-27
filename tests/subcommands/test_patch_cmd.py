@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.prompt import PLAN_PATCH_PROMPT, patch_resource_prompt
+from vibectl.prompts.patch import PLAN_PATCH_PROMPT, patch_resource_prompt
 from vibectl.subcommands.patch_cmd import run_patch_command
 from vibectl.types import Error, OutputFlags, Success
 

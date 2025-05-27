@@ -78,9 +78,3 @@ def version_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_VERSION_PROMPT",
-    "version_prompt",
-]

@@ -11,7 +11,7 @@ from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import (
+from vibectl.prompts.rollout import (
     PLAN_ROLLOUT_PROMPT,
     rollout_general_prompt,
     rollout_history_prompt,

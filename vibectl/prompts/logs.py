@@ -80,9 +80,3 @@ def logs_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_LOGS_PROMPT",
-    "logs_prompt",
-]

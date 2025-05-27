@@ -77,9 +77,3 @@ def scale_resource_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_SCALE_PROMPT",
-    "scale_resource_prompt",
-]

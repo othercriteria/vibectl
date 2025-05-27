@@ -31,7 +31,7 @@ from vibectl.model_adapter import (
     get_model_adapter,
 )
 from vibectl.output_processor import OutputProcessor
-from vibectl.prompt import memory_fuzzy_update_prompt
+from vibectl.prompts.memory import memory_fuzzy_update_prompt
 from vibectl.schema import (
     ActionType,
     LLMPlannerResponse,

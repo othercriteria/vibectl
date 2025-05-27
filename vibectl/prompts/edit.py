@@ -5,21 +5,25 @@ This module contains prompts specific to the edit functionality,
 helping to keep the main prompt.py file more manageable.
 """
 
+from vibectl.config import Config
 from vibectl.prompt import (
     _EDIT_RESOURCESCOPE_SCHEMA_JSON,
     _SCHEMA_DEFINITION_JSON,
-    ActionType,
-    Config,
+    create_planning_prompt,
+)
+from vibectl.prompts.shared import (
+    create_summary_prompt,
+    fragment_current_time,
+    fragment_json_schema_instruction,
+    fragment_memory_context,
+)
+from vibectl.schema import ActionType
+from vibectl.types import (
     Examples,
     Fragment,
     PromptFragments,
     SystemFragments,
     UserFragments,
-    create_planning_prompt,
-    create_summary_prompt,
-    fragment_current_time,
-    fragment_json_schema_instruction,
-    fragment_memory_context,
 )
 
 # Template for planning kubectl edit commands

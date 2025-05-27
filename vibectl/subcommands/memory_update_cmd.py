@@ -6,7 +6,7 @@ from vibectl.config import DEFAULT_CONFIG, Config
 from vibectl.console import console_manager
 from vibectl.memory import get_memory, set_memory
 from vibectl.model_adapter import get_model_adapter
-from vibectl.prompt import memory_fuzzy_update_prompt
+from vibectl.prompts.memory import memory_fuzzy_update_prompt
 from vibectl.types import Error, Fragment, Result, Success, UserFragments
 
 

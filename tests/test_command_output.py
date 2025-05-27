@@ -15,7 +15,7 @@ from vibectl.command_handler import (
     handle_command_output,
 )
 from vibectl.config import DEFAULT_CONFIG, Config
-from vibectl.prompt import vibe_autonomous_prompt
+from vibectl.prompts.vibe import vibe_autonomous_prompt
 from vibectl.types import (
     Fragment,
     LLMMetrics,

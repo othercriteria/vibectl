@@ -9,7 +9,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import PLAN_DIFF_PROMPT, diff_output_prompt
+from vibectl.prompts.diff import PLAN_DIFF_PROMPT, diff_output_prompt
 from vibectl.types import (
     Error,
     Result,

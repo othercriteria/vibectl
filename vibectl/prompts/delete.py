@@ -73,9 +73,3 @@ def delete_resource_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_DELETE_PROMPT",
-    "delete_resource_prompt",
-]

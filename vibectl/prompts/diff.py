@@ -109,9 +109,3 @@ def diff_output_prompt(
         config=cfg,
         current_memory=current_memory,
     )
-
-
-__all__ = [
-    "PLAN_DIFF_PROMPT",
-    "diff_output_prompt",
-]

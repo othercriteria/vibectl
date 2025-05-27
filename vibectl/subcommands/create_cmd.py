@@ -7,7 +7,7 @@ from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
 )
-from vibectl.prompt import (
+from vibectl.prompts.create import (
     create_resource_prompt,
 )
 from vibectl.types import Error, Result, Success

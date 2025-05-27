@@ -5,7 +5,7 @@ from vibectl.command_handler import (
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompt import (
+from vibectl.prompts.patch import (
     PLAN_PATCH_PROMPT,
     patch_resource_prompt,
 )

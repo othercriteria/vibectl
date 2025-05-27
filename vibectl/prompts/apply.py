@@ -7,20 +7,23 @@ helping to keep the main prompt.py file more manageable.
 
 import json
 
+from vibectl.config import Config
 from vibectl.prompt import (
     _SCHEMA_DEFINITION_JSON,
-    ActionType,
-    Config,
+    create_planning_prompt,
+)
+from vibectl.prompts.shared import (
+    create_summary_prompt,
+    fragment_json_schema_instruction,
+)
+from vibectl.schema import ActionType, ApplyFileScopeResponse, LLMFinalApplyPlanResponse
+from vibectl.types import (
     Examples,
     Fragment,
     PromptFragments,
     SystemFragments,
     UserFragments,
-    create_planning_prompt,
-    create_summary_prompt,
-    fragment_json_schema_instruction,
 )
-from vibectl.schema import ApplyFileScopeResponse, LLMFinalApplyPlanResponse
 
 # Apply-specific schema constants
 _APPLY_FILESCOPE_SCHEMA_JSON = json.dumps(

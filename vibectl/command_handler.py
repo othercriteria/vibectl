@@ -31,9 +31,7 @@ from .logutil import logger as _logger
 from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
-from .prompt import (
-    recovery_prompt,
-)
+from .prompts.recovery import recovery_prompt
 from .schema import (
     FeedbackAction,
     LLMPlannerResponse,

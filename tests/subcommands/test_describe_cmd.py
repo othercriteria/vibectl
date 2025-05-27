@@ -3,7 +3,7 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 import pytest
 
 from vibectl.command_handler import OutputFlags
-from vibectl.prompt import describe_resource_prompt
+from vibectl.prompts.describe import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.types import Error, Success
 
