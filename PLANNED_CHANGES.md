@@ -9,7 +9,7 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] Plugin management via `vibectl install plugin plugin-foo-v3.json` ✅
 - [x] Precedence order support like `["plugin-foo-v3", "plugin-foo-v2", "plugin-bar-v3"]` ✅ (COMPLETED)
 - [x] Version compatibility checking for plugins (install time) ✅ **RECENTLY COMPLETED**
-- [ ] Version compatibility checking for plugins (runtime validation)
+- [x] Version compatibility checking for plugins (runtime validation) ✅ **RECENTLY COMPLETED**
 - [x] WARNING level logging for command failures attributable to custom prompts ✅
 
 ## ✅ SUCCESS: Patch Command Plugin Integration
@@ -34,41 +34,54 @@ Successfully converted `vibectl patch` to use the plugin system with the followi
 - Update test assertions to compare function results instead of constants
 - All 935 tests passing ✅
 
-## 🎯 Next Target: Apply Command (Alphabetical Order)
+## ✅ SUCCESS: Apply Command Plugin Integration (COMPLETED)
 
-### Apply Command Complexity Analysis
-The `apply` command presents **significantly more complexity** than patch:
+### BREAKTHROUGH: Comprehensive Plugin System Implementation
+Successfully converted `vibectl apply` to use the plugin system with **ALL 6 prompt override capabilities**:
 
-#### Current Apply Prompt Structure
-1. **Standard Prompts** (like patch):
-   - `PLAN_APPLY_PROMPT` (constant - needs conversion)
-   - `apply_output_prompt()` (function - ready for plugin override)
+1. **Complete Plugin Override Integration**: All apply prompt functions now use plugin decorators:
+   - `apply_plan_prompt()` with key `"apply_plan"` - main planning (like patch)
+   - `apply_output_prompt()` with key `"apply_resource_summary"` - output summarization (like patch)
+   - `plan_apply_filescope_prompt_fragments()` with key `"apply_filescope"` - file scoping analysis
+   - `summarize_apply_manifest_prompt_fragments()` with key `"apply_manifest_summary"` - manifest summarization
+   - `correct_apply_manifest_prompt_fragments()` with key `"apply_manifest_correction"` - manifest correction/generation
+   - `plan_final_apply_command_prompt_fragments()` with key `"apply_final_planning"` - final command planning
 
-2. **Intelligent Apply Workflow Prompts** (NEW CHALLENGE):
-   - `plan_apply_filescope_prompt_fragments()` - file scoping analysis
-   - `summarize_apply_manifest_prompt_fragments()` - manifest summarization
-   - `correct_apply_manifest_prompt_fragments()` - manifest correction/generation
-   - `plan_final_apply_command_prompt_fragments()` - final command planning
+2. **Legacy Constant Removal**: Removed `PLAN_APPLY_PROMPT` constant, converted to function pattern
 
-#### Plugin Integration Challenges for Apply
-1. **Multiple Prompt Types**: Apply has 6 different prompt functions vs patch's 2
-2. **Complex Execution Path**: `run_intelligent_apply_workflow()` uses specialized prompts
-3. **Prompt Function Signatures**: Apply prompts have varied signatures and purposes
-4. **Schema Dependencies**: Apply prompts use specialized schema definitions
+3. **Intelligent Apply Workflow Support**: Full plugin system integration for complex multi-stage apply workflow
 
-#### Proposed Apply Plugin Keys
-- `"apply_plan"` - main planning prompt
-- `"apply_resource_summary"` - output summarization
-- `"apply_filescope"` - file scoping analysis
-- `"apply_manifest_summary"` - manifest summarization
-- `"apply_manifest_correction"` - manifest correction/generation
-- `"apply_final_planning"` - final command planning
+### Apply Plugin Keys Established (6 Total)
+- **Standard prompts** (like patch):
+  - `"apply_plan"` - main planning prompt
+  - `"apply_resource_summary"` - output summarization
+- **Intelligent workflow prompts** (NEW - advanced capabilities):
+  - `"apply_filescope"` - file scoping analysis
+  - `"apply_manifest_summary"` - manifest summarization
+  - `"apply_manifest_correction"` - manifest correction/generation
+  - `"apply_final_planning"` - final command planning
 
-### Implementation Strategy for Apply
-1. **Phase 1**: Convert `PLAN_APPLY_PROMPT` constant to function (like patch)
-2. **Phase 2**: Add plugin overrides to `apply_output_prompt()`
-3. **Phase 3**: Evaluate intelligent apply workflow prompts for plugin support
-4. **Phase 4**: Create comprehensive apply plugin examples
+### Comprehensive Demo Plugin Created
+- **File**: `examples/plugins/apply-comprehensive-demo-v1.json`
+- **Coverage**: Demonstrates all 6 plugin override capabilities
+- **Features**: Enhanced safety, server-side apply, validation, dependency awareness, security hardening
+- **Advanced Capabilities**: Progressive rollout strategies, intelligent orchestration, best practices enforcement
+
+### Technical Achievements
+1. **Complex Prompt Function Support**: Successfully handled varied prompt signatures and schema dependencies
+2. **Intelligent Workflow Integration**: Plugin system works seamlessly with sophisticated multi-stage apply operations
+3. **Production-Ready Enhancements**: Demo plugin shows advanced features like security hardening, dependency ordering, progressive rollouts
+4. **Linter Error Resolution**: Fixed trailing comma issue in `command_construction_guidelines_frag`
+
+### Apply Command: Most Advanced Plugin Integration
+The apply command now represents the **most sophisticated plugin integration** in vibectl, with 6 different customizable prompt stages compared to patch's 2. This establishes a powerful foundation for complex workflow customization.
+
+## 🎯 Next Target: Auto Command (Alphabetical Order)
+
+### Remaining Commands for Plugin Integration
+After successfully completing patch (2 prompts) and apply (6 prompts), continue alphabetically:
+- **NEXT: Auto Command** - analyze prompt structure and convert to plugin system
+- **Subsequent Commands**: check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
 
 ## Implementation Components
 
@@ -86,7 +99,7 @@ The `apply` command presents **significantly more complexity** than patch:
 - [x] JSON file storage and management in `~/.config/vibectl/` ✅
 - [x] Prompt resolution with fallback chain using flat keys ✅
 - [x] Version compatibility validation at install time ✅ **RECENTLY COMPLETED**
-- [ ] Version compatibility validation at runtime
+- [x] Version compatibility validation at runtime ✅ **RECENTLY COMPLETED**
 - [x] Flat prompt key mapping (e.g., `"patch_resource_summary"`) ✅
 
 ### 3. Configuration Integration ✅ COMPLETED
@@ -170,11 +183,17 @@ The `apply` command presents **significantly more complexity** than patch:
 
 ## ❓ Outstanding Questions
 
-### Version Compatibility
-**Status**: Install-time checking IMPLEMENTED ✅, Runtime validation pending
+### Version Compatibility ✅ COMPLETED
+**Status**: BOTH install-time and runtime checking FULLY IMPLEMENTED ✅
 - [x] Install-time version checking ✅ **RECENTLY COMPLETED**
-- [ ] Runtime version validation
+- [x] Runtime version validation ✅ **RECENTLY COMPLETED**
 - [x] Semantic versioning enforcement ✅ **RECENTLY COMPLETED**
+
+### Design Enhancements in plugins.py
+1. **Runtime Version Compatibility**: Added `_is_plugin_compatible_at_runtime()` method in `PromptResolver` class
+2. **Flexible PromptMapping**: Enhanced `PromptMapping` class with dictionary-style access and type detection
+3. **Graceful Fallbacks**: Plugin resolution gracefully handles incompatible plugins and falls back to defaults
+4. **Plugin Precedence**: Full precedence-based resolution with configurable order
 
 ## 🎉 SUCCESS ACHIEVED
 - [x] Users can install custom prompt plugins from examples/plugins/ ✅
@@ -188,14 +207,22 @@ The `apply` command presents **significantly more complexity** than patch:
 
 ## Next Steps
 1. **Systematic Command Rollout (Alphabetical Order)**:
-   - **NEXT: Apply Command** - Convert `PLAN_APPLY_PROMPT` constant, add plugin overrides, handle intelligent apply workflow complexity
-   - **Subsequent Commands**: auto, check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
+   - **NEXT: Auto Command** - Analyze prompt structure and convert to plugin system
+   - **Subsequent Commands**: check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
 
-2. **Add runtime version compatibility validation** - validate plugin compatibility during prompt resolution
+2. **Enhanced Plugin Examples** - create comprehensive plugin examples for each command type as they're converted
 
-3. **Enhanced Plugin Examples** - create comprehensive plugin examples for each command type as they're converted
-
-4. **Performance Optimization** - minimize overhead for non-plugin users
+3. **Performance Optimization** - minimize overhead for non-plugin users (already achieved for non-plugin scenarios)
 
 ## Note on Implementation Status
-The plugin system is now highly functional with both precedence management and install-time version compatibility checking. The original undefined behavior (where precedence depended on filesystem order) has been replaced with explicit configuration-based precedence that users can control via CLI commands. Version compatibility ensures only compatible plugins can be installed, preventing runtime errors from version mismatches.
+The plugin system is now highly functional with comprehensive features:
+- **Plugin Management**: Full installation, listing, uninstallation, and precedence management
+- **Version Compatibility**: Both install-time and runtime validation with semantic versioning
+- **Command Integration**: Two commands fully converted (patch with 2 prompts, apply with 6 prompts)
+- **Error Handling**: Graceful fallbacks, proper attribution, and warning-level logging
+- **Performance**: Zero overhead for non-plugin users, efficient plugin resolution
+- **Configuration**: Explicit precedence management replacing filesystem-order dependency
+
+**Major Achievement**: The apply command integration demonstrates the plugin system can handle complex, multi-stage workflows with specialized prompt signatures and schema dependencies. This establishes a robust foundation for converting all remaining vibectl commands.
+
+**Next Priority**: Continue alphabetical rollout starting with the auto command to systematically enable plugin customization across all vibectl functionality.
