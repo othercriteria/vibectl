@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Plugin system for custom prompt replacement (WIP)
+  - User-configurable prompt plugins via `vibectl install plugin plugin-foo-v3.json`
+  - Plugin precedence order support with fallback chain
+  - Version compatibility checking for plugins
+  - SQLite-backed prompt store for plugin management
+  - WARNING level logging for custom prompt failures
+  - Starting with `patch_resource_prompt` as MVP proof of concept
+
 ### Changed
 - **Major `prompt.py` Refactoring**: Successfully decomposed the massive 2134-line `vibectl/prompt.py` monolith into 20+ specialized modules for dramatically improved maintainability and organization
   - Reduced main `prompt.py` from 2134 lines to 332 lines (84% reduction)
