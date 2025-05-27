@@ -31,8 +31,9 @@ class PluginMetadata:
 class PromptMapping:
     """A custom prompt mapping from a plugin.
 
-    Supports both planning prompts (with examples) and summary prompts
-    (with focus_points and example_format).
+    Supports planning prompts (with examples), summary prompts
+    (with focus_points and example_format), and workflow prompts
+    (with description only for intelligent workflow steps).
     """
 
     description: str
@@ -47,6 +48,14 @@ class PromptMapping:
     def is_summary_prompt(self) -> bool:
         """Check if this is a summary prompt (has focus_points/example_format)."""
         return self.focus_points is not None or self.example_format is not None
+
+    def is_workflow_prompt(self) -> bool:
+        """Check if this is a workflow prompt (description only)."""
+        return (
+            self.examples is None
+            and self.focus_points is None
+            and self.example_format is None
+        )
 
 
 @dataclass
@@ -64,8 +73,9 @@ class Plugin:
         prompt_mappings = {}
         for key, mapping_data in data["prompt_mappings"].items():
             # Handle optional fields for different prompt types
+            # Description is required but handle gracefully for validation
             prompt_mappings[key] = PromptMapping(
-                description=mapping_data["description"],
+                description=mapping_data.get("description", ""),
                 focus_points=mapping_data.get("focus_points"),
                 example_format=mapping_data.get("example_format"),
                 examples=mapping_data.get("examples"),
@@ -202,8 +212,8 @@ class PluginStore:
 
         # Validate each prompt mapping
         for key, mapping in plugin.prompt_mappings.items():
-            if not mapping.description:
-                logger.error(f"Prompt mapping '{key}' missing description")
+            if not mapping.description or not mapping.description.strip():
+                logger.error(f"Prompt mapping '{key}' missing or empty description")
                 return False
 
             # Check that the mapping has the right fields for its type
@@ -218,10 +228,13 @@ class PluginStore:
                         "example_format"
                     )
                     return False
+            elif mapping.is_workflow_prompt():
+                # Workflow prompts only need a description, which is already
+                # checked above
+                logger.debug(f"Workflow prompt mapping '{key}' validated")
             else:
                 logger.error(
-                    f"Prompt mapping '{key}' has neither examples nor "
-                    "focus_points/example_format"
+                    f"Prompt mapping '{key}' has invalid combination of fields"
                 )
                 return False
 

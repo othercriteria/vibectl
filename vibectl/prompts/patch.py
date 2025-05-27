@@ -10,10 +10,15 @@ from vibectl.schema import ActionType
 from vibectl.types import Examples, PromptFragments
 
 from .schemas import _SCHEMA_DEFINITION_JSON
-from .shared import create_planning_prompt, create_summary_prompt, with_plugin_override
+from .shared import (
+    create_planning_prompt,
+    create_summary_prompt,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
+)
 
 
-@with_plugin_override("patch_plan")
+@with_planning_prompt_override("patch_plan")
 def patch_plan_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -114,7 +119,7 @@ def patch_plan_prompt(
     )
 
 
-@with_plugin_override("patch_resource_summary")
+@with_summary_prompt_override("patch_resource_summary")
 def patch_resource_prompt(
     config: Config | None = None,
     current_memory: str | None = None,

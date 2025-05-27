@@ -13,8 +13,8 @@ from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.apply import (
-    PLAN_APPLY_PROMPT,
     apply_output_prompt,
+    apply_plan_prompt,
 )
 from vibectl.types import (
     Error,
@@ -71,7 +71,7 @@ async def run_apply_command(
             result_standard_vibe = await handle_vibe_request(
                 request=request,
                 command="apply",
-                plan_prompt_func=lambda: PLAN_APPLY_PROMPT,
+                plan_prompt_func=apply_plan_prompt,
                 summary_prompt_func=apply_output_prompt,
                 output_flags=output_flags,
                 yes=False,

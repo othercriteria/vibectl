@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from vibectl.config import Config
 from vibectl.schema import LLMAction
@@ -325,28 +326,33 @@ labels or headers.
 """)
 
 
-def with_plugin_override(
+def with_planning_prompt_override(
     prompt_key: str,
 ) -> Callable[[Callable[..., PromptFragments]], Callable[..., PromptFragments]]:
-    """Decorator to automatically handle plugin prompt overrides.
+    """Decorator for planning prompts (simple signature with config and current_memory).
+
+    Use for prompts like apply_plan_prompt, patch_plan_prompt that follow the pattern:
+    func(config: Config | None = None, current_memory: str | None = None) ->
+      PromptFragments
 
     Args:
-        prompt_key: The key to look for in plugin prompt mappings
-
-    Returns:
-        A decorator that checks for plugin overrides before calling the
-        original function
+        prompt_key: The key to look for in plugin prompt mappings (e.g., "apply_plan")
     """
 
     def decorator(
         func: Callable[..., PromptFragments],
     ) -> Callable[..., PromptFragments]:
-        def wrapper(
-            config: Config | None = None, current_memory: str | None = None
-        ) -> PromptFragments:
+        def wrapper(*args: Any, **kwargs: Any) -> PromptFragments:
+            # Extract config from args/kwargs
+            config = None
+            if "config" in kwargs:
+                config = kwargs["config"]
+            elif len(args) > 0 and hasattr(args[0], "get"):  # Duck typing for Config
+                config = args[0]
+
             cfg = config or Config()
 
-            # Try to get custom prompt from plugins first
+            # Try to get custom planning prompt from plugins
             try:
                 from vibectl.plugins import PluginStore, PromptResolver
 
@@ -354,52 +360,147 @@ def with_plugin_override(
                 resolver = PromptResolver(plugin_store, cfg)
 
                 custom_mapping = resolver.get_prompt_mapping(prompt_key)
-                if custom_mapping:
-                    # Determine prompt type and use appropriate creation function
-                    if custom_mapping.is_planning_prompt():
-                        # Convert examples to Examples type
-                        from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
-                        from vibectl.types import Examples
+                if custom_mapping and custom_mapping.is_planning_prompt():
+                    from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
+                    from vibectl.types import Examples
 
-                        examples = Examples(custom_mapping.examples or [])
+                    examples = Examples(custom_mapping.examples or [])
 
-                        # Extract command from prompt_key
-                        # (e.g., "patch_plan" -> "patch")
-                        command = (
-                            prompt_key.split("_")[0] if "_" in prompt_key else "unknown"
-                        )
+                    # Extract command from prompt_key (e.g., "apply_plan" -> "apply")
+                    command = (
+                        prompt_key.split("_")[0] if "_" in prompt_key else "unknown"
+                    )
 
-                        return create_planning_prompt(
-                            command=command,
-                            description=custom_mapping.description,
-                            examples=examples,
-                            schema_definition=_SCHEMA_DEFINITION_JSON,
-                        )
-                    elif custom_mapping.is_summary_prompt():
-                        # Use custom prompt from plugin
-                        return create_summary_prompt(
-                            description=custom_mapping.description,
-                            focus_points=custom_mapping.focus_points or [],
-                            example_format=custom_mapping.example_format or [],
-                            config=cfg,
-                            current_memory=current_memory,
-                        )
-                    else:
-                        # Invalid plugin mapping
-                        from vibectl.logutil import logger
-
-                        logger.warning(
-                            f"Plugin mapping for {prompt_key} has neither "
-                            "examples nor focus_points/example_format"
-                        )
+                    return create_planning_prompt(
+                        command=command,
+                        description=custom_mapping.description,
+                        examples=examples,
+                        schema_definition=_SCHEMA_DEFINITION_JSON,
+                    )
             except Exception as e:
-                # Log warning but fall back to default prompt
                 from vibectl.logutil import logger
 
-                logger.warning(f"Failed to load plugin prompt for {prompt_key}: {e}")
+                logger.warning(
+                    f"Failed to load plugin planning prompt for {prompt_key}: {e}"
+                )
 
-            # Fall back to calling the original function for default behavior
-            return func(config=cfg, current_memory=current_memory)
+            # Fall back to original function
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def with_summary_prompt_override(
+    prompt_key: str,
+) -> Callable[[Callable[..., PromptFragments]], Callable[..., PromptFragments]]:
+    """Decorator for summary prompts (simple signature with config and current_memory).
+
+    Use for prompts like apply_output_prompt, patch_resource_prompt that follow
+    the pattern:
+    func(config: Config | None = None, current_memory: str | None = None) ->
+      PromptFragments
+
+    Args:
+        prompt_key: The key to look for in plugin prompt mappings (e.g.,
+                    "apply_resource_summary")
+    """
+
+    def decorator(
+        func: Callable[..., PromptFragments],
+    ) -> Callable[..., PromptFragments]:
+        def wrapper(*args: Any, **kwargs: Any) -> PromptFragments:
+            # Extract config and current_memory from args/kwargs
+            config = None
+            current_memory = None
+
+            if "config" in kwargs:
+                config = kwargs["config"]
+            if "current_memory" in kwargs:
+                current_memory = kwargs["current_memory"]
+            elif len(args) > 0 and hasattr(args[0], "get"):  # Duck typing for Config
+                config = args[0]
+
+            cfg = config or Config()
+
+            # Try to get custom summary prompt from plugins
+            try:
+                from vibectl.plugins import PluginStore, PromptResolver
+
+                plugin_store = PluginStore(cfg)
+                resolver = PromptResolver(plugin_store, cfg)
+
+                custom_mapping = resolver.get_prompt_mapping(prompt_key)
+                if custom_mapping and custom_mapping.is_summary_prompt():
+                    return create_summary_prompt(
+                        description=custom_mapping.description,
+                        focus_points=custom_mapping.focus_points or [],
+                        example_format=custom_mapping.example_format or [],
+                        config=cfg,
+                        current_memory=current_memory,
+                    )
+            except Exception as e:
+                from vibectl.logutil import logger
+
+                logger.warning(
+                    f"Failed to load plugin summary prompt for {prompt_key}: {e}"
+                )
+
+            # Fall back to original function
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def with_workflow_prompt_override(
+    prompt_key: str,
+) -> Callable[[Callable[..., PromptFragments]], Callable[..., PromptFragments]]:
+    """Decorator for intelligent workflow prompts (complex signatures).
+
+    Use for prompts like plan_apply_filescope_prompt_fragments that have specialized
+    parameters and complex logic. Currently logs a warning and falls back to defaults
+    since workflow prompts are not yet fully supported by the plugin system.
+
+    Args:
+        prompt_key: The key to look for in plugin prompt mappings
+                    (e.g., "apply_filescope")
+    """
+
+    def decorator(
+        func: Callable[..., PromptFragments],
+    ) -> Callable[..., PromptFragments]:
+        def wrapper(*args: Any, **kwargs: Any) -> PromptFragments:
+            # For workflow prompts, we currently just log and fall back
+            # since they have complex signatures that don't fit the current plugin model
+            try:
+                from vibectl.config import Config
+                from vibectl.plugins import PluginStore, PromptResolver
+
+                cfg = Config()
+                plugin_store = PluginStore(cfg)
+                resolver = PromptResolver(plugin_store, cfg)
+
+                custom_mapping = resolver.get_prompt_mapping(prompt_key)
+                if custom_mapping:
+                    from vibectl.logutil import logger
+
+                    logger.warning(
+                        f"Plugin mapping found for {prompt_key} but intelligent "
+                        "workflow prompts are not yet fully supported by the plugin "
+                        "system. Using default prompt."
+                    )
+            except Exception as e:
+                from vibectl.logutil import logger
+
+                logger.warning(
+                    f"Failed to check plugin workflow prompt for {prompt_key}: {e}"
+                )
+
+            # Always fall back to original function for now
+            return func(*args, **kwargs)
 
         return wrapper
 

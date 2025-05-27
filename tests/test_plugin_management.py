@@ -805,6 +805,127 @@ class TestPluginValidation:
 
         assert mock_plugin_store._validate_plugin(invalid_plugin) is False
 
+    def test_invalid_prompt_mapping_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that invalid prompt mappings fail validation."""
+        # Plugin with prompt mapping that has missing description
+        invalid_plugin_data = {
+            "plugin_metadata": {
+                "name": "invalid-plugin",
+                "version": "1.0.0",
+                "description": "Invalid plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "invalid_prompt": {
+                    # Missing description - this should fail
+                    "focus_points": ["Some focus point"],
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(invalid_plugin_data)
+
+        # Should fail validation due to missing description
+        assert not mock_plugin_store._validate_plugin(plugin)
+
+    def test_workflow_prompt_validation(self, mock_plugin_store: PluginStore) -> None:
+        """Test that workflow prompts (description only) are valid."""
+        # Plugin with workflow prompt that has only description
+        workflow_plugin_data = {
+            "plugin_metadata": {
+                "name": "workflow-plugin",
+                "version": "1.0.0",
+                "description": "Workflow plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "workflow_prompt": {
+                    "description": "Workflow prompt with description only",
+                    # No examples, focus_points, or example_format - this
+                    # is valid for workflow prompts
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(workflow_plugin_data)
+
+        # Should pass validation as a valid workflow prompt
+        assert mock_plugin_store._validate_plugin(plugin)
+
+        # Verify it's detected as a workflow prompt
+        workflow_mapping = plugin.prompt_mappings["workflow_prompt"]
+        assert workflow_mapping.is_workflow_prompt()
+        assert not workflow_mapping.is_planning_prompt()
+        assert not workflow_mapping.is_summary_prompt()
+
+    def test_planning_prompt_missing_examples_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that planning prompts without examples fail validation."""
+        invalid_planning_data = {
+            "plugin_metadata": {
+                "name": "invalid-planning",
+                "version": "1.0.0",
+                "description": "Invalid planning plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_plan": {
+                    "description": "Planning prompt without examples",
+                    "examples": [],  # Empty examples list - should fail
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(invalid_planning_data)
+
+        # Should fail validation because planning prompts need non-empty examples
+        assert not mock_plugin_store._validate_plugin(plugin)
+
+    def test_summary_prompt_missing_focus_points_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that prompts with conflicting type indicators fail validation."""
+        # Plugin with prompt that has both examples AND focus_points (conflicting types)
+        conflicting_plugin_data = {
+            "plugin_metadata": {
+                "name": "conflicting-plugin",
+                "version": "1.0.0",
+                "description": "Plugin with conflicting prompt types",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "conflicting_prompt": {
+                    "description": "Prompt with both planning and summary indicators",
+                    "examples": [
+                        ["test", {"action_type": "COMMAND", "commands": ["test"]}]
+                    ],  # Planning indicator
+                    "focus_points": ["test focus"],  # Summary indicator - conflict!
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(conflicting_plugin_data)
+
+        # This should pass validation since examples takes precedence (planning prompt)
+        # but let's test that it's correctly identified as planning, not summary
+        assert mock_plugin_store._validate_plugin(plugin)
+
+        mapping = plugin.prompt_mappings["conflicting_prompt"]
+        assert mapping.is_planning_prompt()  # Examples takes precedence
+        assert mapping.is_summary_prompt()  # But it also has summary fields
+        assert not mapping.is_workflow_prompt()
+
 
 class TestPluginPrecedenceAutomation:
     """Test automatic precedence management during install and uninstall operations."""
@@ -1198,6 +1319,47 @@ class TestRuntimeVersionCompatibility:
             assert result is not None
             assert result.description == "Test prompt"
 
+    @patch("vibectl.plugins.PluginStore")
+    @patch("vibectl.plugins.PromptResolver")
+    def test_plugin_override_decorator_fallback_on_error(
+        self, mock_resolver_class: Mock, mock_store_class: Mock
+    ) -> None:
+        """Test that the plugin override decorator falls back to default on errors."""
+        from vibectl.prompts.shared import with_planning_prompt_override
+
+        # Mock the resolver to raise an exception
+        mock_resolver = Mock()
+        mock_resolver.get_prompt_mapping.side_effect = Exception("Plugin error")
+        mock_resolver_class.return_value = mock_resolver
+
+        # Track if default function was called
+        default_called = False
+
+        @with_planning_prompt_override("patch_plan")
+        def mock_function_with_fallback(
+            config: Config | None = None, current_memory: str | None = None
+        ) -> PromptFragments:
+            nonlocal default_called
+            default_called = True
+            return PromptFragments(
+                (
+                    SystemFragments([Fragment("default")]),
+                    UserFragments([Fragment("fallback")]),
+                )
+            )
+
+        # Call the decorated function
+        result = mock_function_with_fallback()
+
+        # Should fall back to default function
+        assert default_called
+        assert result == PromptFragments(
+            (
+                SystemFragments([Fragment("default")]),
+                UserFragments([Fragment("fallback")]),
+            )
+        )
+
 
 class TestDualPromptTypePlugins:
     """Tests for plugins that support both planning and summary prompts."""
@@ -1385,7 +1547,7 @@ class TestDualPromptTypePlugins:
         self, mock_plugin_store: PluginStore
     ) -> None:
         """Test that invalid prompt mappings fail validation."""
-        # Plugin with prompt mapping that has neither examples nor focus_points
+        # Plugin with prompt mapping that has missing description
         invalid_plugin_data = {
             "plugin_metadata": {
                 "name": "invalid-plugin",
@@ -1397,68 +1559,48 @@ class TestDualPromptTypePlugins:
             },
             "prompt_mappings": {
                 "invalid_prompt": {
-                    "description": "Invalid prompt with no examples or focus_points",
-                    # Missing both examples and focus_points/example_format
+                    # Missing description - this should fail
+                    "focus_points": ["Some focus point"],
                 },
             },
         }
 
         plugin = Plugin.from_dict(invalid_plugin_data)
 
-        # Should fail validation
+        # Should fail validation due to missing description
         assert not mock_plugin_store._validate_plugin(plugin)
 
-    def test_planning_prompt_missing_examples_validation(
-        self, mock_plugin_store: PluginStore
-    ) -> None:
-        """Test that planning prompts without examples fail validation."""
-        invalid_planning_data = {
+    def test_workflow_prompt_validation(self, mock_plugin_store: PluginStore) -> None:
+        """Test that workflow prompts (description only) are valid."""
+        # Plugin with workflow prompt that has only description
+        workflow_plugin_data = {
             "plugin_metadata": {
-                "name": "invalid-planning",
+                "name": "workflow-plugin",
                 "version": "1.0.0",
-                "description": "Invalid planning plugin",
+                "description": "Workflow plugin",
                 "author": "Test Author",
                 "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
                 "created_at": "2024-01-15T10:00:00Z",
             },
             "prompt_mappings": {
-                "patch_plan": {
-                    "description": "Planning prompt without examples",
-                    "examples": [],  # Empty examples
+                "workflow_prompt": {
+                    "description": "Workflow prompt with description only",
+                    # No examples, focus_points, or example_format - this is
+                    # valid for workflow prompts
                 },
             },
         }
 
-        plugin = Plugin.from_dict(invalid_planning_data)
+        plugin = Plugin.from_dict(workflow_plugin_data)
 
-        # Should fail validation
-        assert not mock_plugin_store._validate_plugin(plugin)
+        # Should pass validation as a valid workflow prompt
+        assert mock_plugin_store._validate_plugin(plugin)
 
-    def test_summary_prompt_missing_focus_points_validation(
-        self, mock_plugin_store: PluginStore
-    ) -> None:
-        """Test summary prompts sans focus_points or example_format fail validation."""
-        invalid_summary_data = {
-            "plugin_metadata": {
-                "name": "invalid-summary",
-                "version": "1.0.0",
-                "description": "Invalid summary plugin",
-                "author": "Test Author",
-                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
-                "created_at": "2024-01-15T10:00:00Z",
-            },
-            "prompt_mappings": {
-                "patch_resource_summary": {
-                    "description": "Summary prompt...",
-                    # Missing both focus_points and example_format
-                },
-            },
-        }
-
-        plugin = Plugin.from_dict(invalid_summary_data)
-
-        # Should fail validation
-        assert not mock_plugin_store._validate_plugin(plugin)
+        # Verify it's detected as a workflow prompt
+        workflow_mapping = plugin.prompt_mappings["workflow_prompt"]
+        assert workflow_mapping.is_workflow_prompt()
+        assert not workflow_mapping.is_planning_prompt()
+        assert not workflow_mapping.is_summary_prompt()
 
     @patch("vibectl.plugins.PluginStore")
     @patch("vibectl.plugins.PromptResolver")
@@ -1469,7 +1611,7 @@ class TestDualPromptTypePlugins:
         dual_prompt_plugin_data: dict[str, Any],
     ) -> None:
         """Test that the plugin override decorator works for planning prompts."""
-        from vibectl.prompts.shared import with_plugin_override
+        from vibectl.prompts.shared import with_planning_prompt_override
 
         # Create plugin with planning prompt
         plugin = Plugin.from_dict(dual_prompt_plugin_data)
@@ -1481,7 +1623,7 @@ class TestDualPromptTypePlugins:
         mock_resolver_class.return_value = mock_resolver
 
         # Create a mock function to decorate
-        @with_plugin_override("patch_plan")
+        @with_planning_prompt_override("patch_plan")
         def mock_planning_function(
             config: Config | None = None, current_memory: str | None = None
         ) -> PromptFragments:
@@ -1518,7 +1660,7 @@ class TestDualPromptTypePlugins:
         dual_prompt_plugin_data: dict[str, Any],
     ) -> None:
         """Test that the plugin override decorator works for summary prompts."""
-        from vibectl.prompts.shared import with_plugin_override
+        from vibectl.prompts.shared import with_summary_prompt_override
 
         # Create plugin with summary prompt
         plugin = Plugin.from_dict(dual_prompt_plugin_data)
@@ -1530,7 +1672,7 @@ class TestDualPromptTypePlugins:
         mock_resolver_class.return_value = mock_resolver
 
         # Create a mock function to decorate
-        @with_plugin_override("patch_resource_summary")
+        @with_summary_prompt_override("patch_resource_summary")
         def mock_summary_function(
             config: Config | None = None, current_memory: str | None = None
         ) -> PromptFragments:
@@ -1557,47 +1699,6 @@ class TestDualPromptTypePlugins:
         assert "decode any 'note' annotation values" in combined_text
         assert "Summarize patch results with custom decoding" in combined_text
         assert "{output}" in combined_text
-
-    @patch("vibectl.plugins.PluginStore")
-    @patch("vibectl.plugins.PromptResolver")
-    def test_plugin_override_decorator_fallback_on_error(
-        self, mock_resolver_class: Mock, mock_store_class: Mock
-    ) -> None:
-        """Test that the plugin override decorator falls back to default on errors."""
-        from vibectl.prompts.shared import with_plugin_override
-
-        # Mock the resolver to raise an exception
-        mock_resolver = Mock()
-        mock_resolver.get_prompt_mapping.side_effect = Exception("Plugin error")
-        mock_resolver_class.return_value = mock_resolver
-
-        # Track if default function was called
-        default_called = False
-
-        @with_plugin_override("patch_plan")
-        def mock_function_with_fallback(
-            config: Config | None = None, current_memory: str | None = None
-        ) -> PromptFragments:
-            nonlocal default_called
-            default_called = True
-            return PromptFragments(
-                (
-                    SystemFragments([Fragment("default")]),
-                    UserFragments([Fragment("fallback")]),
-                )
-            )
-
-        # Call the decorated function
-        result = mock_function_with_fallback()
-
-        # Should fall back to default function
-        assert default_called
-        assert result == PromptFragments(
-            (
-                SystemFragments([Fragment("default")]),
-                UserFragments([Fragment("fallback")]),
-            )
-        )
 
     async def test_install_dual_prompt_plugin_success(
         self,

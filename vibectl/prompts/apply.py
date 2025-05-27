@@ -15,6 +15,9 @@ from vibectl.prompt import (
 from vibectl.prompts.shared import (
     create_summary_prompt,
     fragment_json_schema_instruction,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
+    with_workflow_prompt_override,
 )
 from vibectl.schema import ActionType, ApplyFileScopeResponse, LLMFinalApplyPlanResponse
 from vibectl.types import (
@@ -33,36 +36,54 @@ _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON = json.dumps(
     LLMFinalApplyPlanResponse.model_json_schema(), indent=2
 )
 
-# Template for planning kubectl apply commands
-PLAN_APPLY_PROMPT: PromptFragments = create_planning_prompt(
-    command="apply",
-    description="applying configurations to Kubernetes resources using YAML manifests",
-    examples=Examples(
-        [
-            (
-                "apply the deployment from my-deployment.yaml",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "my-deployment.yaml"],
-                    "explanation": "User asked to apply a deployment from a file.",
-                },
-            ),
-            (
-                "apply all yaml files in the ./manifests directory",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "./manifests"],
-                    "explanation": "User asked to apply all YAML files in a directory.",
-                },
-            ),
-            (
-                "apply the following nginx pod manifest",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "-"],
-                    "explanation": "User asked to apply a provided YAML manifest.",
-                    "yaml_manifest": (
-                        """---
+
+@with_planning_prompt_override("apply_plan")
+def apply_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl apply commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return create_planning_prompt(
+        command="apply",
+        description=(
+            "applying configurations to Kubernetes resources using YAML manifests"
+        ),
+        examples=Examples(
+            [
+                (
+                    "apply the deployment from my-deployment.yaml",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "my-deployment.yaml"],
+                        "explanation": "User asked to apply a deployment from a file.",
+                    },
+                ),
+                (
+                    "apply all yaml files in the ./manifests directory",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "./manifests"],
+                        "explanation": "User asked to apply all YAML files in "
+                        "a directory.",
+                    },
+                ),
+                (
+                    "apply the following nginx pod manifest",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "-"],
+                        "explanation": "User asked to apply a provided YAML manifest.",
+                        "yaml_manifest": (
+                            """---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -73,32 +94,33 @@ spec:
     image: nginx:latest
     ports:
     - containerPort: 80"""
-                    ),
-                },
-            ),
-            (
-                "apply the kustomization in ./my-app",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-k", "./my-app"],
-                    "explanation": "User asked to apply a kustomization.",
-                },
-            ),
-            (
-                "see what a standard nginx pod would look like",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
-                    "explanation": "A client-side dry-run shows the user a manifest.",
-                },
-            ),
-        ]
-    ),
-    schema_definition=_SCHEMA_DEFINITION_JSON,
-)
+                        ),
+                    },
+                ),
+                (
+                    "apply the kustomization in ./my-app",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-k", "./my-app"],
+                        "explanation": "User asked to apply a kustomization.",
+                    },
+                ),
+                (
+                    "see what a standard nginx pod would look like",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
+                        "explanation": "A client-side dry-run shows the user a "
+                        "manifest.",
+                    },
+                ),
+            ]
+        ),
+        schema_definition=_SCHEMA_DEFINITION_JSON,
+    )
 
 
-# Template for summarizing 'kubectl apply' output
+@with_summary_prompt_override("apply_resource_summary")
 def apply_output_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -112,6 +134,7 @@ def apply_output_prompt(
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    # Fall back to default prompt (decorator handles plugin override)
     cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl apply results.",
@@ -133,6 +156,7 @@ def apply_output_prompt(
     )
 
 
+@with_workflow_prompt_override("apply_filescope")
 def plan_apply_filescope_prompt_fragments(request: str) -> PromptFragments:
     """Get prompt fragments for planning kubectl apply file scoping."""
     system_frags = SystemFragments(
@@ -197,6 +221,7 @@ def plan_apply_filescope_prompt_fragments(request: str) -> PromptFragments:
     return PromptFragments((system_frags, user_frags))
 
 
+@with_workflow_prompt_override("apply_manifest_summary")
 def summarize_apply_manifest_prompt_fragments(
     current_memory: str, manifest_content: str
 ) -> PromptFragments:
@@ -261,6 +286,7 @@ def summarize_apply_manifest_prompt_fragments(
     return PromptFragments((system_frags, user_frags))
 
 
+@with_workflow_prompt_override("apply_manifest_correction")
 def correct_apply_manifest_prompt_fragments(
     original_file_path: str,
     original_file_content: str | None,
@@ -347,6 +373,7 @@ def correct_apply_manifest_prompt_fragments(
     return PromptFragments((system_frags, user_frags))
 
 
+@with_workflow_prompt_override("apply_final_planning")
 def plan_final_apply_command_prompt_fragments(
     valid_original_manifest_paths: str,
     corrected_temp_manifest_paths: str,
