@@ -1,0 +1,40 @@
+{
+  "plugin_metadata": {
+    "name": "enhanced-patch-summary",
+    "version": "1.0.0",
+    "description": "Enhanced patch command summary with detailed resource state tracking",
+    "author": "Vibectl Community",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T10:00:00Z"
+  },
+  "prompt_mappings": {
+    "patch_resource_summary": {
+      "description": "Enhanced summarization of kubectl patch output with detailed state tracking",
+      "focus_points": [
+        "resource type, name, and namespace that was patched",
+        "patch strategy used (strategic merge, JSON merge, JSON patch)",
+        "specific fields and values that were changed",
+        "resource state before and after patch (if available)",
+        "any validation warnings or admission controller responses",
+        "timing information for the patch operation",
+        "related resources that might be affected by the change"
+      ],
+      "example_format": [
+        "[bold]deployment.apps/nginx[/bold] [green]patched successfully[/green] in [blue]production[/blue]",
+        "  [italic]Strategy:[/italic] Strategic merge patch",
+        "  [italic]Changes:[/italic] replicas: 3 → 5, image: nginx:1.20 → nginx:1.21",
+        "  [italic]Duration:[/italic] 1.2s",
+        "",
+        "[bold]service/web-service[/bold] [green]labels updated[/green]",
+        "  [italic]Added:[/italic] environment=prod, version=v2.1",
+        "",
+        "[yellow]Warning: strategic merge patch replaced containers array[/yellow]",
+        "[yellow]Note: Rolling update triggered for deployment[/yellow]",
+        "",
+        "[red]Error: patch validation failed[/red]",
+        "  [italic]Reason:[/italic] cannot change immutable field spec.selector",
+        "  [italic]Resource:[/italic] service/api-gateway in default namespace"
+      ]
+    }
+  }
+}

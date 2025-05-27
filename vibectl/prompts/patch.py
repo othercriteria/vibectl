@@ -111,6 +111,31 @@ def patch_resource_prompt(
         PromptFragments: System fragments and user fragments
     """
     cfg = config or Config()
+
+    # Try to get custom prompt from plugins first
+    try:
+        from vibectl.plugins import PluginStore, PromptResolver
+
+        plugin_store = PluginStore(cfg)
+        resolver = PromptResolver(plugin_store, cfg)
+
+        custom_mapping = resolver.get_prompt_mapping("patch_resource_summary")
+        if custom_mapping:
+            # Use custom prompt from plugin
+            return create_summary_prompt(
+                description=custom_mapping.description,
+                focus_points=custom_mapping.focus_points,
+                example_format=custom_mapping.example_format,
+                config=cfg,
+                current_memory=current_memory,
+            )
+    except Exception as e:
+        # Log warning but fall back to default prompt
+        from vibectl.logutil import logger
+
+        logger.warning(f"Failed to load plugin prompt for patch_resource_summary: {e}")
+
+    # Fall back to default prompt
     return create_summary_prompt(
         description="Summarize kubectl patch results.",
         focus_points=[
