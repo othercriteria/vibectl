@@ -7,6 +7,7 @@ prompt modules to avoid duplication and ensure consistency.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from vibectl.config import Config
@@ -322,3 +323,55 @@ IMPORTANT: Do NOT include any prefixes like \"Updated memory:\" or headings in
 your response. Just provide the direct memory content itself with no additional
 labels or headers.
 """)
+
+
+def with_plugin_override(
+    prompt_key: str,
+) -> Callable[[Callable[..., PromptFragments]], Callable[..., PromptFragments]]:
+    """Decorator to automatically handle plugin prompt overrides.
+
+    Args:
+        prompt_key: The key to look for in plugin prompt mappings
+
+    Returns:
+        A decorator that checks for plugin overrides before calling the
+        original function
+    """
+
+    def decorator(
+        func: Callable[..., PromptFragments],
+    ) -> Callable[..., PromptFragments]:
+        def wrapper(
+            config: Config | None = None, current_memory: str | None = None
+        ) -> PromptFragments:
+            cfg = config or Config()
+
+            # Try to get custom prompt from plugins first
+            try:
+                from vibectl.plugins import PluginStore, PromptResolver
+
+                plugin_store = PluginStore(cfg)
+                resolver = PromptResolver(plugin_store, cfg)
+
+                custom_mapping = resolver.get_prompt_mapping(prompt_key)
+                if custom_mapping:
+                    # Use custom prompt from plugin
+                    return create_summary_prompt(
+                        description=custom_mapping.description,
+                        focus_points=custom_mapping.focus_points,
+                        example_format=custom_mapping.example_format,
+                        config=cfg,
+                        current_memory=current_memory,
+                    )
+            except Exception as e:
+                # Log warning but fall back to default prompt
+                from vibectl.logutil import logger
+
+                logger.warning(f"Failed to load plugin prompt for {prompt_key}: {e}")
+
+            # Fall back to calling the original function for default behavior
+            return func(config=cfg, current_memory=current_memory)
+
+        return wrapper
+
+    return decorator
