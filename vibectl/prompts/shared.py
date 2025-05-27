@@ -355,14 +355,43 @@ def with_plugin_override(
 
                 custom_mapping = resolver.get_prompt_mapping(prompt_key)
                 if custom_mapping:
-                    # Use custom prompt from plugin
-                    return create_summary_prompt(
-                        description=custom_mapping.description,
-                        focus_points=custom_mapping.focus_points,
-                        example_format=custom_mapping.example_format,
-                        config=cfg,
-                        current_memory=current_memory,
-                    )
+                    # Determine prompt type and use appropriate creation function
+                    if custom_mapping.is_planning_prompt():
+                        # Convert examples to Examples type
+                        from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
+                        from vibectl.types import Examples
+
+                        examples = Examples(custom_mapping.examples or [])
+
+                        # Extract command from prompt_key
+                        # (e.g., "patch_plan" -> "patch")
+                        command = (
+                            prompt_key.split("_")[0] if "_" in prompt_key else "unknown"
+                        )
+
+                        return create_planning_prompt(
+                            command=command,
+                            description=custom_mapping.description,
+                            examples=examples,
+                            schema_definition=_SCHEMA_DEFINITION_JSON,
+                        )
+                    elif custom_mapping.is_summary_prompt():
+                        # Use custom prompt from plugin
+                        return create_summary_prompt(
+                            description=custom_mapping.description,
+                            focus_points=custom_mapping.focus_points or [],
+                            example_format=custom_mapping.example_format or [],
+                            config=cfg,
+                            current_memory=current_memory,
+                        )
+                    else:
+                        # Invalid plugin mapping
+                        from vibectl.logutil import logger
+
+                        logger.warning(
+                            f"Plugin mapping for {prompt_key} has neither "
+                            "examples nor focus_points/example_format"
+                        )
             except Exception as e:
                 # Log warning but fall back to default prompt
                 from vibectl.logutil import logger

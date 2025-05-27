@@ -36,6 +36,7 @@ Each plugin is a JSON file with the following structure:
 
 Currently supported prompt keys for customization:
 
+- `patch_plan`: Planning prompts for `kubectl patch` commands (generates the kubectl command)
 - `patch_resource_summary`: Summary output for `kubectl patch` commands
 
 ## Example Plugins
@@ -52,6 +53,13 @@ Provides minimal, concise summaries for patch operations focusing on:
 - Essential status information only
 - Simple success/failure indicators
 - Critical errors only
+
+### annotating-patch-v1.json
+Demonstrates both planning and summarizing customization with operation tracking:
+- Adds encoded annotations to patch commands using Caesar cipher (shift +2)
+- Decodes annotations in summaries to show operation context
+- Shows how a single plugin can customize both planning and summarizing
+- Uses simple cipher: PATCH→RCEEJ, SCALE→UECNG, UPDATE→WRIKCG, LABEL→NCDJN
 
 ## Installation (Future)
 
@@ -74,3 +82,4 @@ vibectl config set plugins.precedence "enhanced-patch-summary-v1,minimal-patch-s
 - Version compatibility follows semantic versioning
 - All plugins should include comprehensive metadata
 - Example formats should use rich.Console() markup syntax
+- A single plugin can customize multiple prompt types (planning and summarizing)

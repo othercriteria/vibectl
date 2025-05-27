@@ -29,11 +29,24 @@ class PluginMetadata:
 
 @dataclass
 class PromptMapping:
-    """A custom prompt mapping from a plugin."""
+    """A custom prompt mapping from a plugin.
+
+    Supports both planning prompts (with examples) and summary prompts
+    (with focus_points and example_format).
+    """
 
     description: str
-    focus_points: list[str]
-    example_format: list[str]
+    focus_points: list[str] | None = None
+    example_format: list[str] | None = None
+    examples: list[tuple[str, dict[str, Any]]] | None = None
+
+    def is_planning_prompt(self) -> bool:
+        """Check if this is a planning prompt (has examples)."""
+        return self.examples is not None
+
+    def is_summary_prompt(self) -> bool:
+        """Check if this is a summary prompt (has focus_points/example_format)."""
+        return self.focus_points is not None or self.example_format is not None
 
 
 @dataclass
@@ -50,7 +63,13 @@ class Plugin:
 
         prompt_mappings = {}
         for key, mapping_data in data["prompt_mappings"].items():
-            prompt_mappings[key] = PromptMapping(**mapping_data)
+            # Handle optional fields for different prompt types
+            prompt_mappings[key] = PromptMapping(
+                description=mapping_data["description"],
+                focus_points=mapping_data.get("focus_points"),
+                example_format=mapping_data.get("example_format"),
+                examples=mapping_data.get("examples"),
+            )
 
         return cls(metadata=metadata, prompt_mappings=prompt_mappings)
 
@@ -187,8 +206,23 @@ class PluginStore:
                 logger.error(f"Prompt mapping '{key}' missing description")
                 return False
 
-            if not mapping.focus_points:
-                logger.error(f"Prompt mapping '{key}' missing focus_points")
+            # Check that the mapping has the right fields for its type
+            if mapping.is_planning_prompt():
+                if not mapping.examples:
+                    logger.error(f"Planning prompt mapping '{key}' missing examples")
+                    return False
+            elif mapping.is_summary_prompt():
+                if not mapping.focus_points and not mapping.example_format:
+                    logger.error(
+                        f"Summary prompt mapping '{key}' missing focus_points or "
+                        "example_format"
+                    )
+                    return False
+            else:
+                logger.error(
+                    f"Prompt mapping '{key}' has neither examples nor "
+                    "focus_points/example_format"
+                )
                 return False
 
         # Version compatibility check

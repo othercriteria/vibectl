@@ -6,7 +6,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.patch import (
-    PLAN_PATCH_PROMPT,
+    patch_plan_prompt,
     patch_resource_prompt,
 )
 from vibectl.types import Error, Result
@@ -53,7 +53,7 @@ async def run_patch_command(
         result = await handle_vibe_request(
             request=request,
             command="patch",
-            plan_prompt_func=lambda: PLAN_PATCH_PROMPT,
+            plan_prompt_func=patch_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=patch_resource_prompt,
             semiauto=False,

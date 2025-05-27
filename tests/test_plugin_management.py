@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from vibectl.config import Config
 from vibectl.plugins import Plugin, PluginMetadata, PluginStore, PromptMapping
 from vibectl.subcommands.plugin_cmd import (
     run_plugin_install_command,
@@ -25,7 +26,14 @@ from vibectl.subcommands.plugin_cmd import (
     run_plugin_uninstall_command,
     run_plugin_update_command,
 )
-from vibectl.types import Error, Success
+from vibectl.types import (
+    Error,
+    Fragment,
+    PromptFragments,
+    Success,
+    SystemFragments,
+    UserFragments,
+)
 
 
 @pytest.fixture
@@ -1071,8 +1079,6 @@ class TestRuntimeVersionCompatibility:
         )
 
         # Mock config to return precedence order
-        from vibectl.config import Config
-
         config = Config()
         config.set("plugin_precedence", ["incompatible-plugin", "compatible-plugin"])
 
@@ -1141,7 +1147,7 @@ class TestRuntimeVersionCompatibility:
             # Verify it's the default prompt by checking it doesn't contain
             # plugin content
             system_fragments, user_fragments = result
-            system_text = " ".join(system_fragments)
+            system_text = " ".join(system_fragments + user_fragments)
 
             # Should not contain plugin-specific content
             assert "Test patch summary from plugin" not in system_text
@@ -1191,3 +1197,428 @@ class TestRuntimeVersionCompatibility:
             # Should return the plugin mapping (no version check performed)
             assert result is not None
             assert result.description == "Test prompt"
+
+
+class TestDualPromptTypePlugins:
+    """Tests for plugins that support both planning and summary prompts."""
+
+    @pytest.fixture
+    def dual_prompt_plugin_data(self) -> dict[str, Any]:
+        """Plugin data with planning and summary prompts (like annotating-patch-v1)."""
+        return {
+            "plugin_metadata": {
+                "name": "dual-prompt-plugin",
+                "version": "1.0.0",
+                "description": "Plugin with both planning and summary prompts",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_plan": {
+                    "description": "Planning patch commands with custom logic",
+                    "examples": [
+                        [
+                            "scale nginx deployment to 5 replicas",
+                            {
+                                "action_type": "COMMAND",
+                                "commands": [
+                                    "deployment",
+                                    "nginx",
+                                    "-p",
+                                    '{"spec":{"replicas":5}}',
+                                ],
+                                "explanation": "User asked to scale...",
+                            },
+                        ],
+                        [
+                            "add label environment=prod to service web-service...",
+                            {
+                                "action_type": "COMMAND",
+                                "commands": [
+                                    "service",
+                                    "web-service",
+                                    "-p",
+                                    '{"metadata":{"labels":{"environment":"prod"},'
+                                    '"annotations":{"note":"korqtvcpv"}}}',
+                                ],
+                                "explanation": "User asked to add labels...",
+                            },
+                        ],
+                    ],
+                },
+                "patch_resource_summary": {
+                    "description": "Summarize patch results with custom decoding",
+                    "focus_points": [
+                        "decode any 'note' annotation values...",
+                        "explain the decoded note in a friendly way",
+                        "show standard patch result information",
+                    ],
+                    "example_format": [
+                        "[bold]deployment.apps/nginx[/bold] [green]patched[/green]",
+                        "[italic]Decoded from annotation:[/italic] ...",
+                    ],
+                },
+            },
+        }
+
+    @pytest.fixture
+    def planning_only_plugin_data(self) -> dict[str, Any]:
+        """Plugin data with only planning prompts."""
+        return {
+            "plugin_metadata": {
+                "name": "planning-only-plugin",
+                "version": "1.0.0",
+                "description": "Plugin with only planning prompts",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_plan": {
+                    "description": "Custom planning for patch commands",
+                    "examples": [
+                        [
+                            "scale nginx deployment to 3 replicas",
+                            {
+                                "action_type": "COMMAND",
+                                "commands": [
+                                    "deployment",
+                                    "nginx",
+                                    "-p",
+                                    '{"spec":{"replicas":3}}',
+                                ],
+                                "explanation": "Custom planning logic applied.",
+                            },
+                        ],
+                    ],
+                },
+            },
+        }
+
+    @pytest.fixture
+    def summary_only_plugin_data(self) -> dict[str, Any]:
+        """Plugin data with only summary prompts."""
+        return {
+            "plugin_metadata": {
+                "name": "summary-only-plugin",
+                "version": "1.0.0",
+                "description": "Plugin with only summary prompts",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_resource_summary": {
+                    "description": "Custom summary for patch results",
+                    "focus_points": [
+                        "resource type and name",
+                        "changes applied",
+                        "custom formatting",
+                    ],
+                    "example_format": [
+                        "[bold]resource[/bold] [green]patched[/green]",
+                        "Custom summary format",
+                    ],
+                },
+            },
+        }
+
+    def test_dual_prompt_plugin_validation(
+        self, mock_plugin_store: PluginStore, dual_prompt_plugin_data: dict[str, Any]
+    ) -> None:
+        """Test plugins with both planning and summary prompts validate correctly."""
+        plugin = Plugin.from_dict(dual_prompt_plugin_data)
+
+        # Verify the plugin structure
+        assert len(plugin.prompt_mappings) == 2
+
+        # Check planning prompt
+        patch_plan = plugin.prompt_mappings["patch_plan"]
+        assert patch_plan.is_planning_prompt()
+        assert not patch_plan.is_summary_prompt()
+        assert patch_plan.examples is not None
+        assert len(patch_plan.examples) == 2
+        assert patch_plan.focus_points is None
+        assert patch_plan.example_format is None
+
+        # Check summary prompt
+        patch_summary = plugin.prompt_mappings["patch_resource_summary"]
+        assert patch_summary.is_summary_prompt()
+        assert not patch_summary.is_planning_prompt()
+        assert patch_summary.focus_points is not None
+        assert patch_summary.example_format is not None
+        assert patch_summary.examples is None
+
+        # Validate plugin passes validation
+        assert mock_plugin_store._validate_plugin(plugin)
+
+    def test_planning_only_plugin_validation(
+        self, mock_plugin_store: PluginStore, planning_only_plugin_data: dict[str, Any]
+    ) -> None:
+        """Test that planning-only plugins validate correctly."""
+        plugin = Plugin.from_dict(planning_only_plugin_data)
+
+        patch_plan = plugin.prompt_mappings["patch_plan"]
+        assert patch_plan.is_planning_prompt()
+        assert not patch_plan.is_summary_prompt()
+        assert patch_plan.examples is not None
+        assert patch_plan.focus_points is None
+
+        assert mock_plugin_store._validate_plugin(plugin)
+
+    def test_summary_only_plugin_validation(
+        self, mock_plugin_store: PluginStore, summary_only_plugin_data: dict[str, Any]
+    ) -> None:
+        """Test that summary-only plugins validate correctly."""
+        plugin = Plugin.from_dict(summary_only_plugin_data)
+
+        patch_summary = plugin.prompt_mappings["patch_resource_summary"]
+        assert patch_summary.is_summary_prompt()
+        assert not patch_summary.is_planning_prompt()
+        assert patch_summary.focus_points is not None
+        assert patch_summary.examples is None
+
+        assert mock_plugin_store._validate_plugin(plugin)
+
+    def test_invalid_prompt_mapping_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that invalid prompt mappings fail validation."""
+        # Plugin with prompt mapping that has neither examples nor focus_points
+        invalid_plugin_data = {
+            "plugin_metadata": {
+                "name": "invalid-plugin",
+                "version": "1.0.0",
+                "description": "Invalid plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "invalid_prompt": {
+                    "description": "Invalid prompt with no examples or focus_points",
+                    # Missing both examples and focus_points/example_format
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(invalid_plugin_data)
+
+        # Should fail validation
+        assert not mock_plugin_store._validate_plugin(plugin)
+
+    def test_planning_prompt_missing_examples_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that planning prompts without examples fail validation."""
+        invalid_planning_data = {
+            "plugin_metadata": {
+                "name": "invalid-planning",
+                "version": "1.0.0",
+                "description": "Invalid planning plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_plan": {
+                    "description": "Planning prompt without examples",
+                    "examples": [],  # Empty examples
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(invalid_planning_data)
+
+        # Should fail validation
+        assert not mock_plugin_store._validate_plugin(plugin)
+
+    def test_summary_prompt_missing_focus_points_validation(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test summary prompts sans focus_points or example_format fail validation."""
+        invalid_summary_data = {
+            "plugin_metadata": {
+                "name": "invalid-summary",
+                "version": "1.0.0",
+                "description": "Invalid summary plugin",
+                "author": "Test Author",
+                "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "patch_resource_summary": {
+                    "description": "Summary prompt...",
+                    # Missing both focus_points and example_format
+                },
+            },
+        }
+
+        plugin = Plugin.from_dict(invalid_summary_data)
+
+        # Should fail validation
+        assert not mock_plugin_store._validate_plugin(plugin)
+
+    @patch("vibectl.plugins.PluginStore")
+    @patch("vibectl.plugins.PromptResolver")
+    def test_plugin_override_decorator_planning_prompt(
+        self,
+        mock_resolver_class: Mock,
+        mock_store_class: Mock,
+        dual_prompt_plugin_data: dict[str, Any],
+    ) -> None:
+        """Test that the plugin override decorator works for planning prompts."""
+        from vibectl.prompts.shared import with_plugin_override
+
+        # Create plugin with planning prompt
+        plugin = Plugin.from_dict(dual_prompt_plugin_data)
+        patch_plan_mapping = plugin.prompt_mappings["patch_plan"]
+
+        # Mock the resolver to return our planning prompt mapping
+        mock_resolver = Mock()
+        mock_resolver.get_prompt_mapping.return_value = patch_plan_mapping
+        mock_resolver_class.return_value = mock_resolver
+
+        # Create a mock function to decorate
+        @with_plugin_override("patch_plan")
+        def mock_planning_function(
+            config: Config | None = None, current_memory: str | None = None
+        ) -> PromptFragments:
+            # This is the default behavior - should not be called
+            return PromptFragments(
+                (
+                    SystemFragments([Fragment("default planning")]),
+                    UserFragments([Fragment("default request")]),
+                )
+            )
+
+        # Call the decorated function
+        result = mock_planning_function()
+
+        # Verify the result is from create_planning_prompt
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        system_fragments, user_fragments = result
+        assert isinstance(system_fragments, list)
+        assert isinstance(user_fragments, list)
+
+        # Should contain planning-specific content
+        combined_text = " ".join(system_fragments + user_fragments)
+        assert "kubectl patch" in combined_text
+        assert "COMMAND" in combined_text
+        assert "Planning patch commands with custom logic" in combined_text
+
+    @patch("vibectl.plugins.PluginStore")
+    @patch("vibectl.plugins.PromptResolver")
+    def test_plugin_override_decorator_summary_prompt(
+        self,
+        mock_resolver_class: Mock,
+        mock_store_class: Mock,
+        dual_prompt_plugin_data: dict[str, Any],
+    ) -> None:
+        """Test that the plugin override decorator works for summary prompts."""
+        from vibectl.prompts.shared import with_plugin_override
+
+        # Create plugin with summary prompt
+        plugin = Plugin.from_dict(dual_prompt_plugin_data)
+        patch_summary_mapping = plugin.prompt_mappings["patch_resource_summary"]
+
+        # Mock the resolver to return our summary prompt mapping
+        mock_resolver = Mock()
+        mock_resolver.get_prompt_mapping.return_value = patch_summary_mapping
+        mock_resolver_class.return_value = mock_resolver
+
+        # Create a mock function to decorate
+        @with_plugin_override("patch_resource_summary")
+        def mock_summary_function(
+            config: Config | None = None, current_memory: str | None = None
+        ) -> PromptFragments:
+            # This is the default behavior - should not be called
+            return PromptFragments(
+                (
+                    SystemFragments([Fragment("default summary")]),
+                    UserFragments([Fragment("default output")]),
+                )
+            )
+
+        # Call the decorated function
+        result = mock_summary_function()
+
+        # Verify the result is from create_summary_prompt
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        system_fragments, user_fragments = result
+        assert isinstance(system_fragments, list)
+        assert isinstance(user_fragments, list)
+
+        # Should contain summary-specific content
+        combined_text = " ".join(system_fragments + user_fragments)
+        assert "decode any 'note' annotation values" in combined_text
+        assert "Summarize patch results with custom decoding" in combined_text
+        assert "{output}" in combined_text
+
+    @patch("vibectl.plugins.PluginStore")
+    @patch("vibectl.plugins.PromptResolver")
+    def test_plugin_override_decorator_fallback_on_error(
+        self, mock_resolver_class: Mock, mock_store_class: Mock
+    ) -> None:
+        """Test that the plugin override decorator falls back to default on errors."""
+        from vibectl.prompts.shared import with_plugin_override
+
+        # Mock the resolver to raise an exception
+        mock_resolver = Mock()
+        mock_resolver.get_prompt_mapping.side_effect = Exception("Plugin error")
+        mock_resolver_class.return_value = mock_resolver
+
+        # Track if default function was called
+        default_called = False
+
+        @with_plugin_override("patch_plan")
+        def mock_function_with_fallback(
+            config: Config | None = None, current_memory: str | None = None
+        ) -> PromptFragments:
+            nonlocal default_called
+            default_called = True
+            return PromptFragments(
+                (
+                    SystemFragments([Fragment("default")]),
+                    UserFragments([Fragment("fallback")]),
+                )
+            )
+
+        # Call the decorated function
+        result = mock_function_with_fallback()
+
+        # Should fall back to default function
+        assert default_called
+        assert result == PromptFragments(
+            (
+                SystemFragments([Fragment("default")]),
+                UserFragments([Fragment("fallback")]),
+            )
+        )
+
+    async def test_install_dual_prompt_plugin_success(
+        self,
+        mock_plugin_store: PluginStore,
+        tmp_path: Path,
+        dual_prompt_plugin_data: dict[str, Any],
+    ) -> None:
+        """Test installing a plugin with both planning and summary prompts."""
+        plugin_file = tmp_path / "dual-prompt-plugin.json"
+        with open(plugin_file, "w") as f:
+            json.dump(dual_prompt_plugin_data, f, indent=2)
+
+        result = await run_plugin_install_command(str(plugin_file), force=False)
+
+        assert isinstance(result, Success)
+        assert "Installed plugin 'dual-prompt-plugin' version 1.0.0" in result.message
+        assert "Customizes prompts:" in result.message
+        assert "• patch_plan" in result.message
+        assert "• patch_resource_summary" in result.message
+
+        # Verify plugin was actually stored
+        plugin = mock_plugin_store.get_plugin("dual-prompt-plugin")
+        assert plugin is not None
+        assert len(plugin.prompt_mappings) == 2
