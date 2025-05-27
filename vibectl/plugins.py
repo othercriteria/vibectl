@@ -234,6 +234,34 @@ class PromptResolver:
         self.plugin_store = plugin_store
         self.config = config or Config()
 
+    def _is_plugin_compatible_at_runtime(self, plugin: Plugin, prompt_key: str) -> bool:
+        """
+        Check if a plugin is compatible with the current vibectl version at runtime.
+
+        Args:
+            plugin: The plugin to check
+            prompt_key: The prompt key being requested (for logging)
+
+        Returns:
+            bool: True if compatible or no version requirement, False if incompatible
+        """
+        if not plugin.metadata.compatible_vibectl_versions:
+            # No version requirement specified - allow it
+            return True
+
+        is_compatible, error_msg = check_plugin_compatibility(
+            plugin.metadata.compatible_vibectl_versions
+        )
+
+        if not is_compatible:
+            logger.warning(
+                f"Skipping plugin '{plugin.metadata.name}' for prompt "
+                f"'{prompt_key}': {error_msg}. Consider updating the plugin."
+            )
+            return False
+
+        return True
+
     def get_prompt_mapping(self, prompt_key: str) -> PromptMapping | None:
         """
         Get the prompt mapping for a given key, respecting plugin precedence.
@@ -254,7 +282,11 @@ class PromptResolver:
             # Check plugins in precedence order
             for plugin_name in precedence_order:
                 plugin = self.plugin_store.get_plugin(plugin_name)
-                if plugin and prompt_key in plugin.prompt_mappings:
+                if (
+                    plugin
+                    and prompt_key in plugin.prompt_mappings
+                    and self._is_plugin_compatible_at_runtime(plugin, prompt_key)
+                ):
                     logger.debug(
                         f"Using prompt '{prompt_key}' from plugin "
                         f"'{plugin.metadata.name}' (precedence priority)"
@@ -268,7 +300,10 @@ class PromptResolver:
             ]
 
             for plugin in remaining_plugins:
-                if prompt_key in plugin.prompt_mappings:
+                if (
+                    prompt_key in plugin.prompt_mappings
+                    and self._is_plugin_compatible_at_runtime(plugin, prompt_key)
+                ):
                     logger.debug(
                         f"Using prompt '{prompt_key}' from plugin "
                         f"'{plugin.metadata.name}' (not in precedence list)"
@@ -279,7 +314,10 @@ class PromptResolver:
             logger.debug("No plugin precedence configured, using filesystem order")
 
             for plugin in self.plugin_store.list_installed_plugins():
-                if prompt_key in plugin.prompt_mappings:
+                if (
+                    prompt_key in plugin.prompt_mappings
+                    and self._is_plugin_compatible_at_runtime(plugin, prompt_key)
+                ):
                     logger.debug(
                         f"Using prompt '{prompt_key}' from plugin "
                         f"'{plugin.metadata.name}'"

@@ -934,3 +934,260 @@ class TestPluginPrecedenceAutomation:
         assert isinstance(result, Success)
         assert "test-plugin" in result.message
         assert "Removed from precedence list" not in result.message
+
+
+class TestRuntimeVersionCompatibility:
+    """Tests for runtime version compatibility validation."""
+
+    @patch("vibectl.plugins.logger")
+    def test_runtime_version_check_skips_incompatible_plugin(
+        self, mock_logger: Mock, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that incompatible plugins are skipped at runtime with warning."""
+        # Create an incompatible plugin (requires future version)
+        incompatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="future-plugin",
+                version="1.0.0",
+                description="Plugin requiring future vibectl version",
+                author="Test Author",
+                compatible_vibectl_versions=">=2.0.0,<3.0.0",  # Future version
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Test prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        # Mock the plugin store to return the incompatible plugin
+        with patch.object(
+            mock_plugin_store,
+            "list_installed_plugins",
+            return_value=[incompatible_plugin],
+        ):
+            from vibectl.plugins import PromptResolver
+
+            resolver = PromptResolver(mock_plugin_store)
+            result = resolver.get_prompt_mapping("test_prompt")
+
+            # Should return None (no compatible plugin found)
+            assert result is None
+
+            # Should log a warning about skipping the incompatible plugin
+            mock_logger.warning.assert_called_once()
+            warning_call = mock_logger.warning.call_args[0][0]
+            assert "Skipping plugin 'future-plugin'" in warning_call
+            assert "Requires version >= 2.0.0, got 0.8.7" in warning_call
+            assert "Consider updating the plugin" in warning_call
+
+    @patch("vibectl.plugins.logger")
+    def test_runtime_version_check_uses_compatible_plugin(
+        self, mock_logger: Mock, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that compatible plugins are used at runtime."""
+        # Create a compatible plugin
+        compatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="compatible-plugin",
+                version="1.0.0",
+                description="Plugin compatible with current vibectl version",
+                author="Test Author",
+                compatible_vibectl_versions=">=0.8.0,<1.0.0",  # Compatible
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Test prompt description",
+                    focus_points=["Focus point 1"],
+                    example_format=["Example line 1"],
+                )
+            },
+        )
+
+        # Mock the plugin store to return the compatible plugin
+        with patch.object(
+            mock_plugin_store,
+            "list_installed_plugins",
+            return_value=[compatible_plugin],
+        ):
+            from vibectl.plugins import PromptResolver
+
+            resolver = PromptResolver(mock_plugin_store)
+            result = resolver.get_prompt_mapping("test_prompt")
+
+            # Should return the plugin mapping
+            assert result is not None
+            assert result.description == "Test prompt description"
+            assert result.focus_points == ["Focus point 1"]
+            assert result.example_format == ["Example line 1"]
+
+            # Should not log any warnings about version compatibility
+            mock_logger.warning.assert_not_called()
+
+    @patch("vibectl.plugins.logger")
+    def test_runtime_version_check_precedence_order(
+        self, mock_logger: Mock, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that version compatibility is checked in precedence order."""
+        # Create two plugins: first is incompatible, second is compatible
+        incompatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="incompatible-plugin",
+                version="1.0.0",
+                description="Incompatible plugin",
+                author="Test Author",
+                compatible_vibectl_versions=">=2.0.0,<3.0.0",  # Future version
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Incompatible prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        compatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="compatible-plugin",
+                version="1.0.0",
+                description="Compatible plugin",
+                author="Test Author",
+                compatible_vibectl_versions=">=0.8.0,<1.0.0",  # Compatible
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Compatible prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        # Mock config to return precedence order
+        from vibectl.config import Config
+
+        config = Config()
+        config.set("plugin_precedence", ["incompatible-plugin", "compatible-plugin"])
+
+        # Mock plugin store methods
+        def mock_get_plugin(name: str) -> Plugin | None:
+            if name == "incompatible-plugin":
+                return incompatible_plugin
+            elif name == "compatible-plugin":
+                return compatible_plugin
+            return None
+
+        with patch.object(mock_plugin_store, "get_plugin", side_effect=mock_get_plugin):
+            from vibectl.plugins import PromptResolver
+
+            resolver = PromptResolver(mock_plugin_store, config)
+            result = resolver.get_prompt_mapping("test_prompt")
+
+            # Should return the compatible plugin (second in precedence)
+            assert result is not None
+            assert result.description == "Compatible prompt"
+
+            # Should log a warning about skipping the incompatible plugin
+            mock_logger.warning.assert_called_once()
+            warning_call = mock_logger.warning.call_args[0][0]
+            assert "Skipping plugin 'incompatible-plugin'" in warning_call
+
+    def test_runtime_version_check_with_plugin_override_decorator(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test version compatibility works through with_plugin_override decorator."""
+        # Create an incompatible plugin
+        incompatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="test-plugin",
+                version="1.0.0",
+                description="Test plugin",
+                author="Test Author",
+                compatible_vibectl_versions=">=2.0.0,<3.0.0",  # Future version
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "patch_resource_summary": PromptMapping(
+                    description="Test patch summary from plugin",
+                    focus_points=["Plugin focus point"],
+                    example_format=["Plugin example"],
+                )
+            },
+        )
+
+        # Mock the plugin store to return the incompatible plugin
+        with patch.object(
+            mock_plugin_store,
+            "list_installed_plugins",
+            return_value=[incompatible_plugin],
+        ):
+            # Import and test the actual patch_resource_prompt function
+            from vibectl.prompts.patch import patch_resource_prompt
+
+            # This should fall back to default prompt due to version incompatibility
+            result = patch_resource_prompt()
+
+            # Should return the default prompt fragments
+            assert result is not None
+            assert len(result) == 2  # (system_fragments, user_fragments)
+
+            # Verify it's the default prompt by checking it doesn't contain
+            # plugin content
+            system_fragments, user_fragments = result
+            system_text = " ".join(system_fragments)
+
+            # Should not contain plugin-specific content
+            assert "Test patch summary from plugin" not in system_text
+            assert "Plugin focus point" not in system_text
+            assert "Plugin example" not in system_text
+
+            # Should contain default prompt content
+            assert (
+                "kubectl patch results" in system_text.lower()
+                or "patch" in system_text.lower()
+            )
+
+    def test_runtime_version_check_plugin_without_version_requirement(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that plugins without version requirements are allowed."""
+        # Create a plugin without version compatibility requirement
+        plugin_without_version = Plugin(
+            metadata=PluginMetadata(
+                name="no-version-plugin",
+                version="1.0.0",
+                description="Plugin without version requirement",
+                author="Test Author",
+                compatible_vibectl_versions="",  # Empty version requirement
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Test prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        # Mock the plugin store to return the plugin
+        with patch.object(
+            mock_plugin_store,
+            "list_installed_plugins",
+            return_value=[plugin_without_version],
+        ):
+            from vibectl.plugins import PromptResolver
+
+            resolver = PromptResolver(mock_plugin_store)
+            result = resolver.get_prompt_mapping("test_prompt")
+
+            # Should return the plugin mapping (no version check performed)
+            assert result is not None
+            assert result.description == "Test prompt"
