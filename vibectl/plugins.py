@@ -12,6 +12,7 @@ from typing import Any
 
 from vibectl.config import Config
 from vibectl.logutil import logger
+from vibectl.version_compat import check_plugin_compatibility
 
 
 @dataclass
@@ -188,6 +189,15 @@ class PluginStore:
 
             if not mapping.focus_points:
                 logger.error(f"Prompt mapping '{key}' missing focus_points")
+                return False
+
+        # Version compatibility check
+        if plugin.metadata.compatible_vibectl_versions:
+            is_compatible, error_msg = check_plugin_compatibility(
+                plugin.metadata.compatible_vibectl_versions
+            )
+            if not is_compatible:
+                logger.error(f"Plugin version compatibility check failed: {error_msg}")
                 return False
 
         return True

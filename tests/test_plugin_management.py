@@ -495,23 +495,18 @@ class TestVersionCompatibilityFoundation:
     ) -> None:
         """Test installing a plugin with future version requirements.
 
-        This test currently passes but will fail once version compatibility
-        is implemented.
-
-        It serves as a foundation for the compatibility checking feature.
+        This test should now fail since version compatibility is implemented.
         """
-        # This should succeed now but will fail once version checking is added
+        # This should now fail due to version compatibility checking
         result = await run_plugin_install_command(incompatible_plugin_file, force=False)
 
-        # Currently this passes - once we implement version checking, this should fail
-        assert isinstance(result, Success)
-        # TODO: Once version compatibility is implemented, this test should
-        # be updated to:
-        # assert isinstance(result, Error)
-        # assert (
-        #     "compatible_vibectl_versions" in result.error
-        #     or "version compatibility" in result.error
-        # )
+        # Now that version compatibility is implemented, this should fail
+        assert isinstance(result, Error)
+        assert (
+            "version compatibility" in result.error.lower()
+            or "requires version" in result.error.lower()
+            or "failed to install plugin" in result.error.lower()
+        )
 
     def test_plugin_metadata_includes_version_info(
         self, test_plugin_data: dict[str, Any]
@@ -547,25 +542,131 @@ class TestVersionCompatibilityFoundation:
             # This should fail due to missing required field
             Plugin.from_dict(invalid_data)
 
-    async def test_compatibility_check_placeholder(self) -> None:
-        """Placeholder test for version compatibility checking logic.
+    async def test_install_compatible_version_requirement(
+        self, mock_plugin_store: PluginStore, test_plugin_file: str
+    ) -> None:
+        """Test installing a plugin with compatible version requirements."""
+        # The test plugin has ">=0.8.0,<1.0.0" which should be compatible with 0.8.7
+        result = await run_plugin_install_command(test_plugin_file, force=False)
 
-        This test documents where version compatibility logic should be implemented.
-        """
-        # TODO: Implement actual version compatibility checking
-        # When implemented, this should test:
-        # 1. Parsing version ranges (e.g., ">=0.8.0,<1.0.0")
-        # 2. Comparing current vibectl version against requirements
-        # 3. Rejecting incompatible plugins at install time
-        # 4. Warning about potential runtime compatibility issues
+        assert isinstance(result, Success)
+        assert "Installed plugin 'test-plugin' version 1.0.0" in result.message
 
-        # For now, just document the expected behavior
-        current_version = "0.9.0"  # Example current version
-        plugin_requirement = ">=0.8.0,<1.0.0"
+    async def test_install_old_version_requirement(
+        self, mock_plugin_store: PluginStore, tmp_path: Path
+    ) -> None:
+        """Test installing a plugin that requires an older vibectl version."""
+        old_version_data = {
+            "plugin_metadata": {
+                "name": "old-plugin",
+                "version": "1.0.0",
+                "description": "A plugin requiring old vibectl version",
+                "author": "Test Author",
+                "compatible_vibectl_versions": "<0.8.0",  # Too old
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "test_prompt": {
+                    "description": "Test prompt description",
+                    "focus_points": ["Focus point 1"],
+                    "example_format": ["Example line 1"],
+                }
+            },
+        }
+        old_plugin_file = tmp_path / "old-plugin.json"
+        with open(old_plugin_file, "w") as f:
+            json.dump(old_version_data, f, indent=2)
 
-        # This logic should be implemented in the actual version checking function
-        assert current_version  # Placeholder assertion
-        assert plugin_requirement  # Placeholder assertion
+        result = await run_plugin_install_command(str(old_plugin_file), force=False)
+
+        assert isinstance(result, Error)
+        assert (
+            "version compatibility" in result.error.lower()
+            or "requires version" in result.error.lower()
+            or "failed to install plugin" in result.error.lower()
+        )
+
+    async def test_install_invalid_version_format(
+        self, mock_plugin_store: PluginStore, tmp_path: Path
+    ) -> None:
+        """Test installing a plugin with invalid version requirement format."""
+        invalid_version_data = {
+            "plugin_metadata": {
+                "name": "invalid-version-plugin",
+                "version": "1.0.0",
+                "description": "A plugin with invalid version format",
+                "author": "Test Author",
+                "compatible_vibectl_versions": "~1.0.0",  # Invalid format
+                "created_at": "2024-01-15T10:00:00Z",
+            },
+            "prompt_mappings": {
+                "test_prompt": {
+                    "description": "Test prompt description",
+                    "focus_points": ["Focus point 1"],
+                    "example_format": ["Example line 1"],
+                }
+            },
+        }
+        invalid_file = tmp_path / "invalid-version-plugin.json"
+        with open(invalid_file, "w") as f:
+            json.dump(invalid_version_data, f, indent=2)
+
+        result = await run_plugin_install_command(str(invalid_file), force=False)
+
+        assert isinstance(result, Error)
+        assert (
+            "version compatibility" in result.error.lower()
+            or "invalid version requirement" in result.error.lower()
+            or "failed to install plugin" in result.error.lower()
+        )
+
+    def test_version_compatibility_validation_in_plugin_store(
+        self, mock_plugin_store: PluginStore
+    ) -> None:
+        """Test that PluginStore validation includes version compatibility checking."""
+        # Create a plugin with incompatible version requirements
+        incompatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="test-plugin",
+                version="1.0.0",
+                description="Test plugin",
+                author="Test Author",
+                compatible_vibectl_versions=">=2.0.0,<3.0.0",  # Future version
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Test prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        # This should fail validation due to version incompatibility
+        assert mock_plugin_store._validate_plugin(incompatible_plugin) is False
+
+        # Create a plugin with compatible version requirements
+        compatible_plugin = Plugin(
+            metadata=PluginMetadata(
+                name="test-plugin",
+                version="1.0.0",
+                description="Test plugin",
+                author="Test Author",
+                compatible_vibectl_versions=">=0.8.0,<1.0.0",  # Compatible
+                created_at="2024-01-15T10:00:00Z",
+            ),
+            prompt_mappings={
+                "test_prompt": PromptMapping(
+                    description="Test prompt",
+                    focus_points=["Focus point"],
+                    example_format=["Example"],
+                )
+            },
+        )
+
+        # This should pass validation due to version compatibility
+        assert mock_plugin_store._validate_plugin(compatible_plugin) is True
 
 
 class TestPluginValidation:
