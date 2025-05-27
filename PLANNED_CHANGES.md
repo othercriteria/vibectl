@@ -8,7 +8,8 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] Configurable via config options ✅
 - [x] Plugin management via `vibectl install plugin plugin-foo-v3.json` ✅
 - [x] Precedence order support like `["plugin-foo-v3", "plugin-foo-v2", "plugin-bar-v3"]` ✅ (COMPLETED)
-- [ ] Version compatibility checking for plugins (install time + runtime)
+- [x] Version compatibility checking for plugins (install time) ✅ **RECENTLY COMPLETED**
+- [ ] Version compatibility checking for plugins (runtime validation)
 - [x] WARNING level logging for command failures attributable to custom prompts ✅
 
 ## Implementation Components
@@ -18,7 +19,7 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] Plugin file format (JSON) with metadata and prompt definitions ✅
 - [x] Plugin storage location: `~/.config/vibectl/plugins/` ✅
 - [x] Plugin listing capabilities: `vibectl plugin list` ✅
-- [ ] Plugin uninstallation and update capabilities
+- [x] Plugin uninstallation and update capabilities ✅ **IMPLEMENTED**
 - [x] Local file installation support (examples/plugins/ as step 0) ✅
 - [x] Plugin validation before storing (install-time courtesy check) ✅
 
@@ -26,7 +27,8 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] File-based prompt store for MVP ✅
 - [x] JSON file storage and management in `~/.config/vibectl/` ✅
 - [x] Prompt resolution with fallback chain using flat keys ✅
-- [ ] Version compatibility validation at runtime + install time
+- [x] Version compatibility validation at install time ✅ **RECENTLY COMPLETED**
+- [ ] Version compatibility validation at runtime
 - [x] Flat prompt key mapping (e.g., `"patch_resource_summary"`) ✅
 
 ### 3. Configuration Integration ✅ COMPLETED
@@ -40,7 +42,7 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] WARNING level logging for custom prompt failures ✅
 - [x] Graceful fallback to default prompts on errors ✅
 
-## ✅ COMPLETED: MVP Implementation + Plugin Precedence
+## ✅ COMPLETED: MVP Implementation + Plugin Precedence + Version Compatibility
 
 ### ✅ Phase 1: Core Infrastructure & Examples
 1. [x] Create `examples/plugins/` directory with sample plugin files ✅
@@ -63,13 +65,32 @@ Implement a plugin system that allows users to replace default prompts with cust
 4. [x] Fix asyncclick import compatibility issue ✅
 5. [x] Complete plugin precedence CLI interface ✅
 
-### 🚧 Phase 4: Management & Polish (REMAINING)
-1. [ ] Add plugin management commands (uninstall, update) - list is done ✅
-2. [ ] Extend to other prompt-using subcommands (patch working ✅)
-3. [ ] Comprehensive testing and documentation
-4. [ ] Performance optimization
+### ✅ Phase 4: Version Compatibility System (RECENTLY COMPLETED)
+1. [x] Implement semantic versioning support with operators (>=, <=, >, <, ==, !=) ✅
+2. [x] Add install-time version compatibility checking ✅
+3. [x] Create comprehensive version parsing and comparison logic ✅
+4. [x] Integrate version validation into plugin installation process ✅
+5. [x] Add 19 comprehensive test cases covering all version scenarios ✅
+
+### 🚧 Phase 5: Management & Polish (REMAINING)
+1. [x] Add plugin management commands (uninstall, update) ✅ **IMPLEMENTED** - list was already done ✅
+2. [ ] Add runtime version compatibility validation
+3. [ ] Extend to other prompt-using subcommands (patch working ✅)
+4. [ ] Comprehensive testing and documentation
+5. [ ] Performance optimization
 
 ## ✅ RECENTLY COMPLETED FIXES
+
+### Version Compatibility System ✅ (RECENTLY COMPLETED)
+**Status**: INSTALL-TIME CHECKING FULLY IMPLEMENTED
+- **Implemented**: `vibectl/version_compat.py` module with comprehensive version handling
+- **Implemented**: Semantic versioning support with operators: `>=`, `<=`, `>`, `<`, `==`, `!=`
+- **Implemented**: Version parsing for variable-length versions (1.0, 1.0.0, 1.2.3.4)
+- **Implemented**: Version normalization for different-length version comparisons
+- **Implemented**: Integration with `PluginStore._validate_plugin()` for install-time checks
+- **Implemented**: 19 comprehensive test cases covering all functionality
+- **Working**: Install-time validation prevents incompatible plugin installation
+- **Current Version**: Validates against vibectl 0.8.7
 
 ### Plugin Precedence Configuration System ✅ (COMPLETED)
 **Status**: FULLY IMPLEMENTED AND WORKING
@@ -87,29 +108,30 @@ Implement a plugin system that allows users to replace default prompts with cust
 1. **Config System List Handling**: Fixed `Config.set()` method to properly handle list types without converting them to string representations first
 2. **AsyncClick Compatibility**: Updated plugin_cmd.py to use `import asyncclick as click` to match the main CLI pattern
 3. **Type Conversion**: Added `_convert_to_list()` method to properly parse list values from strings when needed
+4. **Version Compatibility**: Added robust semantic versioning with comprehensive test coverage
 
 ## ❓ Outstanding Questions
 
 ### Version Compatibility
-**Status**: Not yet implemented
-- Install-time version checking
-- Runtime version validation
-- Semantic versioning enforcement
+**Status**: Install-time checking IMPLEMENTED ✅, Runtime validation pending
+- [x] Install-time version checking ✅ **RECENTLY COMPLETED**
+- [ ] Runtime version validation
+- [x] Semantic versioning enforcement ✅ **RECENTLY COMPLETED**
 
 ## 🎉 SUCCESS ACHIEVED
 - [x] Users can install custom prompt plugins from examples/plugins/ ✅
 - [x] Custom prompts are used with proper precedence ✅ (working with explicit precedence)
 - [x] Plugin precedence is fully configurable and manageable ✅
+- [x] Install-time version compatibility checking prevents incompatible plugins ✅ **NEW**
 - [x] Failures are properly attributed and logged ✅
 - [x] System degrades gracefully to defaults ✅
 - [x] No performance impact on non-plugin users ✅
-- [x] Plugin management commands work reliably ✅ (list, precedence management working)
+- [x] Plugin management commands work reliably ✅ (install, list, uninstall, update, precedence management working)
 
 ## Next Steps
-1. **Add version compatibility checking**
-2. **Complete plugin management** (uninstall, update commands)
-3. **Extend to other subcommands** beyond patch
-4. **Add comprehensive testing**
+1. **Add runtime version compatibility validation**
+2. **Extend to other subcommands** beyond patch
+3. **Add comprehensive testing**
 
 ## Note on Implementation Status
-The plugin precedence system is now fully functional. The original undefined behavior (where precedence depended on filesystem order) has been replaced with explicit configuration-based precedence that users can control via the CLI commands.
+The plugin system is now highly functional with both precedence management and install-time version compatibility checking. The original undefined behavior (where precedence depended on filesystem order) has been replaced with explicit configuration-based precedence that users can control via CLI commands. Version compatibility ensures only compatible plugins can be installed, preventing runtime errors from version mismatches.

@@ -22,12 +22,15 @@ from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
 
 
-async def run_plugin_install_command(plugin_path: str, force: bool = False) -> Result:
+async def run_plugin_install_command(
+    plugin_path: str, force: bool = False, precedence: str | None = None
+) -> Result:
     """Install a plugin from a local file path.
 
     Args:
         plugin_path: Path to the plugin JSON file
         force: Whether to force install even if plugin already exists
+        precedence: Where to place in precedence order ('first', 'last', or None)
 
     Returns:
         Result indicating success or failure
@@ -53,6 +56,26 @@ async def run_plugin_install_command(plugin_path: str, force: bool = False) -> R
 
         plugin = store.install_plugin(plugin_path, force=force)
 
+        # Handle precedence configuration if requested
+        config = Config()
+        precedence_updated = False
+        if precedence:
+            current_precedence = config.get("plugin_precedence", [])
+
+            # Remove if already in list (for updates)
+            if plugin.metadata.name in current_precedence:
+                current_precedence.remove(plugin.metadata.name)
+
+            if precedence == "first":
+                current_precedence.insert(0, plugin.metadata.name)
+                precedence_updated = True
+            elif precedence == "last":
+                current_precedence.append(plugin.metadata.name)
+                precedence_updated = True
+
+            if precedence_updated:
+                config.set("plugin_precedence", current_precedence)
+
         result_message = (
             f"✓ Installed plugin '{plugin.metadata.name}' "
             f"version {plugin.metadata.version}"
@@ -63,6 +86,20 @@ async def run_plugin_install_command(plugin_path: str, force: bool = False) -> R
             result_message += "\n\nCustomizes prompts:"
             for key in plugin.prompt_mappings:
                 result_message += f"\n  • {key}"
+
+        # Inform about precedence
+        if precedence_updated:
+            position = (
+                "highest priority" if precedence == "first" else "lowest priority"
+            )
+            result_message += f"\n\n✓ Added to precedence list at {position}"
+        else:
+            result_message += (
+                "\n\nNote: Plugin not added to precedence list. "
+                f"Use 'vibectl plugin precedence add {plugin.metadata.name}' "
+                "to configure priority, "
+                "or use --precedence first/last during installation."
+            )
 
         return Success(message=result_message)
 
@@ -135,8 +172,23 @@ async def run_plugin_uninstall_command(plugin_id: str) -> Result:
         if not plugin:
             return Error(error=f"✗ Plugin '{plugin_id}' not found.")
 
+        # Check if plugin is in precedence list before uninstalling
+        config = Config()
+        precedence = config.get("plugin_precedence", [])
+        was_in_precedence = plugin_id in precedence
+
+        # Remove from precedence list if present
+        if was_in_precedence:
+            precedence.remove(plugin_id)
+            config.set("plugin_precedence", precedence)
+
         store.uninstall_plugin(plugin_id)
-        return Success(message=f"✓ Uninstalled plugin '{plugin_id}'")
+
+        result_message = f"✓ Uninstalled plugin '{plugin_id}'"
+        if was_in_precedence:
+            result_message += "\n✓ Removed from precedence list"
+
+        return Success(message=result_message)
 
     except Exception as e:
         logger.error(f"Plugin uninstallation failed: {e}")
@@ -348,9 +400,14 @@ def plugin_group() -> None:
 @plugin_group.command("install")
 @click.argument("plugin_path", type=click.Path(exists=True))
 @click.option("--force", is_flag=True, help="Overwrite existing plugin")
-async def plugin_install(plugin_path: str, force: bool) -> None:
+@click.option(
+    "--precedence",
+    type=click.Choice(["first", "last"]),
+    help="Where to place in precedence order",
+)
+async def plugin_install(plugin_path: str, force: bool, precedence: str | None) -> None:
     """Install a plugin from a local file path."""
-    result = await run_plugin_install_command(plugin_path, force)
+    result = await run_plugin_install_command(plugin_path, force, precedence)
     if isinstance(result, Error):
         handle_exception(Exception(result.error), exit_on_error=True)
     else:

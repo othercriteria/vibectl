@@ -104,6 +104,69 @@ def mock_plugin_store(tmp_path: Path) -> Generator[PluginStore, None, None]:
         yield store
 
 
+@pytest.fixture
+def temp_plugin_store(
+    tmp_path: Path,
+) -> Generator[tuple[PluginStore, Mock, Path], None, None]:
+    """Create a temporary plugin store with config for testing precedence automation."""
+    with (
+        patch("vibectl.plugins.PluginStore._get_plugins_directory") as mock_get_dir,
+        patch("vibectl.subcommands.plugin_cmd.Config") as mock_config_class,
+        patch("vibectl.subcommands.plugin_cmd.PluginStore") as mock_store_class,
+    ):
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        mock_get_dir.return_value = plugins_dir
+
+        # Create real store instance
+        store = PluginStore()
+
+        # Mock config instance with shared state
+        config_data: dict[str, Any] = {}
+        config_instance = Mock()
+
+        def mock_get(key: str, default: Any = None) -> Any:
+            return config_data.get(key, default)
+
+        def mock_set(key: str, value: Any) -> None:
+            config_data[key] = value
+
+        config_instance.get.side_effect = mock_get
+        config_instance.set.side_effect = mock_set
+        mock_config_class.return_value = config_instance
+
+        # Make the patched PluginStore return our real store
+        mock_store_class.return_value = store
+
+        yield store, config_instance, tmp_path
+
+
+def create_test_plugin(tmp_path: Path, name: str, version: str) -> str:
+    """Helper function to create a test plugin file."""
+    plugin_data = {
+        "plugin_metadata": {
+            "name": name,
+            "version": version,
+            "description": f"A test plugin for {name}",
+            "author": "Test Author",
+            "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+            "created_at": "2024-01-15T10:00:00Z",
+        },
+        "prompt_mappings": {
+            "test_prompt": {
+                "description": "Test prompt description",
+                "focus_points": ["Focus point 1", "Focus point 2"],
+                "example_format": ["Example line 1", "Example line 2"],
+            }
+        },
+    }
+
+    plugin_file = tmp_path / f"{name}.json"
+    with open(plugin_file, "w") as f:
+        json.dump(plugin_data, f, indent=2)
+    return str(plugin_file)
+
+
 class TestPluginInstallation:
     """Tests for plugin installation functionality."""
 
@@ -733,3 +796,141 @@ class TestPluginValidation:
         )
 
         assert mock_plugin_store._validate_plugin(invalid_plugin) is False
+
+
+class TestPluginPrecedenceAutomation:
+    """Test automatic precedence management during install and uninstall operations."""
+
+    async def test_install_with_precedence_first(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test installing a plugin with precedence=first."""
+        store, config, temp_dir = temp_plugin_store
+
+        # Create initial precedence list with another plugin
+        store.install_plugin(create_test_plugin(temp_dir, "existing-plugin", "1.0.0"))
+        await run_plugin_precedence_set_command(["existing-plugin"])
+
+        # Install new plugin with precedence=first
+        result = await run_plugin_install_command(
+            create_test_plugin(temp_dir, "new-plugin", "1.0.0"), precedence="first"
+        )
+
+        assert isinstance(result, Success)
+        assert "new-plugin" in result.message
+        assert "highest priority" in result.message
+
+        # Check precedence order
+        precedence_result = await run_plugin_precedence_list_command()
+        assert isinstance(precedence_result, Success)
+        assert "1. new-plugin" in precedence_result.message
+        assert "2. existing-plugin" in precedence_result.message
+
+    async def test_install_with_precedence_last(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test installing a plugin with precedence=last."""
+        store, config, temp_dir = temp_plugin_store
+
+        # Create initial precedence list with another plugin
+        store.install_plugin(create_test_plugin(temp_dir, "existing-plugin", "1.0.0"))
+        await run_plugin_precedence_set_command(["existing-plugin"])
+
+        # Install new plugin with precedence=last
+        result = await run_plugin_install_command(
+            create_test_plugin(temp_dir, "new-plugin", "1.0.0"), precedence="last"
+        )
+
+        assert isinstance(result, Success)
+        assert "new-plugin" in result.message
+        assert "lowest priority" in result.message
+
+        # Check precedence order
+        precedence_result = await run_plugin_precedence_list_command()
+        assert isinstance(precedence_result, Success)
+        assert "1. existing-plugin" in precedence_result.message
+        assert "2. new-plugin" in precedence_result.message
+
+    async def test_install_without_precedence_option(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test installing a plugin without precedence option shows info message."""
+        store, config, temp_dir = temp_plugin_store
+
+        result = await run_plugin_install_command(
+            create_test_plugin(temp_dir, "test-plugin", "1.0.0")
+        )
+
+        assert isinstance(result, Success)
+        assert "test-plugin" in result.message
+        assert "not added to precedence list" in result.message
+        assert "precedence add test-plugin" in result.message
+        assert "--precedence first/last" in result.message
+
+    async def test_install_update_existing_plugin_precedence(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test that updating a plugin in precedence list maintains its position."""
+        store, config, temp_dir = temp_plugin_store
+
+        # Install and add to precedence
+        store.install_plugin(create_test_plugin(temp_dir, "test-plugin", "1.0.0"))
+        await run_plugin_precedence_set_command(["test-plugin"])
+
+        # Install new version with precedence=first (should update position)
+        result = await run_plugin_install_command(
+            create_test_plugin(temp_dir, "test-plugin", "2.0.0"),
+            force=True,
+            precedence="first",
+        )
+
+        assert isinstance(result, Success)
+        assert "test-plugin" in result.message
+        assert "highest priority" in result.message
+
+        # Check only appears once in precedence
+        precedence_result = await run_plugin_precedence_list_command()
+        assert isinstance(precedence_result, Success)
+        precedence_lines = precedence_result.message.split("\n")
+        plugin_lines = [line for line in precedence_lines if "test-plugin" in line]
+        assert len(plugin_lines) == 1
+
+    async def test_uninstall_removes_from_precedence(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test that uninstalling a plugin removes it from precedence list."""
+        store, config, temp_dir = temp_plugin_store
+
+        # Install plugins and set precedence
+        store.install_plugin(create_test_plugin(temp_dir, "plugin-a", "1.0.0"))
+        store.install_plugin(create_test_plugin(temp_dir, "plugin-b", "1.0.0"))
+        await run_plugin_precedence_set_command(["plugin-a", "plugin-b"])
+
+        # Uninstall plugin-a
+        result = await run_plugin_uninstall_command("plugin-a")
+
+        assert isinstance(result, Success)
+        assert "plugin-a" in result.message
+        assert "Removed from precedence list" in result.message
+
+        # Check precedence only contains plugin-b
+        precedence_result = await run_plugin_precedence_list_command()
+        assert isinstance(precedence_result, Success)
+        assert "plugin-b" in precedence_result.message
+        assert "plugin-a" not in precedence_result.message
+
+    async def test_uninstall_not_in_precedence(
+        self, temp_plugin_store: tuple[PluginStore, Mock, Path]
+    ) -> None:
+        """Test uninstalling plugin not in precedence doesn't mention precedence."""
+        store, config, temp_dir = temp_plugin_store
+
+        # Install plugin but don't add to precedence
+        store.install_plugin(create_test_plugin(temp_dir, "test-plugin", "1.0.0"))
+
+        # Uninstall plugin
+        result = await run_plugin_uninstall_command("test-plugin")
+
+        assert isinstance(result, Success)
+        assert "test-plugin" in result.message
+        assert "Removed from precedence list" not in result.message
