@@ -12,6 +12,64 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [ ] Version compatibility checking for plugins (runtime validation)
 - [x] WARNING level logging for command failures attributable to custom prompts ✅
 
+## ✅ SUCCESS: Patch Command Plugin Integration
+
+### Implementation Pattern Established
+Successfully converted `vibectl patch` to use the plugin system with the following pattern:
+
+1. **Legacy Constant Removal**: Removed `PLAN_PATCH_PROMPT` constant from `vibectl/prompts/patch.py`
+2. **Plugin Override Decorators**: Both prompt functions use `@with_plugin_override()`:
+   - `patch_plan_prompt()` with key `"patch_plan"`
+   - `patch_resource_prompt()` with key `"patch_resource_summary"`
+3. **Command Integration**: `vibectl/subcommands/patch_cmd.py` uses functions directly:
+   - `plan_prompt_func=patch_plan_prompt` for vibe requests
+   - `summary_prompt_func=patch_resource_prompt` for both standard and vibe
+
+### Plugin Keys Established
+- **Planning prompts**: `"{command}_plan"` (e.g., `"patch_plan"`)
+- **Summary prompts**: `"{command}_resource_summary"` (e.g., `"patch_resource_summary"`)
+
+### Test Updates Required
+- Remove legacy constant imports
+- Update test assertions to compare function results instead of constants
+- All 935 tests passing ✅
+
+## 🎯 Next Target: Apply Command (Alphabetical Order)
+
+### Apply Command Complexity Analysis
+The `apply` command presents **significantly more complexity** than patch:
+
+#### Current Apply Prompt Structure
+1. **Standard Prompts** (like patch):
+   - `PLAN_APPLY_PROMPT` (constant - needs conversion)
+   - `apply_output_prompt()` (function - ready for plugin override)
+
+2. **Intelligent Apply Workflow Prompts** (NEW CHALLENGE):
+   - `plan_apply_filescope_prompt_fragments()` - file scoping analysis
+   - `summarize_apply_manifest_prompt_fragments()` - manifest summarization
+   - `correct_apply_manifest_prompt_fragments()` - manifest correction/generation
+   - `plan_final_apply_command_prompt_fragments()` - final command planning
+
+#### Plugin Integration Challenges for Apply
+1. **Multiple Prompt Types**: Apply has 6 different prompt functions vs patch's 2
+2. **Complex Execution Path**: `run_intelligent_apply_workflow()` uses specialized prompts
+3. **Prompt Function Signatures**: Apply prompts have varied signatures and purposes
+4. **Schema Dependencies**: Apply prompts use specialized schema definitions
+
+#### Proposed Apply Plugin Keys
+- `"apply_plan"` - main planning prompt
+- `"apply_resource_summary"` - output summarization
+- `"apply_filescope"` - file scoping analysis
+- `"apply_manifest_summary"` - manifest summarization
+- `"apply_manifest_correction"` - manifest correction/generation
+- `"apply_final_planning"` - final command planning
+
+### Implementation Strategy for Apply
+1. **Phase 1**: Convert `PLAN_APPLY_PROMPT` constant to function (like patch)
+2. **Phase 2**: Add plugin overrides to `apply_output_prompt()`
+3. **Phase 3**: Evaluate intelligent apply workflow prompts for plugin support
+4. **Phase 4**: Create comprehensive apply plugin examples
+
 ## Implementation Components
 
 ### 1. Plugin Management System ✅ COMPLETED
@@ -42,7 +100,7 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] WARNING level logging for custom prompt failures ✅
 - [x] Graceful fallback to default prompts on errors ✅
 
-## ✅ COMPLETED: MVP Implementation + Plugin Precedence + Version Compatibility
+## ✅ COMPLETED: MVP Implementation + Plugin Precedence + Version Compatibility + First Command Integration
 
 ### ✅ Phase 1: Core Infrastructure & Examples
 1. [x] Create `examples/plugins/` directory with sample plugin files ✅
@@ -72,12 +130,12 @@ Implement a plugin system that allows users to replace default prompts with cust
 4. [x] Integrate version validation into plugin installation process ✅
 5. [x] Add 19 comprehensive test cases covering all version scenarios ✅
 
-### 🚧 Phase 5: Management & Polish (REMAINING)
-1. [x] Add plugin management commands (uninstall, update) ✅ **IMPLEMENTED** - list was already done ✅
-2. [ ] Add runtime version compatibility validation
-3. [ ] Extend to other prompt-using subcommands (patch working ✅)
-4. [ ] Comprehensive testing and documentation
-5. [ ] Performance optimization
+### ✅ Phase 5: First Command Integration (PATCH - COMPLETED)
+1. [x] Convert patch command to use plugin-enabled prompts ✅
+2. [x] Remove legacy constants and update tests ✅
+3. [x] Establish standard plugin key naming conventions ✅
+4. [x] Validate end-to-end functionality with custom plugins ✅
+5. [x] Document implementation pattern for other commands ✅
 
 ## ✅ RECENTLY COMPLETED FIXES
 
@@ -129,9 +187,15 @@ Implement a plugin system that allows users to replace default prompts with cust
 - [x] Plugin management commands work reliably ✅ (install, list, uninstall, update, precedence management working)
 
 ## Next Steps
-1. **Add runtime version compatibility validation**
-2. **Extend to other subcommands** beyond patch
-3. **Add comprehensive testing**
+1. **Systematic Command Rollout (Alphabetical Order)**:
+   - **NEXT: Apply Command** - Convert `PLAN_APPLY_PROMPT` constant, add plugin overrides, handle intelligent apply workflow complexity
+   - **Subsequent Commands**: auto, check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
+
+2. **Add runtime version compatibility validation** - validate plugin compatibility during prompt resolution
+
+3. **Enhanced Plugin Examples** - create comprehensive plugin examples for each command type as they're converted
+
+4. **Performance Optimization** - minimize overhead for non-plugin users
 
 ## Note on Implementation Status
 The plugin system is now highly functional with both precedence management and install-time version compatibility checking. The original undefined behavior (where precedence depended on filesystem order) has been replaced with explicit configuration-based precedence that users can control via CLI commands. Version compatibility ensures only compatible plugins can be installed, preventing runtime errors from version mismatches.
