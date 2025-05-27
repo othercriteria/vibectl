@@ -6,7 +6,6 @@ summaries of Kubernetes resources. Each command aims to make cluster management
 more intuitive while preserving access to raw kubectl output when needed.
 """
 
-import json
 import os
 import sys
 from collections.abc import Callable
@@ -22,7 +21,6 @@ from vibectl.memory import (
     get_memory,
     set_memory,
 )
-from vibectl.plugins import PluginStore
 from vibectl.subcommands.apply_cmd import run_apply_command
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.check_cmd import run_check_command
@@ -38,6 +36,7 @@ from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
 from vibectl.subcommands.memory_update_cmd import run_memory_update_logic
 from vibectl.subcommands.patch_cmd import run_patch_command
+from vibectl.subcommands.plugin_cmd import plugin_group
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
@@ -203,6 +202,9 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
 
     # Show welcome message if no subcommand is invoked
     show_welcome_if_no_subcommand(ctx)
+
+
+cli.add_command(plugin_group)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -599,7 +601,7 @@ def _set_theme_logic(theme_name: str) -> None:
 
 @cli.group()
 def theme() -> None:
-    """Manage console theme settings."""
+    """Manage vibectl themes."""
     pass
 
 
@@ -618,177 +620,14 @@ def list() -> None:
 @theme.command(name="set")
 @click.argument("theme_name")
 def theme_set(theme_name: str) -> None:
-    """Set the current vibectl theme."""
+    """Set the vibectl theme."""
     try:
         _set_theme_logic(theme_name)
         console_manager.print(f"✓ Theme set to '{theme_name}'")
-    except ValueError as e:
-        console_manager.print_error(f"✗ {e}")
-        handle_exception(e)
     except Exception as e:
-        logger.error(f"Unexpected error setting theme: {e}")
+        logger.error(f"Failed to set theme: {e}")
         console_manager.print_error(f"✗ Failed to set theme: {e}")
         handle_exception(e)
-
-
-@cli.group(name="plugin", help="Plugin management commands")
-def plugin_group() -> None:
-    """Manage vibectl plugins for customizing prompts and behavior."""
-    pass
-
-
-@plugin_group.command(name="install")
-@click.argument("plugin_path")
-@click.option(
-    "--force", "-f", is_flag=True, help="Force install even if plugin already exists"
-)
-def plugin_install(plugin_path: str, force: bool = False) -> None:
-    """Install a plugin from a local file path."""
-    try:
-        store = PluginStore()
-
-        # Check if plugin already exists (unless force is used)
-        if not force:
-            try:
-                # Try to read the plugin file to get its metadata
-                with open(plugin_path) as f:
-                    plugin_data = json.load(f)
-                plugin_id = plugin_data.get("plugin_metadata", {}).get("name")
-                if plugin_id and store.get_plugin(plugin_id):
-                    console_manager.print_error(
-                        f"✗ Plugin '{plugin_id}' already exists. "
-                        "Use --force to overwrite."
-                    )
-                    sys.exit(1)
-            except Exception:
-                # If we can't read the plugin file, let install_plugin handle the error
-                pass
-
-        plugin = store.install_plugin(plugin_path, force=force)
-        console_manager.print(
-            f"✓ Installed plugin '{plugin.metadata.name}' "
-            f"version {plugin.metadata.version}"
-        )
-
-        # Show what prompts this plugin customizes
-        if plugin.prompt_mappings:
-            console_manager.print("\nCustomizes prompts:")
-            for key in plugin.prompt_mappings:
-                console_manager.print(f"  • {key}")
-    except FileNotFoundError:
-        console_manager.print_error(f"✗ Plugin file not found: {plugin_path}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Plugin installation failed: {e}")
-        console_manager.print_error(f"✗ Failed to install plugin: {e}")
-        sys.exit(1)
-
-
-@plugin_group.command(name="list")
-def plugin_list() -> None:
-    """List all installed plugins."""
-    try:
-        store = PluginStore()
-        plugins = store.list_plugins()
-
-        if not plugins:
-            console_manager.print("No plugins installed.")
-            return
-
-        table = Table(title="Installed Plugins")
-        table.add_column("ID", style="cyan")
-        table.add_column("Version", style="green")
-        table.add_column("Description", style="dim")
-        table.add_column("Prompts", style="yellow")
-
-        for plugin in plugins:
-            prompt_count = len(plugin.prompt_mappings) if plugin.prompt_mappings else 0
-            prompt_keys = (
-                ", ".join(plugin.prompt_mappings.keys())
-                if plugin.prompt_mappings
-                else "None"
-            )
-            if len(prompt_keys) > 40:
-                prompt_keys = prompt_keys[:37] + "..."
-
-            table.add_row(
-                plugin.metadata.name,
-                plugin.metadata.version,
-                plugin.metadata.description or "No description",
-                f"{prompt_count} ({prompt_keys})",
-            )
-
-        console_manager.console.print(table)
-    except Exception as e:
-        logger.error(f"Failed to list plugins: {e}")
-        console_manager.print_error(f"✗ Failed to list plugins: {e}")
-        sys.exit(1)
-
-
-@plugin_group.command(name="uninstall")
-@click.argument("plugin_id")
-def plugin_uninstall(plugin_id: str) -> None:
-    """Uninstall a plugin by ID."""
-    try:
-        store = PluginStore()
-
-        # Check if plugin exists
-        plugin = store.get_plugin(plugin_id)
-        if not plugin:
-            console_manager.print_error(f"✗ Plugin '{plugin_id}' not found.")
-            sys.exit(1)
-
-        store.uninstall_plugin(plugin_id)
-        console_manager.print(f"✓ Uninstalled plugin '{plugin_id}'")
-    except Exception as e:
-        logger.error(f"Plugin uninstallation failed: {e}")
-        console_manager.print_error(f"✗ Failed to uninstall plugin: {e}")
-        sys.exit(1)
-
-
-@plugin_group.command(name="update")
-@click.argument("plugin_id")
-@click.argument("plugin_path")
-def plugin_update(plugin_id: str, plugin_path: str) -> None:
-    """Update an existing plugin with a new version."""
-    try:
-        store = PluginStore()
-
-        # Check if plugin exists
-        existing_plugin = store.get_plugin(plugin_id)
-        if not existing_plugin:
-            console_manager.print_error(
-                f"✗ Plugin '{plugin_id}' not found. Use 'install' instead."
-            )
-            sys.exit(1)
-
-        # Install with force=True to update
-        new_plugin = store.install_plugin(plugin_path, force=True)
-
-        if new_plugin.metadata.name != plugin_id:
-            console_manager.print_error(
-                f"✗ Plugin ID mismatch: expected '{plugin_id}', "
-                f"got '{new_plugin.metadata.name}'"
-            )
-            sys.exit(1)
-
-        console_manager.print(
-            f"✓ Updated plugin '{plugin_id}' from version "
-            f"{existing_plugin.metadata.version} to {new_plugin.metadata.version}"
-        )
-
-        # Show what prompts this plugin customizes
-        if new_plugin.prompt_mappings:
-            console_manager.print("\nCustomizes prompts:")
-            for key in new_plugin.prompt_mappings:
-                console_manager.print(f"  • {key}")
-    except FileNotFoundError:
-        console_manager.print_error(f"✗ Plugin file not found: {plugin_path}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Plugin update failed: {e}")
-        console_manager.print_error(f"✗ Failed to update plugin: {e}")
-        sys.exit(1)
 
 
 @cli.command()
@@ -798,9 +637,6 @@ def plugin_update(plugin_id: str, plugin_path: str) -> None:
     include_yes=True,
     include_show_metrics=True,
     include_show_streaming=True,
-)
-@click.option(
-    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
 )
 @click.option(
     "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
@@ -830,22 +666,26 @@ async def auto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
-            yes=yes,
             interval=interval,
-            semiauto=False,
             limit=limit,
+            yes=yes,
             show_metrics=show_metrics,
             show_streaming=show_streaming,
+            semiauto=False,  # Auto command is not in semiauto mode
+            exit_on_error=True,  # Auto command should exit on error by default
         )
         handle_result(result)
-    except Exception:
-        # Let exceptions propagate to main() for centralized handling
-        raise
+    except Exception as e:
+        handle_exception(e)
 
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(
+    include_show_kubectl=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
+)
 @click.option(
     "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
 )
@@ -859,6 +699,7 @@ async def semiauto(
     unfreeze_memory: bool,
     limit: int | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Run vibe command in semiauto mode with manual confirmation.
 
@@ -876,6 +717,8 @@ async def semiauto(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             limit=limit,
+            show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         handle_result(result)
     except Exception:
@@ -1759,11 +1602,17 @@ def handle_result(result: Result) -> None:
 
 def main() -> None:
     """Main entry point that wraps the CLI and handles all exceptions centrally."""
+    import click as regular_click  # Import regular click for Exit exceptions
+
     try:
         # Initialize logging first
         init_logging()
         # Run the CLI with standalone_mode=False to handle exceptions ourselves
         cli(standalone_mode=False)
+    except (click.exceptions.Exit, regular_click.exceptions.Exit) as e:
+        # Both asyncclick.Exit and click.Exit can be raised by --help, --version, etc.
+        # Exit normally with the code from the exception
+        sys.exit(e.exit_code)
     except Exception as e:
         # Centralized exception handling - print user-friendly errors only
         handle_exception(e)

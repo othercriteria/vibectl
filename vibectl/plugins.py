@@ -234,15 +234,47 @@ class PromptResolver:
         Returns:
             PromptMapping if found in any active plugin, None otherwise
         """
-        # Get plugin precedence from config (future implementation)
-        # For now, just check all plugins and return first match
+        # Get plugin precedence from config
+        precedence_order = self.config.get("plugin_precedence", [])
 
-        for plugin in self.plugin_store.list_installed_plugins():
-            if prompt_key in plugin.prompt_mappings:
-                logger.debug(
-                    f"Using prompt '{prompt_key}' from plugin '{plugin.metadata.name}'"
-                )
-                return plugin.prompt_mappings[prompt_key]
+        if precedence_order:
+            # Use configured precedence order
+            logger.debug(f"Using configured plugin precedence: {precedence_order}")
+
+            # Check plugins in precedence order
+            for plugin_name in precedence_order:
+                plugin = self.plugin_store.get_plugin(plugin_name)
+                if plugin and prompt_key in plugin.prompt_mappings:
+                    logger.debug(
+                        f"Using prompt '{prompt_key}' from plugin "
+                        f"'{plugin.metadata.name}' (precedence priority)"
+                    )
+                    return plugin.prompt_mappings[prompt_key]
+
+            # If not found in precedence list, check remaining plugins
+            installed_plugins = self.plugin_store.list_installed_plugins()
+            remaining_plugins = [
+                p for p in installed_plugins if p.metadata.name not in precedence_order
+            ]
+
+            for plugin in remaining_plugins:
+                if prompt_key in plugin.prompt_mappings:
+                    logger.debug(
+                        f"Using prompt '{prompt_key}' from plugin "
+                        f"'{plugin.metadata.name}' (not in precedence list)"
+                    )
+                    return plugin.prompt_mappings[prompt_key]
+        else:
+            # No precedence configured - use filesystem order (original behavior)
+            logger.debug("No plugin precedence configured, using filesystem order")
+
+            for plugin in self.plugin_store.list_installed_plugins():
+                if prompt_key in plugin.prompt_mappings:
+                    logger.debug(
+                        f"Using prompt '{prompt_key}' from plugin "
+                        f"'{plugin.metadata.name}'"
+                    )
+                    return plugin.prompt_mappings[prompt_key]
 
         logger.debug(
             f"No plugin override found for prompt '{prompt_key}', using default"
