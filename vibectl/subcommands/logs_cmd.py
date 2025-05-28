@@ -10,7 +10,7 @@ from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompts.logs import PLAN_LOGS_PROMPT, logs_prompt
+from vibectl.prompts.logs import logs_plan_prompt, logs_prompt
 from vibectl.types import Error, Result, Success
 
 
@@ -58,7 +58,7 @@ async def run_logs_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="logs",
-                    plan_prompt_func=lambda: PLAN_LOGS_PROMPT,
+                    plan_prompt_func=logs_plan_prompt,
                     summary_prompt_func=logs_prompt,
                     output_flags=output_flags,
                 )

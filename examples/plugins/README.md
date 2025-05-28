@@ -39,6 +39,12 @@ Currently supported prompt keys for customization:
 - `patch_plan`: Planning prompts for `kubectl patch` commands (generates the kubectl command)
 - `patch_resource_summary`: Summary output for `kubectl patch` commands
 - `check_plan`: Planning prompts for `vibectl check` commands (evaluates predicates against cluster state)
+- `events_plan`: Planning prompts for `kubectl events` commands (generates the kubectl command)
+- `events_resource_summary`: Summary output for `kubectl events` commands
+- `get_plan`: Planning prompts for `kubectl get` commands (generates the kubectl command)
+- `get_resource_summary`: Summary output for `kubectl get` commands
+- `logs_plan`: Planning prompts for `kubectl logs` commands (generates the kubectl command)
+- `logs_resource_summary`: Summary output for `kubectl logs` commands
 
 ## Example Plugins
 
@@ -54,6 +60,13 @@ Provides minimal, concise summaries for patch operations focusing on:
 - Essential status information only
 - Simple success/failure indicators
 - Critical errors only
+
+### minimal-events-summary-v1.json
+Provides minimal, focused summaries for kubectl events output focusing on:
+- Critical errors and warnings only
+- Recent activity (last 5-10 minutes)
+- Resource names with issues
+- Simple status indicators with emojis
 
 ### annotating-patch-v1.json
 Demonstrates both planning and summarizing customization with operation tracking:

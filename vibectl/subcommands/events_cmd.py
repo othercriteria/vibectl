@@ -9,7 +9,7 @@ from vibectl.memory import (
     configure_memory_flags,
 )
 from vibectl.prompts.events import (
-    PLAN_EVENTS_PROMPT,
+    events_plan_prompt,
     events_prompt,
 )
 from vibectl.types import Result
@@ -47,7 +47,7 @@ async def run_events_command(
         result = await handle_vibe_request(
             request=request,
             command="events",
-            plan_prompt_func=lambda: PLAN_EVENTS_PROMPT,
+            plan_prompt_func=events_plan_prompt,
             summary_prompt_func=events_prompt,
             output_flags=output_flags,
         )

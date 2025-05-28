@@ -1,0 +1,27 @@
+{
+  "plugin_metadata": {
+    "name": "minimal-events-summary",
+    "version": "1.0.0",
+    "description": "Provides minimal, focused summaries for kubectl events output - focusing on the most critical information only",
+    "author": "vibectl-demos",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T14:00:00Z"
+  },
+  "prompt_mappings": {
+    "events_resource_summary": {
+      "description": "Minimal events summary focusing only on critical issues and recent activity",
+      "focus_points": [
+        "critical errors and warnings only",
+        "recent activity (last 5-10 minutes)",
+        "resource names with issues",
+        "simple status indicators"
+      ],
+      "example_format": [
+        "⚠️  2 critical events",
+        "🔴 Failed: pod/api-server (ImagePullBackOff)",
+        "🟡 Warning: node/worker-1 (DiskPressure)",
+        "📊 Total: 8 events in last 10min"
+      ]
+    }
+  }
+}

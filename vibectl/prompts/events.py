@@ -10,45 +10,62 @@ from vibectl.schema import ActionType
 from vibectl.types import Examples, PromptFragments
 
 from .schemas import _SCHEMA_DEFINITION_JSON
-from .shared import create_planning_prompt, create_summary_prompt
-
-# Template for planning kubectl events commands
-# more idiomatic command for viewing events and offers specific flags like --for.
-PLAN_EVENTS_PROMPT: PromptFragments = create_planning_prompt(
-    command="events",  # Use the dedicated 'events' command
-    description="Kubernetes events",
-    examples=Examples(
-        [
-            (
-                "events in default namespace",  # Target description
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": [],  # Default namespace is implicit
-                    "explanation": "User asked for events in the default namespace.",
-                },
-            ),
-            (
-                "events for pod nginx",  # Target description
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["--for=pod/nginx"],
-                    "explanation": "User asked for events related to a specific pod.",
-                },
-            ),
-            (
-                "all events in all namespaces",  # Target description
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["--all-namespaces"],  # Use -A or --all-namespaces
-                    "explanation": "User asked for all events across all namespaces.",
-                },
-            ),
-        ]
-    ),
-    schema_definition=_SCHEMA_DEFINITION_JSON,
+from .shared import (
+    create_planning_prompt,
+    create_summary_prompt,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
 )
 
 
+@with_planning_prompt_override("events_plan")
+def events_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl events commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return create_planning_prompt(
+        command="events",
+        description="Kubernetes events",
+        examples=Examples(
+            [
+                (
+                    "events in default namespace",  # Target description
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-n", "default"],
+                    },
+                ),
+                (
+                    "events related to nginx",  # Target description
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["--field-selector", "involvedObject.name=nginx"],
+                    },
+                ),
+                (
+                    "recent events sorted by time",  # Target description
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["--sort-by", ".metadata.creationTimestamp"],
+                    },
+                ),
+            ]
+        ),
+        schema_definition=_SCHEMA_DEFINITION_JSON,
+    )
+
+
+@with_summary_prompt_override("events_resource_summary")
 def events_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -63,23 +80,21 @@ def events_prompt(
         PromptFragments: System fragments and user fragments
     """
     cfg = config or Config()
+    # Fall back to default prompt (decorator handles plugin override)
     return create_summary_prompt(
-        description="Analyze these Kubernetes events concisely.",
+        description="Summarize these Kubernetes events concisely.",
         focus_points=[
-            "recent events",
+            "critical events",
             "patterns",
-            "warnings",
-            "notable issues",
-            "group related events",
+            "resource issues",
+            "timing patterns",
+            "state changes",
         ],
         example_format=[
-            "[bold]12 events[/bold] in the last [italic]10 minutes[/italic]",
-            "[green]Successfully scheduled[/green] pods: [bold]nginx-1[/bold], "
-            "[bold]nginx-2[/bold]",
-            "[yellow]ImagePullBackOff[/yellow] for [bold]api-server[/bold]",
-            "[italic]5 minutes ago[/italic]",
-            "[red]OOMKilled[/red] events for [bold]db-pod[/bold], "
-            "[italic]happened 3 times[/italic]",
+            "[bold]3 events[/bold] for [blue]nginx deployment[/blue]",
+            "[green]Successfully scheduled[/green] pod at [italic]10:15:23[/italic]",
+            "[yellow]2 pull warnings[/yellow] for image [code]nginx:latest[/code]",
+            "[red]Failed to mount volume[/red] [italic]5 minutes ago[/italic]",
         ],
         config=cfg,
         current_memory=current_memory,

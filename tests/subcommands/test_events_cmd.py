@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
-from vibectl.prompts.events import PLAN_EVENTS_PROMPT, events_prompt
+from vibectl.prompts.events import events_plan_prompt, events_prompt
 
 # from asyncclick.testing import CliRunner # No longer needed if using main directly
 from vibectl.types import Error, OutputFlags, Success
@@ -156,7 +156,7 @@ async def test_events_vibe_path(
     # Check that the correct prompt functions are passed
     # The plan_prompt_func is a lambda, so we call it to check its return value
     assert hvr_call_kwargs.get("plan_prompt_func") is not None
-    assert hvr_call_kwargs.get("plan_prompt_func")() == PLAN_EVENTS_PROMPT
+    assert hvr_call_kwargs.get("plan_prompt_func")() == events_plan_prompt()
     assert hvr_call_kwargs.get("summary_prompt_func") == events_prompt
 
 

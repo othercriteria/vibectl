@@ -32,9 +32,9 @@ from vibectl.prompts.cluster_info import cluster_info_plan_prompt, cluster_info_
 from vibectl.prompts.create import PLAN_CREATE_PROMPT, create_resource_prompt
 from vibectl.prompts.delete import PLAN_DELETE_PROMPT, delete_resource_prompt
 from vibectl.prompts.describe import PLAN_DESCRIBE_PROMPT, describe_resource_prompt
-from vibectl.prompts.events import PLAN_EVENTS_PROMPT, events_prompt
-from vibectl.prompts.get import PLAN_GET_PROMPT, get_resource_prompt
-from vibectl.prompts.logs import PLAN_LOGS_PROMPT, logs_prompt
+from vibectl.prompts.events import events_plan_prompt, events_prompt
+from vibectl.prompts.get import get_plan_prompt, get_resource_prompt
+from vibectl.prompts.logs import logs_plan_prompt, logs_prompt
 from vibectl.prompts.memory import memory_fuzzy_update_prompt, memory_update_prompt
 from vibectl.prompts.port_forward import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
 from vibectl.prompts.recovery import recovery_prompt
@@ -336,12 +336,12 @@ def test_create_planning_prompt_raises_without_schema() -> None:
 @pytest.mark.parametrize(
     "plan_prompt_constant_fragments",
     [
-        PLAN_GET_PROMPT,
+        get_plan_prompt(),
         PLAN_DESCRIBE_PROMPT,
-        PLAN_LOGS_PROMPT,
+        logs_plan_prompt(),
         PLAN_VERSION_PROMPT,
-        cluster_info_plan_prompt(),  # type: ignore[misc]
-        PLAN_EVENTS_PROMPT,
+        cluster_info_plan_prompt(),
+        events_plan_prompt(),
         PLAN_DELETE_PROMPT,
         PLAN_SCALE_PROMPT,
         PLAN_WAIT_PROMPT,
