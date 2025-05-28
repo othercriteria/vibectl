@@ -617,7 +617,7 @@ class TestVersionCompatibilityFoundation:
         self, mock_plugin_store: PluginStore, test_plugin_file: str
     ) -> None:
         """Test installing a plugin with compatible version requirements."""
-        # The test plugin has ">=0.8.0,<1.0.0" which should be compatible with 0.8.7
+        # The test plugin has ">=0.8.0,<1.0.0" which should be compatible with 0.9.0
         result = await run_plugin_install_command(test_plugin_file, force=False)
 
         assert isinstance(result, Success)
@@ -1123,7 +1123,7 @@ class TestRuntimeVersionCompatibility:
             mock_logger.warning.assert_called_once()
             warning_call = mock_logger.warning.call_args[0][0]
             assert "Skipping plugin 'future-plugin'" in warning_call
-            assert "Requires version >= 2.0.0, got 0.8.7" in warning_call
+            assert "Requires version >= 2.0.0, got 0.9.0" in warning_call
             assert "Consider updating the plugin" in warning_call
 
     @patch("vibectl.plugins.logger")

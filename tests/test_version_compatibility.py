@@ -181,33 +181,33 @@ class TestPluginCompatibilityIntegration:
 
     def test_plugin_compatibility_current_version(self) -> None:
         """Test plugin compatibility with current vibectl version."""
-        # This should be compatible with current version (0.8.7)
+        # This should be compatible with current version (0.9.0)
         is_compatible, error = check_plugin_compatibility(">=0.8.0,<1.0.0")
         assert is_compatible
         assert error == ""
 
     def test_plugin_compatibility_future_version(self) -> None:
         """Test plugin compatibility with future version requirements."""
-        # This should be incompatible with current version (0.8.7)
+        # This should be incompatible with current version (0.9.0)
         is_compatible, error = check_plugin_compatibility(">=2.0.0,<3.0.0")
         assert not is_compatible
-        assert "Requires version >= 2.0.0, got 0.8.7" in error
+        assert "Requires version >= 2.0.0, got 0.9.0" in error
 
     def test_plugin_compatibility_old_version(self) -> None:
         """Test plugin compatibility with old version requirements."""
-        # This should be incompatible with current version (0.8.7)
+        # This should be incompatible with current version (0.9.0)
         is_compatible, error = check_plugin_compatibility("<0.8.0")
         assert not is_compatible
-        assert "Requires version < 0.8.0, got 0.8.7" in error
+        assert "Requires version < 0.8.0, got 0.9.0" in error
 
     def test_plugin_compatibility_exact_match(self) -> None:
         """Test plugin compatibility with exact version match."""
         # Test exact match with current version
-        is_compatible, error = check_plugin_compatibility("==0.8.7")
+        is_compatible, error = check_plugin_compatibility("==0.9.0")
         assert is_compatible
         assert error == ""
 
         # Test exact match with different version
         is_compatible, error = check_plugin_compatibility("==0.8.6")
         assert not is_compatible
-        assert "Requires exact version 0.8.6, got 0.8.7" in error
+        assert "Requires exact version 0.8.6, got 0.9.0" in error
