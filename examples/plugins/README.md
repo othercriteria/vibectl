@@ -45,6 +45,7 @@ Currently supported prompt keys for customization:
 - `get_resource_summary`: Summary output for `kubectl get` commands
 - `logs_plan`: Planning prompts for `kubectl logs` commands (generates the kubectl command)
 - `logs_resource_summary`: Summary output for `kubectl logs` commands
+- `memory_update`: Custom memory update behavior for both explicit `vibectl memory update` commands and internal memory operations
 
 ## Example Plugins
 
@@ -81,6 +82,14 @@ Demonstrates check command customization with security and compliance focus:
 - Specialized examples for RBAC, network policies, secrets, and privileged access
 - Security-focused context instructions and analysis approach
 - Detailed explanations highlighting security implications and violations
+
+### memory-update-counter-v1.json
+Demonstrates custom memory update behavior with usage tracking:
+- Adds a running counter of memory update operations
+- Automatically initializes counter to 1 for first memory update
+- Increments counter on each subsequent memory update
+- Affects both explicit `vibectl memory update` commands and internal memory operations
+- Shows how plugins can customize core system behavior globally
 
 ## Installation (Future)
 
