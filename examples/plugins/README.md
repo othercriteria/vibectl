@@ -45,6 +45,8 @@ Currently supported prompt keys for customization:
 - `get_resource_summary`: Summary output for `kubectl get` commands
 - `logs_plan`: Planning prompts for `kubectl logs` commands (generates the kubectl command)
 - `logs_resource_summary`: Summary output for `kubectl logs` commands
+- `port_forward_plan`: Planning prompts for `kubectl port-forward` commands (generates the kubectl command)
+- `port_forward_resource_summary`: Summary output for `kubectl port-forward` commands
 - `memory_update`: Custom memory update behavior for both explicit `vibectl memory update` commands and internal memory operations
 
 ## Example Plugins
@@ -82,6 +84,14 @@ Demonstrates check command customization with security and compliance focus:
 - Specialized examples for RBAC, network policies, secrets, and privileged access
 - Security-focused context instructions and analysis approach
 - Detailed explanations highlighting security implications and violations
+
+### smart-port-selection-v1.json
+Demonstrates intelligent port selection for port-forward commands:
+- Suggests alternative local ports to avoid conflicts with common services
+- Provides smart port mappings (e.g., 8000 instead of 8080, 5433 instead of 5432)
+- Includes helpful tips for resolving port conflicts
+- Focuses on developer-friendly port selections for common databases and web services
+- Covers Redis, PostgreSQL, MongoDB, web servers, and Node.js applications
 
 ### memory-update-counter-v1.json
 Demonstrates custom memory update behavior with usage tracking:

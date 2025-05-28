@@ -6,7 +6,7 @@ from vibectl.command_handler import (
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompts.port_forward import PLAN_PORT_FORWARD_PROMPT, port_forward_prompt
+from vibectl.prompts.port_forward import port_forward_plan_prompt, port_forward_prompt
 from vibectl.types import Error, Result
 
 
@@ -56,7 +56,7 @@ async def run_port_forward_command(
             result = await handle_vibe_request(
                 request=request,
                 command="port-forward",
-                plan_prompt_func=lambda: PLAN_PORT_FORWARD_PROMPT,
+                plan_prompt_func=port_forward_plan_prompt,
                 summary_prompt_func=port_forward_prompt,
                 output_flags=output_flags,
                 live_display=live_display,

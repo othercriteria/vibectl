@@ -1,0 +1,87 @@
+{
+  "plugin_metadata": {
+    "name": "smart-port-selection",
+    "version": "1.0.0",
+    "description": "Provides intelligent port selection suggestions for port-forward commands",
+    "author": "vibectl-team",
+    "compatible_vibectl_versions": ">=0.3.0",
+    "created_at": "2024-01-15T12:00:00Z"
+  },
+  "prompt_mappings": {
+    "port_forward_plan": {
+      "prompt_metadata": {
+        "is_planning_prompt": true
+      },
+      "command": "port-forward",
+      "description": "port-forward connections to kubernetes resources with smart port selection. IMPORTANT: 1) Resource name MUST be the first argument, 2) followed by port specifications, 3) then any flags. Do NOT include 'kubectl' or '--kubeconfig' in your response. SMART PORT SELECTION: If common ports (80, 443, 3000, 8080, 8081, 9090, etc.) are requested for local forwarding, consider suggesting alternative ports (8000, 8001, 8002, 8888, 9000, etc.) to avoid conflicts with commonly running local services.",
+      "examples": [
+        [
+          "port 8080 of pod nginx to my local 8080",
+          {
+            "action_type": "command",
+            "commands": ["pod/nginx", "8000:8080"],
+            "explanation": "User asked to port-forward a pod. Using port 8000 locally instead of 8080 to avoid conflicts with common development servers."
+          }
+        ],
+        [
+          "the redis service port 6379 on local port 6379",
+          {
+            "action_type": "command",
+            "commands": ["service/redis", "6380:6379"],
+            "explanation": "User asked to port-forward Redis. Using port 6380 locally to avoid conflicts with local Redis instances that commonly run on 6379."
+          }
+        ],
+        [
+          "deployment webapp port 80 to my local port",
+          {
+            "action_type": "command",
+            "commands": ["deployment/webapp", "8888:80"],
+            "explanation": "User asked to port-forward web app. Using port 8888 locally instead of 80 since port 80 requires root privileges and may conflict with local web servers."
+          }
+        ],
+        [
+          "postgres database port 5432 to local 5432",
+          {
+            "action_type": "command",
+            "commands": ["service/postgres", "5433:5432"],
+            "explanation": "User asked to port-forward PostgreSQL. Using port 5433 locally to avoid conflicts with local PostgreSQL instances."
+          }
+        ],
+        [
+          "mongodb port 27017 to my machine",
+          {
+            "action_type": "command",
+            "commands": ["service/mongodb", "27018:27017"],
+            "explanation": "User asked to port-forward MongoDB. Using port 27018 locally to avoid conflicts with local MongoDB instances."
+          }
+        ],
+        [
+          "api service port 3000 on local 3000",
+          {
+            "action_type": "command",
+            "commands": ["service/api", "3001:3000"],
+            "explanation": "User asked to port-forward Node.js API. Using port 3001 locally instead of 3000 since 3000 is commonly used by local development servers."
+          }
+        ]
+      ]
+    },
+    "port_forward_resource_summary": {
+      "prompt_metadata": {
+        "is_summary_prompt": true
+      },
+      "description": "Summarize this kubectl port-forward output with smart connection advice.",
+      "focus_points": [
+        "connection status",
+        "port mappings and any smart port selections",
+        "any errors or conflicts",
+        "helpful tips for port conflicts"
+      ],
+      "example_format": [
+        "[green]Connected[/green] to [bold]pod/nginx[/bold] in [blue]default namespace[/blue]",
+        "Smart forwarding: [bold]127.0.0.1:8000[/bold] -> [bold]8080[/bold] [dim](avoiding common port 8080)[/dim]",
+        "[yellow]Tip:[/yellow] If you encounter [red]'port already in use'[/red], try ports [code]8001, 8002, 8888, 9000[/code]",
+        "[red]Error[/red] forwarding to [bold]service/database[/bold]: [red]port 5432 already in use[/red] - try [code]5433[/code] instead"
+      ]
+    }
+  }
+}

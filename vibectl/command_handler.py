@@ -981,7 +981,10 @@ async def handle_port_forward_with_live_display(
     )
 
     # Call the worker function in live_display.py
-    pf_result = await _execute_port_forward_with_live_display(
+    # The live display handler already handles all output internally,
+    # including vibe output, so we return its result directly without
+    # calling handle_command_output
+    return await _execute_port_forward_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
@@ -991,14 +994,6 @@ async def handle_port_forward_with_live_display(
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
         allowed_exit_codes=allowed_exit_codes,
-    )
-
-    command_str = f"port-forward {resource} {' '.join(args)}"
-    return await handle_command_output(
-        output=pf_result,
-        output_flags=output_flags,
-        summary_prompt_func=summary_prompt_func,
-        command=command_str,
     )
 
 

@@ -904,7 +904,9 @@ async def _execute_port_forward_with_live_display(
         )
         result = Success(
             message=success_message,
-            data=vibe_output,
+            # Don't store vibe_output in data field since it's already been displayed
+            # to avoid duplicate output in handle_result
+            data=None,
         )
         if process:
             result.original_exit_code = process.returncode
