@@ -7,7 +7,6 @@ This document provides an overview of the project's structure and organization.
 ### Core Package (`vibectl/`)
 
 - `cli.py` - Command-line interface implementation
-- `prompt.py` - Prompt templates and LLM interaction logic. Includes resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) and planning prompts like `PLAN_DIFF_PROMPT`.
 - `config.py` - Configuration management and settings
 - `console.py` - Console output formatting and management. Includes methods for live streaming of Vibe AI responses (e.g., `start_live_vibe_panel`, `update_live_vibe_panel`, `stop_live_vibe_panel`).
 - `command_handler.py` - Common command handling patterns (confirmation, output processing), delegates kubectl execution to `k8s_utils`, and live display to relevant modules. Manages `allowed_exit_codes` for commands. Handles streaming Vibe AI output. Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `execution/vibe.py`.
@@ -27,10 +26,14 @@ This document provides an overview of the project's structure and organization.
 - `execution/` - Modules related to command execution logic.
   - `vibe.py` - Handles the core Vibe.AI LLM interaction loop, including `handle_vibe_request`.
   - `apply.py` - Handles intelligent apply workflow execution logic, including file discovery, validation, correction/generation, and command planning.
-- `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
+- `prompts/` - Modular prompt system with command-specific prompt modules.
   - `__init__.py` - Package initialization for prompts directory.
+  - `shared.py` - Common prompt utilities and decorator functions for plugin support (`create_planning_prompt`, `create_summary_prompt`, `with_planning_prompt_override`, `with_summary_prompt_override`, etc.).
+  - `schemas.py` - Centralized schema definitions for LLM interactions (`_SCHEMA_DEFINITION_JSON`, `_EDIT_RESOURCESCOPE_SCHEMA_JSON`).
   - `edit.py` - Prompts specific to the edit command (`edit_plan_prompt`, `edit_resource_prompt`).
   - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
+  - `scale.py` - Prompts specific to the scale command (`scale_plan_prompt`, `scale_resource_prompt`).
+  - `rollout.py` - Prompts specific to the rollout command (`rollout_plan_prompt`, `rollout_general_prompt`, `rollout_history_prompt`, `rollout_status_prompt`).
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
   - `vibe_cmd.py` - Vibe command implementation
@@ -160,18 +163,19 @@ This document provides an overview of the project's structure and organization.
 
 ### Prompt System
 
-1. `prompt.py` - Manages prompt construction for LLM interactions.
-   - Defines functions that return `PromptFragments` (tuples of `SystemFragments` and `UserFragments`).
-   - Examples: `plan_vibe_fragments()`, `memory_update_prompt()`, `vibe_autonomous_prompt()`.
-   - These fragments are assembled and formatted by the calling functions in `command_handler.py` or `memory.py` before being sent to the LLM.
-   - Incorporates helper functions (e.g., `get_formatting_fragments`) and constants for building prompts.
-   - `Config` objects are passed to prompt functions to allow for configuration-driven prompt variations.
-   - Resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) also follow this fragment-based approach.
-   - Memory integration is handled by including memory content within relevant fragments.
-2. `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
-   - `edit.py` - Edit-specific prompts (`edit_plan_prompt`, `edit_resource_prompt`) for the edit command.
-   - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
-   - More command-specific prompt modules will be added here as the system grows.
+1. `prompts/` - Modular prompt system for LLM interactions:
+   - `shared.py` - Common prompt utilities and plugin support decorators:
+     - Functions that return `PromptFragments` (tuples of `SystemFragments` and `UserFragments`)
+     - Plugin override decorators (`with_planning_prompt_override`, `with_summary_prompt_override`)
+     - Helper functions for building prompts (e.g., `get_formatting_fragments`, `create_planning_prompt`)
+     - Configuration-driven prompt variations with `Config` objects
+   - `schemas.py` - Centralized schema definitions (`_SCHEMA_DEFINITION_JSON`, `_EDIT_RESOURCESCOPE_SCHEMA_JSON`)
+   - Command-specific modules (`edit.py`, `apply.py`, `scale.py`, `rollout.py`) with decorated functions for plugin support
+2. Plugin Support - Commands use decorated prompt functions for extensibility:
+   - Planning functions (e.g., `scale_plan_prompt`, `rollout_plan_prompt`) can be overridden by plugins
+   - Summary functions (e.g., `scale_resource_prompt`, `rollout_general_prompt`) provide consistent interfaces
+   - Memory integration is handled by including memory content within relevant fragments
+3. Schema Integration - Consistent LLM output structure through centralized schemas
 
 ### Common Command Patterns
 
@@ -185,6 +189,9 @@ This document provides an overview of the project's structure and organization.
    - Note: Core Vibe.AI LLM interaction loop (`handle_vibe_request`) moved to `vibectl/execution/vibe.py`.
 2. `vibectl/execution/vibe.py` - Handles the core Vibe.AI LLM interaction loop.
    - `handle_vibe_request` is the primary entry point for LLM-driven command planning and execution.
+   - Uses `model_adapter.py` for LLM calls.
+   - Integrates with `prompts/shared.py` for generating LLM requests.
+   - Works with `schema.py` for parsing LLM responses.
 
 ### Memory System
 
@@ -197,7 +204,7 @@ This document provides an overview of the project's structure and organization.
 2. `config.py` - Memory persistence in configuration
    - Stores memory content as a string
    - Manages memory settings like max length and enabled state
-3. `prompt.py` - Memory integration in prompts
+3. `prompts/shared.py` - Memory integration in prompts
    - `memory_update_prompt` for creating memory from command execution (returns `PromptFragments`).
    - `memory_fuzzy_update_prompt` for manually updating memory (returns `PromptFragments`).
    - Memory context is now generally passed into prompt-generating functions or included directly within specific fragment definitions rather than via a separate `include_memory_in_prompt` utility for all prompts.
@@ -268,16 +275,17 @@ Detailed documentation about model key configuration can be found in [Model API 
    - (Note: vibe requests / LLM planning loop now in `execution/vibe.py`)
 3. `execution/vibe.py` - Central module for LLM-driven planning and execution loop (`handle_vibe_request`).
    - Uses `model_adapter.py` for LLM calls.
-   - Integrates with `prompt.py` for generating LLM requests.
+   - Integrates with `prompts/shared.py` for generating LLM requests.
    - Works with `schema.py` for parsing LLM responses.
 4. `memory.py` - Uses model adapter for memory updates
    - Updates memory context based on command execution
    - Uses model adapter instead of direct LLM calls
-5. `prompt.py` - Defines prompt templates used by model adapters
+5. `prompts/shared.py` - Defines prompt templates used by model adapters
    - Command-specific prompt template functions (e.g., `create_planning_prompt()`, `plan_vibe_fragments()`) now return `PromptFragments`.
    - Includes instructions for generating JSON output matching defined schemas (now including `explanation` and `suggestion` fields where appropriate).
    - Formatting instructions are managed via fragment helper functions.
    - Consistent prompt structure for all LLM interactions, built from fragments.
+   - Plugin override decorators for extensibility.
 6. Schema Integration (`schema.py`, `types.py`, `execution/vibe.py`)
    - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. `CommandAction` can specify `allowed_exit_codes` and `explanation`. `FeedbackAction` can include `explanation` and `suggestion`.
    - `model_adapter.py` uses these schemas for LLM interaction.

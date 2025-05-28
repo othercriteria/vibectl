@@ -24,10 +24,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vibectl.config import Config
-from vibectl.prompt import (
-    create_planning_prompt,
-    get_formatting_fragments,
-)
 from vibectl.prompts.cluster_info import cluster_info_plan_prompt, cluster_info_prompt
 from vibectl.prompts.create import PLAN_CREATE_PROMPT, create_resource_prompt
 from vibectl.prompts.delete import PLAN_DELETE_PROMPT, delete_resource_prompt
@@ -44,7 +40,14 @@ from vibectl.prompts.rollout import (
     rollout_history_prompt,
     rollout_status_prompt,
 )
-from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.scale import (
+    PLAN_SCALE_PROMPT,
+    scale_resource_prompt,
+)
+from vibectl.prompts.shared import (
+    create_planning_prompt,
+    get_formatting_fragments,
+)
 from vibectl.prompts.version import PLAN_VERSION_PROMPT, version_prompt
 from vibectl.prompts.vibe import vibe_autonomous_prompt
 from vibectl.prompts.wait import PLAN_WAIT_PROMPT, wait_resource_prompt
@@ -82,8 +85,8 @@ def test_get_formatting_fragments_no_custom(test_config: Config) -> None:
         "memory_enabled", False
     )  # This doesn't affect get_formatting_fragments directly
 
-    # Patch datetime.now specifically within the vibectl.prompt module
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+    # Patch datetime.now specifically within the vibectl.prompts.shared module
+    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
         mock_prompt_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = get_formatting_fragments(test_config)
 
@@ -109,7 +112,7 @@ def test_get_formatting_fragments_with_custom(test_config: Config) -> None:
     test_config.set("custom_instructions", "Test custom instruction")
     test_config.set("memory_enabled", False)
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
         mock_prompt_datetime.now.return_value = fixed_dt
         system_fragments, user_fragments = get_formatting_fragments(test_config)
         combined_text = "\n".join(system_fragments + user_fragments)
@@ -130,7 +133,7 @@ def test_get_formatting_fragments_with_memory(test_config: Config) -> None:
         "memory_enabled", True
     )  # This setting is for callers, not get_formatting_fragments
 
-    with patch("vibectl.prompt.datetime") as mock_prompt_datetime:
+    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
         mock_prompt_datetime.now.return_value = fixed_dt
         # Mocking get_memory and is_memory_enabled is not needed here as
         # get_formatting_fragments is documented to exclude memory.

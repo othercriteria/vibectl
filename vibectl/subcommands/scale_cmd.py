@@ -9,7 +9,7 @@ from vibectl.command_handler import (
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
-from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.scale import scale_plan_prompt, scale_resource_prompt
 from vibectl.types import Error, Result, Success
 
 
@@ -48,7 +48,7 @@ async def run_scale_command(
             vibe_result = await handle_vibe_request(
                 request=request,
                 command="scale",
-                plan_prompt_func=lambda: PLAN_SCALE_PROMPT,
+                plan_prompt_func=scale_plan_prompt,
                 output_flags=output_flags,
                 summary_prompt_func=scale_resource_prompt,
                 semiauto=False,

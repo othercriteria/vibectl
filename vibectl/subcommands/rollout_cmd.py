@@ -12,9 +12,9 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.rollout import (
-    PLAN_ROLLOUT_PROMPT,
     rollout_general_prompt,
     rollout_history_prompt,
+    rollout_plan_prompt,
     rollout_status_prompt,
 )
 from vibectl.types import Error, Result, Success
@@ -75,7 +75,7 @@ async def run_rollout_command(
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="rollout",
-                    plan_prompt_func=lambda: PLAN_ROLLOUT_PROMPT,
+                    plan_prompt_func=rollout_plan_prompt,
                     summary_prompt_func=rollout_general_prompt,
                     output_flags=output_flags,
                 )

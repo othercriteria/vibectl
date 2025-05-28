@@ -9,11 +9,9 @@ import json
 from typing import Any
 
 from vibectl.config import Config
-from vibectl.prompt import (
-    _SCHEMA_DEFINITION_JSON,
-    create_planning_prompt,
-)
+from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
 from vibectl.prompts.shared import (
+    create_planning_prompt,
     create_summary_prompt,
     fragment_json_schema_instruction,
     with_custom_prompt_override,

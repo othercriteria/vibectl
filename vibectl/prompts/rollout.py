@@ -10,7 +10,12 @@ from vibectl.schema import ActionType
 from vibectl.types import Examples, PromptFragments
 
 from .schemas import _SCHEMA_DEFINITION_JSON
-from .shared import create_planning_prompt, create_summary_prompt
+from .shared import (
+    create_planning_prompt,
+    create_summary_prompt,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
+)
 
 # Template for planning kubectl rollout commands
 PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
@@ -69,6 +74,25 @@ PLAN_ROLLOUT_PROMPT: PromptFragments = create_planning_prompt(
 )
 
 
+@with_planning_prompt_override("rollout_plan")
+def rollout_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl rollout commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return PLAN_ROLLOUT_PROMPT
+
+
+@with_summary_prompt_override("rollout_status_summary")
 def rollout_status_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -83,6 +107,7 @@ def rollout_status_prompt(
         PromptFragments: System fragments and user fragments
     """
     cfg = config or Config()
+    # Fall back to default prompt (decorator handles plugin override)
     return create_summary_prompt(
         description="Summarize rollout status.",
         focus_points=["progress", "completion status", "issues or delays"],
@@ -97,6 +122,7 @@ def rollout_status_prompt(
     )
 
 
+@with_summary_prompt_override("rollout_history_summary")
 def rollout_history_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -111,6 +137,7 @@ def rollout_history_prompt(
         PromptFragments: System fragments and user fragments
     """
     cfg = config or Config()
+    # Fall back to default prompt (decorator handles plugin override)
     return create_summary_prompt(
         description="Summarize rollout history.",
         focus_points=[
@@ -128,6 +155,7 @@ def rollout_history_prompt(
     )
 
 
+@with_summary_prompt_override("rollout_general_summary")
 def rollout_general_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -142,6 +170,7 @@ def rollout_general_prompt(
         PromptFragments: System fragments and user fragments
     """
     cfg = config or Config()
+    # Fall back to default prompt (decorator handles plugin override)
     return create_summary_prompt(
         description="Summarize rollout command results.",
         focus_points=["key operation details"],

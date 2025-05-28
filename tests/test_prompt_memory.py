@@ -36,7 +36,7 @@ def test_get_formatting_fragments_with_no_memory() -> None:
     with (
         patch("vibectl.memory.is_memory_enabled", return_value=False),
         patch("vibectl.memory.get_memory") as mock_get_memory,
-        patch("vibectl.prompt.Config") as mock_config_class,
+        patch("vibectl.config.Config") as mock_config_class,
     ):
         mock_config = Mock()
         mock_config_class.return_value = mock_config
@@ -57,7 +57,7 @@ def test_get_formatting_fragments_with_empty_memory() -> None:
     with (
         patch("vibectl.memory.is_memory_enabled", return_value=True),
         patch("vibectl.memory.get_memory", return_value=""),
-        patch("vibectl.prompt.Config") as mock_config_class,
+        patch("vibectl.config.Config") as mock_config_class,
     ):
         mock_config = Mock()
         mock_config_class.return_value = mock_config
