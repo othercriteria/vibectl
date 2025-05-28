@@ -279,7 +279,7 @@ def test_execute_command(
 @patch("vibectl.execution.vibe.get_memory", autospec=True)
 @patch("vibectl.execution.vibe.set_memory", autospec=True)
 @patch("vibectl.execution.vibe.get_model_adapter", autospec=True)
-@patch("vibectl.execution.vibe.memory_fuzzy_update_prompt", autospec=True)
+@patch("vibectl.execution.vibe.memory_fuzzy_update_prompt")
 @patch("vibectl.execution.vibe.Config", autospec=True)
 @patch("vibectl.execution.vibe.click.prompt", autospec=True)
 @patch("vibectl.execution.vibe.console_manager", autospec=True)

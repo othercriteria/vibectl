@@ -19,7 +19,7 @@ Test Policy:
 
 import datetime
 import json
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -437,13 +437,14 @@ def test_memory_fuzzy_update_prompt(test_config: Config) -> None:
             config=test_config,
         )
 
-    # Ensure the fragment exists as expected in the list of user fragments
-    assert expected_fuzzy_memory_fragment_str in user_fragments, (
-        "Expected memory fragment not found in user_fragments. "
-        f"User fragments: {user_fragments}"
-    )
-
+    # Check the combined text for the expected content
     combined_text = "\n".join(system_fragments + user_fragments)
+
+    # Ensure the fragment exists as expected in the combined text
+    assert expected_fuzzy_memory_fragment_str in combined_text, (
+        "Expected memory fragment not found in combined text. "
+        f"Combined text: {combined_text}"
+    )
 
     assert "update the memory" in combined_text
     assert "Be concise. Limit your response to 400 characters." in combined_text
@@ -457,20 +458,34 @@ def test_recovery_prompt(test_config: Config) -> None:  # Added test_config
     """Test recovery prompt generation."""
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
-    current_memory_dummy = "Previous attempt context."
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("memory_max_chars", 250)
+    test_config.set("memory_max_chars", 250)  # Added config.set for memory_max_chars
 
-    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+    # Mock the plugin system to return no custom mapping, then import
+    with (
+        patch("vibectl.plugins.PluginStore") as mock_store,
+        patch("vibectl.plugins.PromptResolver") as mock_resolver,
+        patch("vibectl.prompts.shared.datetime") as mock_shared_datetime,
+    ):
+        # Configure mocks to return no custom mapping
+        mock_store_instance = Mock()
+        mock_store.return_value = mock_store_instance
+        mock_resolver_instance = Mock()
+        mock_resolver.return_value = mock_resolver_instance
+        mock_resolver_instance.get_prompt_mapping.return_value = None
+
         mock_shared_datetime.now.return_value = fixed_dt
+
+        # Import after mocking
+        from vibectl.prompts.recovery import recovery_prompt
+
         system_fragments, user_fragments = recovery_prompt(
             failed_command=command,
             error_output=error,
-            current_memory=current_memory_dummy,  # Not used by current recovery_prompt
-            original_explanation=None,
             config=test_config,
         )
+
     combined_result = "\n".join(system_fragments + user_fragments)
 
     assert "Failed Command:" in combined_result
@@ -635,19 +650,22 @@ def test_recovery_prompt_with_original_explanation(
     """Test recovery prompt generation with original explanation."""
     command = "get pods"
     error = "Error: the server doesn't have a resource type 'pods'"
-    current_memory_dummy = "Previous context for recovery."
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     test_config.set("memory_max_chars", 200)  # Different from other recovery test
+
+    # Import and access the unwrapped function
+
+    unwrapped_func = recovery_prompt.__wrapped__
 
     with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
         mock_shared_datetime.now.return_value = fixed_dt
 
         # Test with original_explanation = None
-        system_fragments_no_expl, user_fragments_no_expl = recovery_prompt(
+        system_fragments_no_expl, user_fragments_no_expl = unwrapped_func(
+            None,  # custom_mapping = None (no plugin)
             failed_command=command,
             error_output=error,
-            current_memory=current_memory_dummy,
             original_explanation=None,
             config=test_config,
         )
@@ -667,10 +685,10 @@ def test_recovery_prompt_with_original_explanation(
         mock_shared_datetime_2.now.return_value = (
             fixed_dt  # Use same fixed_dt for consistency
         )
-        system_fragments_expl, user_fragments_expl = recovery_prompt(
+        system_fragments_expl, user_fragments_expl = unwrapped_func(
+            None,  # custom_mapping = None (no plugin)
             failed_command="kubectl create deploy nginx --image=nginx:latest",
             error_output="deploy fail",
-            current_memory=current_memory_dummy,
             original_explanation=mock_error_explanation,
             config=test_config,
         )

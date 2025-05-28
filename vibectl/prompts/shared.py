@@ -7,6 +7,7 @@ prompt modules to avoid duplication and ensure consistency.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -364,14 +365,14 @@ def with_planning_prompt_override(
                     from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
                     from vibectl.types import Examples
 
-                    examples = Examples(custom_mapping.examples or [])
+                    examples = Examples(custom_mapping.get("examples") or [])
 
                     # Use explicit command from plugin mapping
-                    command = custom_mapping.command or "unknown"
+                    command = custom_mapping.get("command") or "unknown"
 
                     return create_planning_prompt(
                         command=command,
-                        description=custom_mapping.description,
+                        description=custom_mapping.get("description"),
                         examples=examples,
                         schema_definition=_SCHEMA_DEFINITION_JSON,
                     )
@@ -432,9 +433,9 @@ def with_summary_prompt_override(
                 custom_mapping = resolver.get_prompt_mapping(prompt_key)
                 if custom_mapping and custom_mapping.is_summary_prompt():
                     return create_summary_prompt(
-                        description=custom_mapping.description,
-                        focus_points=custom_mapping.focus_points or [],
-                        example_format=custom_mapping.example_format or [],
+                        description=custom_mapping.get("description"),
+                        focus_points=custom_mapping.get("focus_points") or [],
+                        example_format=custom_mapping.get("example_format") or [],
                         config=cfg,
                         current_memory=current_memory,
                     )
@@ -475,6 +476,7 @@ def with_custom_prompt_override(prompt_key: str) -> Callable:
     """
 
     def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Import here to avoid circular imports
             from vibectl.plugins import PluginStore, PromptResolver

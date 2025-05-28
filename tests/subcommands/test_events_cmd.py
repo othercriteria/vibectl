@@ -20,6 +20,10 @@ async def test_events_error_handling(
 ) -> None:
     """Test error handling in events command."""
     mock_run_kubectl.return_value = Error(error="Test error")
+    # Mock handle_command_output to return the same error with recovery suggestions
+    mock_handle_output.return_value = Error(
+        error="Test error", recovery_suggestions="Try checking the resource name"
+    )
 
     events_command = cli.commands.get("events")
     assert events_command is not None, "'events' command not found in CLI"
@@ -41,7 +45,9 @@ async def test_events_error_handling(
     # This was an error in my previous reasoning for this test.
     # The run_events_command itself forms the kubectl command.
 
-    mock_handle_output.assert_not_called()
+    # Now expect handle_command_output to be called since show_vibe=True by default
+    # and errors go through recovery suggestion flow
+    mock_handle_output.assert_called_once()
 
 
 @patch("vibectl.command_handler.run_kubectl")

@@ -80,20 +80,20 @@ def memory_fuzzy_update_prompt(
     max_chars = int(cfg.get("memory_max_chars", 500))
 
     # Use custom instructions if provided by plugin
-    if custom_mapping and hasattr(custom_mapping, "description"):
-        memory_instruction = Fragment(custom_mapping.description)
+    if custom_mapping and custom_mapping.get("description"):
+        memory_instruction = Fragment(custom_mapping.get("description"))
     else:
         memory_instruction = Fragment(
             "Based on the user's new information, give the updated memory."
         )
 
     # Build custom system fragments if plugin provides them
-    if custom_mapping and hasattr(custom_mapping, "system_instructions"):
+    if custom_mapping and custom_mapping.get("system_instructions"):
         system_fragments = SystemFragments(
             [
                 FRAGMENT_MEMORY_ASSISTANT,
                 fragment_concision(max_chars),
-                Fragment(custom_mapping.system_instructions),
+                Fragment(custom_mapping.get("system_instructions")),
             ]
         )
     else:
@@ -106,9 +106,9 @@ def memory_fuzzy_update_prompt(
         )
 
     # Use custom user template if provided by plugin
-    if custom_mapping and hasattr(custom_mapping, "user_template"):
+    if custom_mapping and custom_mapping.get("user_template"):
         current_time_str = fragment_current_time()
-        user_content = custom_mapping.user_template.format(
+        user_content = custom_mapping.get("user_template").format(
             current_memory=current_memory,
             update_text=update_text or "",
             current_time=str(current_time_str),

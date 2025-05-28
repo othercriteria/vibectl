@@ -49,20 +49,12 @@ class PromptMapping:
 
         Args:
             key: The key to retrieve
-            default: Default value if key is missing. If None (default),
-                    returns empty string and logs a warning for missing keys.
+            default: Default value if key is missing
 
         Returns:
-            The value for the key, default value, or empty string with warning.
+            The value for the key, or the default value if key is missing.
         """
-        if key not in self._data:
-            if default is None:
-                logger.warning(
-                    f"PromptMapping missing key '{key}', returning empty string"
-                )
-                return ""
-            return default
-        return self._data[key]
+        return self._data.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
         """Direct dictionary-style access."""
@@ -81,36 +73,10 @@ class PromptMapping:
         return self._data.items()
 
     @property
-    def description(self) -> str:
-        """Get the prompt description (legacy accessor)."""
-        desc = self._data.get("description", "")
-        return str(desc)  # Ensure string type
-
-    @property
     def prompt_metadata(self) -> dict[str, Any]:
         """Get prompt metadata for type detection and validation."""
         metadata = self._data.get("prompt_metadata", {})
         return dict(metadata) if metadata else {}  # Ensure dict type
-
-    @property
-    def command(self) -> str | None:
-        """Get explicit command for planning prompts (legacy accessor)."""
-        return self._data.get("command")
-
-    @property
-    def focus_points(self) -> list[str] | None:
-        """Get focus points for summary prompts (legacy accessor)."""
-        return self._data.get("focus_points")
-
-    @property
-    def example_format(self) -> list[str] | None:
-        """Get example format for summary prompts (legacy accessor)."""
-        return self._data.get("example_format")
-
-    @property
-    def examples(self) -> list[tuple[str, dict[str, Any]]] | None:
-        """Get examples for planning prompts (legacy accessor)."""
-        return self._data.get("examples")
 
     def is_planning_prompt(self) -> bool:
         """Check if this is a planning prompt based on metadata or legacy detection."""
@@ -119,7 +85,8 @@ class PromptMapping:
             return bool(self.prompt_metadata["is_planning_prompt"])
 
         # Fall back to legacy detection for backward compatibility
-        return self.examples is not None
+        examples = self._data.get("examples")
+        return examples is not None and examples != ""
 
     def is_summary_prompt(self) -> bool:
         """Check if this is a summary prompt based on metadata or legacy detection."""
@@ -128,7 +95,11 @@ class PromptMapping:
             return bool(self.prompt_metadata["is_summary_prompt"])
 
         # Fall back to legacy detection for backward compatibility
-        return self.focus_points is not None or self.example_format is not None
+        focus_points = self._data.get("focus_points")
+        example_format = self._data.get("example_format")
+        return (focus_points is not None and focus_points != "") or (
+            example_format is not None and example_format != ""
+        )
 
 
 @dataclass

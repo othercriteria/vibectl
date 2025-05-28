@@ -1165,9 +1165,9 @@ class TestRuntimeVersionCompatibility:
 
             # Should return the plugin mapping
             assert result is not None
-            assert result.description == "Test prompt description"
-            assert result.focus_points == ["Focus point 1"]
-            assert result.example_format == ["Example line 1"]
+            assert result.get("description") == "Test prompt description"
+            assert result.get("focus_points") == ["Focus point 1"]
+            assert result.get("example_format") == ["Example line 1"]
 
             # Should not log any warnings about version compatibility
             mock_logger.warning.assert_not_called()
@@ -1238,7 +1238,7 @@ class TestRuntimeVersionCompatibility:
 
             # Should return the compatible plugin (second in precedence)
             assert result is not None
-            assert result.description == "Compatible prompt"
+            assert result.get("description") == "Compatible prompt"
 
             # Should log a warning about skipping the incompatible plugin
             mock_logger.warning.assert_called_once()
@@ -1340,7 +1340,7 @@ class TestRuntimeVersionCompatibility:
 
             # Should return the plugin mapping (no version check performed)
             assert result is not None
-            assert result.description == "Test prompt"
+            assert result.get("description") == "Test prompt"
 
     @patch("vibectl.plugins.PluginStore")
     @patch("vibectl.plugins.PromptResolver")
@@ -1524,18 +1524,18 @@ class TestDualPromptTypePlugins:
         patch_plan = plugin.prompt_mappings["patch_plan"]
         assert patch_plan.is_planning_prompt()
         assert not patch_plan.is_summary_prompt()
-        assert patch_plan.examples is not None
-        assert len(patch_plan.examples) == 2
-        assert patch_plan.focus_points is None
-        assert patch_plan.example_format is None
+        assert patch_plan.get("examples") is not None
+        assert len(patch_plan.get("examples")) == 2
+        assert patch_plan.get("focus_points") is None
+        assert patch_plan.get("example_format") is None
 
         # Check summary prompt
         patch_summary = plugin.prompt_mappings["patch_resource_summary"]
         assert patch_summary.is_summary_prompt()
         assert not patch_summary.is_planning_prompt()
-        assert patch_summary.focus_points is not None
-        assert patch_summary.example_format is not None
-        assert patch_summary.examples is None
+        assert patch_summary.get("focus_points") is not None
+        assert patch_summary.get("example_format") is not None
+        assert patch_summary.get("examples") is None
 
         # Validate plugin passes validation
         assert mock_plugin_store._validate_plugin(plugin)
@@ -1549,8 +1549,8 @@ class TestDualPromptTypePlugins:
         patch_plan = plugin.prompt_mappings["patch_plan"]
         assert patch_plan.is_planning_prompt()
         assert not patch_plan.is_summary_prompt()
-        assert patch_plan.examples is not None
-        assert patch_plan.focus_points is None
+        assert patch_plan.get("examples") is not None
+        assert patch_plan.get("focus_points") is None
 
         assert mock_plugin_store._validate_plugin(plugin)
 
@@ -1563,8 +1563,8 @@ class TestDualPromptTypePlugins:
         patch_summary = plugin.prompt_mappings["patch_resource_summary"]
         assert patch_summary.is_summary_prompt()
         assert not patch_summary.is_planning_prompt()
-        assert patch_summary.focus_points is not None
-        assert patch_summary.examples is None
+        assert patch_summary.get("focus_points") is not None
+        assert patch_summary.get("examples") is None
 
         assert mock_plugin_store._validate_plugin(plugin)
 

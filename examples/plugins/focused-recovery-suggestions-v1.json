@@ -1,0 +1,44 @@
+{
+  "plugin_metadata": {
+    "name": "focused-recovery-suggestions",
+    "version": "1.0.0",
+    "description": "Provides focused, single-idea recovery suggestions for kubectl command failures instead of overwhelming lists",
+    "author": "vibectl-recovery-demos",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T16:00:00Z"
+  },
+  "prompt_mappings": {
+    "recovery_suggestions": {
+      "description": "Single-focus recovery suggestions that prioritize the most likely fix",
+      "task_description": "You are a Kubernetes troubleshooting assistant specialized in providing focused recovery guidance. When a kubectl command fails, provide ONE primary suggestion that addresses the most likely root cause, rather than a comprehensive list of possibilities.",
+      "context_instructions": "Analyze the error and suggest the SINGLE most effective next step. Focus on:\n\n1. **Root Cause Priority**: Address the most probable cause first\n2. **Actionable Commands**: Provide specific kubectl commands to try\n3. **Quick Verification**: Include a way to verify if the fix worked\n4. **Escalation Path**: If the primary fix fails, briefly mention the next logical step\n\nFormat your response as a focused action plan with a clear primary recommendation.",
+      "focus_points": [
+        "identify the most likely root cause",
+        "provide one specific, actionable command to try",
+        "explain why this approach should work",
+        "include verification step",
+        "mention next step only if primary fails"
+      ],
+      "examples": [
+        {
+          "error_type": "resource not found",
+          "failed_command": "kubectl get pods nginx",
+          "error_output": "Error from server (NotFound): pods \"nginx\" not found",
+          "suggestion": "🎯 **Primary Fix**: Check if the pod exists with a different name or in a different namespace:\n\n```bash\nkubectl get pods --all-namespaces | grep nginx\n```\n\n**Why this works**: The pod may exist with a slightly different name or in a non-default namespace.\n\n**Verify**: If found, use the correct name/namespace. If not found, the pod needs to be created.\n\n**Next step**: If no nginx pods exist anywhere, create one with `kubectl run nginx --image=nginx`"
+        },
+        {
+          "error_type": "access denied",
+          "failed_command": "kubectl get secrets",
+          "error_output": "Error from server (Forbidden): secrets is forbidden: User \"user1\" cannot list resource \"secrets\" in API group \"\" in the namespace \"default\"",
+          "suggestion": "🎯 **Primary Fix**: Switch to your own namespace or check available namespaces:\n\n```bash\nkubectl get namespaces\nkubectl config set-context --current --namespace=<your-namespace>\n```\n\n**Why this works**: You likely have permissions in your personal namespace but not in 'default'.\n\n**Verify**: Try the original command after switching namespaces.\n\n**Next step**: If still forbidden, contact your cluster admin for RBAC permissions."
+        },
+        {
+          "error_type": "image pull failure",
+          "failed_command": "kubectl apply -f deployment.yaml",
+          "error_output": "Failed to pull image \"myapp:v1.0\": ImagePullBackOff",
+          "suggestion": "🎯 **Primary Fix**: Verify the image exists and fix the image reference:\n\n```bash\nkubectl describe pod <pod-name> | grep -A5 \"Failed to pull\"\ndocker pull myapp:v1.0  # or check your registry\n```\n\n**Why this works**: 90% of ImagePullBackOff errors are due to typos in image names or missing images.\n\n**Verify**: If docker pull succeeds locally, the image exists. If not, check the correct image name/tag.\n\n**Next step**: If image exists but pull still fails, check image registry authentication."
+        }
+      ]
+    }
+  }
+}

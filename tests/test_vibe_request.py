@@ -472,16 +472,12 @@ async def test_handle_vibe_request_command_error(
     )
     plan_json_str = LLMPlannerResponse(action=command_action).model_dump_json()
 
-    # Recovery suggestion from LLM
+    # Recovery suggestion from LLM (plain text, not JSON)
     recovery_message = "Recovery suggestion: Check resource name."
-    recovery_action = FeedbackAction(
-        action_type=ActionType.FEEDBACK, message=recovery_message
-    )
-    recovery_json_str = LLMPlannerResponse(action=recovery_action).model_dump_json()
 
     # Mock the responses for execute_and_log_metrics
     # 1. Initial plan
-    # 2. Recovery suggestion (called by get_llm_recovery_suggestion)
+    # 2. Recovery suggestion (plain text from recovery prompt)
     plan_metrics = LLMMetrics(latency_ms=10)
     recovery_metrics = LLMMetrics(
         token_input=0,
@@ -493,7 +489,7 @@ async def test_handle_vibe_request_command_error(
     )
     mock_get_adapter.execute_and_log_metrics.side_effect = [
         (plan_json_str, plan_metrics),  # For initial plan
-        (recovery_json_str, recovery_metrics),  # For recovery suggestion
+        (recovery_message, recovery_metrics),  # For recovery suggestion (plain text)
     ]
 
     with patch("vibectl.execution.vibe._execute_command") as mock_execute_cmd:
@@ -531,7 +527,7 @@ async def test_handle_vibe_request_command_error(
     call_1_kwargs = {
         "command_message": "get",
         "command_output": error_message,
-        "vibe_output": recovery_json_str,
+        "vibe_output": recovery_message,
         "model_name": default_output_flags.model_name,
         "config": ANY,
     }
