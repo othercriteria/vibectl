@@ -28,7 +28,7 @@ from vibectl.prompt import (
     create_planning_prompt,
     get_formatting_fragments,
 )
-from vibectl.prompts.cluster_info import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
+from vibectl.prompts.cluster_info import cluster_info_plan_prompt, cluster_info_prompt
 from vibectl.prompts.create import PLAN_CREATE_PROMPT, create_resource_prompt
 from vibectl.prompts.delete import PLAN_DELETE_PROMPT, delete_resource_prompt
 from vibectl.prompts.describe import PLAN_DESCRIBE_PROMPT, describe_resource_prompt
@@ -200,7 +200,7 @@ def test_prompt_semantic_requirements(
         mock_shared_datetime.now.return_value = fixed_dt
 
         # All listed prompt functions take optional config and return PromptFragments.
-        system_fragments, user_fragments = prompt_func(config=test_config)
+        system_fragments, user_fragments = prompt_func(config=test_config)  # type: ignore[operator]
 
         combined_text = "\n".join(system_fragments + user_fragments)
 
@@ -340,7 +340,7 @@ def test_create_planning_prompt_raises_without_schema() -> None:
         PLAN_DESCRIBE_PROMPT,
         PLAN_LOGS_PROMPT,
         PLAN_VERSION_PROMPT,
-        PLAN_CLUSTER_INFO_PROMPT,
+        cluster_info_plan_prompt(),  # type: ignore[misc]
         PLAN_EVENTS_PROMPT,
         PLAN_DELETE_PROMPT,
         PLAN_SCALE_PROMPT,

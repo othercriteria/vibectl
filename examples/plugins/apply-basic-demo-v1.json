@@ -9,7 +9,8 @@
   },
   "prompt_mappings": {
     "apply_plan": {
-      "description": "Planning apply commands with DEMO PLUGIN ENHANCEMENTS - adds server-side apply preference and validation warnings",
+      "description": "Planning apply commands with BASIC DEMO FEATURES - enhanced validation and server-side apply",
+      "command": "apply",
       "examples": [
         [
           "apply the deployment from my-deployment.yaml",

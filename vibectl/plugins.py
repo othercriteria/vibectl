@@ -29,33 +29,106 @@ class PluginMetadata:
 
 @dataclass
 class PromptMapping:
-    """A custom prompt mapping from a plugin.
+    """A flexible custom prompt mapping from a plugin.
 
-    Supports planning prompts (with examples), summary prompts
-    (with focus_points and example_format), and workflow prompts
-    (with description only for intelligent workflow steps).
+    Stores prompt data as a flexible dictionary while providing convenient
+    access patterns and type-specific validation based on prompt_metadata.
     """
 
-    description: str
-    focus_points: list[str] | None = None
-    example_format: list[str] | None = None
-    examples: list[tuple[str, dict[str, Any]]] | None = None
+    def __init__(self, data: dict[str, Any]):
+        """Initialize from a dictionary of prompt data.
+
+        Args:
+            data: Dictionary containing prompt configuration. Fields are
+                  completely flexible - no required fields.
+        """
+        self._data = data.copy()  # Defensive copy
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value from the prompt mapping with fallback behavior.
+
+        Args:
+            key: The key to retrieve
+            default: Default value if key is missing. If None (default),
+                    returns empty string and logs a warning for missing keys.
+
+        Returns:
+            The value for the key, default value, or empty string with warning.
+        """
+        if key not in self._data:
+            if default is None:
+                logger.warning(
+                    f"PromptMapping missing key '{key}', returning empty string"
+                )
+                return ""
+            return default
+        return self._data[key]
+
+    def __getitem__(self, key: str) -> Any:
+        """Direct dictionary-style access."""
+        return self._data[key]
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in the mapping."""
+        return key in self._data
+
+    def keys(self) -> Any:
+        """Get all keys in the mapping."""
+        return self._data.keys()
+
+    def items(self) -> Any:
+        """Get all items in the mapping."""
+        return self._data.items()
+
+    @property
+    def description(self) -> str:
+        """Get the prompt description (legacy accessor)."""
+        desc = self._data.get("description", "")
+        return str(desc)  # Ensure string type
+
+    @property
+    def prompt_metadata(self) -> dict[str, Any]:
+        """Get prompt metadata for type detection and validation."""
+        metadata = self._data.get("prompt_metadata", {})
+        return dict(metadata) if metadata else {}  # Ensure dict type
+
+    @property
+    def command(self) -> str | None:
+        """Get explicit command for planning prompts (legacy accessor)."""
+        return self._data.get("command")
+
+    @property
+    def focus_points(self) -> list[str] | None:
+        """Get focus points for summary prompts (legacy accessor)."""
+        return self._data.get("focus_points")
+
+    @property
+    def example_format(self) -> list[str] | None:
+        """Get example format for summary prompts (legacy accessor)."""
+        return self._data.get("example_format")
+
+    @property
+    def examples(self) -> list[tuple[str, dict[str, Any]]] | None:
+        """Get examples for planning prompts (legacy accessor)."""
+        return self._data.get("examples")
 
     def is_planning_prompt(self) -> bool:
-        """Check if this is a planning prompt (has examples)."""
+        """Check if this is a planning prompt based on metadata or legacy detection."""
+        # Check explicit metadata first
+        if "is_planning_prompt" in self.prompt_metadata:
+            return bool(self.prompt_metadata["is_planning_prompt"])
+
+        # Fall back to legacy detection for backward compatibility
         return self.examples is not None
 
     def is_summary_prompt(self) -> bool:
-        """Check if this is a summary prompt (has focus_points/example_format)."""
-        return self.focus_points is not None or self.example_format is not None
+        """Check if this is a summary prompt based on metadata or legacy detection."""
+        # Check explicit metadata first
+        if "is_summary_prompt" in self.prompt_metadata:
+            return bool(self.prompt_metadata["is_summary_prompt"])
 
-    def is_workflow_prompt(self) -> bool:
-        """Check if this is a workflow prompt (description only)."""
-        return (
-            self.examples is None
-            and self.focus_points is None
-            and self.example_format is None
-        )
+        # Fall back to legacy detection for backward compatibility
+        return self.focus_points is not None or self.example_format is not None
 
 
 @dataclass
@@ -74,12 +147,7 @@ class Plugin:
         for key, mapping_data in data["prompt_mappings"].items():
             # Handle optional fields for different prompt types
             # Description is required but handle gracefully for validation
-            prompt_mappings[key] = PromptMapping(
-                description=mapping_data.get("description", ""),
-                focus_points=mapping_data.get("focus_points"),
-                example_format=mapping_data.get("example_format"),
-                examples=mapping_data.get("examples"),
-            )
+            prompt_mappings[key] = PromptMapping(mapping_data)
 
         return cls(metadata=metadata, prompt_mappings=prompt_mappings)
 
@@ -212,31 +280,30 @@ class PluginStore:
 
         # Validate each prompt mapping
         for key, mapping in plugin.prompt_mappings.items():
-            if not mapping.description or not mapping.description.strip():
-                logger.error(f"Prompt mapping '{key}' missing or empty description")
-                return False
+            # Get prompt metadata for type-specific validation
+            metadata = mapping.prompt_metadata
 
-            # Check that the mapping has the right fields for its type
-            if mapping.is_planning_prompt():
-                if not mapping.examples:
+            # Only validate based on explicit prompt type metadata
+            if metadata.get("is_planning_prompt"):
+                if not mapping.get("examples"):
                     logger.error(f"Planning prompt mapping '{key}' missing examples")
                     return False
-            elif mapping.is_summary_prompt():
-                if not mapping.focus_points and not mapping.example_format:
+                if not mapping.get("command"):
+                    logger.error(
+                        f"Planning prompt mapping '{key}' missing command field"
+                    )
+                    return False
+            elif metadata.get("is_summary_prompt"):
+                if not mapping.get("focus_points") and not mapping.get(
+                    "example_format"
+                ):
                     logger.error(
                         f"Summary prompt mapping '{key}' missing focus_points or "
                         "example_format"
                     )
                     return False
-            elif mapping.is_workflow_prompt():
-                # Workflow prompts only need a description, which is already
-                # checked above
-                logger.debug(f"Workflow prompt mapping '{key}' validated")
-            else:
-                logger.error(
-                    f"Prompt mapping '{key}' has invalid combination of fields"
-                )
-                return False
+            # No explicit type metadata - allow flexible prompts without validation
+            # This enables maximum flexibility for plugin authors
 
         # Version compatibility check
         if plugin.metadata.compatible_vibectl_versions:

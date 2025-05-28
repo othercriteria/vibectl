@@ -366,10 +366,8 @@ def with_planning_prompt_override(
 
                     examples = Examples(custom_mapping.examples or [])
 
-                    # Extract command from prompt_key (e.g., "apply_plan" -> "apply")
-                    command = (
-                        prompt_key.split("_")[0] if "_" in prompt_key else "unknown"
-                    )
+                    # Use explicit command from plugin mapping
+                    command = custom_mapping.command or "unknown"
 
                     return create_planning_prompt(
                         command=command,
@@ -455,52 +453,41 @@ def with_summary_prompt_override(
     return decorator
 
 
-def with_workflow_prompt_override(
-    prompt_key: str,
-) -> Callable[[Callable[..., PromptFragments]], Callable[..., PromptFragments]]:
-    """Decorator for intelligent workflow prompts (complex signatures).
+def with_custom_prompt_override(prompt_key: str) -> Callable:
+    """
+    Decorator for complex prompt functions that need custom plugin handling.
 
-    Use for prompts like plan_apply_filescope_prompt_fragments that have specialized
-    parameters and complex logic. Currently logs a warning and falls back to defaults
-    since workflow prompts are not yet fully supported by the plugin system.
+    Unlike the simple planning/summary decorators, this decorator:
+    1. Looks up the plugin mapping for the given prompt_key
+    2. Passes the custom_mapping (or None) as the first argument to the
+       decorated function
+    3. Lets the function handle both custom and default logic internally
+
+    This is useful for prompt functions that need to do custom processing with
+    plugin data (like building custom schemas, examples, etc.) rather than
+    simple text replacement.
 
     Args:
-        prompt_key: The key to look for in plugin prompt mappings
-                    (e.g., "apply_filescope")
+        prompt_key: The prompt key to look up in plugins (e.g., "apply_filescope")
+
+    Returns:
+        Decorator function that injects custom_mapping as first argument
     """
 
-    def decorator(
-        func: Callable[..., PromptFragments],
-    ) -> Callable[..., PromptFragments]:
-        def wrapper(*args: Any, **kwargs: Any) -> PromptFragments:
-            # For workflow prompts, we currently just log and fall back
-            # since they have complex signatures that don't fit the current plugin model
-            try:
-                from vibectl.config import Config
-                from vibectl.plugins import PluginStore, PromptResolver
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Import here to avoid circular imports
+            from vibectl.plugins import PluginStore, PromptResolver
 
-                cfg = Config()
-                plugin_store = PluginStore(cfg)
-                resolver = PromptResolver(plugin_store, cfg)
+            # Get custom mapping from plugins
+            plugin_store = PluginStore()
+            resolver = PromptResolver(plugin_store)
+            custom_mapping = resolver.get_prompt_mapping(prompt_key)
 
-                custom_mapping = resolver.get_prompt_mapping(prompt_key)
-                if custom_mapping:
-                    from vibectl.logutil import logger
-
-                    logger.warning(
-                        f"Plugin mapping found for {prompt_key} but intelligent "
-                        "workflow prompts are not yet fully supported by the plugin "
-                        "system. Using default prompt."
-                    )
-            except Exception as e:
-                from vibectl.logutil import logger
-
-                logger.warning(
-                    f"Failed to check plugin workflow prompt for {prompt_key}: {e}"
-                )
-
-            # Always fall back to original function for now
-            return func(*args, **kwargs)
+            # Call the original function with custom_mapping as first argument
+            # Functions can use getattr(custom_mapping, "field", default) or
+            # check if None
+            return func(custom_mapping, *args, **kwargs)
 
         return wrapper
 

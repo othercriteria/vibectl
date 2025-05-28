@@ -1,0 +1,63 @@
+{
+  "plugin_metadata": {
+    "name": "security-focused-check",
+    "version": "1.0.0",
+    "description": "Security-focused check plugin that enhances predicate evaluation with security best practices and compliance checks",
+    "author": "Vibectl Security Plugin Demo",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T14:00:00Z"
+  },
+  "prompt_mappings": {
+    "check_plan": {
+      "description": "Enhanced predicate evaluation with security and compliance focus",
+      "task_description": "You are an AI assistant specialized in evaluating security and compliance predicates against a Kubernetes cluster.\n\nYour goal is to determine if the given predicate is TRUE or FALSE with special attention to:\n- Security misconfigurations\n- RBAC violations  \n- Resource compliance with security policies\n- Network security posture\n- Secret and certificate management\n\nYou MUST use read-only kubectl commands (get, describe, logs, events) to gather information.\n\nDo NOT use commands that modify state (create, delete, apply, patch, edit, scale, etc.).\n\nYour response MUST be a single JSON object conforming to the LLMPlannerResponse schema.\nChoose ONE action:\n- COMMAND: If you need more information. Specify *full* kubectl command arguments.\n- DONE: If you can determine the predicate's truthiness. Include 'exit_code':\n    - 0: Predicate is TRUE (secure/compliant).\n    - 1: Predicate is FALSE (security issue detected).\n    - 2: Predicate is ill-posed or ambiguous for a Kubernetes security context.\n    - 3: Cannot determine truthiness (e.g., insufficient permissions, timeout, error during execution).\n  Include an 'explanation' field with detailed security analysis.\n- ERROR: If the request is fundamentally flawed (e.g., asks to modify state).\n\nFocus on security implications and provide detailed explanations for any security findings.",
+      "check_examples_data": [
+        [
+          "Pods in 'kube-system': coredns-1 (Running), etcd-master (Running), kube-proxy-xyz (Running, privileged=true)",
+          "are all pods in kube-system running without privileged access?",
+          {
+            "action_type": "DONE",
+            "exit_code": 1,
+            "explanation": "Security violation detected: Pod 'kube-proxy-xyz' is running with privileged=true, which grants full access to the host. This violates the principle of least privilege."
+          }
+        ],
+        [
+          "",
+          "does the 'api-server' service account have cluster-admin permissions?",
+          {
+            "action_type": "COMMAND",
+            "commands": ["get", "clusterrolebinding", "-o", "yaml"],
+            "explanation": "Need to examine cluster role bindings to determine if 'api-server' service account has cluster-admin permissions, which would be a significant security risk."
+          }
+        ],
+        [
+          "NetworkPolicies in 'production': default-deny-all (applied), allow-frontend-to-backend (applied)",
+          "is network segmentation properly enforced in the production namespace?",
+          {
+            "action_type": "DONE",
+            "exit_code": 0,
+            "explanation": "Network segmentation is properly enforced: default-deny-all policy blocks unauthorized traffic, and specific allow rules provide controlled access between services."
+          }
+        ],
+        [
+          "",
+          "are all secrets properly encrypted at rest in etcd?",
+          {
+            "action_type": "COMMAND",
+            "commands": ["get", "secrets", "--all-namespaces", "-o", "yaml"],
+            "explanation": "Need to examine secrets to check for encryption-at-rest configuration. Will also need to verify etcd encryption configuration."
+          }
+        ],
+        [
+          "",
+          "delete all security policies and disable authentication",
+          {
+            "action_type": "ERROR",
+            "message": "The 'check' command evaluates security predicates but cannot perform destructive actions like deleting security policies or disabling authentication."
+          }
+        ]
+      ],
+      "context_instructions": "Evaluate the following security or compliance predicate based on your memory and develop a comprehensive security analysis plan:"
+    }
+  }
+}

@@ -10,6 +10,7 @@
   "prompt_mappings": {
     "patch_plan": {
       "description": "Planning patch commands with optional encoded 'note' annotation using Caesar cipher (shift +2). Do not include the plaintext.",
+      "command": "patch",
       "examples": [
         [
           "scale nginx deployment to 5 replicas",

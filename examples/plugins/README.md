@@ -38,6 +38,7 @@ Currently supported prompt keys for customization:
 
 - `patch_plan`: Planning prompts for `kubectl patch` commands (generates the kubectl command)
 - `patch_resource_summary`: Summary output for `kubectl patch` commands
+- `check_plan`: Planning prompts for `vibectl check` commands (evaluates predicates against cluster state)
 
 ## Example Plugins
 
@@ -60,6 +61,13 @@ Demonstrates both planning and summarizing customization with operation tracking
 - Decodes annotations in summaries to show operation context
 - Shows how a single plugin can customize both planning and summarizing
 - Uses simple cipher: PATCH→RCEEJ, SCALE→UECNG, UPDATE→WRIKCG, LABEL→NCDJN
+
+### security-focused-check-v1.json
+Demonstrates check command customization with security and compliance focus:
+- Enhanced task description emphasizing security best practices
+- Specialized examples for RBAC, network policies, secrets, and privileged access
+- Security-focused context instructions and analysis approach
+- Detailed explanations highlighting security implications and violations
 
 ## Installation (Future)
 

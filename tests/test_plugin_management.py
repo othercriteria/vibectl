@@ -707,9 +707,11 @@ class TestVersionCompatibilityFoundation:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -729,9 +731,11 @@ class TestVersionCompatibilityFoundation:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -756,9 +760,11 @@ class TestPluginValidation:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -778,9 +784,11 @@ class TestPluginValidation:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -808,8 +816,9 @@ class TestPluginValidation:
     def test_invalid_prompt_mapping_validation(
         self, mock_plugin_store: PluginStore
     ) -> None:
-        """Test that invalid prompt mappings fail validation."""
-        # Plugin with prompt mapping that has missing description
+        """Test invalid prompt mappings fail validation when type metadata specified."""
+        # Plugin with prompt mapping that claims to be a planning prompt but
+        # missing required fields
         invalid_plugin_data = {
             "plugin_metadata": {
                 "name": "invalid-plugin",
@@ -821,48 +830,49 @@ class TestPluginValidation:
             },
             "prompt_mappings": {
                 "invalid_prompt": {
-                    # Missing description - this should fail
-                    "focus_points": ["Some focus point"],
+                    "description": "This claims to be a planning prompt but is "
+                    "missing examples",
+                    "prompt_metadata": {"is_planning_prompt": True},
+                    # Missing examples - this should fail for planning prompts
                 },
             },
         }
 
         plugin = Plugin.from_dict(invalid_plugin_data)
 
-        # Should fail validation due to missing description
+        # Should fail validation due to missing examples for planning prompt
         assert not mock_plugin_store._validate_plugin(plugin)
 
     def test_workflow_prompt_validation(self, mock_plugin_store: PluginStore) -> None:
-        """Test that workflow prompts (description only) are valid."""
-        # Plugin with workflow prompt that has only description
-        workflow_plugin_data = {
+        """Test that flexible prompts (description only) are valid."""
+        # Plugin with flexible prompt that has only description
+        flexible_plugin_data = {
             "plugin_metadata": {
-                "name": "workflow-plugin",
+                "name": "flexible-plugin",
                 "version": "1.0.0",
-                "description": "Workflow plugin",
+                "description": "Flexible plugin",
                 "author": "Test Author",
                 "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
                 "created_at": "2024-01-15T10:00:00Z",
             },
             "prompt_mappings": {
-                "workflow_prompt": {
-                    "description": "Workflow prompt with description only",
-                    # No examples, focus_points, or example_format - this
-                    # is valid for workflow prompts
+                "flexible_prompt": {
+                    "description": "Flexible prompt with description only",
+                    # No examples, focus_points, or example_format - this is
+                    # valid for flexible prompts
                 },
             },
         }
 
-        plugin = Plugin.from_dict(workflow_plugin_data)
+        plugin = Plugin.from_dict(flexible_plugin_data)
 
-        # Should pass validation as a valid workflow prompt
+        # Should pass validation as a valid flexible prompt
         assert mock_plugin_store._validate_plugin(plugin)
 
-        # Verify it's detected as a workflow prompt
-        workflow_mapping = plugin.prompt_mappings["workflow_prompt"]
-        assert workflow_mapping.is_workflow_prompt()
-        assert not workflow_mapping.is_planning_prompt()
-        assert not workflow_mapping.is_summary_prompt()
+        # Verify it's not detected as planning or summary prompt without metadata
+        flexible_mapping = plugin.prompt_mappings["flexible_prompt"]
+        assert not flexible_mapping.is_planning_prompt()
+        assert not flexible_mapping.is_summary_prompt()
 
     def test_planning_prompt_missing_examples_validation(
         self, mock_plugin_store: PluginStore
@@ -880,6 +890,7 @@ class TestPluginValidation:
             "prompt_mappings": {
                 "patch_plan": {
                     "description": "Planning prompt without examples",
+                    "prompt_metadata": {"is_planning_prompt": True},
                     "examples": [],  # Empty examples list - should fail
                 },
             },
@@ -907,6 +918,7 @@ class TestPluginValidation:
             "prompt_mappings": {
                 "conflicting_prompt": {
                     "description": "Prompt with both planning and summary indicators",
+                    "command": "test",  # Required for planning prompts
                     "examples": [
                         ["test", {"action_type": "COMMAND", "commands": ["test"]}]
                     ],  # Planning indicator
@@ -924,7 +936,6 @@ class TestPluginValidation:
         mapping = plugin.prompt_mappings["conflicting_prompt"]
         assert mapping.is_planning_prompt()  # Examples takes precedence
         assert mapping.is_summary_prompt()  # But it also has summary fields
-        assert not mapping.is_workflow_prompt()
 
 
 class TestPluginPrecedenceAutomation:
@@ -1085,9 +1096,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -1130,9 +1143,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt description",
-                    focus_points=["Focus point 1"],
-                    example_format=["Example line 1"],
+                    {
+                        "description": "Test prompt description",
+                        "focus_points": ["Focus point 1"],
+                        "example_format": ["Example line 1"],
+                    }
                 )
             },
         )
@@ -1174,9 +1189,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Incompatible prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Incompatible prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -1192,9 +1209,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Compatible prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Compatible prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -1242,9 +1261,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "patch_resource_summary": PromptMapping(
-                    description="Test patch summary from plugin",
-                    focus_points=["Plugin focus point"],
-                    example_format=["Plugin example"],
+                    {
+                        "description": "Test patch summary from plugin",
+                        "focus_points": ["Plugin focus point"],
+                        "example_format": ["Plugin example"],
+                    }
                 )
             },
         )
@@ -1297,9 +1318,11 @@ class TestRuntimeVersionCompatibility:
             ),
             prompt_mappings={
                 "test_prompt": PromptMapping(
-                    description="Test prompt",
-                    focus_points=["Focus point"],
-                    example_format=["Example"],
+                    {
+                        "description": "Test prompt",
+                        "focus_points": ["Focus point"],
+                        "example_format": ["Example"],
+                    }
                 )
             },
         )
@@ -1379,6 +1402,7 @@ class TestDualPromptTypePlugins:
             "prompt_mappings": {
                 "patch_plan": {
                     "description": "Planning patch commands with custom logic",
+                    "command": "patch",
                     "examples": [
                         [
                             "scale nginx deployment to 5 replicas",
@@ -1439,6 +1463,7 @@ class TestDualPromptTypePlugins:
             "prompt_mappings": {
                 "patch_plan": {
                     "description": "Custom planning for patch commands",
+                    "command": "patch",
                     "examples": [
                         [
                             "scale nginx deployment to 3 replicas",
@@ -1546,8 +1571,9 @@ class TestDualPromptTypePlugins:
     def test_invalid_prompt_mapping_validation(
         self, mock_plugin_store: PluginStore
     ) -> None:
-        """Test that invalid prompt mappings fail validation."""
-        # Plugin with prompt mapping that has missing description
+        """Test invalid prompt mappings fail validation when type metadata specified."""
+        # Plugin with prompt mapping that claims to be a planning prompt
+        # but missing required fields
         invalid_plugin_data = {
             "plugin_metadata": {
                 "name": "invalid-plugin",
@@ -1559,48 +1585,49 @@ class TestDualPromptTypePlugins:
             },
             "prompt_mappings": {
                 "invalid_prompt": {
-                    # Missing description - this should fail
-                    "focus_points": ["Some focus point"],
+                    "description": "This claims to be a planning prompt but is "
+                    "missing examples",
+                    "prompt_metadata": {"is_planning_prompt": True},
+                    # Missing examples - this should fail for planning prompts
                 },
             },
         }
 
         plugin = Plugin.from_dict(invalid_plugin_data)
 
-        # Should fail validation due to missing description
+        # Should fail validation due to missing examples for planning prompt
         assert not mock_plugin_store._validate_plugin(plugin)
 
     def test_workflow_prompt_validation(self, mock_plugin_store: PluginStore) -> None:
-        """Test that workflow prompts (description only) are valid."""
-        # Plugin with workflow prompt that has only description
-        workflow_plugin_data = {
+        """Test that flexible prompts (description only) are valid."""
+        # Plugin with flexible prompt that has only description
+        flexible_plugin_data = {
             "plugin_metadata": {
-                "name": "workflow-plugin",
+                "name": "flexible-plugin",
                 "version": "1.0.0",
-                "description": "Workflow plugin",
+                "description": "Flexible plugin",
                 "author": "Test Author",
                 "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
                 "created_at": "2024-01-15T10:00:00Z",
             },
             "prompt_mappings": {
-                "workflow_prompt": {
-                    "description": "Workflow prompt with description only",
+                "flexible_prompt": {
+                    "description": "Flexible prompt with description only",
                     # No examples, focus_points, or example_format - this is
-                    # valid for workflow prompts
+                    # valid for flexible prompts
                 },
             },
         }
 
-        plugin = Plugin.from_dict(workflow_plugin_data)
+        plugin = Plugin.from_dict(flexible_plugin_data)
 
-        # Should pass validation as a valid workflow prompt
+        # Should pass validation as a valid flexible prompt
         assert mock_plugin_store._validate_plugin(plugin)
 
-        # Verify it's detected as a workflow prompt
-        workflow_mapping = plugin.prompt_mappings["workflow_prompt"]
-        assert workflow_mapping.is_workflow_prompt()
-        assert not workflow_mapping.is_planning_prompt()
-        assert not workflow_mapping.is_summary_prompt()
+        # Verify it's not detected as planning or summary prompt without metadata
+        flexible_mapping = plugin.prompt_mappings["flexible_prompt"]
+        assert not flexible_mapping.is_planning_prompt()
+        assert not flexible_mapping.is_summary_prompt()
 
     @patch("vibectl.plugins.PluginStore")
     @patch("vibectl.plugins.PromptResolver")
