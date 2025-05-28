@@ -10,6 +10,10 @@ while [[ $# -gt 0 ]]; do
       CHALLENGE_DIFFICULTY="$2"
       shift 2
       ;;
+    --model|-m)
+      VIBECTL_MODEL="$2"
+      shift 2
+      ;;
     --verbose|-v)
       export VIBECTL_VERBOSE=true
       echo "ℹ️ Verbose mode enabled"
@@ -20,6 +24,8 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --difficulty, -d LEVEL   Set the challenge difficulty (easy, medium, hard)"
       echo "                           Default: easy"
+      echo "  --model, -m MODEL        Set the LLM model to use"
+      echo "                           Default: claude-3.7-sonnet"
       echo "  --verbose, -v            Enable verbose output in vibectl"
       echo "  --help, -h               Show this help message"
       exit 0
@@ -38,6 +44,14 @@ if [ -z "$CHALLENGE_DIFFICULTY" ]; then
   echo "ℹ️ Challenge difficulty not specified, defaulting to $CHALLENGE_DIFFICULTY"
 else
   echo "ℹ️ Using challenge difficulty: $CHALLENGE_DIFFICULTY"
+fi
+
+# Set default model if not specified
+if [ -z "$VIBECTL_MODEL" ]; then
+  export VIBECTL_MODEL="claude-3.7-sonnet"
+  echo "ℹ️ Model not specified, defaulting to $VIBECTL_MODEL"
+else
+  echo "ℹ️ Using model: $VIBECTL_MODEL"
 fi
 
 # Set ACTIVE_PORTS based on difficulty level
@@ -125,12 +139,14 @@ export DOCKER_GID
 export CHALLENGE_DIFFICULTY
 export ACTIVE_PORTS
 export VIBECTL_VERBOSE
+export VIBECTL_MODEL
 
 # Set up trap to catch interrupts and exit signals
 trap cleanup EXIT SIGINT SIGTERM
 
 echo "🚀 Starting the K8S Sandbox with Docker GID: $DOCKER_GID and Challenge Difficulty: $CHALLENGE_DIFFICULTY"
 echo "📡 Active ports: $ACTIVE_PORTS"
+echo "🤖 Model: $VIBECTL_MODEL"
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode: enabled"
 fi

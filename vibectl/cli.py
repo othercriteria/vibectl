@@ -593,6 +593,13 @@ def theme_set(theme_name: str) -> None:
 @click.option(
     "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
 )
+@click.option(
+    "--interval",
+    "-i",
+    type=int,
+    default=5,
+    help="Seconds to wait between iterations (default: 5)",
+)
 async def auto(
     request: str | None,
     show_raw_output: bool | None,

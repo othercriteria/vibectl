@@ -59,11 +59,16 @@ You can select the difficulty level when running the sandbox:
 # Run with hard difficulty
 ./run.sh --difficulty hard
 
+# Run with a specific model
+./run.sh --model claude-3-haiku
+
 # Run with verbose output (shows kubectl commands and raw output)
 ./run.sh --verbose
 
-# Run with both options
+# Run with multiple options
 ./run.sh --difficulty medium --verbose
+./run.sh --difficulty hard --model claude-3-haiku
+./run.sh --model claude-3-opus --verbose
 
 # See all available options
 ./run.sh --help
@@ -108,6 +113,6 @@ Make sure you've set the VIBECTL_ANTHROPIC_API_KEY environment variable before r
 You can configure the sandbox using these environment variables:
 
 - `VIBECTL_ANTHROPIC_API_KEY`: Your Anthropic API key (required)
-- `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet)
+- `VIBECTL_MODEL`: Model to use (defaults to claude-3.7-sonnet, can also be set via --model flag)
 - `CHALLENGE_DIFFICULTY`: Set difficulty level (easy, medium, hard) as alternative to --difficulty flag
 - `VIBECTL_VERBOSE`: Set to true to enable verbose output (equivalent to --verbose flag)
