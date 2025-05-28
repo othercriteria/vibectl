@@ -9,7 +9,7 @@ from vibectl.memory import (
     configure_memory_flags,
 )
 from vibectl.prompts.get import (
-    PLAN_GET_PROMPT,
+    get_plan_prompt,
     get_resource_prompt,
 )
 from vibectl.types import Error, Result
@@ -58,7 +58,7 @@ async def run_get_command(
             result = await handle_vibe_request(
                 request=request,
                 command="get",
-                plan_prompt_func=lambda: PLAN_GET_PROMPT,
+                plan_prompt_func=get_plan_prompt,
                 summary_prompt_func=get_resource_prompt,
                 output_flags=output_flags,
                 yes=False,

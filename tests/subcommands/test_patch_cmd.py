@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.prompts.patch import PLAN_PATCH_PROMPT, patch_resource_prompt
+from vibectl.prompts.patch import patch_plan_prompt, patch_resource_prompt
 from vibectl.subcommands.patch_cmd import run_patch_command
 from vibectl.types import Error, OutputFlags, Success
 
@@ -211,7 +211,7 @@ class TestRunPatchCommand:
 
         # Test that plan_prompt_func returns PLAN_PATCH_PROMPT
         plan_prompt_func = call_kwargs["plan_prompt_func"]
-        assert plan_prompt_func() == PLAN_PATCH_PROMPT
+        assert plan_prompt_func() == patch_plan_prompt()
 
     @pytest.mark.asyncio
     @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")

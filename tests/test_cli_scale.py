@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vibectl.cli import cli
-from vibectl.prompts.scale import PLAN_SCALE_PROMPT, scale_resource_prompt
+from vibectl.prompts.scale import scale_plan_prompt, scale_resource_prompt
 from vibectl.types import Error, Success
 
 
@@ -34,7 +34,7 @@ async def test_scale_vibe_request() -> None:
         assert kwargs["request"] == "scale the frontend deployment to 5 replicas"
         assert kwargs["command"] == "scale"
         assert callable(kwargs["plan_prompt_func"])
-        assert kwargs["plan_prompt_func"]() == PLAN_SCALE_PROMPT
+        assert kwargs["plan_prompt_func"] == scale_plan_prompt
         assert kwargs["summary_prompt_func"] == scale_resource_prompt
         assert kwargs["config"] is None
         mock_handle_result.assert_called_once_with(mock_handle_vibe.return_value)

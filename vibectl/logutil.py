@@ -42,7 +42,7 @@ def init_logging() -> None:
     # Only add StreamHandler for INFO/DEBUG messages
     # Errors and warnings will be handled by console_manager via handle_exception
     stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.INFO)
+    stream_handler.setLevel(level)  # Use the same level as the logger
     formatter = logging.Formatter("[%(levelname)s] %(message)s")
     stream_handler.setFormatter(formatter)
 

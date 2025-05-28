@@ -2,13 +2,9 @@
 
 *A vibes‑first alternative to kubectl — because clusters deserve good vibes too.*
 
----
-
 ## ✨ Why vibectl?
 
 Managing Kubernetes shouldn't feel like editing an INI file through a periscope. *vibectl* wraps plain‑English intent, a dash of emoji, and an LLM planner around ordinary `kubectl`, giving you **memory‑aware, conversational control** of any cluster. Keep using every manifest, context, and kube‑config you already have – just add vibes.
-
----
 
 ## 🚀 Feature Highlights
 
@@ -19,6 +15,7 @@ Managing Kubernetes shouldn't feel like editing an INI file through a periscope.
 | **Memory System**           | Context persists between invocations (`vibectl memory ...`).                   |
 | **Semi‑Autonomous Loops**   | `vibectl semiauto` iteratively proposes & executes safe changes.             |
 | **Full Autonomy**           | `vibectl vibe` plans, confirms, executes, summarises, updates memory.        |
+| **Plugin System**           | `vibectl install plugin` → customize prompts for security, docs, workflows.  |
 | **Rich TUI**                | Live *watch*, *logs ‑f*, *port‑forward* with pause/filter/save key‑bindings. |
 | **Traffic Proxy**           | Optional middle‑proxy shows per‑session throughput & errors.                 |
 | **Chaos / Demo Tooling**    | Drop‑in sandbox demos for CTFs, Kafka tuning, Chaos‑Monkey battles.          |
@@ -26,7 +23,7 @@ Managing Kubernetes shouldn't feel like editing an INI file through a periscope.
 
 > **New in 0.8.x**  `vibectl patch` for intelligent resource patching, `vibectl edit` for smart editing workflows, `vibectl diff` for live comparisons, and the new intelligent apply workflow.
 
----
+> **New in 0.9.x** Plugin system for customizable prompts and workflows.
 
 ## 🛠 Installation
 
@@ -47,8 +44,6 @@ cd vibectl
 flake develop        # drops you into a fully wired shell
 ```
 
----
-
 ## 🔑 Configure an LLM key
 
 ```bash
@@ -56,11 +51,9 @@ export ANTHROPIC_API_KEY=sk-ant-...        # quickest
 vibectl config set model claude-3.7-sonnet
 ```
 
-More options?  See `docs/MODEL_KEYS.md`.
+More options?  See [docs/MODEL_KEYS.md](docs/MODEL_KEYS.md).
 
----
-
-## ⏱ 60‑Second Tour
+## ⏱ 90‑Second Tour
 
 ### 1 – Ask for a vibe check
 
@@ -110,7 +103,21 @@ vibectl port-forward vibe "nginx-demo-service to 8090"
 vibectl events -n sandbox --watch
 ```
 
----
+### 8 – Install plugins for custom workflows
+
+```bash
+❯ vibectl install plugin examples/plugins/paranoid-security-vibe-v1.json --precedence first
+✓ Installed plugin 'paranoid-security-vibe' version 1.0.0
+❯ vibectl vibe "look around"
+╭─────────────────────── ✨ Vibe ──────────────────────────╮
+│ 🚨 Critical Security Issues:                             │
+│ • nginx:latest image tag - vulnerable to attacks!        │
+│ • NodePort 30090 exposes service externally 🌐           │
+│ • No security context - likely running as root 👤        │
+╰──────────────────────────────────────────────────────────╯
+```
+
+Example library in [examples/plugins](examples/plugins/).
 
 ## 📚 Command Cheatsheet
 
@@ -121,8 +128,6 @@ vibectl events -n sandbox --watch
 | **vibe**                                            | Full autonomous planner                     | `vibectl vibe "deploy redis with persistence"` |
 | **semiauto**                                        | Step‑wise interactive planner               | `vibectl semiauto`                             |
 | **auto**                                            | Non‑interactive loops (used by agents) | `vibectl auto "keep latency <50 ms"`    |
-
----
 
 ## 🧠 Memory Commands
 
@@ -135,8 +140,6 @@ vibectl memory clear
 ```
 
 The planner sees memory every turn, so write facts, goals, and preferences there.
-
----
 
 ## 🎮 Interactive UI Details
 
@@ -156,8 +159,6 @@ vibectl config set intermediate_port_range 10000-11000
 
 Every `port-forward` thereafter shows bytes ⇅, connection duration, errors, and a colourful recap.
 
----
-
 ## ⚙️ Key Configuration Knobs (`vibectl config`)
 
 | Key                      | Default             | Why you'd change it                              |
@@ -169,9 +170,7 @@ Every `port-forward` thereafter shows bytes ⇅, connection duration, errors, an
 | `theme`                  | `dark`              | `light` / `system` / custom.                     |
 | `live_display_max_lines` | `20`                | Default visible buffer for watch/logs.           |
 
-Full schema in `docs/CONFIG.md`.
-
----
+Full schema in [docs/CONFIG.md](docs/CONFIG.md).
 
 ## 📦 Demo Environments
 
@@ -184,8 +183,6 @@ Full schema in `docs/CONFIG.md`.
 
 Each demo has its own `README.md` with step‑by‑step instructions.
 
----
-
 ## 🧪 Development & Testing
 
 ```bash
@@ -195,9 +192,7 @@ make test-fast    # quick subset
 make bump-patch   # bump version with changelog guard
 ```
 
-Pre‑commit hooks enforce Ruff lint/format; CI targets 100 % coverage (see `TESTING.md`).
-
----
+Pre‑commit hooks enforce Ruff lint/format; CI targets 100 % coverage (see [TESTING.md](TESTING.md)).
 
 ## 🤝 Contributing
 

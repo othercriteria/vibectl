@@ -1,0 +1,62 @@
+{
+  "plugin_metadata": {
+    "name": "apply-basic-demo",
+    "version": "1.0.0",
+    "description": "Basic demo plugin for apply command - plan and summary prompts only",
+    "author": "vibectl-demos",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T12:00:00Z"
+  },
+  "prompt_mappings": {
+    "apply_plan": {
+      "description": "Planning apply commands with BASIC DEMO FEATURES - enhanced validation and server-side apply",
+      "command": "apply",
+      "examples": [
+        [
+          "apply the deployment from my-deployment.yaml",
+          {
+            "action_type": "COMMAND",
+            "commands": ["-f", "my-deployment.yaml", "--server-side", "--validate=true"],
+            "explanation": "User asked to apply a deployment from a file. DEMO PLUGIN: Added --server-side and --validate flags for enhanced safety."
+          }
+        ],
+        [
+          "apply all yaml files in the ./manifests directory",
+          {
+            "action_type": "COMMAND",
+            "commands": ["-f", "./manifests", "--server-side", "--validate=true"],
+            "explanation": "User asked to apply all YAML files in a directory. DEMO PLUGIN: Enhanced with server-side apply and validation."
+          }
+        ],
+        [
+          "apply the kustomization in ./my-app",
+          {
+            "action_type": "COMMAND",
+            "commands": ["-k", "./my-app", "--server-side"],
+            "explanation": "User asked to apply a kustomization. DEMO PLUGIN: Added server-side apply for better conflict resolution."
+          }
+        ]
+      ]
+    },
+    "apply_resource_summary": {
+      "description": "Summarize apply results with DEMO PLUGIN ENHANCEMENTS - adds extra detail about server-side apply conflicts and validation",
+      "focus_points": [
+        "Resources that were configured, created, or unchanged",
+        "Namespace information",
+        "Server-side apply conflicts or warnings (DEMO ENHANCEMENT)",
+        "Validation results and any validation warnings (DEMO ENHANCEMENT)",
+        "Any errors that occurred",
+        "Highlight when demo plugin features were used"
+      ],
+      "example_format": [
+        "[bold]pod/nginx-applied[/bold] [green]configured (server-side)[/green]",
+        "[bold]deployment/frontend[/bold] [yellow]unchanged[/yellow]",
+        "[bold]service/backend[/bold] [green]created[/green]",
+        "[blue]DEMO PLUGIN: Server-side apply used for better conflict resolution[/blue]",
+        "[blue]DEMO PLUGIN: Validation passed with --validate=true flag[/blue]",
+        "[yellow]Server-side apply resolved conflict for deployment/app[/yellow]",
+        "[red]Error: unable to apply service/broken-svc[/red]: validation failed"
+      ]
+    }
+  }
+}

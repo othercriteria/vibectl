@@ -422,7 +422,7 @@ async def test_run_diff_command_vibe_missing_request(
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.diff_cmd.handle_vibe_request")
-@patch("vibectl.subcommands.diff_cmd.PLAN_DIFF_PROMPT", new_callable=MagicMock)
+@patch("vibectl.subcommands.diff_cmd.diff_plan_prompt")
 @patch("vibectl.subcommands.diff_cmd.configure_output_flags")
 @patch("vibectl.subcommands.diff_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.diff_cmd.logger")
@@ -430,7 +430,7 @@ async def test_run_diff_command_vibe_error_from_handler(
     mock_logger: MagicMock,
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
-    mock_plan_diff_prompt: MagicMock,
+    mock_diff_plan_prompt: MagicMock,
     mock_handle_vibe_request: MagicMock,
 ) -> None:
     """Test run_diff_command with 'vibe' where handle_vibe_request returns Error."""
@@ -492,7 +492,7 @@ async def test_run_diff_command_vibe_error_from_handler(
     call_args_hvr = mock_handle_vibe_request.call_args.kwargs
     assert call_args_hvr["request"] == request_str
     assert call_args_hvr["command"] == "diff"
-    assert call_args_hvr["plan_prompt_func"]() is mock_plan_diff_prompt
+    assert call_args_hvr["plan_prompt_func"] is mock_diff_plan_prompt
     assert call_args_hvr["summary_prompt_func"] == diff_output_prompt
     assert call_args_hvr["output_flags"] is mock_output_flags
     assert call_args_hvr["yes"] is False

@@ -36,6 +36,7 @@ from vibectl.subcommands.just_cmd import run_just_command
 from vibectl.subcommands.logs_cmd import run_logs_command
 from vibectl.subcommands.memory_update_cmd import run_memory_update_logic
 from vibectl.subcommands.patch_cmd import run_patch_command
+from vibectl.subcommands.plugin_cmd import plugin_group
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
@@ -203,6 +204,9 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
     show_welcome_if_no_subcommand(ctx)
 
 
+cli.add_command(plugin_group)
+
+
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
@@ -300,35 +304,6 @@ async def logs(
     handle_result(result)
 
 
-# --- Helper for standard create logic ---
-async def _create_command_logic(
-    resource: str,
-    args: tuple,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
-    show_streaming: bool | None = None,
-) -> Result:
-    """Handles the logic for standard (non-vibe) create commands."""
-    # Call the synchronous runner function from the subcommand module
-    return await run_create_command(
-        resource=resource,
-        args=args,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        show_metrics=show_metrics,
-        show_streaming=show_streaming,
-    )
-
-
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
@@ -346,37 +321,18 @@ async def create(
     show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
-    if resource == "vibe":
-        if not args:
-            msg = "Missing request after 'vibe'. Usage: vibectl create vibe <request>"
-            console_manager.print_error(msg)
-            sys.exit(1)
-            return
-        vibe_request = " ".join(args)
-        result = await run_vibe_command(
-            request=vibe_request,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            show_kubectl=show_kubectl,
-            model=model,
-            freeze_memory=freeze_memory,
-            unfreeze_memory=unfreeze_memory,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
-        )
-    else:
-        result = await _create_command_logic(
-            resource=resource,
-            args=args,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            show_kubectl=show_kubectl,
-            model=model,
-            freeze_memory=freeze_memory,
-            unfreeze_memory=unfreeze_memory,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
-        )
+    result = await run_create_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
     handle_result(result)
 
 
@@ -597,7 +553,7 @@ def _set_theme_logic(theme_name: str) -> None:
 
 @cli.group()
 def theme() -> None:
-    """Manage console theme settings."""
+    """Manage vibectl themes."""
     pass
 
 
@@ -616,18 +572,13 @@ def list() -> None:
 @theme.command(name="set")
 @click.argument("theme_name")
 def theme_set(theme_name: str) -> None:
-    """
-    Set the theme for the console output.
-
-    Examples:
-        vibectl theme set dark
-        vibectl theme set light
-    """
+    """Set the vibectl theme."""
     try:
-        # Call the separated logic function
         _set_theme_logic(theme_name)
+        console_manager.print(f"✓ Theme set to '{theme_name}'")
     except Exception as e:
-        # Catch potential ValueError from helper or save errors
+        logger.error(f"Failed to set theme: {e}")
+        console_manager.print_error(f"✗ Failed to set theme: {e}")
         handle_exception(e)
 
 
@@ -640,10 +591,14 @@ def theme_set(theme_name: str) -> None:
     include_show_streaming=True,
 )
 @click.option(
-    "--interval", "-i", type=int, default=5, help="Seconds between loop iterations"
+    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
 )
 @click.option(
-    "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
+    "--interval",
+    "-i",
+    type=int,
+    default=5,
+    help="Seconds to wait between iterations (default: 5)",
 )
 async def auto(
     request: str | None,
@@ -670,22 +625,26 @@ async def auto(
             model=model,
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
-            yes=yes,
             interval=interval,
-            semiauto=False,
             limit=limit,
+            yes=yes,
             show_metrics=show_metrics,
             show_streaming=show_streaming,
+            semiauto=False,  # Auto command is not in semiauto mode
+            exit_on_error=True,  # Auto command should exit on error by default
         )
         handle_result(result)
-    except Exception:
-        # Let exceptions propagate to main() for centralized handling
-        raise
+    except Exception as e:
+        handle_exception(e)
 
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(
+    include_show_kubectl=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
+)
 @click.option(
     "--limit", "-l", type=int, default=None, help="Maximum number of iterations to run"
 )
@@ -699,6 +658,7 @@ async def semiauto(
     unfreeze_memory: bool,
     limit: int | None = None,
     show_metrics: bool | None = None,
+    show_streaming: bool | None = None,
 ) -> None:
     """Run vibe command in semiauto mode with manual confirmation.
 
@@ -716,6 +676,8 @@ async def semiauto(
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
             limit=limit,
+            show_metrics=show_metrics,
+            show_streaming=show_streaming,
         )
         handle_result(result)
     except Exception:
@@ -1599,11 +1561,17 @@ def handle_result(result: Result) -> None:
 
 def main() -> None:
     """Main entry point that wraps the CLI and handles all exceptions centrally."""
+    import click as regular_click  # Import regular click for Exit exceptions
+
     try:
         # Initialize logging first
         init_logging()
         # Run the CLI with standalone_mode=False to handle exceptions ourselves
         cli(standalone_mode=False)
+    except (click.exceptions.Exit, regular_click.exceptions.Exit) as e:
+        # Both asyncclick.Exit and click.Exit can be raised by --help, --version, etc.
+        # Exit normally with the code from the exception
+        sys.exit(e.exit_code)
     except Exception as e:
         # Centralized exception handling - print user-friendly errors only
         handle_exception(e)

@@ -8,7 +8,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompts.cluster_info import PLAN_CLUSTER_INFO_PROMPT, cluster_info_prompt
+from vibectl.prompts.cluster_info import cluster_info_plan_prompt, cluster_info_prompt
 from vibectl.types import Error, Result, Success
 
 
@@ -59,7 +59,7 @@ async def run_cluster_info_command(
                 vibe_result = await handle_vibe_request(
                     request=request,
                     command="cluster-info",
-                    plan_prompt_func=lambda: PLAN_CLUSTER_INFO_PROMPT,
+                    plan_prompt_func=cluster_info_plan_prompt,
                     summary_prompt_func=cluster_info_prompt,
                     output_flags=output_flags,
                 )

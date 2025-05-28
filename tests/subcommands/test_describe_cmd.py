@@ -2,7 +2,6 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.command_handler import OutputFlags
 from vibectl.prompts.describe import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
 from vibectl.types import Error, Success
@@ -218,6 +217,7 @@ async def test_describe_vibe_request(
         plan_prompt_func=ANY,
         summary_prompt_func=describe_resource_prompt,
         output_flags=ANY,  # Check specific flags if needed
+        semiauto=False,
         config=None,  # Expect config to be None as it's not passed by caller
     )
 
@@ -255,292 +255,240 @@ async def test_describe_vibe_no_request(
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_normal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Covers the normal path (resource != 'vibe')."""
-    # Mock dependencies
-    mock_output_flags = Mock()
-    mock_result = Mock()
+async def test_run_describe_command_normal() -> None:
+    """Test normal describe command execution."""
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+        patch(
+            "vibectl.subcommands.describe_cmd.handle_standard_command"
+        ) as mock_handle_standard,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
+        mock_result = Success(data="test result")
+        mock_handle_standard.return_value = mock_result
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
+        result = await run_describe_command(
+            resource="pod",
+            args=("test-pod",),
+            show_raw_output=None,
+            show_vibe=None,
+            show_kubectl=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_metrics=False,
+            show_streaming=False,
+        )
 
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        pass
-
-    async def fake_handle_standard_command(
-        resource: str, args: tuple, output_flags: OutputFlags, **kwargs: object
-    ) -> Mock:
-        return mock_result
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd._handle_standard_describe",
-        fake_handle_standard_command,
-    )
-
-    # Call the function
-    result = await run_describe_command(
-        resource="pod",
-        args=("test-pod",),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert result == mock_result
+        assert result == mock_result
+        mock_handle_standard.assert_called_once_with(
+            command="describe",
+            resource="pod",
+            args=("test-pod",),
+            output_flags=mock_output_flags,
+            summary_prompt_func=describe_resource_prompt,
+        )
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_vibe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Covers the vibe path (resource == 'vibe')."""
-    mock_output_flags = Mock()
-    mock_result = Mock()
+async def test_run_describe_command_vibe() -> None:
+    """Test describe command with vibe request."""
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+        patch(
+            "vibectl.subcommands.describe_cmd.handle_vibe_request"
+        ) as mock_handle_vibe,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
+        mock_result = Success(data="vibe result")
+        mock_handle_vibe.return_value = mock_result
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
+        result = await run_describe_command(
+            resource="vibe",
+            args=("show", "pods"),
+            show_raw_output=None,
+            show_vibe=None,
+            show_kubectl=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_metrics=False,
+            show_streaming=False,
+        )
 
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        pass
-
-    async def fake_handle_vibe_request(
-        args: tuple, output_flags: OutputFlags, **kwargs: object
-    ) -> Mock:
-        return mock_result
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd._handle_vibe_describe",
-        fake_handle_vibe_request,
-    )
-
-    result = await run_describe_command(
-        resource="vibe",
-        args=("describe", "pod", "test-pod"),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert result == mock_result
-
-
-@pytest.mark.asyncio
-async def test_run_describe_command_vibe_no_args(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-) -> None:
-    """Covers the vibe path with no arguments after 'vibe'."""
-    mock_output_flags = Mock()
-
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
-
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        pass
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-
-    result = await run_describe_command(
-        resource="vibe",
-        args=(),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert isinstance(result, Error)
-    assert "Missing request after 'vibe' command" in result.error
+        assert result == mock_result
+        mock_handle_vibe.assert_called_once_with(
+            request="show pods",
+            command="describe",
+            plan_prompt_func=ANY,
+            output_flags=mock_output_flags,
+            summary_prompt_func=describe_resource_prompt,
+            semiauto=False,
+            config=None,
+        )
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_vibe_handle_vibe_request_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tests error handling when handle_vibe_request raises an exception."""
-    mock_output_flags = Mock()
+async def test_run_describe_command_vibe_no_args() -> None:
+    """Test describe command with vibe but no args."""
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
+        result = await run_describe_command(
+            resource="vibe",
+            args=(),
+            show_raw_output=None,
+            show_vibe=None,
+            show_kubectl=None,
+            model=None,
+            freeze_memory=False,
+            unfreeze_memory=False,
+            show_metrics=False,
+            show_streaming=False,
+        )
 
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        pass
-
-    async def fake_handle_vibe_request(
-        args: tuple, output_flags: OutputFlags, **kwargs: object
-    ) -> None:
-        raise Exception("Test vibe error")
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd._handle_vibe_describe",
-        fake_handle_vibe_request,
-    )
-
-    result = await run_describe_command(
-        resource="vibe",
-        args=("test",),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert isinstance(result, Error)
-    assert "Unhandled error in describe execution: Test vibe error" in result.error
+        assert isinstance(result, Error)
+        assert "Missing request after 'vibe' command" in result.error
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_standard_command_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tests error handling when handle_standard_command raises an exception."""
-    mock_output_flags = Mock()
+async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None:
+    """Test error handling when handle_vibe_request raises an exception."""
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+        patch(
+            "vibectl.subcommands.describe_cmd.handle_vibe_request"
+        ) as mock_handle_vibe,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
+        mock_handle_vibe.side_effect = Exception("Test vibe error")
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
-
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        pass
-
-    async def fake_handle_standard_command(
-        resource: str, args: tuple, output_flags: OutputFlags, **kwargs: object
-    ) -> None:
-        raise Exception("Test standard error")
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd._handle_standard_describe",
-        fake_handle_standard_command,
-    )
-
-    result = await run_describe_command(
-        resource="pod",
-        args=("test",),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert isinstance(result, Error)
-    assert "Unhandled error in describe execution: Test standard error" in result.error
+        # The exception should propagate since we removed the try/catch
+        with pytest.raises(Exception, match="Test vibe error"):
+            await run_describe_command(
+                resource="vibe",
+                args=("test", "request"),
+                show_raw_output=None,
+                show_vibe=None,
+                show_kubectl=None,
+                model=None,
+                freeze_memory=False,
+                unfreeze_memory=False,
+                show_metrics=False,
+                show_streaming=False,
+            )
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_configure_output_flags_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_run_describe_command_standard_command_exception() -> None:
+    """Test error handling when handle_standard_command raises an exception."""
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+        patch(
+            "vibectl.subcommands.describe_cmd.handle_standard_command"
+        ) as mock_handle_standard,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
+        mock_handle_standard.side_effect = Exception("Test standard error")
+
+        # The exception should propagate since we removed the try/catch
+        with pytest.raises(Exception, match="Test standard error"):
+            await run_describe_command(
+                resource="pod",
+                args=("test-pod",),
+                show_raw_output=None,
+                show_vibe=None,
+                show_kubectl=None,
+                model=None,
+                freeze_memory=False,
+                unfreeze_memory=False,
+                show_metrics=False,
+                show_streaming=False,
+            )
+
+
+@pytest.mark.asyncio
+async def test_run_describe_command_configure_output_flags_exception() -> None:
     """Test error handling when configure_output_flags raises an exception."""
+    with patch(
+        "vibectl.subcommands.describe_cmd.configure_output_flags"
+    ) as mock_configure_output:
+        mock_configure_output.side_effect = ValueError("Test config error")
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> None:
-        raise ValueError("Test config error")
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-
-    result = await run_describe_command(
-        resource="pod",
-        args=("test",),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert isinstance(result, Error)
-    assert "Error configuring options: Test config error" in result.error
+        # The exception should propagate since we removed the try/catch
+        with pytest.raises(ValueError, match="Test config error"):
+            await run_describe_command(
+                resource="pod",
+                args=("test",),
+                show_raw_output=None,
+                show_vibe=None,
+                show_kubectl=None,
+                model=None,
+                freeze_memory=False,
+                unfreeze_memory=False,
+                show_metrics=True,
+                show_streaming=True,
+            )
 
 
 @pytest.mark.asyncio
-async def test_run_describe_command_configure_memory_flags_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_run_describe_command_configure_memory_flags_exception() -> None:
     """Test error handling when configure_memory_flags raises an exception."""
-    mock_output_flags = Mock()
+    with (
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_output_flags"
+        ) as mock_configure_output,
+        patch(
+            "vibectl.subcommands.describe_cmd.configure_memory_flags"
+        ) as _mock_configure_memory,
+    ):
+        mock_output_flags = Mock()
+        mock_configure_output.return_value = mock_output_flags
+        _mock_configure_memory.side_effect = ValueError("Test memory config error")
 
-    def fake_configure_output_flags(*a: object, **kw: object) -> Mock:
-        return mock_output_flags
-
-    def fake_configure_memory_flags(*a: object, **kw: object) -> None:
-        raise ValueError("Test memory config error")
-
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_output_flags",
-        fake_configure_output_flags,
-    )
-    monkeypatch.setattr(
-        "vibectl.subcommands.describe_cmd.configure_memory_flags",
-        fake_configure_memory_flags,
-    )
-
-    result = await run_describe_command(
-        resource="pod",
-        args=("test",),
-        show_raw_output=None,
-        show_vibe=None,
-        show_kubectl=None,
-        model=None,
-        freeze_memory=False,
-        unfreeze_memory=False,
-        show_metrics=True,
-        show_streaming=True,
-    )
-    assert isinstance(result, Error)
-    assert "Error configuring options: Test memory config error" in result.error
+        # The exception should propagate since we removed the try/catch
+        with pytest.raises(ValueError, match="Test memory config error"):
+            await run_describe_command(
+                resource="pod",
+                args=("test",),
+                show_raw_output=None,
+                show_vibe=None,
+                show_kubectl=None,
+                model=None,
+                freeze_memory=False,
+                unfreeze_memory=False,
+                show_metrics=True,
+                show_streaming=True,
+            )

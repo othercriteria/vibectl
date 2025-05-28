@@ -1,0 +1,81 @@
+{
+  "plugin_metadata": {
+    "name": "apply-comprehensive-demo",
+    "version": "1.0.0",
+    "description": "Comprehensive demo plugin for apply command - demonstrates ALL 6 plugin override capabilities for intelligent apply workflow",
+    "author": "vibectl-demos",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T12:00:00Z"
+  },
+  "prompt_mappings": {
+    "apply_plan": {
+      "description": "Enhanced planning for apply commands with COMPREHENSIVE DEMO features - safety-first approach",
+      "command": "apply",
+      "examples": [
+        [
+          "apply the deployment from my-deployment.yaml",
+          {
+            "action_type": "COMMAND",
+            "commands": ["-f", "my-deployment.yaml", "--server-side"],
+            "explanation": "Enhanced: Using server-side apply for safer operations with potential conflicts"
+          }
+        ],
+        [
+          "apply all manifests in ./k8s/ directory",
+          {
+            "action_type": "COMMAND",
+            "commands": ["-f", "./k8s/", "--prune", "--selector=app=myapp"],
+            "explanation": "Enhanced: Added pruning with selector for safer cleanup of removed resources"
+          }
+        ],
+        [
+          "deploy nginx with validation",
+          {
+            "action_type": "COMMAND",
+            "commands": ["--validate=strict", "--dry-run=server", "-f", "-"],
+            "explanation": "Enhanced: Server-side validation before actual deployment",
+            "yaml_manifest": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nginx-secure\n  labels:\n    app: nginx\n    security.policy: enforced\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: nginx\n  template:\n    metadata:\n      labels:\n        app: nginx\n    spec:\n      securityContext:\n        runAsNonRoot: true\n        runAsUser: 1000\n      containers:\n      - name: nginx\n        image: nginx:1.21-alpine\n        securityContext:\n          allowPrivilegeEscalation: false\n          readOnlyRootFilesystem: true\n        resources:\n          requests:\n            memory: \"64Mi\"\n            cpu: \"250m\"\n          limits:\n            memory: \"128Mi\"\n            cpu: \"500m\""
+          }
+        ]
+      ]
+    },
+    "apply_resource_summary": {
+      "description": "Enhanced apply result summarization with security and best practices focus",
+      "focus_points": [
+        "security posture of deployed resources",
+        "resource requests and limits compliance",
+        "namespace isolation and RBAC considerations",
+        "server-side apply field management",
+        "prune operations and cleanup results",
+        "validation warnings and security advisories"
+      ],
+      "example_format": [
+        "🔐 [bold]deployment/nginx-secure[/bold] [green]configured[/green] with security hardening",
+        "📊 [bold]service/frontend[/bold] [yellow]unchanged[/yellow] - resource limits verified",
+        "🚀 [bold]configmap/app-config[/bold] [green]created[/green] in isolated namespace",
+        "⚠️  [yellow]Warning: Missing security context for pod/legacy-app[/yellow]",
+        "🔍 [blue]Server-side apply: 3 fields managed, 1 conflict resolved[/blue]",
+        "🧹 [green]Pruned 2 obsolete resources[/green] with selector app=myapp"
+      ]
+    },
+    "apply_filescope": {
+      "task_description": "Enhanced Kubernetes file scoping assistant with dependency awareness and security validation. Analyze apply requests with focus on deployment safety, dependency ordering, and security best practices.",
+      "examples": "ENHANCED Examples with dependency awareness:\n\n\"apply database/ then api/ then frontend/ in sequence\"\n→ file_selectors: [\"database/\", \"api/\", \"frontend/\"]\n→ remaining_request_context: \"in sequence with dependency ordering\"\n\n\"deploy ./secure-configs with validation to staging and prod\"\n→ file_selectors: [\"./secure-configs\"]\n→ remaining_request_context: \"with validation to staging and prod namespaces\"\n\n\"apply infrastructure/ with dry-run first\"\n→ file_selectors: [\"infrastructure/\"]\n→ remaining_request_context: \"with dry-run validation first\"\n\nThe enhanced pattern: extract files/directories and preserve deployment strategy context including security, validation, and orchestration requirements.",
+      "context_instructions": "User Request: {request}\n\nPLEASE ANALYZE with enhanced awareness:\n1. Security implications of file paths (configs, secrets, etc.)\n2. Potential dependency ordering requirements\n3. Validation or safety flags mentioned\n4. Multi-environment deployment context\n\nProvide analysis in JSON format per ApplyFileScopeResponse schema.\n\nFor file_selectors: prioritize security-sensitive paths and dependency order.\nFor remaining_request_context: capture deployment strategy, validation requirements, and environment targeting."
+    },
+    "apply_manifest_summary": {
+      "task_description": "Enhanced Kubernetes manifest summarization with security, dependency, and best practices analysis. Focus on operational readiness, security compliance, and dependency relationships for comprehensive apply operations.\n\nENHANCED FOCUS AREAS:\n- Security configurations and compliance posture\n- Resource dependencies and deployment ordering\n- Best practices adherence (resource limits, probes, etc.)\n- Cross-resource relationships and service mesh integration\n- Environment-specific configurations and constraints\n- Operational readiness indicators (monitoring, logging, etc.)",
+      "context_instructions": "Current Operation Memory (enhanced with dependencies and security context):\n--------------------\n{current_memory}\n--------------------\n\nManifest Content for Enhanced Analysis:\n--------------------\n{manifest_content}\n--------------------\n\nProvide ENHANCED summary covering:\n1. Resource identity and namespace context\n2. Security posture and compliance features\n3. Dependencies on other resources (services, configmaps, secrets)\n4. Best practices compliance (limits, probes, security contexts)\n5. Operational considerations (monitoring, scaling, networking)\n6. Integration points with existing infrastructure\n\nFocus on operational deployment readiness and security considerations."
+    },
+    "apply_manifest_correction": {
+      "task_description": "Enhanced Kubernetes manifest correction and generation with security hardening, best practices enforcement, and dependency awareness. Generate production-ready, secure, and operationally sound manifests.\n\nSECURITY HARDENING:\n- Enforce security contexts and non-root execution\n- Add resource limits and requests\n- Implement network policies where applicable\n- Enable security scanning and compliance annotations\n- Use read-only root filesystems where possible\n\nBEST PRACTICES ENFORCEMENT:\n- Add readiness and liveness probes\n- Implement proper labeling and annotations\n- Configure appropriate replica counts and update strategies\n- Add monitoring and observability configurations\n- Ensure proper service account management",
+      "context_instructions": "Original File Path: {original_file_path}\n\nOriginal Content (for enhancement analysis):\n```\n{original_file_content_str}\n```\n\nValidation Error (to address with security-first approach):\n{error_reason}\n\nDeployment Context (from other validated manifests):\n```\n{current_operation_memory}\n```\n\nUser Requirements (enhanced deployment context):\n```\n{remaining_user_request}\n```\n\nGenerate ENHANCED, PRODUCTION-READY manifest:\n\n1. ADDRESS the validation error with security-first solutions\n2. ENHANCE with security hardening (security contexts, limits, probes)\n3. ALIGN with deployment context and dependencies\n4. IMPLEMENT best practices for operational readiness\n5. ENSURE namespace-agnostic design for multi-environment deployment\n\nOutput only the enhanced YAML manifest with comprehensive security and operational improvements."
+    },
+    "apply_final_planning": {
+      "task_description": "Enhanced kubectl apply command planning with progressive deployment, dependency orchestration, and safety validation. Plan sophisticated deployment strategies with rollback capabilities, validation gates, and security enforcement.\n\nENHANCED PLANNING CAPABILITIES:\n- Progressive rollout strategies with validation gates\n- Dependency-aware resource ordering\n- Multi-environment deployment orchestration  \n- Safety validations and dry-run checkpoints\n- Rollback plan integration\n- Security policy enforcement",
+      "examples": "ENHANCED deployment strategies:\n\nExample 1: \"Progressive deployment to dev then staging then prod\"\n→ Multi-phase commands with validation gates:\n  - Phase 1: kubectl apply --dry-run=server -f manifests/ -n dev\n  - Phase 2: kubectl apply -f manifests/ -n dev --wait --timeout=300s\n  - Phase 3: kubectl apply --dry-run=server -f manifests/ -n staging  \n  - Phase 4: kubectl apply -f manifests/ -n staging --wait --timeout=300s\n  - Phase 5: kubectl apply -f manifests/ -n prod --server-side\n\nExample 2: \"Deploy with dependency ordering and validation\"\n→ Orchestrated sequence:\n  - kubectl apply -f secrets/ -n target --server-side\n  - kubectl apply -f configmaps/ -n target --validate=strict\n  - kubectl apply -f services/ -n target --wait\n  - kubectl apply -f deployments/ -n target --wait --timeout=600s\n\nExample 3: \"Canary deployment with monitoring\"\n→ Progressive scaling:\n  - kubectl apply -f app-v2/ -n prod --server-side --field-manager=canary\n  - kubectl scale deployment/app --replicas=1 -n prod\n  - (monitoring validation checkpoint)\n  - kubectl scale deployment/app --replicas=5 -n prod",
+      "command_construction": "ENHANCED Command Construction:\n\n- PROGRESSIVE DEPLOYMENT: Use multiple commands for phased rollouts\n- VALIDATION GATES: Include --dry-run=server before actual applies\n- DEPENDENCY ORDERING: Secrets→ConfigMaps→Services→Deployments\n- SAFETY FLAGS: Add --wait, --timeout, --server-side for production\n- FIELD MANAGEMENT: Use --field-manager for complex scenarios\n- ROLLBACK READY: Structure commands to support easy rollback\n\nOutput Schema:\n{final_plan_schema_json}",
+      "context_instructions": "Available Infrastructure Resources:\n{valid_original_manifest_paths_str}\n\nEnhanced Generated Manifests (security-hardened):\n{corrected_temp_manifest_paths_str}\n\nDeployment Strategy Requirements:\n{remaining_user_request_str}\n\nOperational Context (dependencies and constraints):\n{current_operation_memory_str}\n\nUnresolvable Resources (requiring manual intervention):\n{unresolvable_sources_str}\n\nPlan ENHANCED kubectl apply strategy:\n\n1. ANALYZE deployment context for progressive rollout needs\n2. SEQUENCE commands based on resource dependencies\n3. IMPLEMENT validation gates and safety checkpoints\n4. CONFIGURE appropriate timeouts and field management\n5. PREPARE for multi-environment fan-out if specified\n6. ENABLE monitoring and rollback capabilities\n\nFor multi-namespace deployment, create progressive rollout:\n- Validate first with --dry-run=server\n- Deploy to each namespace with appropriate safety flags\n- Include --wait and --timeout for production readiness\n- Use --server-side for conflict resolution\n\nExample enhanced multi-namespace strategy:\nIf context requires \"deploy to dev, staging, prod with validation\":\n[\n  {\"action_type\": \"COMMAND\", \"commands\": [\"--dry-run=server\", \"-f\", \"manifests/\", \"-n\", \"dev\"], \"explanation\": \"Validation phase for dev environment\"},\n  {\"action_type\": \"COMMAND\", \"commands\": [\"-f\", \"manifests/\", \"-n\", \"dev\", \"--wait\", \"--timeout=300s\"], \"explanation\": \"Deploy to dev with readiness verification\"},\n  {\"action_type\": \"COMMAND\", \"commands\": [\"--dry-run=server\", \"-f\", \"manifests/\", \"-n\", \"staging\"], \"explanation\": \"Validation phase for staging environment\"},\n  {\"action_type\": \"COMMAND\", \"commands\": [\"-f\", \"manifests/\", \"-n\", \"staging\", \"--wait\", \"--timeout=300s\"], \"explanation\": \"Deploy to staging with readiness verification\"},\n  {\"action_type\": \"COMMAND\", \"commands\": [\"-f\", \"manifests/\", \"-n\", \"prod\", \"--server-side\", \"--wait\", \"--timeout=600s\"], \"explanation\": \"Production deployment with server-side apply and extended timeout\"}\n]\n\nBased on all context, provide the enhanced kubectl apply plan as JSON conforming to LLMFinalApplyPlanResponse schema."
+    }
+  }
+}

@@ -13,7 +13,7 @@ import yaml
 from .llm_interface import is_valid_llm_model_name
 
 # Default values
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "kubeconfig": None,  # Will use default kubectl config location if None
     "kubectl_command": "kubectl",
     "theme": "dark",
@@ -52,6 +52,7 @@ DEFAULT_CONFIG = {
     "max_correction_retries": 1,
     "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
     "show_streaming": True,  # Default for showing intermediate streaming Vibe output
+    "plugin_precedence": [],  # Plugin precedence order; empty listno explicit order
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -96,6 +97,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "max_correction_retries": int,
     "check_max_iterations": int,
     "show_streaming": bool,
+    "plugin_precedence": list,
 }
 
 # Valid values for specific keys
@@ -233,6 +235,12 @@ class Config:
         ):
             return self._convert_to_bool(key, value)
 
+        # Handle list conversion
+        if (isinstance(expected_type, type) and expected_type is list) or (
+            isinstance(expected_type, tuple) and list in expected_type
+        ):
+            return self._convert_to_list(key, value)
+
         # Handle other types
         try:
             if isinstance(expected_type, tuple):
@@ -270,6 +278,50 @@ class Config:
             f"Use true/false, yes/no, 1/0, or on/off"
         )
 
+    def _convert_to_list(self, key: str, value: str) -> list[Any]:
+        """Convert a string value to a list.
+
+        Args:
+            key: The configuration key (for error messages)
+            value: The string value to convert
+
+        Returns:
+            The value converted to a list
+
+        Raises:
+            ValueError: If the value can't be converted to a list
+        """
+        # Handle None special case
+        if value.lower() == "none":
+            expected_type = CONFIG_SCHEMA[key]
+            if isinstance(expected_type, tuple) and type(None) in expected_type:
+                return []  # Return empty list instead of None for list fields
+            raise ValueError(f"None is not a valid value for {key}")
+
+        # Handle string representation of lists (e.g., "['item1', 'item2']")
+        value = value.strip()
+        if value.startswith("[") and value.endswith("]"):
+            try:
+                import ast
+
+                parsed = ast.literal_eval(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except (ValueError, SyntaxError):
+                pass  # Fall through to comma-separated parsing
+
+        # Handle comma-separated values
+        if "," in value:
+            items = [item.strip().strip("\"'") for item in value.split(",")]
+            return [item for item in items if item]  # Filter out empty strings
+
+        # Handle single value
+        if value:
+            return [value.strip().strip("\"'")]
+
+        # Empty string means empty list
+        return []
+
     def _validate_allowed_values(self, key: str, value: Any) -> None:
         """Validate that a value is allowed for a given key, if applicable."""
         if key in CONFIG_VALID_VALUES:
@@ -303,15 +355,32 @@ class Config:
     def set(self, key: str, value: Any) -> None:
         """Set a configuration value, with type and allowed value validation."""
         self._validate_key(key)
-        # Convert to correct type
-        converted_value = self._convert_to_type(key, str(value))
+
+        # Handle list types specially - don't convert to string first
+        expected_type = CONFIG_SCHEMA[key]
+        if expected_type is list or (
+            isinstance(expected_type, tuple) and list in expected_type
+        ):
+            if isinstance(value, list):
+                converted_value = value
+            else:
+                # If it's not already a list, convert the string representation
+                converted_value = self._convert_to_type(key, str(value))
+        else:
+            # Convert to correct type for non-list types
+            converted_value = self._convert_to_type(key, str(value))
 
         # Perform model name validation if setting the 'model' key
         if key == "model":
             # Call the config-independent validation function directly
-            is_valid, error_msg = is_valid_llm_model_name(converted_value)
-            if not is_valid:
-                raise ValueError(error_msg)
+            if isinstance(converted_value, str):
+                is_valid, error_msg = is_valid_llm_model_name(converted_value)
+                if not is_valid:
+                    raise ValueError(error_msg)
+            else:
+                raise ValueError(
+                    f"Model value must be a string, got {type(converted_value)}"
+                )
 
         # Validate allowed values (if any) - this no longer checks model name existence
         self._validate_allowed_values(key, converted_value)

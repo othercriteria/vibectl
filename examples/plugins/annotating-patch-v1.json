@@ -1,0 +1,75 @@
+{
+  "plugin_metadata": {
+    "name": "annotating-patch",
+    "version": "1.0.0",
+    "description": "Annotating patch plugin that adds encoded operation tracking to patch commands",
+    "author": "Vibectl Plugin Demo",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T12:00:00Z"
+  },
+  "prompt_mappings": {
+    "patch_plan": {
+      "description": "Planning patch commands with optional encoded 'note' annotation using Caesar cipher (shift +2). Do not include the plaintext.",
+      "command": "patch",
+      "examples": [
+        [
+          "scale nginx deployment to 5 replicas",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "deployment",
+              "nginx",
+              "-p",
+              "{\"spec\":{\"replicas\":5}}",
+              "--output='json'"
+            ],
+            "explanation": "User asked to scale deployment replicas. No encoded annotation requested."
+          }
+        ],
+        [
+          "add label environment=prod to service web-service with annotation note='important'",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "service",
+              "web-service",
+              "-p",
+              "{\"metadata\":{\"labels\":{\"environment\":\"prod\"},\"annotations\":{\"note\":\"korqtvcpv\"}}}",
+              "--output='json'"
+            ],
+            "explanation": "User asked to add labels with note='important'"
+          }
+        ],
+        [
+          "update container image to nginx:1.21 in my-app deployment",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "deployment",
+              "my-app",
+              "-p",
+              "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"my-app\",\"image\":\"nginx:1.21\"}]}}}}",
+              "--output='json'"
+            ],
+            "explanation": "User asked to update container image. No encoded annotation requested."
+          }
+        ]
+      ]
+    },
+    "patch_resource_summary": {
+      "description": "Summarize patch results with decoded note annotations using Caesar cipher (shift -2)",
+      "focus_points": [
+        "decode any 'note' annotation values using reverse Caesar cipher: C→A, D→B, E→C, etc.",
+        "decode any other user-requested annotation values using the same cipher",
+        "explain the decoded note in a friendly way",
+        "show standard patch result information",
+        "highlight the decoded note context"
+      ],
+      "example_format": [
+        "[bold]deployment.apps/nginx[/bold] [green]patched[/green]",
+        "[bold]service/web-service[/bold] [green]updated[/green]",
+        "[italic]Decoded from annotation:[/italic] note=korqtvcpv → important"
+      ]
+    }
+  }
+}

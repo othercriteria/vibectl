@@ -6,15 +6,17 @@ helping to keep the main prompt.py file more manageable.
 """
 
 import json
+from typing import Any
 
 from vibectl.config import Config
-from vibectl.prompt import (
-    _SCHEMA_DEFINITION_JSON,
-    create_planning_prompt,
-)
+from vibectl.prompts.schemas import _SCHEMA_DEFINITION_JSON
 from vibectl.prompts.shared import (
+    create_planning_prompt,
     create_summary_prompt,
     fragment_json_schema_instruction,
+    with_custom_prompt_override,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
 )
 from vibectl.schema import ActionType, ApplyFileScopeResponse, LLMFinalApplyPlanResponse
 from vibectl.types import (
@@ -33,36 +35,54 @@ _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON = json.dumps(
     LLMFinalApplyPlanResponse.model_json_schema(), indent=2
 )
 
-# Template for planning kubectl apply commands
-PLAN_APPLY_PROMPT: PromptFragments = create_planning_prompt(
-    command="apply",
-    description="applying configurations to Kubernetes resources using YAML manifests",
-    examples=Examples(
-        [
-            (
-                "apply the deployment from my-deployment.yaml",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "my-deployment.yaml"],
-                    "explanation": "User asked to apply a deployment from a file.",
-                },
-            ),
-            (
-                "apply all yaml files in the ./manifests directory",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "./manifests"],
-                    "explanation": "User asked to apply all YAML files in a directory.",
-                },
-            ),
-            (
-                "apply the following nginx pod manifest",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-f", "-"],
-                    "explanation": "User asked to apply a provided YAML manifest.",
-                    "yaml_manifest": (
-                        """---
+
+@with_planning_prompt_override("apply_plan")
+def apply_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl apply commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return create_planning_prompt(
+        command="apply",
+        description=(
+            "applying configurations to Kubernetes resources using YAML manifests"
+        ),
+        examples=Examples(
+            [
+                (
+                    "apply the deployment from my-deployment.yaml",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "my-deployment.yaml"],
+                        "explanation": "User asked to apply a deployment from a file.",
+                    },
+                ),
+                (
+                    "apply all yaml files in the ./manifests directory",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "./manifests"],
+                        "explanation": "User asked to apply all YAML files in "
+                        "a directory.",
+                    },
+                ),
+                (
+                    "apply the following nginx pod manifest",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-f", "-"],
+                        "explanation": "User asked to apply a provided YAML manifest.",
+                        "yaml_manifest": (
+                            """---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -73,32 +93,33 @@ spec:
     image: nginx:latest
     ports:
     - containerPort: 80"""
-                    ),
-                },
-            ),
-            (
-                "apply the kustomization in ./my-app",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["-k", "./my-app"],
-                    "explanation": "User asked to apply a kustomization.",
-                },
-            ),
-            (
-                "see what a standard nginx pod would look like",
-                {
-                    "action_type": ActionType.COMMAND.value,
-                    "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
-                    "explanation": "A client-side dry-run shows the user a manifest.",
-                },
-            ),
-        ]
-    ),
-    schema_definition=_SCHEMA_DEFINITION_JSON,
-)
+                        ),
+                    },
+                ),
+                (
+                    "apply the kustomization in ./my-app",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["-k", "./my-app"],
+                        "explanation": "User asked to apply a kustomization.",
+                    },
+                ),
+                (
+                    "see what a standard nginx pod would look like",
+                    {
+                        "action_type": ActionType.COMMAND.value,
+                        "commands": ["--output=yaml", "--dry-run=client", "-f", "-"],
+                        "explanation": "A client-side dry-run shows the user a "
+                        "manifest.",
+                    },
+                ),
+            ]
+        ),
+        schema_definition=_SCHEMA_DEFINITION_JSON,
+    )
 
 
-# Template for summarizing 'kubectl apply' output
+@with_summary_prompt_override("apply_resource_summary")
 def apply_output_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
@@ -112,6 +133,7 @@ def apply_output_prompt(
     Returns:
         PromptFragments: System fragments and user fragments
     """
+    # Fall back to default prompt (decorator handles plugin override)
     cfg = config or Config()
     return create_summary_prompt(
         description="Summarize kubectl apply results.",
@@ -133,11 +155,22 @@ def apply_output_prompt(
     )
 
 
-def plan_apply_filescope_prompt_fragments(request: str) -> PromptFragments:
+@with_custom_prompt_override("apply_filescope")
+def plan_apply_filescope_prompt_fragments(
+    custom_mapping: Any,
+    request: str,
+) -> PromptFragments:
     """Get prompt fragments for planning kubectl apply file scoping."""
+
+    # Get custom mapping attributes, if provided
+    task_description = getattr(custom_mapping, "task_description", "")
+    examples = getattr(custom_mapping, "examples", "")
+    context_instructions = getattr(custom_mapping, "context_instructions", "")
+
     system_frags = SystemFragments(
         [
-            Fragment(
+            Fragment(task_description)
+            or Fragment(
                 """You are an expert Kubernetes assistant. Your task is to analyze
                 the user's request for `kubectl apply`. Identify all file paths,
                 directory paths, or glob patterns that the user intends to use
@@ -147,7 +180,8 @@ def plan_apply_filescope_prompt_fragments(request: str) -> PromptFragments:
                 operation (e.g., '--prune', '--server-side', 'for all
                 deployments in the staging namespace')."""
             ),
-            Fragment(
+            Fragment(examples)
+            or Fragment(
                 """Examples of multi-namespace requests:
 
                 "apply manifests/ to both staging and production namespaces"
@@ -174,36 +208,47 @@ def plan_apply_filescope_prompt_fragments(request: str) -> PromptFragments:
             ),
         ]
     )
-    user_frags = UserFragments(
-        [
-            Fragment(
-                f"""User Request: {request}
 
-                Please provide your analysis in JSON format, adhering to the
-                ApplyFileScopeResponse schema previously defined.
+    context_frag = (
+        context_instructions
+        or """
+User Request: {request}
 
-                Focus only on what the user explicitly stated for file/directory
-                selection and the remaining context.
-                If no specific files or directories are mentioned, provide an
-                empty list for `file_selectors`.
-                If no additional context is provided beyond file selection,
-                `remaining_request_context` should be an empty string or reflect
-                that.
-                Ensure `file_selectors` contains only strings that can be directly
-                used with `kubectl apply -f` or `-k` or for globbing."""
-            )
-        ]
+Please provide your analysis in JSON format, adhering to the
+ApplyFileScopeResponse schema previously defined.
+
+Focus only on what the user explicitly stated for file/directory
+selection and the remaining context.
+If no specific files or directories are mentioned, provide an
+empty list for `file_selectors`.
+If no additional context is provided beyond file selection,
+`remaining_request_context` should be an empty string or reflect
+that.
+Ensure `file_selectors` contains only strings that can be directly
+used with `kubectl apply -f` or `-k` or for globbing.
+
+"""
     )
+
+    user_frags = UserFragments([Fragment(context_frag.format(request=request))])
+
     return PromptFragments((system_frags, user_frags))
 
 
+@with_custom_prompt_override("apply_manifest_summary")
 def summarize_apply_manifest_prompt_fragments(
-    current_memory: str, manifest_content: str
+    custom_mapping: Any, current_memory: str, manifest_content: str
 ) -> PromptFragments:
     """Get prompt fragments for summarizing a manifest for kubectl apply context."""
+
+    # Get custom mapping attributes, if provided
+    task_description = getattr(custom_mapping, "task_description", "")
+    context_instructions = getattr(custom_mapping, "context_instructions", "")
+
     system_frags = SystemFragments(
         [
-            Fragment(
+            Fragment(task_description)
+            or Fragment(
                 """You are an expert Kubernetes operations assistant. Your task is to
                 summarize the provided Kubernetes manifest content. The user is
                 preparing for a `kubectl apply` operation, and this summary will
@@ -239,29 +284,41 @@ def summarize_apply_manifest_prompt_fragments(
             )
         ]
     )
+    context_frag = (
+        context_instructions
+        or """
+Current Operation Memory (summaries of prior valid manifests for
+this apply operation, if any):
+--------------------
+{current_memory}
+--------------------
+
+Manifest Content to Summarize:
+--------------------
+{manifest_content}
+--------------------
+
+Provide your concise summary of the NEW manifest content below.
+This summary will be appended to the operation memory.
+"""
+    )
+
     user_frags = UserFragments(
         [
             Fragment(
-                f"""Current Operation Memory (summaries of prior valid manifests for
-                this apply operation, if any):
-                --------------------
-                {current_memory}
-                --------------------
-
-                Manifest Content to Summarize:
-                --------------------
-                {manifest_content}
-                --------------------
-
-                Provide your concise summary of the NEW manifest content below.
-                This summary will be appended to the operation memory."""
+                context_frag.format(
+                    current_memory=current_memory, manifest_content=manifest_content
+                )
             )
         ]
     )
+
     return PromptFragments((system_frags, user_frags))
 
 
+@with_custom_prompt_override("apply_manifest_correction")
 def correct_apply_manifest_prompt_fragments(
+    custom_mapping: Any,
     original_file_path: str,
     original_file_content: str | None,
     error_reason: str,
@@ -269,9 +326,15 @@ def correct_apply_manifest_prompt_fragments(
     remaining_user_request: str,
 ) -> PromptFragments:
     """Get prompt fragments for correcting or generating a Kubernetes manifest."""
+
+    # Get custom mapping attributes, if provided
+    task_description = getattr(custom_mapping, "task_description", "")
+    context_instructions = getattr(custom_mapping, "context_instructions", "")
+
     system_frags = SystemFragments(
         [
-            Fragment(
+            Fragment(task_description)
+            or Fragment(
                 """You are an expert Kubernetes manifest correction and generation
                 assistant. Your primary goal is to produce valid Kubernetes YAML
                 manifests. Based on the provided original file content (if any),
@@ -310,59 +373,102 @@ def correct_apply_manifest_prompt_fragments(
             )
         ]
     )
+
+    original_file_content_str = (
+        original_file_content
+        if original_file_content is not None
+        else "[Content not available or not readable]"
+    )
+
+    context_frag = (
+        context_instructions
+        or """
+Original File Path: {original_file_path}
+
+Original File Content (if available and readable):
+```
+{original_file_content_str}
+```
+
+Error Reason Encountered During Initial Validation for this file:
+{error_reason}
+
+Current Operation Memory (summaries of other valid manifests
+processed for this same `kubectl apply` operation):
+```
+{current_operation_memory}
+```
+
+Overall User Request (remaining non-file-specific intent for the
+`kubectl apply` operation):
+```
+{remaining_user_request}
+```
+
+Proposed Corrected/Generated YAML Manifest (output only raw YAML
+or an empty string/comment as instructed):
+"""
+    )
+
     user_frags = UserFragments(
         [
             Fragment(
-                f"""Original File Path: {original_file_path}
-
-                Original File Content (if available and readable):
-                --------------------
-                {
-                    original_file_content
-                    if original_file_content is not None
-                    else "[Content not available or not readable]"
-                }
-                --------------------
-
-                Error Reason Encountered During Initial Validation for this file:
-                {error_reason}
-
-                Current Operation Memory (summaries of other valid manifests
-                processed for this same `kubectl apply` operation):
-                --------------------
-                {current_operation_memory}
-                --------------------
-
-                Overall User Request (remaining non-file-specific intent for the
-                `kubectl apply` operation):
-                --------------------
-                {remaining_user_request}
-                --------------------
-
-                Proposed Corrected/Generated YAML Manifest (output only raw YAML
-                or an empty string/comment as instructed):"""
+                context_frag.format(
+                    original_file_path=original_file_path,
+                    original_file_content_str=original_file_content_str,
+                    error_reason=error_reason,
+                    current_operation_memory=current_operation_memory,
+                    remaining_user_request=remaining_user_request,
+                )
             )
         ]
     )
+
     return PromptFragments((system_frags, user_frags))
 
 
+@with_custom_prompt_override("apply_final_planning")
 def plan_final_apply_command_prompt_fragments(
+    custom_mapping: Any,
     valid_original_manifest_paths: str,
     corrected_temp_manifest_paths: str,
     remaining_user_request: str,
     current_operation_memory: str,
     unresolvable_sources: str,
-    final_plan_schema_json: str,  # Renamed from schema_json
+    final_plan_schema_json: str,
 ) -> PromptFragments:
     """Get prompt fragments for planning the final kubectl apply command(s).
 
     The LLM should return a JSON object conforming to LLMFinalApplyPlanResponse,
     containing a list of LLMCommandResponse objects under the 'planned_commands' key.
     """
+
+    # Get custom mapping attributes, if provided
+    command_construction = getattr(custom_mapping, "command_construction", "")
+    task_description = getattr(custom_mapping, "task_description", "")
+    examples = getattr(custom_mapping, "examples", "")
+    context_instructions = getattr(custom_mapping, "context_instructions", "")
+
+    command_construction_guidelines_frag = command_construction or Fragment(
+        """Command Construction Guidelines:
+            - Each `commands` array should contain kubectl apply arguments
+                (excluding the 'kubectl apply' prefix)
+                - Use `-f` to specify manifest files or directories
+                - Add `-n <namespace>` when targeting specific namespaces
+                - For multi-namespace requests, create separate commands for
+                    each namespace
+                - Include appropriate flags like `--server-side`, `--prune` if
+                    contextually relevant
+
+            Output Schema:
+            {final_plan_schema_json}
+            """
+    )
+
     system_frags = SystemFragments(
         [
-            Fragment(
+            Fragment(task_description)
+            or Fragment(
                 """You are a Kubernetes expert assistant responsible for planning
                 final kubectl apply commands. Given a collection of valid manifest
                 files and the user's remaining request context, determine the
@@ -372,7 +478,8 @@ def plan_final_apply_command_prompt_fragments(
                 schema. Each command in the `planned_commands` array represents
                 a single kubectl apply execution."""
             ),
-            Fragment(
+            Fragment(examples)
+            or Fragment(
                 """Key examples of fan-out behavior for multi-namespace requests:
 
                 Example 1: "apply examples/manifests/ to both dev-ns and prod-ns"
@@ -382,36 +489,27 @@ def plan_final_apply_command_prompt_fragments(
 
                 Example 2: "deploy config/ into staging and production environments"
                 → Separate commands for each environment:
-                  - "kubectl apply -f config/ -n staging"
-                  - "kubectl apply -f config/ -n production"
+                    - "kubectl apply -f config/ -n staging"
+                    - "kubectl apply -f config/ -n production"
 
                 Example 3: "apply service.yaml to namespace-a and namespace-b"
                 → Fan out single file to multiple namespaces:
-                  - "kubectl apply -f service.yaml -n namespace-a"
-                  - "kubectl apply -f service.yaml -n namespace-b"
+                    - "kubectl apply -f service.yaml -n namespace-a"
+                    - "kubectl apply -f service.yaml -n namespace-b"
 
                 Example 4: "deploy app/ to test-1, test-2, and test-3"
                 → Create separate command for each target namespace:
-                  - "kubectl apply -f app/ -n test-1"
-                  - "kubectl apply -f app/ -n test-2"
-                  - "kubectl apply -f app/ -n test-3"
+                    - "kubectl apply -f app/ -n test-1"
+                    - "kubectl apply -f app/ -n test-2"
+                    - "kubectl apply -f app/ -n test-3"
 
                 The pattern: When user specifies multiple target namespaces,
                 create one command per namespace, each applying the same manifests."""
             ),
             Fragment(
-                f"""Command Construction Guidelines:
-                - Each `commands` array should contain kubectl apply arguments
-                  (excluding the 'kubectl apply' prefix)
-                - Use `-f` to specify manifest files or directories
-                - Add `-n <namespace>` when targeting specific namespaces
-                - For multi-namespace requests, create separate commands for
-                  each namespace
-                - Include appropriate flags like `--server-side`, `--prune` if
-                  contextually relevant
-
-                Output Schema:
-                {final_plan_schema_json}"""
+                command_construction_guidelines_frag.format(
+                    final_plan_schema_json=final_plan_schema_json
+                )
             ),
         ]
     )
@@ -437,34 +535,54 @@ def plan_final_apply_command_prompt_fragments(
     unresolvable_sources_str = (
         unresolvable_sources if unresolvable_sources.strip() else "None"
     )
-    user_frags_content = f"""Available Valid Original Manifest Paths (prefer corrected
-        versions if they exist for these original sources):
-        {valid_original_manifest_paths_str}
 
-        Available Corrected/Generated Temporary Manifest Paths (use these for apply):
-        {corrected_temp_manifest_paths_str}
+    context_frag = (
+        context_instructions
+        or """
+Available Valid Original Manifest Paths (prefer corrected
+versions if they exist for these original sources):
+{valid_original_manifest_paths_str}
 
-        Remaining User Request Context (apply this to the command(s), e.g.,
-        namespace, flags):
-        {remaining_user_request_str}
+Available Corrected/Generated Temporary Manifest Paths (use these for apply):
+{corrected_temp_manifest_paths_str}
 
-        Current Operation Memory (context from other manifests):
-        {current_operation_memory_str}
+Remaining User Request Context (apply this to the command(s), e.g.,
+namespace, flags):
+{remaining_user_request_str}
 
-        Unresolvable Sources (cannot be used in the apply plan):
-        {unresolvable_sources_str}
+Current Operation Memory (context from other manifests):
+{current_operation_memory_str}
 
-        Example for multi-namespace requests:
-        If remaining context says "into both apply-demo-1 and apply-demo-2 namespaces"
-        and you have valid manifests at "examples/manifests/apply/", create:
+Unresolvable Sources (cannot be used in the apply plan):
+{unresolvable_sources_str}
+
+Example for multi-namespace requests:
+If remaining context says "into both apply-demo-1 and apply-demo-2 namespaces"
+and you have valid manifests at "examples/manifests/apply/", create:
+[
+  {{"action_type": "COMMAND", "commands": ["-f",
+   "examples/manifests/apply/", "-n", "apply-demo-1"]}},
+  {{"action_type": "COMMAND", "commands": ["-f",
+   "examples/manifests/apply/", "-n", "apply-demo-2"]}}
+]
+
+Based on all the above, provide the `kubectl apply` plan as a JSON
+object conforming to the LLMFinalApplyPlanResponse schema.
+"""
+    )
+
+    user_frags = UserFragments(
         [
-          {{"action_type": "COMMAND", "commands": ["-f",
-           "examples/manifests/apply/", "-n", "apply-demo-1"]}},
-          {{"action_type": "COMMAND", "commands": ["-f",
-           "examples/manifests/apply/", "-n", "apply-demo-2"]}}
+            Fragment(
+                context_frag.format(
+                    valid_original_manifest_paths_str=valid_original_manifest_paths_str,
+                    corrected_temp_manifest_paths_str=corrected_temp_manifest_paths_str,
+                    remaining_user_request_str=remaining_user_request_str,
+                    current_operation_memory_str=current_operation_memory_str,
+                    unresolvable_sources_str=unresolvable_sources_str,
+                )
+            )
         ]
+    )
 
-        Based on all the above, provide the `kubectl apply` plan as a JSON
-        object conforming to the LLMFinalApplyPlanResponse schema."""
-    user_frags = UserFragments([Fragment(user_frags_content)])
     return PromptFragments((system_frags, user_frags))

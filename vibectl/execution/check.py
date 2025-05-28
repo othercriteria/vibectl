@@ -20,7 +20,7 @@ from vibectl.model_adapter import (
     RecoverableApiError,
     get_model_adapter,
 )
-from vibectl.prompts.vibe import plan_check_fragments
+from vibectl.prompts.check import plan_check_fragments
 from vibectl.schema import (
     CommandAction,
     DoneAction,

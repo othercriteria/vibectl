@@ -118,6 +118,14 @@ def test_handle_standard_command_error_with_exception(
     )
     mock_run_kubectl.return_value = kubectl_error_result
 
+    # Mock handle_command_output to return an Error with recovery suggestions
+    # This simulates the recovery suggestion flow when show_vibe=True
+    mock_handle_output.return_value = Error(
+        error="kubectl command failed internally",
+        exception=test_exception,
+        recovery_suggestions="Try checking the command syntax",
+    )
+
     result = asyncio.run(
         handle_standard_command(
             command="get",
@@ -131,12 +139,15 @@ def test_handle_standard_command_error_with_exception(
     mock_run_kubectl.assert_called_once_with(
         ["get", "pods", "mypod"], allowed_exit_codes=(0,)
     )
-    mock_handle_output.assert_not_called()
+    # Now expect handle_command_output to be called since show_vibe=True by default
+    # and errors go through recovery suggestion flow
+    mock_handle_output.assert_called_once()
 
     assert isinstance(result, Error)
-    assert result.error == f"Unexpected error: {test_exception}"
+    assert result.error == "kubectl command failed internally"
     assert result.exception == test_exception
-    mock_console_mgr.print_error.assert_called_once_with(kubectl_error_result.error)
+    # No longer expect print_error call here since handle_command_output handles display
+    # mock_console_mgr.print_error.assert_called_once_with(kubectl_error_result.error)
 
 
 @patch("vibectl.command_handler.run_kubectl")

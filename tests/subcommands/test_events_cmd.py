@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
-from vibectl.prompts.events import PLAN_EVENTS_PROMPT, events_prompt
+from vibectl.prompts.events import events_plan_prompt, events_prompt
 
 # from asyncclick.testing import CliRunner # No longer needed if using main directly
 from vibectl.types import Error, OutputFlags, Success
@@ -20,6 +20,10 @@ async def test_events_error_handling(
 ) -> None:
     """Test error handling in events command."""
     mock_run_kubectl.return_value = Error(error="Test error")
+    # Mock handle_command_output to return the same error with recovery suggestions
+    mock_handle_output.return_value = Error(
+        error="Test error", recovery_suggestions="Try checking the resource name"
+    )
 
     events_command = cli.commands.get("events")
     assert events_command is not None, "'events' command not found in CLI"
@@ -41,7 +45,9 @@ async def test_events_error_handling(
     # This was an error in my previous reasoning for this test.
     # The run_events_command itself forms the kubectl command.
 
-    mock_handle_output.assert_not_called()
+    # Now expect handle_command_output to be called since show_vibe=True by default
+    # and errors go through recovery suggestion flow
+    mock_handle_output.assert_called_once()
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -156,7 +162,7 @@ async def test_events_vibe_path(
     # Check that the correct prompt functions are passed
     # The plan_prompt_func is a lambda, so we call it to check its return value
     assert hvr_call_kwargs.get("plan_prompt_func") is not None
-    assert hvr_call_kwargs.get("plan_prompt_func")() == PLAN_EVENTS_PROMPT
+    assert hvr_call_kwargs.get("plan_prompt_func")() == events_plan_prompt()
     assert hvr_call_kwargs.get("summary_prompt_func") == events_prompt
 
 

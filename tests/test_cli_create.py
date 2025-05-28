@@ -214,17 +214,17 @@ async def test_create_logic_error_handling(
 
 
 @pytest.mark.asyncio  # Mark test as async
-# Patch run_vibe_command where it's imported in the cli module
+# Patch handle_vibe_request where it's imported in the create_cmd module
 @patch(
-    "vibectl.cli.run_vibe_command", new_callable=AsyncMock
-)  # run_vibe_command is async
+    "vibectl.subcommands.create_cmd.handle_vibe_request", new_callable=AsyncMock
+)  # handle_vibe_request is async
 @patch("vibectl.cli.handle_result")  # Keep patch for handle_result
 async def test_create_vibe_request(
     mock_handle_result: Mock,
-    mock_run_vibe: AsyncMock,  # mock_run_vibe is AsyncMock
+    mock_handle_vibe: AsyncMock,  # mock_handle_vibe is AsyncMock
 ) -> None:
     """Test create command with vibe request (direct call)."""
-    mock_run_vibe.return_value = Success(data="vibe output")
+    mock_handle_vibe.return_value = Success(data="vibe output")
 
     # Use main() for async command invocation
     # The 'create' object here is the asyncclick.Group/Command from vibectl.cli
@@ -234,10 +234,10 @@ async def test_create_vibe_request(
         # Add other default args if main expects them, or rely on defaults
     )
 
-    mock_run_vibe.assert_called_once()
-    call_kwargs = mock_run_vibe.call_args[1]  # Access kwargs from call_args tuple
+    mock_handle_vibe.assert_called_once()
+    call_kwargs = mock_handle_vibe.call_args[1]  # Access kwargs from call_args tuple
     assert call_kwargs["request"] == "create a new pod"
-    mock_handle_result.assert_called_once_with(mock_run_vibe.return_value)
+    mock_handle_result.assert_called_once_with(mock_handle_vibe.return_value)
 
 
 @pytest.mark.asyncio  # Mark test as async

@@ -1,5 +1,42 @@
 # TODO: Remaining Model Key Management Work
 
+## Plugin System Expansion
+
+### Continue Alphabetical Command Integration
+
+After successfully completing plugin integration for `patch` (2 prompts) and `apply` (6 prompts), continue converting remaining commands to use the plugin system:
+
+**Next Priority:**
+- **auto** - Analyze prompt structure and convert to plugin system
+
+**Subsequent Commands (alphabetical order):**
+- check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
+
+### Enhanced Plugin Examples
+
+Create comprehensive plugin examples for each command type as they're converted:
+- Command-specific demo plugins showing advanced features
+- Best practices plugins for different use cases
+- Security-focused plugins (like paranoid-security)
+- Performance optimization plugins
+
+### Plugin System Enhancements
+
+**Future Improvements:**
+- Enhanced error attribution and debugging capabilities
+- Plugin marketplace or distribution system
+- Plugin dependency management
+- Plugin versioning and migration tools
+- Performance profiling for custom prompts
+- Plugin development toolkit and documentation
+
+### Plugin Documentation Maintenance
+
+- Keep plugin system documentation in `docs/plugin_system.md` updated as new commands are converted
+- Update examples in `examples/plugins/` directory
+- Maintain plugin development guidelines
+- Document best practices for plugin authoring
+
 ## Model Selection Improvements
 
 - Implement robust fallback logic for model selection when a preferred model is unavailable

@@ -3,11 +3,14 @@ from vibectl.command_handler import (
     handle_command_output,
     run_kubectl,
 )
+from vibectl.console import console_manager
+from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import (
     configure_memory_flags,
 )
 from vibectl.prompts.create import (
+    create_plan_prompt,
     create_resource_prompt,
 )
 from vibectl.types import Error, Result, Success
@@ -26,11 +29,12 @@ async def run_create_command(
     show_streaming: bool | None,
 ) -> Result:
     """
-    Implements the 'create' subcommand logic, including logging and error handling.
-    Returns a Result (Success or Error).
+    Implements the 'create' subcommand logic, including vibe handling and
+    error handling. Returns a Result (Success or Error).
     """
     logger.info(f"Invoking 'create' subcommand with resource: {resource}, args: {args}")
     try:
+        # Configure outputs
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
@@ -39,19 +43,42 @@ async def run_create_command(
             show_metrics=show_metrics,
             show_streaming=show_streaming,
         )
+        # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
-        # Regular create command
-        cmd = ["create", resource, *args]
-        logger.info(f"Running kubectl command: {' '.join(cmd)}")
-        try:
-            output = run_kubectl(cmd)
-        except Exception as e:
-            logger.error("Error running kubectl: %s", e, exc_info=True)
-            return Error(error="Exception running kubectl", exception=e)
+        # Handle vibe command
+        if resource == "vibe":
+            if not args:
+                console_manager.print_error(
+                    "Missing request after 'vibe'. Usage: vibectl create vibe <request>"
+                )
+                return Error(
+                    error="Missing request after 'vibe'. "
+                    "Usage: vibectl create vibe <request>"
+                )
 
-        if isinstance(output, Success) and not output.data:
-            logger.info("No output from kubectl create command.")
+            request = " ".join(args)
+            logger.info("Planning how to: create %s", request)
+            try:
+                result = await handle_vibe_request(
+                    request=request,
+                    command="create",
+                    plan_prompt_func=create_plan_prompt,
+                    summary_prompt_func=create_resource_prompt,
+                    output_flags=output_flags,
+                )
+                return result
+            except Exception as e:
+                logger.error("Error in handle_vibe_request: %s", e, exc_info=True)
+                return Error(error="Exception in handle_vibe_request", exception=e)
+
+        # Regular create command
+        output = run_kubectl(["create", resource, *list(args)])
+
+        if isinstance(output, Error):
+            return output
+
+        if output.data is None:
             return Success(message="No output from kubectl create command.")
 
         try:
@@ -62,13 +89,13 @@ async def run_create_command(
                 summary_prompt_func=create_resource_prompt,
             )
         except Exception as e:
-            logger.error("Error in handle_command_output: %s", e, exc_info=True)
+            logger.error("Exception in handle_command_output: %s", e, exc_info=True)
             return Error(error="Exception in handle_command_output", exception=e)
 
-        logger.info(f"Completed 'create' subcommand for resource: {resource}")
         return Success(
             message=f"Completed 'create' subcommand for resource: {resource}"
         )
+
     except Exception as e:
-        logger.error("Error in 'create' subcommand: %s", e, exc_info=True)
-        return Error(error="Exception in 'create' subcommand", exception=e)
+        logger.error("Exception running kubectl: %s", e, exc_info=True)
+        return Error(error="Exception running kubectl", exception=e)

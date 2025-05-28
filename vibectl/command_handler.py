@@ -8,9 +8,6 @@ Note: All exceptions should propagate to the CLI entry point for centralized err
 handling. Do not print or log user-facing errors here; use logging for diagnostics only.
 """
 
-from json import JSONDecodeError
-
-from pydantic import ValidationError
 from rich.table import Table
 
 from .config import (
@@ -32,10 +29,6 @@ from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompts.recovery import recovery_prompt
-from .schema import (
-    FeedbackAction,
-    LLMPlannerResponse,
-)
 from .types import (
     Error,
     Fragment,
@@ -76,6 +69,21 @@ async def handle_standard_command(
     )
 
     if isinstance(result, Error):
+        # If --show-vibe is enabled, allow Error objects to go through
+        # handle_command_output so that recovery suggestions can be triggered
+        if output_flags.show_vibe:
+            try:
+                return await handle_command_output(
+                    result,
+                    output_flags,
+                    summary_prompt_func,
+                    command=command,
+                )
+            except Exception as e:
+                # If handle_command_output raises an unexpected error, handle it
+                return _handle_standard_command_error(command, resource, args, e)
+
+        # For non-vibe mode, handle errors the traditional way
         # Handle API errors specifically if needed
         # API errors are now handled by the RecoverableApiError exception type
         # if they originate from the model adapter. Other kubectl errors
@@ -140,8 +148,8 @@ def _run_standard_kubectl_command(
             f"Error in standard command: {command} {resource} {' '.join(args)}: "
             f"{kubectl_result.error}"
         )
-        # Display error to user
-        console_manager.print_error(kubectl_result.error)
+        # Remove duplicate error display - handle_command_output will
+        # display it when needed
         return kubectl_result
 
     # For Success result, ensure we return it properly
@@ -281,7 +289,6 @@ async def handle_command_output(
                             failed_command=command or "Unknown Command",
                             error_output=output_data,
                             original_explanation=None,
-                            current_memory=get_memory(),
                             config=Config(),
                         )
                     )
@@ -323,41 +330,10 @@ async def handle_command_output(
                     logger.info(f"LLM recovery suggestion: {vibe_output_text}")
                     # Display only the text part of the suggestion/error
                     console_manager.print_vibe(vibe_output_text)
-                    # Update the original error object with suggestion/failure text
-                    # If there was an original error, update its recovery suggestions
-                    # The recovery suggestion is plain text, not JSON.
-                    if original_error_object:
-                        logger.info(f"LLM recovery suggestion: {vibe_output_text}")
-                        # Try to parse the recovery suggestion as LLMPlannerResponse
-                        try:
-                            parsed_recovery_response = (
-                                LLMPlannerResponse.model_validate_json(vibe_output_text)
-                            )
-                            if (
-                                isinstance(
-                                    parsed_recovery_response.action, FeedbackAction
-                                )
-                                and parsed_recovery_response.action.message
-                            ):
-                                original_error_object.recovery_suggestions = (
-                                    parsed_recovery_response.action.message
-                                )
-                            else:
-                                # If not FeedbackAction or no message, use raw
-                                # response as fallback
-                                original_error_object.recovery_suggestions = (
-                                    vibe_output_text
-                                )
-                        except (JSONDecodeError, ValidationError):
-                            # If parsing fails, use raw response
-                            logger.warning(
-                                "Could not parse recovery suggestion as "
-                                f"LLMPlannerResponse: {vibe_output_text}"
-                            )
-                            original_error_object.recovery_suggestions = (
-                                vibe_output_text
-                            )
 
+                    # Store recovery suggestion directly as text
+                    if original_error_object:
+                        original_error_object.recovery_suggestions = vibe_output_text
                         original_error_object.metrics = (
                             recovery_metrics  # Add metrics from recovery
                         )
@@ -381,7 +357,7 @@ async def handle_command_output(
                             model_name=output_flags.model_name,
                             config=Config(),
                         )
-                        if memory_update_metrics_error and output_flags.show_vibe:
+                        if memory_update_metrics_error and output_flags.show_metrics:
                             console_manager.print_metrics(
                                 latency_ms=memory_update_metrics_error.latency_ms,
                                 tokens_in=memory_update_metrics_error.token_input,
@@ -668,30 +644,13 @@ async def _process_vibe_output(
             # The vibe_output_text here is the recovery suggestion from
             # non-streaming path
             logger.info(f"LLM recovery suggestion: {vibe_output_text}")
-            parsed_suggestion = vibe_output_text
-            try:
-                parsed_recovery_response = LLMPlannerResponse.model_validate_json(
-                    vibe_output_text
-                )
-                if (
-                    isinstance(parsed_recovery_response.action, FeedbackAction)
-                    and parsed_recovery_response.action.message is not None
-                ):
-                    parsed_suggestion = parsed_recovery_response.action.message
-            except (JSONDecodeError, ValidationError) as parse_error:
-                logger.warning(
-                    f"Could not parse recovery suggestion '{vibe_output_text}' "
-                    f"as LLMPlannerResponse: {parse_error}"
-                )
-            original_error_object.recovery_suggestions = parsed_suggestion
-            original_error_object.metrics = (
-                metrics  # Metrics from non-streaming recovery call
-            )
-            logger.info(
-                "Marking error as non-halting due to successful recovery suggestion."
-            )
-            original_error_object.halt_auto_loop = False
-            return original_error_object
+            # Display only the text part of the suggestion/error
+            console_manager.print_vibe(vibe_output_text)
+
+            # Store recovery suggestion directly as text
+            if original_error_object:
+                original_error_object.recovery_suggestions = vibe_output_text
+                original_error_object.metrics = metrics  # Add metrics from recovery
 
         # If not original_error_object, it was a normal summary attempt
         if vibe_output_text.startswith("ERROR:"):
@@ -981,7 +940,10 @@ async def handle_port_forward_with_live_display(
     )
 
     # Call the worker function in live_display.py
-    pf_result = await _execute_port_forward_with_live_display(
+    # The live display handler already handles all output internally,
+    # including vibe output, so we return its result directly without
+    # calling handle_command_output
+    return await _execute_port_forward_with_live_display(
         resource=resource,
         args=args,
         output_flags=output_flags,
@@ -991,14 +953,6 @@ async def handle_port_forward_with_live_display(
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
         allowed_exit_codes=allowed_exit_codes,
-    )
-
-    command_str = f"port-forward {resource} {' '.join(args)}"
-    return await handle_command_output(
-        output=pf_result,
-        output_flags=output_flags,
-        summary_prompt_func=summary_prompt_func,
-        command=command_str,
     )
 
 

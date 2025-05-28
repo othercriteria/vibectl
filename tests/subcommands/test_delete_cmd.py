@@ -35,7 +35,8 @@ def default_delete_output_flags() -> OutputFlags:
 # Fixture for a dummy summary_prompt_func
 @pytest.fixture
 def dummy_delete_summary_prompt() -> PromptFragments:
-    # In a real scenario, delete_resource_prompt from vibectl.prompt would be used.
+    # In a real scenario, delete_resource_prompt from vibectl.prompts.delete
+    # would be used.
     # This is a simplified version for testing the call.
     return PromptFragments(
         (

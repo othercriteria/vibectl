@@ -2,8 +2,8 @@
 
 from vibectl.config import Config
 from vibectl.prompts.apply import (
-    PLAN_APPLY_PROMPT,
     apply_output_prompt,
+    apply_plan_prompt,
     correct_apply_manifest_prompt_fragments,
     plan_apply_filescope_prompt_fragments,
     plan_final_apply_command_prompt_fragments,
@@ -11,10 +11,11 @@ from vibectl.prompts.apply import (
 )
 
 
-def test_plan_apply_prompt_structure() -> None:
-    """Test that PLAN_APPLY_PROMPT has the expected structure."""
-    assert isinstance(PLAN_APPLY_PROMPT, tuple)
-    system_fragments, user_fragments = PLAN_APPLY_PROMPT
+def test_apply_plan_prompt_structure() -> None:
+    """Test that apply_plan_prompt has the expected structure."""
+    result = apply_plan_prompt()
+    assert isinstance(result, tuple)
+    system_fragments, user_fragments = result
 
     # Check that we have system and user fragments
     assert system_fragments is not None
@@ -27,6 +28,28 @@ def test_plan_apply_prompt_structure() -> None:
     # Verify apply-specific content
     assert "kubectl apply" in system_text or "kubectl apply" in user_text
     assert "YAML" in system_text or "YAML" in user_text
+
+
+def test_apply_plan_prompt_with_config() -> None:
+    """Test apply_plan_prompt with config parameter."""
+    config = Config()
+    result = apply_plan_prompt(config=config)
+    assert isinstance(result, tuple)
+
+    system_fragments, user_fragments = result
+    assert system_fragments is not None
+    assert user_fragments is not None
+
+
+def test_apply_plan_prompt_with_memory() -> None:
+    """Test apply_plan_prompt with memory parameter."""
+    memory = "Previous apply operations completed successfully"
+    result = apply_plan_prompt(current_memory=memory)
+    assert isinstance(result, tuple)
+
+    system_fragments, user_fragments = result
+    assert system_fragments is not None
+    assert user_fragments is not None
 
 
 def test_apply_output_prompt_with_defaults() -> None:

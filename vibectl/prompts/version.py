@@ -10,7 +10,12 @@ from vibectl.schema import ActionType
 from vibectl.types import Examples, PromptFragments
 
 from .schemas import _SCHEMA_DEFINITION_JSON
-from .shared import create_planning_prompt, create_summary_prompt
+from .shared import (
+    create_planning_prompt,
+    create_summary_prompt,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
+)
 
 # Template for planning kubectl version commands
 PLAN_VERSION_PROMPT: PromptFragments = create_planning_prompt(
@@ -48,6 +53,25 @@ PLAN_VERSION_PROMPT: PromptFragments = create_planning_prompt(
 )
 
 
+@with_planning_prompt_override("version_plan")
+def version_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl version commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return PLAN_VERSION_PROMPT
+
+
+@with_summary_prompt_override("version_summary")
 def version_prompt(
     config: Config | None = None,
     current_memory: str | None = None,

@@ -9,7 +9,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompts.diff import PLAN_DIFF_PROMPT, diff_output_prompt
+from vibectl.prompts.diff import diff_output_prompt, diff_plan_prompt
 from vibectl.types import (
     Error,
     Result,
@@ -61,7 +61,7 @@ async def run_diff_command(
         result = await handle_vibe_request(
             request=request,
             command="diff",
-            plan_prompt_func=lambda: PLAN_DIFF_PROMPT,
+            plan_prompt_func=diff_plan_prompt,
             summary_prompt_func=diff_output_prompt,
             output_flags=output_flags,
             yes=False,

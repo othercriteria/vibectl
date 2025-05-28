@@ -1,0 +1,65 @@
+{
+  "plugin_metadata": {
+    "name": "verbose-explainer-vibe",
+    "version": "1.0.0",
+    "description": "Verbose vibe summarizer that provides extremely detailed explanations of command results",
+    "author": "Vibectl Plugin Examples",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T16:00:00Z"
+  },
+  "prompt_mappings": {
+    "vibe_resource_summary": {
+      "description": "Extremely verbose and educational summaries that explain every detail of what happened",
+      "focus_points": [
+        "explain the command that was executed in detail",
+        "break down each piece of output and what it means",
+        "provide educational context about Kubernetes concepts",
+        "explain the implications of resource states",
+        "suggest related commands and learning opportunities",
+        "include performance and resource utilization insights",
+        "explain relationships between different resources"
+      ],
+      "example_format": [
+        "[bold]Command Analysis:[/bold] kubectl get pods -n default",
+        "[italic]This command queried the Kubernetes API server to retrieve pod resources in the 'default' namespace[/italic]",
+        "",
+        "[bold]Results Breakdown:[/bold]",
+        "[bold]Pod: nginx-7d8dc8c8c-xyz12[/bold] [green]Running[/green]",
+        "  [italic]Status Explanation:[/italic] This pod is in 'Running' phase, meaning:",
+        "    • All containers in the pod have been created",
+        "    • At least one container is running, starting, or restarting",
+        "    • The pod has been bound to a node and scheduled",
+        "  [italic]Resource Details:[/italic] Ready: 1/1 (all containers are ready)",
+        "  [italic]Age:[/italic] 2d5h (pod has been running for 2 days, 5 hours)",
+        "  [italic]Node Assignment:[/italic] Scheduled on worker-node-1",
+        "",
+        "[bold]Pod: database-postgres-0[/bold] [yellow]Pending[/yellow]",
+        "  [italic]Status Explanation:[/italic] This pod is 'Pending', which means:",
+        "    • Pod has been accepted by Kubernetes but not yet scheduled",
+        "    • Possible causes: insufficient resources, node selector constraints,",
+        "      pod affinity/anti-affinity rules, or taints/tolerations",
+        "  [italic]Troubleshooting Tip:[/italic] Run 'kubectl describe pod database-postgres-0'",
+        "    to see detailed scheduling events and error messages",
+        "",
+        "[bold]Cluster Health Analysis:[/bold]",
+        "  • [green]75% of pods running successfully[/green] (3 out of 4 pods)",
+        "  • [yellow]1 pod requires attention[/yellow] (pending scheduling)",
+        "  • [blue]Resource utilization appears healthy[/blue] (based on running pods)",
+        "",
+        "[bold]Recommended Next Steps:[/bold]",
+        "  1. Investigate pending pod: kubectl describe pod database-postgres-0",
+        "  2. Check node resources: kubectl describe nodes",
+        "  3. Review events: kubectl get events --sort-by=.metadata.creationTimestamp",
+        "  4. Monitor pod status: kubectl get pods -w (watch mode)",
+        "",
+        "[bold]Learning Opportunity:[/bold]",
+        "Pod phases represent different stages in the pod lifecycle:",
+        "  • Pending → Scheduled but containers not yet created",
+        "  • Running → At least one container is running",
+        "  • Succeeded → All containers terminated successfully",
+        "  • Failed → All containers terminated, at least one failed",
+        "  • Unknown → Pod state cannot be determined"
+      ]
+    }
+  }
+}
