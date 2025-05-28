@@ -29,7 +29,7 @@ This document provides an overview of the project's structure and organization.
   - `apply.py` - Handles intelligent apply workflow execution logic, including file discovery, validation, correction/generation, and command planning.
 - `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
   - `__init__.py` - Package initialization for prompts directory.
-  - `edit.py` - Prompts specific to the edit command (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`).
+  - `edit.py` - Prompts specific to the edit command (`edit_plan_prompt`, `edit_resource_prompt`).
   - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
 - `subcommands/` - Command implementation modules
   - `auto_cmd.py` - Auto command implementation
@@ -169,7 +169,7 @@ This document provides an overview of the project's structure and organization.
    - Resource-specific summary prompts (e.g., `describe_resource_prompt`, `diff_output_prompt`) also follow this fragment-based approach.
    - Memory integration is handled by including memory content within relevant fragments.
 2. `prompts/` - Command-specific prompt modules to keep main prompt.py manageable.
-   - `edit.py` - Edit-specific prompts (`PLAN_EDIT_PROMPT`, `edit_resource_prompt`) for the edit command.
+   - `edit.py` - Edit-specific prompts (`edit_plan_prompt`, `edit_resource_prompt`) for the edit command.
    - `apply.py` - Prompts specific to the apply command (`plan_apply_filescope_prompt_fragments`, `summarize_apply_manifest_prompt_fragments`, `correct_apply_manifest_prompt_fragments`, `plan_final_apply_command_prompt_fragments`, `apply_output_prompt`, `PLAN_APPLY_PROMPT`).
    - More command-specific prompt modules will be added here as the system grows.
 

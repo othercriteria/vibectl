@@ -1,0 +1,170 @@
+{
+  "plugin_metadata": {
+    "name": "intelligent-edit-enhanced",
+    "version": "1.0.0",
+    "description": "Enhanced intelligent edit plugin with comprehensive customizations for all edit workflow stages",
+    "author": "Vibectl Community",
+    "compatible_vibectl_versions": ">=0.8.0,<1.0.0",
+    "created_at": "2024-01-15T14:00:00Z"
+  },
+  "prompt_mappings": {
+    "edit_plan": {
+      "description": "Enhanced planning for kubectl edit commands with safety features and best practices",
+      "command": "edit",
+      "examples": [
+        [
+          "deployment nginx with vim editor",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "deployment",
+              "nginx",
+              "--editor=vim",
+              "--output-patch",
+              "--validate=true",
+              "--record"
+            ],
+            "explanation": "User asked to edit deployment with specific editor. ENHANCED PLUGIN: Added --validate and --record flags for safety and change tracking."
+          }
+        ],
+        [
+          "configmap app-config in production namespace",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "configmap",
+              "app-config",
+              "-n",
+              "production",
+              "--output-patch",
+              "--validate=true"
+            ],
+            "explanation": "User asked to edit configmap in specific namespace. ENHANCED PLUGIN: Added validation to prevent configuration errors in production."
+          }
+        ],
+        [
+          "ingress api-gateway to update host rules",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "ingress",
+              "api-gateway",
+              "--output-patch",
+              "--validate=true",
+              "--record"
+            ],
+            "explanation": "User wants to edit ingress configuration. ENHANCED PLUGIN: Added validation and change recording for critical networking changes."
+          }
+        ]
+      ]
+    },
+    "edit_resource_summary": {
+      "description": "Enhanced summarization of kubectl edit results with detailed change tracking and safety notifications",
+      "focus_points": [
+        "resource type and name that was edited with enhanced formatting",
+        "namespace and cluster context information",
+        "detailed before/after change analysis",
+        "validation results and safety checks performed",
+        "change recording and audit trail information",
+        "impact assessment on dependent resources",
+        "rollback instructions if changes need to be reverted",
+        "best practice recommendations for future edits"
+      ],
+      "example_format": [
+        "[bold green]✓ EDIT SUCCESSFUL[/bold green] [bold]deployment.apps/nginx[/bold] in [blue]production[/blue]",
+        "  [italic]Changes:[/italic] spec.replicas: 2 → 3, resources.limits.memory: [red]256Mi[/red] → [green]512Mi[/green]",
+        "  [italic]Validation:[/italic] [green]✓ Passed[/green] | [italic]Recording:[/italic] [green]✓ Enabled[/green]",
+        "  [italic]Impact:[/italic] Rolling update triggered, 0 downtime expected",
+        "  [italic]Rollback:[/italic] kubectl rollout undo deployment/nginx",
+        "",
+        "[bold yellow]⚠ EDIT CANCELLED[/bold yellow] [bold]service/backend[/bold] (no changes saved)",
+        "  [italic]Reason:[/italic] User exited editor without saving",
+        "",
+        "[bold red]✗ EDIT FAILED[/bold red] [bold]configmap/app-config[/bold]",
+        "  [red]Validation Error:[/red] Invalid YAML syntax on line 15",
+        "  [italic]Recommendation:[/italic] Use 'kubectl edit configmap app-config --dry-run=server' to test first",
+        "",
+        "[blue]💡 ENHANCED PLUGIN TIP:[/blue] Consider using 'kubectl patch' for programmatic changes"
+      ]
+    },
+    "edit_resource_summarization": {
+      "task_description": "You are an ENHANCED Kubernetes operations assistant specializing in intelligent resource editing. Your task is to convert Kubernetes resource YAML into an exceptionally clear, structured natural language summary optimized for safe and efficient editing.\n\nENHANCED FEATURES:\n- Highlight critical fields that affect availability and security\n- Provide contextual guidance for common configuration changes\n- Include safety warnings for production-critical settings\n- Suggest best practices and alternatives\n- Structure content for maximum editability",
+      "context_instructions": "ENHANCED EDITING GUIDANCE:\n\n🔍 Focus Areas:\n- Clearly separate critical vs. optional configuration\n- Highlight fields that trigger rolling updates vs. in-place changes  \n- Provide value ranges and validation hints\n- Include examples of common configuration patterns\n\n⚠️ Safety Notices:\n- Flag any production-critical settings with warnings\n- Mention potential impact of changes (downtime, resource usage, etc.)\n- Suggest testing approaches (dry-run, staging environment)\n\n💡 Best Practices:\n- Recommend configuration management approaches\n- Suggest when to use patches vs. full edits\n- Include relevant kubectl commands for validation"
+    },
+    "edit_scope_planning": {
+      "task_description": "You are an ENHANCED Kubernetes assistant with advanced resource scoping capabilities. Analyze edit requests with deep contextual understanding and safety-first approach.\n\nENHANCED CAPABILITIES:\n- Intelligent resource disambiguation using cluster context\n- Safety-aware argument selection based on environment detection\n- Advanced context extraction with operational impact assessment\n- Multi-resource orchestration awareness",
+      "examples": "ENHANCED EXAMPLES:\n\n\"nginx deployment readiness checks in production\" ->\nresource_selectors: [\"deployment/nginx\"]\nkubectl_arguments: [\"-n\", \"production\", \"--record\", \"--validate=true\"]\nedit_context: \"readiness probe configuration with production safety measures\"\n\n\"update resource limits for web tier components\" ->\nresource_selectors: [\"deployment/frontend\", \"deployment/backend\"]\nkubectl_arguments: [\"--validate=true\", \"--record\"]\nedit_context: \"resource limits optimization with change tracking\"\n\n\"critical security patch for api service\" ->\nresource_selectors: [\"deployment/api\"]\nkubectl_arguments: [\"--validate=true\", \"--record\", \"--dry-run=server\"]\nedit_context: \"security configuration update with validation\"",
+      "context_instructions": "ENHANCED SCOPING GUIDELINES:\n\n🎯 Resource Selection:\n- Use full resource paths (type/name) for clarity\n- Consider resource dependencies and relationships\n- Account for multi-namespace operations when appropriate\n\n🛡️ Safety Arguments:\n- Always include --validate=true for production resources\n- Add --record for change tracking on critical resources\n- Suggest --dry-run=server for high-risk changes\n\n🧠 Context Enhancement:\n- Include operational impact in edit context\n- Mention affected downstream resources\n- Specify safety level (development/staging/production)"
+    },
+    "edit_patch_generation": {
+      "description": "Enhanced patch generation with intelligent change analysis, safety validation, and best practice recommendations",
+      "command": "patch",
+      "examples": [
+        [
+          "diff shows replicas changed from 3 to 5 with memory increase",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "deployment",
+              "nginx",
+              "-p",
+              "{\"spec\":{\"replicas\":5,\"template\":{\"spec\":{\"containers\":[{\"name\":\"nginx\",\"resources\":{\"limits\":{\"memory\":\"1Gi\"}}}]}}}}",
+              "--record"
+            ],
+            "explanation": "ENHANCED: Scaling up with coordinated resource increase. Added --record for change tracking. Strategic merge patch handles nested container updates safely."
+          }
+        ],
+        [
+          "diff shows security context and image update for production workload",
+          {
+            "action_type": "COMMAND",
+            "commands": [
+              "deployment",
+              "api-server",
+              "-p",
+              "{\"spec\":{\"template\":{\"spec\":{\"securityContext\":{\"runAsNonRoot\":true,\"runAsUser\":1001},\"containers\":[{\"name\":\"api\",\"image\":\"api:v2.1-secure\"}]}}}}",
+              "--validate=true",
+              "--record"
+            ],
+            "explanation": "ENHANCED: Critical security update combining image and security context changes. Added validation for security policy compliance and change recording for audit trail."
+          }
+        ]
+      ]
+    },
+    "edit_patch_summary": {
+      "description": "Enhanced patch result summarization with detailed change analysis and operational guidance",
+      "focus_points": [
+        "resource identification with full context (namespace, labels)",
+        "detailed change breakdown with before/after values",
+        "operational impact assessment (rolling updates, downtime, etc.)",
+        "validation results and security compliance status",
+        "change tracking and audit information",
+        "related resource impact analysis",
+        "recommended follow-up actions and monitoring",
+        "rollback procedures if needed"
+      ],
+      "example_format": [
+        "[bold green]✓ PATCH APPLIED[/bold green] [bold]deployment/nginx[/bold] in [blue]production[/blue]",
+        "  [italic]Changes:[/italic] replicas: 3→5, memory.limits: 512Mi→1Gi",
+        "  [italic]Strategy:[/italic] Strategic merge patch | [italic]Validation:[/italic] [green]✓ Passed[/green]",
+        "  [italic]Impact:[/italic] Rolling update initiated, ~90s completion time",
+        "  [italic]Recorded:[/italic] Change #47 in deployment history",
+        "  [italic]Monitoring:[/italic] kubectl rollout status deployment/nginx",
+        "",
+        "[bold green]✓ SECURITY UPDATE[/bold green] [bold]deployment/api-server[/bold]",
+        "  [italic]Security:[/italic] Added runAsNonRoot, updated to secure image",
+        "  [italic]Compliance:[/italic] [green]✓ Security policies satisfied[/green]",
+        "  [italic]Rollback:[/italic] kubectl rollout undo deployment/api-server",
+        "",
+        "[yellow]⚠ PARTIAL UPDATE[/yellow] [bold]service/web[/bold]",
+        "  [yellow]Warning:[/yellow] Strategic merge replaced entire ports array",
+        "  [italic]Recommendation:[/italic] Verify service connectivity",
+        "",
+        "[bold red]✗ PATCH FAILED[/bold red] [bold]configmap/config[/bold]",
+        "  [red]Error:[/red] Admission controller rejected change",
+        "  [italic]Reason:[/italic] Required annotation 'config-version' missing",
+        "  [italic]Fix:[/italic] Add annotation before retrying patch"
+      ]
+    }
+  }
+}

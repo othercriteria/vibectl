@@ -11,7 +11,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.edit import (
-    PLAN_EDIT_PROMPT,
+    edit_plan_prompt,
     edit_resource_prompt,
 )
 from vibectl.types import Error, Result
@@ -73,7 +73,7 @@ async def run_edit_command(
             result = await handle_vibe_request(
                 request=request,
                 command="edit",
-                plan_prompt_func=lambda: PLAN_EDIT_PROMPT,
+                plan_prompt_func=edit_plan_prompt,
                 output_flags=output_flags,
                 summary_prompt_func=edit_resource_prompt,
                 semiauto=False,
