@@ -304,35 +304,6 @@ async def logs(
     handle_result(result)
 
 
-# --- Helper for standard create logic ---
-async def _create_command_logic(
-    resource: str,
-    args: tuple,
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    model: str | None,
-    freeze_memory: bool = False,
-    unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
-    show_streaming: bool | None = None,
-) -> Result:
-    """Handles the logic for standard (non-vibe) create commands."""
-    # Call the synchronous runner function from the subcommand module
-    return await run_create_command(
-        resource=resource,
-        args=args,
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-        show_kubectl=show_kubectl,
-        model=model,
-        freeze_memory=freeze_memory,
-        unfreeze_memory=unfreeze_memory,
-        show_metrics=show_metrics,
-        show_streaming=show_streaming,
-    )
-
-
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
@@ -350,37 +321,18 @@ async def create(
     show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
-    if resource == "vibe":
-        if not args:
-            msg = "Missing request after 'vibe'. Usage: vibectl create vibe <request>"
-            console_manager.print_error(msg)
-            sys.exit(1)
-            return
-        vibe_request = " ".join(args)
-        result = await run_vibe_command(
-            request=vibe_request,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            show_kubectl=show_kubectl,
-            model=model,
-            freeze_memory=freeze_memory,
-            unfreeze_memory=unfreeze_memory,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
-        )
-    else:
-        result = await _create_command_logic(
-            resource=resource,
-            args=args,
-            show_raw_output=show_raw_output,
-            show_vibe=show_vibe,
-            show_kubectl=show_kubectl,
-            model=model,
-            freeze_memory=freeze_memory,
-            unfreeze_memory=unfreeze_memory,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
-        )
+    result = await run_create_command(
+        resource=resource,
+        args=args,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        model=model,
+        freeze_memory=freeze_memory,
+        unfreeze_memory=unfreeze_memory,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
+    )
     handle_result(result)
 
 
