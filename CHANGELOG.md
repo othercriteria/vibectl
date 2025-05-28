@@ -8,13 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- Planned: Plugin system for custom prompt replacement (WIP)
-  - User-configurable prompt plugins via `vibectl install plugin plugin-foo-v3.json`
-  - Plugin precedence order support with fallback chain
-  - Version compatibility checking for plugins
-  - SQLite-backed prompt store for plugin management
-  - WARNING level logging for custom prompt failures
-  - Starting with `patch_resource_prompt` as MVP proof of concept
+- **Complete Plugin System Implementation**: Comprehensive system for customizing vibectl behavior through installable prompt plugins
+  - **Plugin Management Commands**: Full CLI interface for plugin operations
+    - `vibectl install plugin <file>` - install plugins from JSON files with validation
+    - `vibectl plugin list` - view installed plugins with metadata
+    - `vibectl plugin uninstall <name>` - remove installed plugins
+    - `vibectl plugin update <name> <file>` - update existing plugins
+    - Support for `--precedence first|last|<position>` during installation
+  - **Plugin Precedence System**: Configurable plugin precedence with fallback chains
+    - `vibectl plugin precedence list` - view current precedence order
+    - `vibectl plugin precedence set <plugin1> <plugin2> ...` - set explicit order
+    - `vibectl plugin precedence add <plugin> [--position N]` - insert plugin at position
+    - `vibectl plugin precedence remove <plugin>` - remove from precedence list
+    - Integration with vibectl config system for persistent storage
+  - **Version Compatibility System**: Robust semantic versioning support
+    - Install-time version compatibility checking prevents incompatible plugins
+    - Runtime version validation with graceful fallback to defaults
+    - Support for complex version constraints (>=, <=, >, <, ==, !=, ranges)
+    - Comprehensive test coverage with 19 test scenarios
+  - **Plugin File-Based Storage**: Efficient plugin management in `~/.config/vibectl/plugins/`
+    - JSON-based plugin format with metadata and prompt mappings
+    - Automatic validation during installation
+    - Plugin discovery and loading with caching
+  - **Error Handling and Attribution**: Production-ready error management
+    - WARNING level logging for custom prompt failures with attribution
+    - Graceful fallback to default prompts on plugin errors
+    - Version incompatibility prevents plugin usage without breaking core functionality
+    - Zero performance overhead for non-plugin users
+- **Command Plugin Integration**: Successfully converted commands to use plugin system
+  - **Patch Command Integration**: Full plugin support with 2 prompt override points
+    - `patch_plan` - planning prompt for kubectl patch command generation
+    - `patch_resource_summary` - summary prompt for patch operation results
+    - Established plugin decorator pattern with `@with_plugin_override()`
+    - Complete test coverage with legacy constant removal
+  - **Apply Command Integration**: Most comprehensive plugin integration with 6 prompt override points
+    - `apply_plan` - main planning prompt (standard workflow)
+    - `apply_resource_summary` - output summarization prompt (standard workflow)
+    - `apply_filescope` - file scoping analysis prompt (intelligent workflow)
+    - `apply_manifest_summary` - manifest summarization prompt (intelligent workflow)
+    - `apply_manifest_correction` - manifest correction/generation prompt (intelligent workflow)
+    - `apply_final_planning` - final command planning prompt (intelligent workflow)
+    - Demonstrates plugin system support for complex multi-stage workflows
+    - Advanced plugin capabilities for sophisticated orchestration patterns
+- **Comprehensive Plugin Examples**: Rich set of example plugins in `examples/plugins/`
+  - Security-focused plugins (paranoid-security-vibe-v1.json)
+  - Workflow customization plugins (enhanced/minimal output styles)
+  - Educational plugins (verbose-explainer, annotating operations)
+  - Advanced workflow plugins (organizational, minimalist, security-hardened)
+  - Documentation and usage examples for plugin development
+- **Plugin System Documentation**: Complete documentation suite
+  - `docs/plugin_system.md` - comprehensive plugin system documentation
+  - `examples/plugins/README.md` - plugin development guide and examples
+  - Integration examples in main README.md
 
 ### Changed
 - **Major `prompt.py` Refactoring**: Successfully decomposed the massive 2134-line `vibectl/prompt.py` monolith into 20+ specialized modules for dramatically improved maintainability and organization
@@ -24,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Maintained 100% backward compatibility - all existing functionality preserved
   - All tests continue passing, ensuring no regressions introduced
   - Significantly improved code discoverability, testability, and ease of future maintenance
+  - **Plugin System Foundation**: Refactoring enabled clean plugin integration patterns
+    - Converted prompt constants to decorated functions for plugin override capability
+    - Established standard naming conventions for plugin keys
+    - Created reusable plugin integration patterns for future command conversions
+- **Enhanced Config System**: Fixed critical bugs in configuration handling
+  - Fixed config system list handling bug where list values were stored as individual characters
+  - Improved type conversion with proper list parsing from string values
+  - Enhanced config validation and error handling for nested operations
 
 ## [0.8.7] - 2025-05-26
 
