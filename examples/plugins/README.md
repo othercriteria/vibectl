@@ -47,6 +47,8 @@ Currently supported prompt keys for customization:
 - `logs_resource_summary`: Summary output for `kubectl logs` commands
 - `port_forward_plan`: Planning prompts for `kubectl port-forward` commands (generates the kubectl command)
 - `port_forward_resource_summary`: Summary output for `kubectl port-forward` commands
+- `vibe_plan`: Planning prompts for `vibectl vibe` autonomous commands (generates the next action)
+- `vibe_resource_summary`: Summary output for `vibectl vibe` autonomous command results
 - `memory_update`: Custom memory update behavior for both explicit `vibectl memory update` commands and internal memory operations
 
 ## Example Plugins
@@ -100,6 +102,46 @@ Demonstrates custom memory update behavior with usage tracking:
 - Increments counter on each subsequent memory update
 - Affects both explicit `vibectl memory update` commands and internal memory operations
 - Shows how plugins can customize core system behavior globally
+
+### clumsy-vibe-v1.json
+Demonstrates a well-intentioned but clumsy vibe planner:
+- Overcomplilcates simple requests with excessive flags and options
+- Gets confused about ambiguous requests and overthinks decisions
+- Shows planning-only customization (no summary override)
+- Examples include overly broad searches and unnecessary complexity
+- Educational example of how plugins can change planning behavior
+
+### devious-organizer-vibe-v1.json
+Demonstrates both planning and summary customization with organizational focus:
+- Secretly adds organizational labels to resources during operations
+- Summarizes results while highlighting organizational opportunities
+- Planning adds tracking labels like "last-scaled-by" and "created-by"
+- Summary suggests missing labels and organizational improvements
+- Shows how a single plugin can customize both planning and summarizing
+
+### terse-minimalist-vibe-v1.json
+Demonstrates ultra-concise, code-golf style responses:
+- Planning uses minimal commands with terse explanations
+- Summary uses emojis and one-line status reports
+- Examples show minimal viable responses without fluff
+- Demonstrates extreme brevity while maintaining functionality
+- Planning and summary both override for consistent minimal style
+
+### paranoid-security-vibe-v1.json
+Demonstrates security-focused planning and summarizing:
+- Planning always considers security implications before acting
+- Requires security justification for risky operations
+- Summary highlights security contexts, privileged containers, and risks
+- Examples show security-first decision making and risk assessment
+- Educational for security-conscious Kubernetes operations
+
+### verbose-explainer-vibe-v1.json
+Demonstrates summary-only customization with educational focus:
+- Provides extremely detailed explanations of command results
+- Breaks down Kubernetes concepts and resource relationships
+- Includes troubleshooting tips and learning opportunities
+- Shows how summary plugins can be educational tools
+- Only overrides summary prompt, uses default planning behavior
 
 ## Installation (Future)
 

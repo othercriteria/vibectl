@@ -49,7 +49,6 @@ from vibectl.prompts.shared import (
     get_formatting_fragments,
 )
 from vibectl.prompts.version import version_plan_prompt, version_prompt
-from vibectl.prompts.vibe import vibe_autonomous_prompt
 from vibectl.prompts.wait import wait_plan_prompt, wait_resource_prompt
 from vibectl.schema import ActionType, LLMPlannerResponse
 
@@ -507,8 +506,24 @@ def test_vibe_autonomous_prompt(test_config: Config) -> None:
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    with patch("vibectl.prompts.shared.datetime") as mock_shared_datetime:
+    # Mock the plugin system to return no custom mapping, then import
+    with (
+        patch("vibectl.plugins.PluginStore") as mock_store,
+        patch("vibectl.plugins.PromptResolver") as mock_resolver,
+        patch("vibectl.prompts.shared.datetime") as mock_shared_datetime,
+    ):
+        # Configure mocks to return no custom mapping
+        mock_store_instance = Mock()
+        mock_store.return_value = mock_store_instance
+        mock_resolver_instance = Mock()
+        mock_resolver.return_value = mock_resolver_instance
+        mock_resolver_instance.get_prompt_mapping.return_value = None
+
         mock_shared_datetime.now.return_value = fixed_dt
+
+        # Import after mocking
+        from vibectl.prompts.vibe import vibe_autonomous_prompt
+
         system_fragments, user_fragments = vibe_autonomous_prompt(config=test_config)
 
     combined_text = "\n".join(system_fragments + user_fragments)
@@ -563,10 +578,25 @@ def test_vibe_autonomous_prompt_formatting(test_config: Config) -> None:
             )
         return mock_sys_frags, mock_user_frags
 
-    with patch(
-        "vibectl.prompts.vibe.get_formatting_fragments",
-        side_effect=mock_gff_side_effect,
+    # Mock the plugin system to return no custom mapping, then import
+    with (
+        patch("vibectl.plugins.PluginStore") as mock_store,
+        patch("vibectl.plugins.PromptResolver") as mock_resolver,
+        patch(
+            "vibectl.prompts.vibe.get_formatting_fragments",
+            side_effect=mock_gff_side_effect,
+        ),
     ):
+        # Configure mocks to return no custom mapping
+        mock_store_instance = Mock()
+        mock_store.return_value = mock_store_instance
+        mock_resolver_instance = Mock()
+        mock_resolver.return_value = mock_resolver_instance
+        mock_resolver_instance.get_prompt_mapping.return_value = None
+
+        # Import after mocking
+        from vibectl.prompts.vibe import vibe_autonomous_prompt
+
         system_fragments, user_fragments_template = vibe_autonomous_prompt(
             config=test_config
         )

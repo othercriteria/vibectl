@@ -8,9 +8,12 @@ This module contains prompts for:
 
 from __future__ import annotations
 
+from typing import Any
+
 from vibectl.config import Config
 from vibectl.schema import ActionType
 from vibectl.types import (
+    Examples,
     Fragment,
     MLExampleItem,
     PromptFragments,
@@ -20,23 +23,46 @@ from vibectl.types import (
 
 from .schemas import _SCHEMA_DEFINITION_JSON
 from .shared import (
+    create_planning_prompt,
     format_ml_examples,
     fragment_memory_context,
     get_formatting_fragments,
+    with_custom_prompt_override,
+    with_summary_prompt_override,
 )
 
 
 # Template for planning autonomous vibe commands
-def plan_vibe_fragments() -> PromptFragments:
+@with_custom_prompt_override("vibe_plan")
+def plan_vibe_fragments(custom_mapping: Any = None) -> PromptFragments:
     """Get prompt fragments for planning autonomous vibe commands.
 
     Args:
-        config: Optional Config instance.
+        custom_mapping: Plugin mapping with custom instructions (may be None)
 
     Returns:
         PromptFragments: System fragments and base user fragments.
                          Caller adds memory and request fragments.
     """
+    # Handle custom plugin mapping if provided
+    if custom_mapping:
+        # Use the plugin-provided custom mapping
+        # Get values from custom mapping with fallbacks
+        command = custom_mapping.get("command", "vibe")
+        description = custom_mapping.get("description", "autonomous vibe commands")
+        examples_data = custom_mapping.get("examples", [])
+
+        examples = Examples(examples_data)
+
+        # Use the standard planning prompt creation with custom data
+        return create_planning_prompt(
+            command=command,
+            description=description,
+            examples=examples,
+            schema_definition=_SCHEMA_DEFINITION_JSON,
+        )
+
+    # Default implementation (existing code)
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments(
         []
@@ -254,6 +280,7 @@ Remember to choose only ONE action per response."""
 
 
 # Template for summarizing vibe autonomous command output
+@with_summary_prompt_override("vibe_resource_summary")
 def vibe_autonomous_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
