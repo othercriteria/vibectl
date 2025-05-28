@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.9.0] - 2025-05-28
+
 ### Added
 - **Complete Plugin System Implementation**: Comprehensive system for customizing vibectl behavior through installable prompt plugins
   - **Plugin Management Commands**: Full CLI interface for plugin operations
