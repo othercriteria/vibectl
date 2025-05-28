@@ -10,7 +10,12 @@ from vibectl.schema import ActionType
 from vibectl.types import Examples, PromptFragments
 
 from .schemas import _SCHEMA_DEFINITION_JSON
-from .shared import create_planning_prompt, create_summary_prompt
+from .shared import (
+    create_planning_prompt,
+    create_summary_prompt,
+    with_planning_prompt_override,
+    with_summary_prompt_override,
+)
 
 # Template for planning kubectl wait commands
 PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
@@ -54,6 +59,25 @@ PLAN_WAIT_PROMPT: PromptFragments = create_planning_prompt(
 )
 
 
+@with_planning_prompt_override("wait_plan")
+def wait_plan_prompt(
+    config: Config | None = None,
+    current_memory: str | None = None,
+) -> PromptFragments:
+    """Get prompt fragments for planning kubectl wait commands.
+
+    Args:
+        config: Optional Config instance.
+        current_memory: Optional current memory string.
+
+    Returns:
+        PromptFragments: System fragments and user fragments
+    """
+    # Fall back to default prompt (decorator handles plugin override)
+    return PLAN_WAIT_PROMPT
+
+
+@with_summary_prompt_override("wait_summary")
 def wait_resource_prompt(
     config: Config | None = None,
     current_memory: str | None = None,

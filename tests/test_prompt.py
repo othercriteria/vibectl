@@ -48,9 +48,9 @@ from vibectl.prompts.shared import (
     create_planning_prompt,
     get_formatting_fragments,
 )
-from vibectl.prompts.version import PLAN_VERSION_PROMPT, version_prompt
+from vibectl.prompts.version import version_plan_prompt, version_prompt
 from vibectl.prompts.vibe import vibe_autonomous_prompt
-from vibectl.prompts.wait import PLAN_WAIT_PROMPT, wait_resource_prompt
+from vibectl.prompts.wait import wait_plan_prompt, wait_resource_prompt
 from vibectl.schema import ActionType, LLMPlannerResponse
 
 # Import new types
@@ -342,12 +342,12 @@ def test_create_planning_prompt_raises_without_schema() -> None:
         get_plan_prompt(),
         PLAN_DESCRIBE_PROMPT,
         logs_plan_prompt(),
-        PLAN_VERSION_PROMPT,
+        version_plan_prompt(),
         cluster_info_plan_prompt(),
         events_plan_prompt(),
         PLAN_DELETE_PROMPT,
         PLAN_SCALE_PROMPT,
-        PLAN_WAIT_PROMPT,
+        wait_plan_prompt(),
         PLAN_ROLLOUT_PROMPT,
         PLAN_PORT_FORWARD_PROMPT,
     ],

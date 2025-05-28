@@ -10,7 +10,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
-from vibectl.prompts.version import PLAN_VERSION_PROMPT, version_prompt
+from vibectl.prompts.version import version_plan_prompt, version_prompt
 from vibectl.types import Error, Result, Success
 
 
@@ -60,7 +60,7 @@ async def run_version_command(
                 result = await handle_vibe_request(
                     request=request,
                     command="version",
-                    plan_prompt_func=lambda: PLAN_VERSION_PROMPT,
+                    plan_prompt_func=version_plan_prompt,
                     summary_prompt_func=version_prompt,
                     output_flags=output_flags,
                 )
