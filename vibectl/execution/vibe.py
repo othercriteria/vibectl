@@ -19,6 +19,8 @@ from vibectl.command_handler import (
     handle_port_forward_with_live_display,
 )
 from vibectl.config import Config
+
+# Import console utility functions for metrics display
 from vibectl.k8s_utils import is_kubectl_command_read_only
 from vibectl.logutil import logger as _logger
 from vibectl.memory import (
@@ -39,6 +41,7 @@ from vibectl.schema import (
 from vibectl.types import (
     Error,
     Fragment,
+    LLMMetricsAccumulator,
     OutputFlags,
     PredicateCheckExitCode,
     PromptFragments,
@@ -86,6 +89,9 @@ async def handle_vibe_request(
     cfg = config or Config()
     model_name = output_flags.model_name
 
+    # Create metrics accumulator for this request
+    llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
+
     memory_context_str = get_memory(cfg)
 
     plan_system_fragments, plan_user_fragments_base = plan_prompt_func()
@@ -104,6 +110,9 @@ async def handle_vibe_request(
 
     if isinstance(plan_result, Error):
         return plan_result
+
+    # Accumulate planning metrics
+    llm_metrics_accumulator.add_metrics(plan_result.metrics, "LLM Vibe Planning")
 
     llm_planner_response = plan_result.data
 
@@ -136,24 +145,20 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if (
-            memory_update_metrics
-            and output_flags.show_metrics.should_show_sub_metrics()
-        ):
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
-                source="LLM Memory Update (Error)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
-            )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics, "LLM Memory Update (Error)"
+        )
 
         logger.info("Planning error added to memory context")
         console_manager.print_error(f"LLM Planning Error: {error_message}")
 
+        # Display total metrics and return
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
+
         return Error(
             error=f"LLM planning error: {error_message}",
             recovery_suggestions=error_message,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
     elif action == ActionType.DONE:
@@ -181,17 +186,9 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if (
-            memory_update_metrics
-            and output_flags.show_metrics.should_show_sub_metrics()
-        ):
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
-                source="LLM Memory Update (Wait)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
-            )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics, "LLM Memory Update (Wait)"
+        )
 
         console_manager.print_processing(
             f"Waiting for {duration} seconds as requested by AI..."
@@ -199,7 +196,13 @@ async def handle_vibe_request(
         await asyncio.sleep(duration)
         console_manager.print_note(f"Waited for {duration} seconds.")
 
-        return Success(message=f"Waited for {duration} seconds.")
+        # Display total metrics and return
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
+
+        return Success(
+            message=f"Waited for {duration} seconds.",
+            metrics=llm_metrics_accumulator.get_metrics(),
+        )
 
     elif action == ActionType.THOUGHT:
         thought_text = response_action.text
@@ -213,19 +216,17 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if (
-            memory_update_metrics
-            and output_flags.show_metrics.should_show_sub_metrics()
-        ):
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
-                source="LLM Memory Update (Thought)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
-            )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics, "LLM Memory Update (Thought)"
+        )
 
-        return Success(message=f"Processed AI thought: {thought_text}")
+        # Display total metrics and return
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
+
+        return Success(
+            message=f"Processed AI thought: {thought_text}",
+            metrics=llm_metrics_accumulator.get_metrics(),
+        )
 
     elif action == ActionType.FEEDBACK:
         feedback_message = response_action.message
@@ -256,30 +257,29 @@ async def handle_vibe_request(
             yes=yes,
         )
 
-        if confirmation_result is not None:
+        if isinstance(confirmation_result, Error):
+            # Display total metrics and return
+            llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
             return confirmation_result
 
-        logger.info("Proceeding with memory update based on AI feedback.")
-
+        # If confirmed, update memory
         memory_update_metrics = await update_memory(
             command_message=f"command: {command} request: {request}",
-            command_output=f"AI Feedback: {feedback_message}",
-            vibe_output=feedback_message,
+            command_output=feedback_message,
+            vibe_output=feedback_suggestion,
             model_name=output_flags.model_name,
         )
-        if (
-            memory_update_metrics
-            and output_flags.show_metrics.should_show_sub_metrics()
-        ):
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
-                source="LLM Memory Update (Feedback)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
-            )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics, "LLM Memory Update (Feedback)"
+        )
 
-        return Success(message=f"Processed AI feedback: {feedback_message}")
+        # Display total metrics and return
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
+
+        return Success(
+            message=f"Applied AI feedback: {feedback_suggestion}",
+            metrics=llm_metrics_accumulator.get_metrics(),
+        )
 
     elif action == ActionType.COMMAND:
         commands_to_run = response_action.commands or []
@@ -321,6 +321,7 @@ async def handle_vibe_request(
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
+                llm_metrics_accumulator=llm_metrics_accumulator,
             )
 
     else:  # Default case (Unknown ActionType)
@@ -346,6 +347,7 @@ async def _confirm_and_execute_plan(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...],
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
     """Confirm and execute the kubectl command plan."""
     # Determine if YAML content is present for display formatting
@@ -423,16 +425,9 @@ async def _confirm_and_execute_plan(
             model_name=output_flags.model_name,
         )
         logger.info("Memory updated after command execution.")
-        if (
-            memory_update_metrics
-            and output_flags.show_metrics.should_show_sub_metrics()
-        ):
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics.latency_ms,
-                tokens_in=memory_update_metrics.token_input,
-                tokens_out=memory_update_metrics.token_output,
-                source="LLM Memory Update (Execution Record)",
-                total_duration=memory_update_metrics.total_processing_duration_ms,
+        if llm_metrics_accumulator:
+            llm_metrics_accumulator.add_metrics(
+                memory_update_metrics, "LLM Memory Update (Execution Record)"
             )
     except Exception as mem_e:
         logger.error(f"Failed to update memory after command execution: {mem_e}")
@@ -447,6 +442,7 @@ async def _confirm_and_execute_plan(
             output_flags,
             summary_prompt_func,
             command=kubectl_verb,
+            llm_metrics_accumulator=llm_metrics_accumulator,
         )
     except RecoverableApiError as api_err:
         logger.warning(

@@ -1,7 +1,6 @@
 from vibectl.command_handler import (
     configure_output_flags,
 )
-from vibectl.config import Config
 from vibectl.execution.check import run_check_command as execute_check_logic
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
@@ -24,7 +23,6 @@ async def run_check_command(
     yes: bool,
     show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
-    config: Config | None = None,
 ) -> Result:
     """
     Implements the 'check' subcommand logic, including logging and error handling.

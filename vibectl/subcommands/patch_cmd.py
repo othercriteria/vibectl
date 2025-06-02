@@ -56,8 +56,6 @@ async def run_patch_command(
             plan_prompt_func=patch_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=patch_resource_prompt,
-            semiauto=False,
-            config=None,
         )
         logger.info("Completed 'patch' command for vibe request.")
         return result

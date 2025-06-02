@@ -2,7 +2,7 @@
 
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -109,9 +109,30 @@ def mock_memory() -> Generator[tuple[MagicMock, MagicMock], None, None]:
         # Set default return values
         mock_get_memory.return_value = "Test memory context"
 
-        # Set up delegation from command_handler's import to the actual implementation
-        # This mimics how command_handler.update_memory calls memory.update_memory
-        mock_update_memory.side_effect = mock_memory_update
+        # Configure both mocks to return proper LLMMetrics objects
+        def update_memory_side_effect(*args: Any, **kwargs: Any) -> LLMMetrics:
+            from vibectl.types import LLMMetrics
+
+            return LLMMetrics(
+                token_input=0,
+                token_output=0,
+                latency_ms=0.0,  # Ensure this is a float, not a mock
+                total_processing_duration_ms=0.0,
+            )
+
+        # Make sure the mocks are set up as AsyncMock since update_memory is async
+        mock_update_memory.return_value = LLMMetrics(
+            token_input=0,
+            token_output=0,
+            latency_ms=0.0,
+            total_processing_duration_ms=0.0,
+        )
+        mock_memory_update.return_value = LLMMetrics(
+            token_input=0,
+            token_output=0,
+            latency_ms=0.0,
+            total_processing_duration_ms=0.0,
+        )
 
         yield (mock_update_memory, mock_memory_update)
 
@@ -378,6 +399,7 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
             standard_output_flags,
             get_test_summary_fragments,
             command="delete",  # Expect the original command verb here
+            llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
         )
 
     # Verify result
@@ -443,6 +465,7 @@ async def test_vibe_non_delete_commands_skip_confirmation(
             standard_output_flags,
             get_test_summary_fragments,
             command="get",  # Expect the original command verb here
+            llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
         )
 
     # Verify result
@@ -661,6 +684,7 @@ async def test_vibe_delete_confirmation_yes_and_fuzzy_update_success(
         standard_output_flags,
         get_test_summary_fragments,
         command="delete",
+        llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
     )
 
 

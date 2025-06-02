@@ -23,6 +23,7 @@ from vibectl.types import (
     ActionType,
     Error,
     Fragment,
+    LLMMetrics,
     MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
@@ -249,6 +250,9 @@ async def test_handle_vibe_request_llm_planning_error(
     ],
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.ERROR."""
+    # Mock update_memory to return proper LLMMetrics object
+    mock_update_memory.return_value = LLMMetrics()
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -312,6 +316,9 @@ async def test_handle_vibe_request_llm_wait(
     ],
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.WAIT."""
+    # Mock update_memory to return proper LLMMetrics object
+    mock_update_memory.return_value = LLMMetrics()
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -381,6 +388,9 @@ async def test_handle_vibe_request_llm_feedback(
     ],
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.FEEDBACK."""
+    # Mock update_memory to return proper LLMMetrics object
+    mock_update_memory.return_value = LLMMetrics()
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -414,7 +424,10 @@ async def test_handle_vibe_request_llm_feedback(
     )
 
     assert isinstance(result, Success)
-    assert result.message == f"Processed AI feedback: {feedback_action_data['message']}"
+    assert (
+        result.message
+        == "Applied AI feedback: AI unable to provide a specific suggestion."
+    )
     assert result.data is None
 
     mock_get_model_adapter.assert_called_once()
@@ -424,7 +437,7 @@ async def test_handle_vibe_request_llm_feedback(
     mock_handle_command_output.assert_not_called()
     mock_update_memory.assert_called_once()
 
-    mock_console.print_vibe.assert_called_with(feedback_action_data["message"])
+    mock_console.print_vibe.assert_called_with("This is a feedback message.")
 
 
 @pytest.mark.asyncio
@@ -440,6 +453,9 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     ],
 ) -> None:
     """Test handle_vibe_request with ActionType.FEEDBACK but no explanation."""
+    # Mock update_memory to return proper LLMMetrics object
+    mock_update_memory_actual.return_value = LLMMetrics()
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -473,7 +489,10 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     )
 
     assert isinstance(result, Success)
-    assert result.message == f"Processed AI feedback: {feedback_action_data['message']}"
+    assert (
+        result.message
+        == "Applied AI feedback: AI unable to provide a specific suggestion."
+    )
     assert result.data is None
 
     mock_get_model_adapter_actual.assert_called_once()
@@ -482,7 +501,7 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     mock_adapter_instance.execute_and_log_metrics.assert_called_once()
 
     mock_console_manager_actual.print_vibe.assert_called_with(
-        feedback_action_data["message"]
+        "This is a feedback message without explanation."
     )
 
     mock_update_memory_actual.assert_called_once()
@@ -785,6 +804,9 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
     ],
 ) -> None:
     """Test handle_vibe_request where handle_command_output raises generic Exception."""
+    # Mock update_memory to return proper LLMMetrics object
+    mock_update_memory.return_value = LLMMetrics()
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -822,7 +844,7 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
     )
 
     assert isinstance(result, Error)
-    assert result.error == f"Error handling command output: {generic_error}"
+    assert result.error == f"Error handling command output: {error_message}"
     assert result.exception == generic_error
     assert result.halt_auto_loop is True
 

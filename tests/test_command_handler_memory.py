@@ -875,13 +875,16 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     # First, verify that the correct model name was requested from the adapter
     mock_get_adapter.get_model.assert_called_once_with(output_flags.model_name)
 
-    # Then, check the arguments passed to stream_execute
-    mock_get_adapter.stream_execute.assert_called_once()
-    actual_call_args_list = mock_get_adapter.stream_execute.call_args_list
+    # Then, check the arguments passed to stream_execute_and_log_metrics
+    # (not stream_execute)
+    mock_get_adapter.stream_execute_and_log_metrics.assert_called_once()
+    actual_call_args_list = (
+        mock_get_adapter.stream_execute_and_log_metrics.call_args_list
+    )
     assert len(actual_call_args_list) == 1
     actual_call = actual_call_args_list[0]
 
-    # Check keyword arguments for stream_execute
+    # Check keyword arguments for stream_execute_and_log_metrics
     assert isinstance(
         actual_call.kwargs["model"], Mock
     )  # Check it's some Mock instance

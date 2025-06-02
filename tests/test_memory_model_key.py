@@ -16,6 +16,7 @@ from vibectl.memory import update_memory
 from vibectl.model_adapter import (
     LLMMetrics,
     ModelAdapter,
+    StreamingMetricsCollector,
     set_model_adapter,
 )
 from vibectl.types import SystemFragments, UserFragments
@@ -136,6 +137,29 @@ async def test_memory_with_anthropic_api_key(
             # Or raise NotImplementedError if this mock shouldn't be used for streaming
             # raise NotImplementedError("MockLLMAdapter.stream_execute not implemented")
 
+        async def stream_execute_and_log_metrics(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> tuple[AsyncIterator[str], StreamingMetricsCollector]:
+            """Mock implementation of stream_execute_and_log_metrics."""
+            from vibectl.model_adapter import StreamingMetricsCollector
+
+            async def mock_stream() -> AsyncIterator[str]:
+                if False:
+                    yield ""
+
+            # Create a completed metrics collector with default metrics
+            collector = StreamingMetricsCollector()
+            from vibectl.types import LLMMetrics
+
+            mock_metrics = LLMMetrics()
+            collector._mark_completed(mock_metrics)
+
+            return mock_stream(), collector
+
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()
     set_model_adapter(mock_adapter)
@@ -246,6 +270,29 @@ async def test_memory_with_openai_api_key(test_config: Config) -> None:
                 yield ""
             # Or raise NotImplementedError if this mock shouldn't be used for streaming
             # raise NotImplementedError("MockLLMAdapter.stream_execute not implemented")
+
+        async def stream_execute_and_log_metrics(
+            self,
+            model: Mock,
+            system_fragments: SystemFragments,
+            user_fragments: UserFragments,
+            response_model: type[BaseModel] | None = None,
+        ) -> tuple[AsyncIterator[str], StreamingMetricsCollector]:
+            """Mock implementation of stream_execute_and_log_metrics."""
+            from vibectl.model_adapter import StreamingMetricsCollector
+
+            async def mock_stream() -> AsyncIterator[str]:
+                if False:
+                    yield ""
+
+            # Create a completed metrics collector with default metrics
+            collector = StreamingMetricsCollector()
+            from vibectl.types import LLMMetrics
+
+            mock_metrics = LLMMetrics()
+            collector._mark_completed(mock_metrics)
+
+            return mock_stream(), collector
 
     # Create our adapter instance
     mock_adapter = MockLLMAdapter()

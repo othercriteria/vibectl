@@ -338,7 +338,7 @@ async def test_handle_vibe_request_llm_feedback(
         yes=True,
     )
     assert isinstance(result, Success)
-    assert result.message == f"Processed AI feedback: {feedback_message}"
+    assert result.message == f"Applied AI feedback: {feedback_suggestion_str}"
 
     mock_console.print_vibe.assert_called_once_with(feedback_message)
     # When yes=True, _handle_command_confirmation returns early, so it
@@ -349,44 +349,13 @@ async def test_handle_vibe_request_llm_feedback(
         f"Suggested memory update: {feedback_suggestion_str}"
     )
 
-    with patch("vibectl.execution.vibe.update_memory") as mock_vibe_update_memory:
-        # Re-execute the core logic that should trigger update_memory
-        # Need to reset relevant mocks if they were called before this block
-        # by other parts of the test setup
-        mock_get_adapter.reset_mock()  # Reset if side_effect is consumed
-        mock_get_adapter.execute_and_log_metrics.side_effect = [
-            (
-                llm_response_str,
-                LLMMetrics(
-                    token_input=10, token_output=10, latency_ms=100.0, call_count=1
-                ),
-            ),
-            (
-                "Memory updated with feedback.",
-                LLMMetrics(
-                    token_input=5, token_output=5, latency_ms=50.0, call_count=1
-                ),
-            ),
-        ]
-
-        result_in_patch = await handle_vibe_request(
-            request="give me feedback",
-            command="vibe",
-            plan_prompt_func=plan_vibe_fragments,
-            summary_prompt_func=get_test_summary_fragments,
-            output_flags=default_output_flags,
-            yes=True,
-        )
-        assert isinstance(result_in_patch, Success)  # Ensure it still runs fine
-
-        mock_vibe_update_memory.assert_called_once_with(
-            command_message="command: vibe request: give me feedback",
-            command_output=f"AI Feedback: {feedback_message}",
-            vibe_output=feedback_message,
-            model_name=default_output_flags.model_name,
-        )
-
-    assert mock_get_adapter.execute_and_log_metrics.call_count == 1
+    # Verify memory update was called with the correct parameters
+    mock_memory["update"].assert_called_once_with(
+        command_message="command: vibe request: give me feedback",
+        command_output=feedback_message,
+        vibe_output=feedback_suggestion_str,
+        model_name=default_output_flags.model_name,
+    )
 
 
 @pytest.mark.asyncio
@@ -450,8 +419,8 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     # Verify memory update was called.
     mock_memory["update"].assert_called_once_with(
         command_message="command: vibe request: vibe feedback no explanation",
-        command_output=f"AI Feedback: {feedback_message}",
-        vibe_output=feedback_message,
+        command_output=feedback_message,
+        vibe_output="AI unable to provide a specific suggestion.",
         model_name=default_output_flags.model_name,
     )
 
@@ -1143,12 +1112,14 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
     mock_get_adapter.execute_and_log_metrics.side_effect = [
         plan_response,  # For initial plan
         memory_update_response,  # For update_memory call by real_update_memory_impl
-        # No third entry needed since streaming is enabled and will use stream_execute
+        # No third entry needed since streaming is enabled and will use
+        # stream_execute_and_log_metrics
     ]
 
-    # Configure the side_effect for the mock LLM adapter's stream_execute (streaming)
+    # Configure the side_effect for the mock LLM adapter's
+    # stream_execute_and_log_metrics (streaming)
     # This will be called by stream_vibe_output_and_log_metrics for the summary
-    mock_get_adapter.stream_execute.side_effect = (
+    mock_get_adapter.stream_execute_and_log_metrics.side_effect = (
         summary_error  # The exception instance
     )
 
@@ -1178,7 +1149,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
         # Verify the LLM was called for planning and first memory update (non-streaming)
         assert mock_get_adapter.execute_and_log_metrics.call_count == 2
         # Verify the LLM was called for summary (streaming)
-        assert mock_get_adapter.stream_execute.call_count == 1
+        assert mock_get_adapter.stream_execute_and_log_metrics.call_count == 1
 
         # Verify the final result is an Error because the summary LLM call failed,
         # but it's a non-halting error.

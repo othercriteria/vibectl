@@ -206,8 +206,6 @@ class TestRunPatchCommand:
         assert call_kwargs["command"] == "patch"
         assert call_kwargs["output_flags"] == default_patch_output_flags
         assert call_kwargs["summary_prompt_func"] == patch_resource_prompt
-        assert call_kwargs["semiauto"] is False
-        assert call_kwargs["config"] is None
 
         # Test that plan_prompt_func returns PLAN_PATCH_PROMPT
         plan_prompt_func = call_kwargs["plan_prompt_func"]
