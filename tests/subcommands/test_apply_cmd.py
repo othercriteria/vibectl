@@ -6,7 +6,7 @@ import pytest
 from vibectl.config import Config
 from vibectl.prompts.apply import apply_output_prompt
 from vibectl.subcommands.apply_cmd import run_apply_command
-from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.mark.asyncio
@@ -34,7 +34,7 @@ async def test_run_apply_command_direct_success(
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -131,7 +131,7 @@ async def test_run_apply_command_direct_kubectl_error(
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = None
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -202,7 +202,7 @@ async def test_run_apply_command_direct_handle_output_error(
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -518,14 +518,17 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "intelligent-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = True
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True  # Added show_streaming
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_adapter_instance = MagicMock()
     # Simulate LLM returning an empty string for file scoping
     mock_adapter_instance.execute_and_log_metrics = AsyncMock(
-        return_value=("", {"some": "metric"})
+        return_value=(
+            "",
+            LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
+        )
     )
     mock_get_model_adapter.return_value = mock_adapter_instance
 
@@ -546,7 +549,9 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
 
     assert isinstance(result, Error)
     assert "LLM returned an empty response for file scoping" in result.error
-    assert result.metrics == {"some": "metric"}
+    assert isinstance(result.metrics, LLMMetrics)
+    assert result.metrics.token_input == 0
+    assert result.metrics.token_output == 0
 
     mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"

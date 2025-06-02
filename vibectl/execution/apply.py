@@ -38,7 +38,7 @@ from vibectl.schema import (
     CommandAction,
     LLMFinalApplyPlanResponse,
 )
-from vibectl.types import Error, OutputFlags, Result, Success
+from vibectl.types import Error, LLMMetricsAccumulator, OutputFlags, Result, Success
 
 
 async def validate_manifest_content(
@@ -245,6 +245,7 @@ async def summarize_manifests_and_build_memory(
     model_adapter: ModelAdapter,
     llm_model: Any,
     invalid_sources_to_correct: list[tuple[Path, str | None, str]],
+    llm_metrics_accumulator: LLMMetricsAccumulator,
 ) -> tuple[str, list[tuple[Path, str | None, str]]]:
     """
     Summarize valid manifests and build operation memory.
@@ -294,6 +295,12 @@ async def summarize_manifests_and_build_memory(
             )
             logger.info(f"Updated operation memory after summarizing {file_path}")
 
+            # Add summary metrics to accumulator
+            if summary_metrics:
+                llm_metrics_accumulator.add_metrics(
+                    summary_metrics, f"LLM Summary for {file_path}"
+                )
+
         except Exception as e_summary:
             logger.error(
                 f"Error summarizing manifest {file_path}: {e_summary}",
@@ -319,6 +326,7 @@ async def correct_and_generate_manifests(
     cfg: Config,
     temp_dir_path: Path,
     max_correction_retries: int,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
 ) -> tuple[list[Path], list[tuple[Path, str]], str]:
     """
     Correct and generate manifests for invalid sources.
@@ -393,6 +401,13 @@ async def correct_and_generate_manifests(
                     user_fragments=correction_user_frags,
                     response_model=None,  # Expecting raw YAML string
                 )
+
+                # Add correction metrics to accumulator
+                if correction_metrics:
+                    llm_metrics_accumulator.add_metrics(
+                        correction_metrics,
+                        f"LLM Correction for {original_path} (attempt {attempt + 1})",
+                    )
 
                 if (
                     not proposed_yaml_str
@@ -474,6 +489,14 @@ async def correct_and_generate_manifests(
                                 f"Updated operation memory after summarizing "
                                 f"corrected manifest {temp_correction_path.name}"
                             )
+
+                            # Add new summary metrics to accumulator
+                            if new_summary_metrics:
+                                llm_metrics_accumulator.add_metrics(
+                                    new_summary_metrics,
+                                    f"LLM Summary for {temp_correction_path}",
+                                )
+
                     except Exception as e_new_summary:
                         logger.error(
                             "Error summarizing corrected manifest "
@@ -536,18 +559,23 @@ async def execute_planned_commands(
     planned_commands: list[CommandAction],
     cfg: Config,
     output_flags: OutputFlags,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
 ) -> Result:
     """Executes a list of planned kubectl commands, handling output and errors."""
     overall_success = True
     final_results_summary = ""
-    final_metrics = None
+    commands_executed = 0  # Track how many commands were actually executed
 
     for i, planned_cmd_response in enumerate(planned_commands):
         logger.info(f"Executing planned command {i + 1}/{len(planned_commands)}")
 
-        commands_to_log = planned_cmd_response.commands
-        if commands_to_log is None:  # Should not happen if action_type is COMMAND
-            commands_to_log = ["<no commands specified>"]
+        commands_list = planned_cmd_response.commands
+        if commands_list is None or len(commands_list) == 0:
+            logger.warning(f"Skipping command {i + 1}: no commands specified")
+            final_results_summary += (
+                f"Skipped command {i + 1} (no commands specified).\n"
+            )
+            continue
 
         if planned_cmd_response.action_type != "COMMAND":
             logger.warning(
@@ -559,118 +587,107 @@ async def execute_planned_commands(
             )
             continue
 
-        # Validate the constructed full command list
-        if len(planned_cmd_response.commands) == 0:
-            logger.error("Planned command list is empty.")
-            final_results_summary += "Error: Planned command list is empty.\n"
-            overall_success = False
-            continue
+        # Increment the count of actually executed commands
+        commands_executed += 1
 
-        full_kubectl_command_list = [
-            "apply",
-            *planned_cmd_response.commands,
-            "--output=json",
-        ]
+        # Treat the entire commands list as a single kubectl command
+        # The list should be something like ["-f", "deployment.yaml"]
+        # for "kubectl apply -f deployment.yaml"
+        safe_cmd_args = []
+        for cmd_part in commands_list:
+            if not isinstance(cmd_part, str):
+                logger.warning(
+                    f"Command part is not a string: {type(cmd_part)} - {cmd_part}"
+                )
+                cmd_part = str(cmd_part)
+            safe_cmd_args.append(cmd_part.strip())
 
-        logger.debug(
-            f"Planned command details: {planned_cmd_response.model_dump_json(indent=2)}"
-        )
+        # Log the full command being executed
+        full_command_str = " ".join(safe_cmd_args)
+        logger.info(f"Running kubectl apply {full_command_str}")
 
-        kubectl_result: Result
-        uses_stdin = False
+        # Check if we need to use stdin for YAML content
         if (
-            "-f" in full_kubectl_command_list
-            and full_kubectl_command_list.index("-f") + 1
-            < len(full_kubectl_command_list)
-            and full_kubectl_command_list[full_kubectl_command_list.index("-f") + 1]
-            == "-"
+            planned_cmd_response.yaml_manifest
+            and len(safe_cmd_args) >= 2
+            and safe_cmd_args[-1] == "-"
         ):
-            uses_stdin = True
+            # Use run_kubectl_with_yaml for stdin input
+            from vibectl.k8s_utils import run_kubectl_with_yaml
 
-        full_kubect_command_str = " ".join(full_kubectl_command_list)
-
-        if planned_cmd_response.yaml_manifest and uses_stdin:
-            logger.debug(
-                f"Executing command {full_kubect_command_str} "
-                "with YAML manifest via stdin."
-            )
-            kubectl_result = await asyncio.to_thread(
+            run_result = await asyncio.to_thread(
                 run_kubectl_with_yaml,
-                args=full_kubectl_command_list,
+                cmd=["apply", *safe_cmd_args],  # Keep the full args including "-f -"
                 yaml_content=planned_cmd_response.yaml_manifest,
                 config=cfg,
-                allowed_exit_codes=tuple(planned_cmd_response.allowed_exit_codes)
-                if planned_cmd_response.allowed_exit_codes
-                else (0,),
             )
         else:
-            if planned_cmd_response.yaml_manifest and not uses_stdin:
-                logger.warning(
-                    "LLM provided a YAML manifest for command "
-                    f"{full_kubect_command_str} but the command "
-                    "does not use '-f -'. The manifest will be ignored."
-                )
-
-            logger.debug(
-                f"Executing command {full_kubect_command_str} without "
-                "direct YAML input."
-            )
-            kubectl_result = await asyncio.to_thread(
+            # Use regular run_kubectl
+            run_result = await asyncio.to_thread(
                 run_kubectl,
-                cmd=full_kubectl_command_list,
+                cmd=["apply", *safe_cmd_args],
                 config=cfg,
-                allowed_exit_codes=tuple(planned_cmd_response.allowed_exit_codes)
-                if planned_cmd_response.allowed_exit_codes
-                else (0,),
             )
 
-        if isinstance(kubectl_result, Error):
-            logger.error(
-                "Error executing planned command: "
-                f"{full_kubect_command_str}. Error: {kubectl_result.error}"
-            )
-            final_results_summary += (
-                f"Failed: {full_kubect_command_str}\nError: {kubectl_result.error}\n"
-            )
+        if isinstance(run_result, Error):
             overall_success = False
-            if kubectl_result.metrics:
-                final_metrics = kubectl_result.metrics  # Or aggregate them
+            error_msg = (
+                f"Failed to execute planned command 'apply {full_command_str}': "
+                f"{run_result.error}"
+            )
+            logger.error(error_msg)
+            final_results_summary += f"❌ {error_msg}\n"
             continue
 
-        # Process output of successful command
-        summary_result = await handle_command_output(
-            output=kubectl_result,  # Success[str]
-            output_flags=output_flags,
-            summary_prompt_func=apply_output_prompt,
-            command=full_kubect_command_str,
+        # Process the output through LLM with vibe styling (accumulated metrics)
+        try:
+            output_result = await handle_command_output(
+                output=run_result,
+                output_flags=output_flags,
+                summary_prompt_func=apply_output_prompt,
+                command=f"apply {full_command_str}",
+                llm_metrics_accumulator=llm_metrics_accumulator,
+                suppress_total_metrics=True,
+            )
+
+            if isinstance(output_result, Success):
+                final_results_summary += output_result.message + "\n"
+            else:
+                overall_success = False
+                error_msg = (
+                    f"Output processing failed for 'apply {full_command_str}': "
+                    f"{output_result.error}"
+                )
+                logger.error(error_msg)
+                final_results_summary += f"❌ {error_msg}\n"
+
+        except Exception as e_output:
+            overall_success = False
+            error_msg = (
+                f"Exception during output processing for 'apply {full_command_str}': "
+                f"{e_output}"
+            )
+            logger.error(error_msg, exc_info=True)
+            final_results_summary += f"❌ {error_msg}\n"
+
+    # Check if no commands were actually executed
+    if commands_executed == 0:
+        return Error(
+            error="Failed to execute any commands. All planned commands had "
+            "empty command lists or non-COMMAND action types.",
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
-        if isinstance(summary_result, Success):
-            summary_line = summary_result.data or "Command completed."
-            final_results_summary += f"Success: {summary_line}\n"
-        else:  # Error case
-            error_line = (
-                summary_result.error
-                if isinstance(summary_result, Error)
-                else "Unknown error"
-            )
-            final_results_summary += f"Error summarizing output: {error_line}\n"
-            overall_success = False
-
-        # Aggregate or update metrics
-        if hasattr(summary_result, "metrics") and summary_result.metrics:
-            final_metrics = summary_result.metrics  # Or aggregate them
-
+    # Return final result with accumulated metrics
     if overall_success:
         return Success(
-            message="All planned commands executed successfully.",
-            data=final_results_summary.strip(),
-            metrics=final_metrics,
+            message=final_results_summary.strip(),
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
     else:
         return Error(
-            error="Some planned commands failed.",
-            metrics=final_metrics,
+            error="Some planned commands failed. See details above.",
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
 
@@ -684,6 +701,7 @@ async def plan_and_execute_final_commands(
     llm_model: Any,
     cfg: Config,
     output_flags: OutputFlags,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
 ) -> Result:
     """Plan and execute final kubectl apply commands based on discovered manifests."""
     logger.info("Starting Step 5: Plan Final kubectl apply Command(s)")
@@ -739,6 +757,10 @@ async def plan_and_execute_final_commands(
             response_model=LLMFinalApplyPlanResponse,
         )
 
+        # Add final planning metrics to accumulator
+        if final_plan_metrics:
+            llm_metrics_accumulator.add_metrics(final_plan_metrics, "LLM Final Plan")
+
         final_plan_obj = LLMFinalApplyPlanResponse.model_validate_json(
             response_from_adapter
         )
@@ -753,6 +775,7 @@ async def plan_and_execute_final_commands(
             planned_commands=planned_final_commands,
             cfg=cfg,
             output_flags=output_flags,
+            llm_metrics_accumulator=llm_metrics_accumulator,
         )
 
         if isinstance(execution_result, Error):
@@ -762,13 +785,13 @@ async def plan_and_execute_final_commands(
             return Error(
                 error="Intelligent apply failed during final execution: "
                 f"{execution_result.error}",
-                metrics=getattr(execution_result, "metrics", final_plan_metrics),
+                metrics=llm_metrics_accumulator.get_metrics(),
             )
         else:
             logger.info("Intelligent apply final execution completed.")
             return Success(
                 message=execution_result.message,
-                metrics=getattr(execution_result, "metrics", final_plan_metrics),
+                metrics=llm_metrics_accumulator.get_metrics(),
             )
 
     except (
@@ -789,6 +812,7 @@ async def plan_and_execute_final_commands(
         return Error(
             error=f"Failed to parse LLM final plan: {e_final_plan_parse}",
             exception=e_final_plan_parse,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
     except Exception as e_final_plan_general:
         logger.error(
@@ -798,6 +822,7 @@ async def plan_and_execute_final_commands(
         return Error(
             error=f"Error in final apply stage: {e_final_plan_general}",
             exception=e_final_plan_general,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
 
@@ -806,7 +831,9 @@ async def run_intelligent_apply_workflow(
 ) -> Result:
     """Runs the full intelligent apply workflow, from scoping to execution."""
     logger.info("Starting intelligent apply workflow...")
-    metrics = None  # Initialize metrics for this workflow
+
+    # Initialize metrics accumulator for this command execution
+    llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
 
     temp_dir_for_corrected_manifests = tempfile.TemporaryDirectory(
         prefix="vibectl-apply-"
@@ -830,11 +857,16 @@ async def run_intelligent_apply_workflow(
             user_fragments=user_fragments,
             response_model=ApplyFileScopeResponse,
         )
+
+        # Add initial scoping metrics to accumulator
+        if metrics:
+            llm_metrics_accumulator.add_metrics(metrics, "LLM File Scoping")
+
         if not response_text or response_text.strip() == "":
             logger.error("LLM returned an empty response for file scoping.")
             return Error(
                 error="LLM returned an empty response for file scoping.",
-                metrics=metrics,
+                metrics=llm_metrics_accumulator.get_metrics(),
             )
 
         logger.debug(f"Raw LLM response for file scope: {response_text}")
@@ -867,7 +899,7 @@ async def run_intelligent_apply_workflow(
             ]
             return Error(
                 error=f"Critical setup error: {'; '.join(critical_errors)}",
-                metrics=metrics,
+                metrics=llm_metrics_accumulator.get_metrics(),
             )
 
         logger.info(
@@ -894,6 +926,7 @@ async def run_intelligent_apply_workflow(
             model_adapter,
             llm_for_corrections_and_summaries,
             invalid_sources_to_correct,
+            llm_metrics_accumulator,
         )
 
         # Step 4: Correction/Generation Loop for Invalid Sources (LLM)
@@ -913,10 +946,11 @@ async def run_intelligent_apply_workflow(
             cfg,
             temp_dir_path,
             max_correction_retries,
+            llm_metrics_accumulator,
         )
 
         # Step 5: Plan Final kubectl apply Command(s) (LLM)
-        return await plan_and_execute_final_commands(
+        result = await plan_and_execute_final_commands(
             semantically_valid_manifests,
             corrected_temp_manifest_paths,
             unresolvable_sources,
@@ -926,7 +960,13 @@ async def run_intelligent_apply_workflow(
             llm_for_corrections_and_summaries,
             cfg,
             output_flags,
+            llm_metrics_accumulator,
         )
+
+        # Print total metrics for the entire apply operation
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
+
+        return result
 
     except (JSONDecodeError, ValidationError) as e_scope_parse:
         response_snippet = response_text[:500] if "response_text" in locals() else "N/A"
@@ -935,23 +975,27 @@ async def run_intelligent_apply_workflow(
             f"({type(e_scope_parse).__name__}). "
             f"Response Text: {response_snippet}..."
         )
+        # Print total metrics even on error
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
         return Error(
             error=f"Failed to parse LLM file scope response: {e_scope_parse}",
             exception=e_scope_parse,
-            metrics=metrics,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
     except Exception as e_workflow:
         logger.error(
             f"An unexpected error occurred in intelligent apply workflow: {e_workflow}",
             exc_info=True,
         )
+        # Print total metrics even on error
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
         return Error(
             error=(
                 "An unexpected error occurred in intelligent apply workflow: "
                 f"{e_workflow}"
             ),
             exception=e_workflow,
-            metrics=metrics,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
     finally:
         logger.info(
