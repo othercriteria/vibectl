@@ -787,7 +787,12 @@ def _create_display_command(verb: str, args: list[str], has_yaml: bool) -> str:
     """
     # Quote arguments appropriately
     display_args = _quote_args(args)
-    base_cmd = f"kubectl {verb} {' '.join(display_args)}"
+
+    # Build base command, avoiding extra space when no args
+    if display_args:
+        base_cmd = f"kubectl {verb} {' '.join(display_args)}"
+    else:
+        base_cmd = f"kubectl {verb}"
 
     if has_yaml:
         return f"{base_cmd} (with YAML content)"
