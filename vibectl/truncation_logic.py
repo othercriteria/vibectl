@@ -4,8 +4,6 @@ Core logic for truncating various output types (text, logs, JSON, YAML).
 
 from typing import Any
 
-# Import YamlSections type
-
 
 def truncate_string(text: str, max_length: int) -> str:
     """Truncate a string to a maximum length, preserving start and end.

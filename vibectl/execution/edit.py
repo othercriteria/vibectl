@@ -33,6 +33,7 @@ from vibectl.schema import EditResourceScopeResponse, LLMPlannerResponse
 from vibectl.types import (
     ActionType,
     Error,
+    LLMMetricsAccumulator,
     OutputFlags,
     Result,
     Success,
@@ -90,6 +91,9 @@ async def run_intelligent_edit_workflow(
     if edit_context:
         logger.info(f"Edit context: {edit_context}")
 
+    # Initialize metrics accumulator for this command execution
+    llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
+
     # Step 1: Fetch the current resource
     logger.info("Fetching current resource configuration")
     fetch_result = await _fetch_resource(resource, args, config)
@@ -103,7 +107,7 @@ async def run_intelligent_edit_workflow(
     # Step 2: Summarize resource to natural language
     logger.info("Summarizing resource to natural language")
     summary_result = await _summarize_resource(
-        resource_yaml, output_flags, config, edit_context
+        resource_yaml, output_flags, config, edit_context, llm_metrics_accumulator
     )
     if isinstance(summary_result, Error):
         return summary_result
@@ -128,6 +132,8 @@ async def run_intelligent_edit_workflow(
 
     if not summary_diff:
         console_manager.print_note("No changes made to the resource")
+        # Print total metrics even if no changes
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
         return Success(message="No changes made")
 
     # Step 5: Generate patch from the diff
@@ -140,6 +146,7 @@ async def run_intelligent_edit_workflow(
         original_yaml=resource_yaml,
         output_flags=output_flags,
         config=config,
+        llm_metrics_accumulator=llm_metrics_accumulator,
     )
     if isinstance(patch_result, Error):
         return patch_result
@@ -161,19 +168,17 @@ async def run_intelligent_edit_workflow(
         model_name=output_flags.model_name,
     )
 
-    # Display metrics for the patch memory update call
-    if patch_memory_metrics and output_flags.show_metrics:
-        console_manager.print_metrics(
-            latency_ms=patch_memory_metrics.latency_ms,
-            tokens_in=patch_memory_metrics.token_input,
-            tokens_out=patch_memory_metrics.token_output,
-            source="LLM Memory Update (Patch Context)",
-            total_duration=patch_memory_metrics.total_processing_duration_ms,
+    # Add memory update metrics to accumulator
+    if patch_memory_metrics:
+        llm_metrics_accumulator.add_metrics(
+            patch_memory_metrics, "LLM Memory Update (Patch Context)"
         )
 
     # Step 7: Apply the patch
     logger.info("Applying generated patch")
-    apply_result = await _apply_patch(patch_commands, output_flags, config)
+    apply_result = await _apply_patch(
+        patch_commands, output_flags, config, llm_metrics_accumulator
+    )
     if isinstance(apply_result, Error):
         return apply_result
 
@@ -185,19 +190,19 @@ async def run_intelligent_edit_workflow(
         model_name=output_flags.model_name,
     )
 
-    # Display metrics for the memory update call
-    if memory_metrics and output_flags.show_metrics:
-        console_manager.print_metrics(
-            latency_ms=memory_metrics.latency_ms,
-            tokens_in=memory_metrics.token_input,
-            tokens_out=memory_metrics.token_output,
-            source="LLM Memory Update (Operation Result)",
-            total_duration=memory_metrics.total_processing_duration_ms,
+    # Add final memory update metrics to accumulator
+    if memory_metrics:
+        llm_metrics_accumulator.add_metrics(
+            memory_metrics, "LLM Memory Update (Operation Result)"
         )
+
+    # Print total metrics for the entire edit operation
+    llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
 
     console_manager.print_success(f"Successfully edited {resource}")
     return Success(
         message=f"Intelligent edit completed for {resource}",
+        metrics=llm_metrics_accumulator.get_metrics(),
     )
 
 
@@ -227,6 +232,7 @@ async def _summarize_resource(
     output_flags: OutputFlags,
     config: Config,
     edit_context: str | None = None,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
     """Convert resource YAML to natural language summary."""
     try:
@@ -256,20 +262,16 @@ async def _summarize_resource(
             response_model=None,  # Plain text response, not JSON
         )
 
-        # Display metrics for the summarization call
-        if metrics and output_flags.show_metrics:
-            console_manager.print_metrics(
-                latency_ms=metrics.latency_ms,
-                tokens_in=metrics.token_input,
-                tokens_out=metrics.token_output,
-                source="LLM Resource Summarization",
-                total_duration=metrics.total_processing_duration_ms,
-            )
+        # Add metrics to accumulator if provided
+        if metrics and llm_metrics_accumulator:
+            llm_metrics_accumulator.add_metrics(metrics, "LLM Resource Summarization")
 
         if not llm_response_text or llm_response_text.strip() == "":
-            return Error("LLM returned empty response for resource summarization")
+            return Error(
+                error="LLM returned an empty response for resource summarization.",
+                metrics=metrics,
+            )
 
-        # Return the plain text summary directly
         return Success(data=llm_response_text.strip(), metrics=metrics)
 
     except Exception as e:
@@ -324,14 +326,12 @@ async def _generate_patch_from_changes(
     original_yaml: str,
     output_flags: OutputFlags,
     config: Config,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
-    """Generate kubectl patch commands from summary diff.
-
-    TODO: Investigate if we can remove original_summary parameter and rely only
-    on summary_diff for better token efficiency. For now, keeping both for
-    incremental testing.
-    """
+    """Generate kubectl patch commands from the summary changes."""
     try:
+        logger.info("Generating patch commands based on summary differences")
+
         prompt_fragments = get_patch_generation_prompt(
             resource=resource,
             args=args,
@@ -341,41 +341,38 @@ async def _generate_patch_from_changes(
         )
         system_fragments, user_fragments = prompt_fragments
 
-        # Get model adapter and process using existing patterns
+        # Get model adapter and process
         model_adapter = get_model_adapter(config)
         model_name = output_flags.model_name
         model = model_adapter.get_model(model_name)
 
-        # Get response text and metrics using fragments
-        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
+        # Get LLM response
+        response_text, metrics = await model_adapter.execute_and_log_metrics(
             model=model,
             system_fragments=system_fragments,
             user_fragments=user_fragments,
             response_model=LLMPlannerResponse,
         )
 
-        # Display metrics for the patch generation call
-        if metrics and output_flags.show_metrics:
-            console_manager.print_metrics(
-                latency_ms=metrics.latency_ms,
-                tokens_in=metrics.token_input,
-                tokens_out=metrics.token_output,
-                source="LLM Patch Generation",
-                total_duration=metrics.total_processing_duration_ms,
+        # Add metrics to accumulator if provided
+        if metrics and llm_metrics_accumulator:
+            llm_metrics_accumulator.add_metrics(metrics, "LLM Patch Generation")
+
+        if not response_text or response_text.strip() == "":
+            return Error(
+                error="LLM returned an empty response for patch generation.",
+                metrics=metrics,
             )
 
-        if not llm_response_text or llm_response_text.strip() == "":
-            return Error("LLM returned empty response for patch generation")
+        logger.debug(f"Raw LLM response for patch generation: {response_text}")
+        action_response = LLMPlannerResponse.model_validate_json(response_text)
+        action = action_response.action
 
-        # Parse the response
-        response = LLMPlannerResponse.model_validate_json(llm_response_text)
-
-        if not hasattr(response, "action") or response.action is None:
-            return Error("LLM response missing action for patch generation")
-
-        action = response.action
-        if action.action_type != ActionType.COMMAND:
-            # Handle non-COMMAND actions by showing them to the user
+        # Check the action type
+        if action.action_type == ActionType.COMMAND:
+            logger.info(f"LLM generated patch commands: {action.commands}")
+        else:
+            # Handle error and other action types
             if action.action_type == ActionType.ERROR:
                 error_message = getattr(action, "message", "LLM provided error")
                 logger.info(f"LLM returned patch generation error: {error_message}")
@@ -388,11 +385,12 @@ async def _generate_patch_from_changes(
                 )
             else:
                 # Handle all other non-COMMAND action types
+                action_type_str = str(action.action_type)
                 logger.warning(
-                    f"LLM returned unexpected action type: {action.action_type}"
+                    f"LLM returned unexpected action type: {action_type_str}"
                 )
                 return Error(
-                    error=f"LLM returned unexpected action type '{action.action_type}' "
+                    error=f"LLM returned unexpected action type '{action_type_str}' "
                     "instead of COMMAND for patch generation",
                     metrics=metrics,
                 )
@@ -410,7 +408,10 @@ async def _generate_patch_from_changes(
 
 
 async def _apply_patch(
-    patch_commands: list[str], output_flags: OutputFlags, config: Config
+    patch_commands: list[str],
+    output_flags: OutputFlags,
+    config: Config,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
     """Apply the generated patch commands."""
     try:
@@ -433,7 +434,7 @@ async def _apply_patch(
             )
 
         # Process the output for display and capture the vibe output
-        if output_flags.show_raw:
+        if output_flags.show_raw_output:
             console_manager.print(result.data or "")
 
         vibe_output = None
@@ -444,6 +445,8 @@ async def _apply_patch(
                 output_flags=output_flags,
                 summary_prompt_func=patch_summary_prompt,
                 command=kubectl_args_str,
+                llm_metrics_accumulator=llm_metrics_accumulator,
+                suppress_total_metrics=True,
             )
             # Capture the vibe output for memory updates
             if isinstance(output_result, Success):
@@ -484,6 +487,9 @@ async def run_intelligent_vibe_edit_workflow(
     """
     logger.info(f"Starting intelligent vibe edit workflow for: {request}")
 
+    # Initialize metrics accumulator for this command execution
+    llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
+
     # Step 1: Resource Scoping & Intent Extraction (LLM)
     logger.info("Step 1: Analyzing request for resource scoping")
     model_adapter = get_model_adapter(config=config)
@@ -510,15 +516,9 @@ async def run_intelligent_vibe_edit_workflow(
             response_model=EditResourceScopeResponse,
         )
 
-        # Display metrics for the resource scoping call
-        if metrics and output_flags.show_metrics:
-            console_manager.print_metrics(
-                latency_ms=metrics.latency_ms,
-                tokens_in=metrics.token_input,
-                tokens_out=metrics.token_output,
-                source="LLM Resource Scoping",
-                total_duration=metrics.total_processing_duration_ms,
-            )
+        # Add metrics to accumulator
+        if metrics:
+            llm_metrics_accumulator.add_metrics(metrics, "LLM Resource Scoping")
 
         if not response_text or response_text.strip() == "":
             return Error(
@@ -567,10 +567,164 @@ async def run_intelligent_vibe_edit_workflow(
     logger.info(f"Edit context: {llm_edit_context}")
 
     # Step 3: Use the existing intelligent edit workflow
-    return await run_intelligent_edit_workflow(
+    result = await _run_intelligent_edit_workflow_with_accumulator(
         resource=resource_selector,
         args=kubectl_args,
         output_flags=output_flags,
         config=config,
         edit_context=llm_edit_context,
+        llm_metrics_accumulator=llm_metrics_accumulator,
+        suppress_total_metrics=True,
+    )
+
+    # Print total metrics for the entire vibe edit operation
+    llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
+
+    return result
+
+
+async def _run_intelligent_edit_workflow_with_accumulator(
+    resource: str,
+    args: tuple[str, ...],
+    output_flags: OutputFlags,
+    config: Config,
+    edit_context: str | None = None,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
+    suppress_total_metrics: bool = False,
+) -> Result:
+    """Execute the intelligent edit workflow for a Kubernetes resource.
+
+    This is an internal helper that allows passing an existing accumulator from
+    the vibe workflow.
+
+    Args:
+        resource: The resource to edit.
+        args: Additional arguments.
+        output_flags: Output configuration flags.
+        config: Configuration object.
+        edit_context: Optional context for the edit.
+        llm_metrics_accumulator: Optional existing accumulator to merge with.
+        suppress_total_metrics: If True, don't print total metrics at the end.
+    """
+    logger.info(f"Starting intelligent edit workflow for {resource}")
+    if edit_context:
+        logger.info(f"Edit context: {edit_context}")
+
+    # Use provided accumulator or create new one
+    if llm_metrics_accumulator is None:
+        llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
+
+    # Step 1: Fetch the current resource
+    logger.info("Fetching current resource configuration")
+    fetch_result = await _fetch_resource(resource, args, config)
+    if isinstance(fetch_result, Error):
+        return fetch_result
+
+    resource_yaml = fetch_result.data
+    if not resource_yaml:
+        return Error("Failed to fetch resource: empty response")
+
+    # Step 2: Summarize resource to natural language
+    logger.info("Summarizing resource to natural language")
+    summary_result = await _summarize_resource(
+        resource_yaml, output_flags, config, edit_context, llm_metrics_accumulator
+    )
+    if isinstance(summary_result, Error):
+        return summary_result
+
+    original_summary = summary_result.data
+    if not original_summary:
+        return Error("Failed to generate resource summary")
+
+    # Step 3: Open editor with the summary
+    logger.info("Opening editor for user to make changes")
+    edit_result = _invoke_editor(original_summary)
+    if isinstance(edit_result, Error):
+        return edit_result
+
+    edited_summary = edit_result.data
+    if not edited_summary:
+        return Error("Failed to get edited content")
+
+    # Step 4: Generate diff to check for changes and prepare for patch generation
+    logger.info("Generating diff between original and edited summaries")
+    summary_diff = _generate_summary_diff(original_summary, edited_summary)
+
+    if not summary_diff:
+        console_manager.print_note("No changes made to the resource")
+        # Print total metrics even if no changes, but only if terminal
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
+        return Success(message="No changes made")
+
+    # Step 5: Generate patch from the diff
+    logger.info("Generating patch from summary changes")
+    patch_result = await _generate_patch_from_changes(
+        resource=resource,
+        args=args,
+        original_summary=original_summary,
+        summary_diff=summary_diff,
+        original_yaml=resource_yaml,
+        output_flags=output_flags,
+        config=config,
+        llm_metrics_accumulator=llm_metrics_accumulator,
+    )
+    if isinstance(patch_result, Error):
+        return patch_result
+
+    patch_commands = patch_result.data
+    if not patch_commands:
+        return Error("Failed to generate patch commands")
+
+    # Step 6: Update memory with patch generation context
+    logger.info("Updating memory with patch generation context")
+    patch_context = (
+        f"Generated patch commands for {resource}: {' '.join(patch_commands)}\n\n"
+        f"Summary changes:\n{summary_diff}"
+    )
+    patch_memory_metrics = await update_memory(
+        command_message=f"Generated patch for {resource} {' '.join(args)}",
+        command_output=patch_context,
+        vibe_output="",
+        model_name=output_flags.model_name,
+    )
+
+    # Add memory update metrics to accumulator
+    if patch_memory_metrics:
+        llm_metrics_accumulator.add_metrics(
+            patch_memory_metrics, "LLM Memory Update (Patch Context)"
+        )
+
+    # Step 7: Apply the patch
+    logger.info("Applying generated patch")
+    apply_result = await _apply_patch(
+        patch_commands, output_flags, config, llm_metrics_accumulator
+    )
+    if isinstance(apply_result, Error):
+        return apply_result
+
+    # Step 8: Update memory with the operation
+    memory_metrics = await update_memory(
+        command_message=f"Intelligent edit: {resource} {' '.join(args)}",
+        command_output=apply_result.data or "Successfully applied intelligent edit",
+        vibe_output="",
+        model_name=output_flags.model_name,
+    )
+
+    # Add final memory update metrics to accumulator
+    if memory_metrics:
+        llm_metrics_accumulator.add_metrics(
+            memory_metrics, "LLM Memory Update (Operation Result)"
+        )
+
+    # Display total metrics for the entire edit operation, but only if terminal
+    if not suppress_total_metrics:
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
+
+    console_manager.print_success(f"Successfully edited {resource}")
+    return Success(
+        message=f"Intelligent edit completed for {resource}",
+        metrics=llm_metrics_accumulator.get_metrics(),
     )

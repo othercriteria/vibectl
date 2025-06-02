@@ -10,6 +10,7 @@ from vibectl.subcommands.delete_cmd import run_delete_command
 from vibectl.types import (
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -22,11 +23,13 @@ from vibectl.types import (
 @pytest.fixture
 def default_delete_output_flags() -> OutputFlags:
     return OutputFlags(
-        show_raw=bool(DEFAULT_CONFIG.get("show_raw_output", False)),
+        show_raw_output=bool(DEFAULT_CONFIG.get("show_raw_output", False)),
         show_vibe=bool(DEFAULT_CONFIG.get("show_vibe", True)),
         warn_no_output=bool(DEFAULT_CONFIG.get("warn_no_output", True)),
         model_name=str(DEFAULT_CONFIG.get("model", "default_model_name_fixture")),
-        show_metrics=bool(DEFAULT_CONFIG.get("show_metrics", False)),
+        show_metrics=MetricsDisplayMode.from_value(
+            str(DEFAULT_CONFIG.get("show_metrics", "none"))
+        ),
         show_kubectl=bool(DEFAULT_CONFIG.get("show_kubectl", False)),
         warn_no_proxy=bool(DEFAULT_CONFIG.get("warn_no_proxy", True)),
     )
@@ -90,7 +93,7 @@ async def test_run_delete_command_passes_success_object_to_handle_output(
         result = await run_delete_command(
             resource=resource_type,
             args=args_tuple,
-            show_raw_output=default_delete_output_flags.show_raw,
+            show_raw_output=default_delete_output_flags.show_raw_output,
             show_vibe=default_delete_output_flags.show_vibe,
             model=default_delete_output_flags.model_name,
             show_kubectl=default_delete_output_flags.show_kubectl,

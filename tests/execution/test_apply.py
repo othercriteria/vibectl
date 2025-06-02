@@ -21,7 +21,14 @@ from vibectl.execution.apply import (
     run_intelligent_apply_workflow,
     validate_manifest_content,
 )
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import (
+    Error,
+    LLMMetrics,
+    LLMMetricsAccumulator,
+    MetricsDisplayMode,
+    OutputFlags,
+    Success,
+)
 
 
 @pytest.fixture
@@ -35,14 +42,29 @@ def output_flags() -> OutputFlags:
     """Provide basic OutputFlags for testing."""
     return OutputFlags(
         show_vibe=True,
-        show_metrics=False,
-        show_raw=False,
+        show_metrics=MetricsDisplayMode.NONE,
+        show_raw_output=False,
         show_kubectl=False,
         warn_no_output=False,
         model_name="test-model",
         warn_no_proxy=False,
         show_streaming=False,
     )
+
+
+def create_test_metrics_accumulator() -> LLMMetricsAccumulator:
+    """Helper to create a test metrics accumulator."""
+    output_flags = OutputFlags(
+        show_raw_output=False,
+        show_vibe=True,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=MetricsDisplayMode.NONE,
+        show_kubectl=False,
+        warn_no_proxy=False,
+        show_streaming=False,
+    )
+    return LLMMetricsAccumulator(output_flags)
 
 
 # Tests for validate_manifest_content
@@ -341,7 +363,10 @@ async def test_run_intelligent_apply_workflow_empty_llm_response(
         mock_adapter_instance = Mock()
         mock_adapter_instance.get_model.return_value = Mock()
         mock_adapter_instance.execute_and_log_metrics = AsyncMock(
-            return_value=("", {"test": "metrics"})
+            return_value=(
+                "",
+                LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
+            )
         )
         mock_adapter.return_value = mock_adapter_instance
 
@@ -356,7 +381,9 @@ async def test_run_intelligent_apply_workflow_empty_llm_response(
 
         assert isinstance(result, Error)
         assert "LLM returned an empty response for file scoping" in result.error
-        assert result.metrics == {"test": "metrics"}
+        assert isinstance(result.metrics, LLMMetrics)
+        assert result.metrics.token_input == 0
+        assert result.metrics.token_output == 0
 
 
 @pytest.mark.asyncio
@@ -372,7 +399,10 @@ async def test_run_intelligent_apply_workflow_json_parse_error(
         mock_adapter_instance = Mock()
         mock_adapter_instance.get_model.return_value = Mock()
         mock_adapter_instance.execute_and_log_metrics = AsyncMock(
-            return_value=("invalid json {", {"test": "metrics"})
+            return_value=(
+                "invalid json {",
+                LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
+            )
         )
         mock_adapter.return_value = mock_adapter_instance
 
@@ -406,7 +436,7 @@ async def test_run_intelligent_apply_workflow_kubectl_not_found_early(
             return_value=(
                 '{"file_selectors": ["test.yaml"], '
                 '"remaining_request_context": "test"}',
-                {"test": "metrics"},
+                LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
             )
         )
         mock_adapter.return_value = mock_adapter_instance
@@ -465,7 +495,7 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
 
     mock_adapter.execute_and_log_metrics.return_value = (
         json.dumps(mock_plan_response),
-        Mock(),
+        LLMMetrics(token_input=10, token_output=20, latency_ms=100.0, call_count=1),
     )
 
     # Mock kubectl execution
@@ -475,7 +505,9 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
         )
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="deployment applied successfully")
+            mock_output.return_value = Success(
+                message="deployment applied successfully"
+            )
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
                 mock_thread.side_effect = lambda func, *args, **kwargs: func(
@@ -492,14 +524,26 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
                     mock_model,
                     test_config,
                     OutputFlags(
-                        show_raw=False,
+                        show_raw_output=False,
                         show_vibe=True,
                         warn_no_output=False,
                         model_name="test-model",
-                        show_metrics=False,
+                        show_metrics=MetricsDisplayMode.NONE,
                         show_kubectl=False,
                         warn_no_proxy=False,
                         show_streaming=False,
+                    ),
+                    LLMMetricsAccumulator(
+                        OutputFlags(
+                            show_raw_output=False,
+                            show_vibe=True,
+                            warn_no_output=False,
+                            model_name="test-model",
+                            show_metrics=MetricsDisplayMode.NONE,
+                            show_kubectl=False,
+                            warn_no_proxy=False,
+                            show_streaming=False,
+                        )
                     ),
                 )
 
@@ -538,15 +582,16 @@ async def test_plan_and_execute_final_commands_parse_error(test_config: Config) 
         llm_model=mock_model,
         cfg=test_config,
         output_flags=OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_kubectl=False,
             warn_no_proxy=False,
             show_streaming=False,
         ),
+        llm_metrics_accumulator=create_test_metrics_accumulator(),
     )
 
     assert isinstance(result, Error)
@@ -572,11 +617,11 @@ async def test_execute_planned_commands_single_success(test_config: Config) -> N
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -588,7 +633,9 @@ async def test_execute_planned_commands_single_success(test_config: Config) -> N
         )
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="deployment applied successfully")
+            mock_output.return_value = Success(
+                message="deployment applied successfully"
+            )
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
                 mock_thread.side_effect = lambda func, *args, **kwargs: func(
@@ -596,7 +643,10 @@ async def test_execute_planned_commands_single_success(test_config: Config) -> N
                 )
 
                 result = await execute_planned_commands(
-                    planned_commands, test_config, output_flags
+                    planned_commands,
+                    test_config,
+                    output_flags,
+                    create_test_metrics_accumulator(),
                 )
 
                 assert isinstance(result, Success)
@@ -626,11 +676,11 @@ metadata:
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -643,15 +693,28 @@ metadata:
         )
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="pod/test-pod created")
+            mock_output.return_value = Success(message="pod/test-pod created")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+
+                def mock_to_thread_side_effect(
+                    func: Any, *args: Any, **kwargs: Any
+                ) -> Any:
+                    # Handle parameter name mismatch: cmd -> args
+                    # for run_kubectl_with_yaml
+                    if func.__name__ == "run_kubectl_with_yaml" and "cmd" in kwargs:
+                        kwargs["args"] = kwargs.pop("cmd")
+                        # Call the mocked version instead of the real function
+                        return mock_kubectl_yaml(*args, **kwargs)
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread_side_effect
 
                 result = await execute_planned_commands(
-                    planned_commands, test_config, output_flags
+                    planned_commands,
+                    test_config,
+                    output_flags,
+                    create_test_metrics_accumulator(),
                 )
 
                 assert isinstance(result, Success)
@@ -677,11 +740,11 @@ async def test_execute_planned_commands_kubectl_failure(test_config: Config) -> 
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -696,7 +759,10 @@ async def test_execute_planned_commands_kubectl_failure(test_config: Config) -> 
             )
 
             result = await execute_planned_commands(
-                planned_commands, test_config, output_flags
+                planned_commands,
+                test_config,
+                output_flags,
+                create_test_metrics_accumulator(),
             )
 
             assert isinstance(result, Error)
@@ -719,11 +785,11 @@ async def test_execute_planned_commands_empty_command_list(test_config: Config) 
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -737,7 +803,7 @@ async def test_execute_planned_commands_empty_command_list(test_config: Config) 
         )
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="resource applied")
+            mock_output.return_value = Success(message="resource applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
                 mock_thread.side_effect = lambda func, *args, **kwargs: func(
@@ -749,7 +815,10 @@ async def test_execute_planned_commands_empty_command_list(test_config: Config) 
                 planned_commands[0].commands = []  # Set to empty after construction
 
                 result = await execute_planned_commands(
-                    planned_commands, test_config, output_flags
+                    planned_commands,
+                    test_config,
+                    output_flags,
+                    create_test_metrics_accumulator(),
                 )
 
                 assert isinstance(result, Error)
@@ -784,17 +853,19 @@ async def test_execute_planned_commands_all_empty_commands(test_config: Config) 
     planned_commands[1].commands = []
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
     )
 
-    result = await execute_planned_commands(planned_commands, test_config, output_flags)
+    result = await execute_planned_commands(
+        planned_commands, test_config, output_flags, create_test_metrics_accumulator()
+    )
 
     # Should return Error since all commands failed due to empty command lists
     assert isinstance(result, Error)
@@ -826,11 +897,11 @@ async def test_execute_planned_commands_multiple_commands_mixed_results(
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -847,7 +918,7 @@ async def test_execute_planned_commands_multiple_commands_mixed_results(
         mock_kubectl.side_effect = mock_kubectl_side_effect
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="resource applied")
+            mock_output.return_value = Success(message="resource applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
                 mock_thread.side_effect = lambda func, *args, **kwargs: func(
@@ -855,7 +926,10 @@ async def test_execute_planned_commands_multiple_commands_mixed_results(
                 )
 
                 result = await execute_planned_commands(
-                    planned_commands, test_config, output_flags
+                    planned_commands,
+                    test_config,
+                    output_flags,
+                    create_test_metrics_accumulator(),
                 )
 
                 assert isinstance(result, Error)
@@ -882,11 +956,11 @@ async def test_execute_planned_commands_yaml_manifest_without_stdin(
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -898,7 +972,7 @@ async def test_execute_planned_commands_yaml_manifest_without_stdin(
         )
 
         with patch("vibectl.execution.apply.handle_command_output") as mock_output:
-            mock_output.return_value = Success(data="deployment applied")
+            mock_output.return_value = Success(message="deployment applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
                 mock_thread.side_effect = lambda func, *args, **kwargs: func(
@@ -906,7 +980,10 @@ async def test_execute_planned_commands_yaml_manifest_without_stdin(
                 )
 
                 result = await execute_planned_commands(
-                    planned_commands, test_config, output_flags
+                    planned_commands,
+                    test_config,
+                    output_flags,
+                    create_test_metrics_accumulator(),
                 )
 
                 assert isinstance(result, Success)

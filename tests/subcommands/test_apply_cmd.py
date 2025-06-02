@@ -6,7 +6,7 @@ import pytest
 from vibectl.config import Config
 from vibectl.prompts.apply import apply_output_prompt
 from vibectl.subcommands.apply_cmd import run_apply_command
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.mark.asyncio
@@ -29,12 +29,12 @@ async def test_run_apply_command_direct_success(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -72,7 +72,7 @@ async def test_run_apply_command_direct_success(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -92,7 +92,7 @@ async def test_run_apply_command_direct_success(
         show_vibe=True,
         model="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -126,12 +126,12 @@ async def test_run_apply_command_direct_kubectl_error(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = False
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = None
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -147,7 +147,7 @@ async def test_run_apply_command_direct_kubectl_error(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -167,7 +167,7 @@ async def test_run_apply_command_direct_kubectl_error(
         show_vibe=False,
         model=None,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -197,12 +197,12 @@ async def test_run_apply_command_direct_handle_output_error(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = False
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -236,7 +236,7 @@ async def test_run_apply_command_direct_handle_output_error(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -254,7 +254,7 @@ async def test_run_apply_command_direct_handle_output_error(
         show_vibe=True,
         model="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -284,7 +284,7 @@ async def test_run_apply_command_vibe_missing_request(
     """Test run_apply_command with vibe subcommand but missing request."""
     mock_output_flags = MagicMock(spec=OutputFlags)
     # Set all flags to default/False for this test, including show_streaming
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = False
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = None
@@ -302,7 +302,7 @@ async def test_run_apply_command_vibe_missing_request(
         model=None,  # Corresponds to mock_output_flags
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,  # Corresponds to mock_output_flags
+        show_metrics=MetricsDisplayMode.NONE,  # Corresponds to mock_output_flags
         show_streaming=True,  # This is passed and should be asserted
     )
 
@@ -315,7 +315,7 @@ async def test_run_apply_command_vibe_missing_request(
         show_vibe=False,
         model=None,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Added show_streaming assertion
     )
 
@@ -343,7 +343,7 @@ async def test_run_apply_command_vibe_success(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model-vibe"
@@ -372,7 +372,7 @@ async def test_run_apply_command_vibe_success(
         model="test-model-vibe",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Passed here
     )
 
@@ -391,7 +391,7 @@ async def test_run_apply_command_vibe_success(
         show_vibe=True,
         model="test-model-vibe",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Added show_streaming
     )
     mock_config_cls.assert_called_once()
@@ -430,7 +430,7 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = False  # Test with vibe off for this error path
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "error-model"
@@ -457,7 +457,7 @@ async def test_run_apply_command_vibe_error_from_handler(
         model="error-model",  # Corresponds to mock
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Passed here
     )
 
@@ -476,7 +476,7 @@ async def test_run_apply_command_vibe_error_from_handler(
         show_vibe=False,
         model="error-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Added show_streaming
     )
     mock_config_cls.assert_called_once()
@@ -513,19 +513,22 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "intelligent-model"
     mock_output_flags.warn_no_output = False
-    mock_output_flags.show_metrics = True
+    mock_output_flags.show_metrics = MetricsDisplayMode.ALL
     mock_output_flags.show_streaming = True  # Added show_streaming
     mock_configure_output_flags.return_value = mock_output_flags
 
     mock_adapter_instance = MagicMock()
     # Simulate LLM returning an empty string for file scoping
     mock_adapter_instance.execute_and_log_metrics = AsyncMock(
-        return_value=("", {"some": "metric"})
+        return_value=(
+            "",
+            LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
+        )
     )
     mock_get_model_adapter.return_value = mock_adapter_instance
 
@@ -540,13 +543,15 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
         model="intelligent-model",  # Corresponds to mock
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,  # Corresponds to mock
+        show_metrics=MetricsDisplayMode.ALL,  # Corresponds to mock
         show_streaming=True,  # Passed here
     )
 
     assert isinstance(result, Error)
     assert "LLM returned an empty response for file scoping" in result.error
-    assert result.metrics == {"some": "metric"}
+    assert isinstance(result.metrics, LLMMetrics)
+    assert result.metrics.token_input == 0
+    assert result.metrics.token_output == 0
 
     mock_logger.info.assert_any_call(
         f"Invoking 'apply' subcommand with args: {args_tuple}"
@@ -561,7 +566,7 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
         show_vibe=True,
         model="intelligent-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Added show_streaming
     )
     mock_config_cls.assert_called_once()

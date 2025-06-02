@@ -13,7 +13,7 @@ from vibectl.prompts.create import (
     create_plan_prompt,
     create_resource_prompt,
 )
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_create_command(
@@ -25,7 +25,7 @@ async def run_create_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """

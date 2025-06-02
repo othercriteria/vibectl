@@ -16,13 +16,13 @@ from .llm_interface import is_valid_llm_model_name
 DEFAULT_CONFIG: dict[str, Any] = {
     "kubeconfig": None,  # Will use default kubectl config location if None
     "kubectl_command": "kubectl",
-    "theme": "dark",
+    "theme": "default",
     "show_raw_output": False,
     "show_vibe": True,
     "show_kubectl": False,  # Show kubectl commands when they are executed
     "show_memory": False,  # Show memory content before each auto/semiauto iteration
     "show_iterations": False,  # Show iteration count in auto/semiauto mode
-    "show_metrics": False,  # Show LLM metrics (latency, tokens)
+    "show_metrics": "none",  # Show LLM metrics (latency, tokens)
     "model": "claude-3.7-sonnet",
     "memory_enabled": True,
     "memory_max_chars": 500,
@@ -71,7 +71,7 @@ CONFIG_SCHEMA: dict[str, ConfigType] = {
     "show_kubectl": bool,
     "show_memory": bool,  # Show memory before each iteration in auto/semiauto mode
     "show_iterations": bool,  # Show iteration count and limit in auto/semiauto mode
-    "show_metrics": bool,  # Show LLM metrics
+    "show_metrics": str,  # Show LLM metrics
     "warn_no_output": bool,
     "warn_no_proxy": bool,
     "model": str,
@@ -111,6 +111,7 @@ CONFIG_VALID_VALUES: dict[str, list[Any]] = {
         "ollama:llama3",
     ],
     "log_level": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    "show_metrics": ["none", "total", "sub", "all"],  # Only support enum string values
 }
 
 # Environment variable mappings for API keys
@@ -228,6 +229,17 @@ class Config:
             if isinstance(expected_type, tuple) and type(None) in expected_type:
                 return None
             raise ValueError(f"None is not a valid value for {key}")
+
+        # Special handling for show_metrics which only supports enum string values
+        if key == "show_metrics":
+            # Check if it's a valid enum string
+            if value.lower() in ("none", "total", "sub", "all"):
+                return value.lower()
+            else:
+                raise ValueError(
+                    f"Invalid value for {key}: {value}. "
+                    "Expected: none, total, sub, or all"
+                )
 
         # Handle boolean conversion
         if (isinstance(expected_type, type) and expected_type is bool) or (

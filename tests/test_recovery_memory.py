@@ -23,6 +23,7 @@ from vibectl.schema import ActionType, CommandAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -78,13 +79,13 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
 def output_flags() -> OutputFlags:
     """Provide standard OutputFlags for recovery tests."""
     return OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,  # Ensure kubectl command is shown if generated
         warn_no_proxy=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
 
@@ -140,7 +141,7 @@ async def test_recovery_suggestions_should_update_memory(
     output_flags_mock = Mock(spec=OutputFlags)
     output_flags_mock.model_name = "test-model"
     output_flags_mock.show_vibe = True
-    output_flags_mock.show_raw = True
+    output_flags_mock.show_raw_output = True
     output_flags_mock.show_kubectl = True
 
     result = await handle_vibe_request(
@@ -195,7 +196,7 @@ async def test_recovery_suggestions_in_auto_mode(
     output_flags_mock = Mock(spec=OutputFlags)
     output_flags_mock.model_name = "test-model"
     output_flags_mock.show_vibe = True
-    output_flags_mock.show_raw = True
+    output_flags_mock.show_raw_output = True
     output_flags_mock.show_kubectl = True
 
     result1 = await handle_vibe_request(

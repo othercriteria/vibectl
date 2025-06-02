@@ -18,7 +18,8 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
-from vibectl.types import Error, LLMMetrics, Success
+from vibectl.model_adapter import StreamingMetricsCollector
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, Success
 
 # Define UnknownModelError at the module level if it can't be imported
 try:
@@ -176,8 +177,8 @@ def mock_configure_output_flags(mocker: MockerFixture) -> Generator[Mock, None, 
     mock = mocker.patch("vibectl.command_handler.configure_output_flags")
     mock.return_value = OutputFlags(
         show_vibe=True,
-        show_metrics=True,
-        show_raw=False,
+        show_metrics=MetricsDisplayMode.ALL,
+        show_raw_output=False,
         show_kubectl=False,
         warn_no_output=True,
         model_name="test-model",
@@ -301,9 +302,15 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     )
 
     # Setup for stream_execute
-    # stream_execute should be a MagicMock that returns an async iterator.
-    mock_adapter_instance.stream_execute = MagicMock(
+    # stream_execute should be a AsyncMock that returns an async iterator.
+    mock_adapter_instance.stream_execute = AsyncMock(
         name="stream_execute_mock_on_adapter_instance"
+    )
+
+    # Setup for stream_execute_and_log_metrics
+    # stream_execute_and_log_metrics should return a tuple of (async iterator, metrics)
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        name="stream_execute_and_log_metrics_mock_on_adapter_instance"
     )
 
     async def default_async_stream_generator() -> AsyncIterator[str]:
@@ -314,6 +321,25 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     # When mock_adapter_instance.stream_execute is called, it should return an
     # actual async iterator.
     mock_adapter_instance.stream_execute.return_value = default_async_stream_generator()
+
+    # When mock_adapter_instance.stream_execute_and_log_metrics is called,
+    # it should return a tuple of (async iterator, StreamingMetricsCollector)
+    # for metrics
+    async def default_async_stream_generator_for_metrics() -> AsyncIterator[str]:
+        # Default stream for tests if not overridden in a specific test
+        yield "Stream chunk 1"
+        yield "Stream chunk 2"
+
+    # Import and create a proper StreamingMetricsCollector mock
+    # Create mock metrics collector
+    mock_metrics_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_metrics_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_metrics_collector.is_completed = True
+
+    mock_adapter_instance.stream_execute_and_log_metrics.return_value = (
+        default_async_stream_generator_for_metrics(),
+        mock_metrics_collector,
+    )
 
     with (
         patch(
@@ -466,11 +492,11 @@ def mock_kubectl_output() -> str:
 def default_output_flags() -> OutputFlags:
     """Provides a default OutputFlags instance for tests."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_kubectl=True,
         warn_no_proxy=True,
     )
@@ -481,8 +507,8 @@ def no_vibe_output_flags() -> OutputFlags:
     """Provides an OutputFlags instance with show_vibe=False."""
     return OutputFlags(
         show_vibe=False,
-        show_metrics=True,
-        show_raw=True,
+        show_metrics=MetricsDisplayMode.ALL,
+        show_raw_output=True,
         show_kubectl=False,
         warn_no_output=True,
         model_name="test-model",
@@ -497,8 +523,24 @@ def mock_memory(mocker: MockerFixture) -> Generator[dict[str, Mock], None, None]
     Use this fixture in tests that need to verify memory operations
     instead of using real memory functions.
     """
-    # Create a single AsyncMock instance to be used by all patches
+    # Create a regular Mock instead of AsyncMock for async functions
+    # We'll handle the async nature in the side_effect
     the_mock_update_function = AsyncMock(name="shared_update_memory_mock")
+
+    # Configure the mock to return proper LLMMetrics when called
+    # This ensures that when update_memory is called, it returns metrics
+    # with proper types
+    async def update_memory_side_effect(*args: Any, **kwargs: Any) -> LLMMetrics:
+        from vibectl.types import LLMMetrics
+
+        return LLMMetrics(
+            token_input=0,
+            token_output=0,
+            latency_ms=0.0,  # Ensure this is a float, not a mock
+            total_processing_duration_ms=0.0,
+        )
+
+    the_mock_update_function.side_effect = update_memory_side_effect
 
     # Patch at source and common usage points
     mocker.patch("vibectl.memory.update_memory", new=the_mock_update_function)

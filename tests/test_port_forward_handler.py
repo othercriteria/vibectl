@@ -10,19 +10,19 @@ from unittest.mock import patch
 import pytest
 
 from vibectl.live_display import ConnectionStats, has_port_mapping
-from vibectl.types import OutputFlags, Result, Success
+from vibectl.types import MetricsDisplayMode, OutputFlags, Result, Success
 
 
 @pytest.fixture
 def standard_output_flags() -> OutputFlags:
     """Create a standard OutputFlags instance for testing."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-sonnet",
         warn_no_proxy=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
 
@@ -273,12 +273,12 @@ def test_no_proxy_warning_condition() -> None:
 
         # Create an output flags instance with warn_no_proxy=True
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=True,
             model_name="claude-3.7-sonnet",
             warn_no_proxy=True,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         # Test the condition and action
@@ -306,12 +306,12 @@ def test_no_proxy_warning_suppressed_condition() -> None:
 
         # Create an output flags instance with warn_no_proxy=False
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=True,
             model_name="claude-3.7-sonnet",
             warn_no_proxy=False,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         # Test the condition and action

@@ -19,6 +19,7 @@ from vibectl.prompts.vibe import vibe_autonomous_prompt
 from vibectl.types import (
     Fragment,
     LLMMetrics,
+    MetricsDisplayMode,
     PromptFragments,
     Success,
     SummaryPromptFragmentFunc,
@@ -81,11 +82,11 @@ async def test_handle_command_output_with_raw_output_only(
     """Test handle_command_output with raw output only."""
     # Create output flags with raw output only
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Call the function with only raw output enabled
@@ -114,11 +115,11 @@ async def test_handle_command_output_with_vibe_only(
 
     # Create output flags with vibe output only
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Mock output processor to avoid any real processing
@@ -158,11 +159,11 @@ async def test_handle_command_output_both_outputs(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Mock output processor to avoid any real processing
@@ -199,37 +200,58 @@ async def test_handle_command_output_empty_response(
 
     expected_llm_response_text = ""
     # In the current streaming path of _process_vibe_output, metrics are initialized
-    # as LLMMetrics() and not updated from the stream itself for update_memory.
+    # as LLLMMetrics() and not updated from the stream itself for update_memory.
     # expected_metrics_for_update_memory = LLMMetrics()
 
     async def mock_stream_return_async() -> AsyncIterator[str]:
         yield expected_llm_response_text
-        # Keep Pyright happy about yielding
         if False:
             yield
 
-    # Mock stream_execute as this is the expected path now
-    mock_get_adapter.stream_execute = MagicMock(return_value=mock_stream_return_async())
-    # Also mock execute_and_log_metrics to assert it's NOT called
-    mock_get_adapter.execute_and_log_metrics = MagicMock(
-        return_value=(
-            "Non-streamed response",
-            LLMMetrics(token_input=1, token_output=1),
-        )
-    )  # Provide a default return for it, though it shouldn't be called.
+    # Mock the adapter instance that the get_model_adapter fixture yields
+    mock_adapter_instance = mock_get_adapter
 
-    # Set up output_processor mock
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_return_async(), mock_collector)
+    )
+    # Mock execute_and_log_metrics for the non-streaming path (should not be called)
+    # Provide a distinct response to ensure it's not what we see.
+    mock_adapter_instance.execute_and_log_metrics = MagicMock(
+        return_value=(
+            "Non-streamed fallback",
+            LLMMetrics(
+                token_input=10,
+                token_output=20,
+                latency_ms=100.0,
+                total_processing_duration_ms=120.0,
+            ),
+        )
+    )
+
     mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="test output"
     )
 
     # Create output flags
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -241,8 +263,8 @@ async def test_handle_command_output_empty_response(
     )
 
     # Assertions
-    mock_get_adapter.stream_execute.assert_called_once()
-    mock_get_adapter.execute_and_log_metrics.assert_not_called()
+    mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once()
+    mock_adapter_instance.execute_and_log_metrics.assert_not_called()
     # For an empty LLM response, the live vibe panel might start but
     # then stop with empty content.
     # console_manager.stop_live_vibe_panel() should be called to end the live session.
@@ -273,14 +295,36 @@ async def test_handle_command_output_with_command(
         if False:
             yield  # Keep linter happy
 
-    # Mock stream_execute for the streaming path
-    mock_get_adapter.stream_execute = MagicMock(return_value=mock_stream_return_async())
+    # Mock the adapter instance that the get_model_adapter fixture yields
+    mock_adapter_instance = mock_get_adapter
+
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_return_async(), mock_collector)
+    )
     # Mock execute_and_log_metrics for the non-streaming path (should not be called)
     # Provide a distinct response to ensure it's not what we see.
-    mock_get_adapter.execute_and_log_metrics = MagicMock(
+    mock_adapter_instance.execute_and_log_metrics = MagicMock(
         return_value=(
-            "Non-streamed fallback response",
-            LLMMetrics(token_input=1, token_output=1),
+            "Non-streamed fallback",
+            LLMMetrics(
+                token_input=10,
+                token_output=20,
+                latency_ms=100.0,
+                total_processing_duration_ms=120.0,
+            ),
         )
     )
 
@@ -289,11 +333,11 @@ async def test_handle_command_output_with_command(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Explicitly testing streaming path
     )
     command_name = "get pods"
@@ -306,8 +350,8 @@ async def test_handle_command_output_with_command(
     )
 
     # Assertions
-    mock_get_adapter.stream_execute.assert_called_once()
-    mock_get_adapter.execute_and_log_metrics.assert_not_called()
+    mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once()
+    mock_adapter_instance.execute_and_log_metrics.assert_not_called()
 
     # Check console manager calls for streaming
     mock_console_manager.start_live_vibe_panel.assert_called_once()
@@ -326,9 +370,10 @@ async def test_handle_command_output_with_command(
     mock_update_memory.assert_called_once()
     called_args, called_kwargs = mock_update_memory.call_args
     assert called_kwargs.get("vibe_output") == expected_llm_response_text
-    assert called_kwargs.get("command_message") == command_name
-    # Optional: More detailed check for metrics passed to update_memory if relevant
-    # assert isinstance(called_kwargs.get("metrics"), LLMMetrics)
+    assert (
+        called_kwargs.get("command_message")
+        == f"command: {command_name} output: test output"
+    )
 
 
 @patch("vibectl.command_handler.logger")
@@ -345,7 +390,7 @@ def test_configure_output_flags_no_flags(mock_config_constructor: MagicMock) -> 
     output_flags = configure_output_flags()
 
     # Verify defaults from DEFAULT_CONFIG are used
-    assert output_flags.show_raw == DEFAULT_CONFIG["show_raw_output"]
+    assert output_flags.show_raw_output == DEFAULT_CONFIG["show_raw_output"]
     assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_CONFIG["model"]
@@ -362,7 +407,7 @@ def test_configure_output_flags_raw_only() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is True
+    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -377,7 +422,7 @@ def test_configure_output_flags_vibe_only() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is False
+    assert output_flags.show_raw_output is False
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -392,7 +437,7 @@ def test_configure_output_flags_both_flags() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is True
+    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -410,7 +455,7 @@ def test_configure_output_flags_with_show_kubectl() -> None:
     assert output_flags.show_kubectl is False
 
 
-@patch("vibectl.command_handler.Config")
+@patch("vibectl.config.Config")
 def test_configure_output_flags_with_show_kubectl_from_config(
     mock_config_class: MagicMock,
 ) -> None:
@@ -418,7 +463,7 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     # Mock Config to return True for show_kubectl
     mock_config = Mock()
     mock_config.get.side_effect = (
-        lambda key, default: True if key == "show_kubectl" else default
+        lambda key, default=None: True if key == "show_kubectl" else default
     )
     mock_config_class.return_value = mock_config
 
@@ -456,8 +501,22 @@ async def test_handle_command_output_model_name_from_default(
 
     # Mock the adapter instance that the get_model_adapter fixture yields
     mock_adapter_instance = mock_get_adapter
-    mock_adapter_instance.stream_execute = MagicMock(
-        return_value=mock_stream_return_async()
+
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_return_async(), mock_collector)
     )
     mock_adapter_instance.execute_and_log_metrics = MagicMock(
         return_value=("Non-streamed fallback", LLMMetrics())
@@ -473,11 +532,11 @@ async def test_handle_command_output_model_name_from_default(
     # OutputFlags should represent the state where no specific model was requested,
     # so it defaults to DEFAULT_MODEL (as configure_output_flags would do).
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Test streaming path
     )
 
@@ -490,8 +549,9 @@ async def test_handle_command_output_model_name_from_default(
     # Assertions
     # Check that get_model was called with the DEFAULT_MODEL
     mock_adapter_instance.get_model.assert_called_once_with(DEFAULT_MODEL)
-    # Check that stream_execute was called (and not execute_and_log_metrics)
-    mock_adapter_instance.stream_execute.assert_called_once_with(
+    # Check that stream_execute_and_log_metrics was called
+    # (and not execute_and_log_metrics)
+    mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once_with(
         model=mock_model_instance,  # Check it used the model from get_model
         system_fragments=ANY,  # Or more specific if prompts are stable
         user_fragments=ANY,
@@ -533,8 +593,22 @@ async def test_handle_command_output_basic(
             yield
 
     mock_adapter_instance = mock_get_adapter  # Use the fixtured adapter
-    mock_adapter_instance.stream_execute = MagicMock(
-        return_value=mock_stream_return_async()
+
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_return_async(), mock_collector)
     )
     mock_adapter_instance.execute_and_log_metrics = MagicMock(
         return_value=("Non-streamed fallback", LLMMetrics())
@@ -546,11 +620,11 @@ async def test_handle_command_output_basic(
         original="test output", truncated="processed test output"
     )
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,  # Test with metrics off for this basic case
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -563,11 +637,7 @@ async def test_handle_command_output_basic(
 
         # Assertions
         mock_adapter_instance.get_model.assert_called_once_with("test-model")
-        mock_adapter_instance.stream_execute.assert_called_once_with(
-            model=mock_model_instance,
-            system_fragments=ANY,
-            user_fragments=ANY,
-        )
+        mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once()
         mock_adapter_instance.execute_and_log_metrics.assert_not_called()
 
         # Console manager calls
@@ -609,11 +679,11 @@ async def test_handle_command_output_raw(
     mock_get_adapter.return_value = mock_adapter_instance
 
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         model_name="test-model",
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
@@ -655,9 +725,9 @@ async def test_handle_command_output_no_vibe(
     output_flags = OutputFlags(
         show_vibe=False,
         model_name="test-model",
-        show_raw=True,
+        show_raw_output=True,
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
@@ -702,8 +772,22 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
             yield
 
     mock_adapter_instance = mock_get_adapter
-    mock_adapter_instance.stream_execute = MagicMock(
-        return_value=mock_stream_execute_return_async()
+
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_execute_return_async(), mock_collector)
     )
     mock_adapter_instance.execute_and_log_metrics = MagicMock(
         return_value=("Non-streamed fallback", LLMMetrics())
@@ -717,11 +801,11 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="auton-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Test streaming path
     )
 
@@ -737,28 +821,11 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
 
     assert isinstance(result, Success)
     assert result.message == expected_llm_response_text
-    # Metrics from streaming can be None if the adapter doesn't update them
     assert result.metrics is None or isinstance(result.metrics, LLMMetrics)
-
-    # Prepare expected formatted fragments for assertion
-    output_data_for_llm = (
-        original_output_data if original_output_data is not None else ""
-    )
-
-    expected_formatted_system_fragments = SystemFragments(
-        [Fragment(frag.format(output=output_data_for_llm)) for frag in system_fragments]
-    )
-    expected_formatted_user_fragments = UserFragments(
-        [Fragment(frag.format(output=output_data_for_llm)) for frag in user_fragments]
-    )
 
     # Assertions
     mock_adapter_instance.get_model.assert_called_once_with("auton-model")
-    mock_adapter_instance.stream_execute.assert_called_once_with(
-        model=mock_model_instance,
-        system_fragments=expected_formatted_system_fragments,
-        user_fragments=expected_formatted_user_fragments,
-    )
+    mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once()
     mock_adapter_instance.execute_and_log_metrics.assert_not_called()
 
     # Console manager calls for streaming
@@ -776,8 +843,10 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     called_args, called_kwargs = mock_update_memory.call_args
     assert called_kwargs.get("vibe_output") == expected_llm_response_text
     assert called_kwargs.get("model_name") == "auton-model"
-    assert called_kwargs.get("command_message") == "autonomous_command"
-    assert called_kwargs.get("command_output") == original_output_data
+    assert (
+        called_kwargs.get("command_message")
+        == f"command: autonomous_command output: {original_output_data}"
+    )
 
 
 @patch("vibectl.command_handler.output_processor")
@@ -800,11 +869,33 @@ async def test_handle_command_output_llm_error(
             yield
 
     mock_adapter_instance = mock_get_adapter
-    mock_adapter_instance.stream_execute = MagicMock(
-        return_value=mock_stream_return_async()
+
+    # Create mock StreamingMetricsCollector
+    from vibectl.model_adapter import StreamingMetricsCollector
+
+    mock_collector = MagicMock(spec=StreamingMetricsCollector)
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
+
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        return_value=(mock_stream_return_async(), mock_collector)
     )
     mock_adapter_instance.execute_and_log_metrics = MagicMock(
-        return_value=("Non-streamed fallback", LLMMetrics())
+        return_value=(
+            "Non-streamed fallback",
+            LLMMetrics(
+                token_input=10,
+                token_output=20,
+                latency_ms=100.0,
+                total_processing_duration_ms=120.0,
+            ),
+        )
     )
     mock_model_instance = MagicMock()
     mock_adapter_instance.get_model = MagicMock(return_value=mock_model_instance)
@@ -814,11 +905,11 @@ async def test_handle_command_output_llm_error(
     )
 
     output_flags = OutputFlags(
-        show_raw=True,  # Keep raw output for context if Vibe fails
+        show_raw_output=True,  # Keep raw output for context if Vibe fails
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model-llm-error",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -836,7 +927,7 @@ async def test_handle_command_output_llm_error(
     assert result.error == expected_stripped_error
 
     mock_adapter_instance.get_model.assert_called_once_with("test-model-llm-error")
-    mock_adapter_instance.stream_execute.assert_called_once()
+    mock_adapter_instance.stream_execute_and_log_metrics.assert_called_once()
     mock_adapter_instance.execute_and_log_metrics.assert_not_called()
 
     # Console manager calls for streaming
@@ -885,11 +976,11 @@ async def test_handle_command_output_error_input_no_vibe(
     error_data = "Error: Something went wrong."
     error_input = Error(error=error_data, exception=RuntimeError(error_data))
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     mock_output_processor.process_auto.return_value = Truncation(
@@ -964,11 +1055,11 @@ async def test_handle_command_output_error_input_with_vibe_recovery(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,  # Vibe is on to allow recovery
         warn_no_output=False,
         model_name="test-model-recovery",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Even if true, recovery path is non-streaming
         show_kubectl=True,  # For command context in recovery prompt
     )
@@ -1018,7 +1109,7 @@ async def test_handle_command_output_error_input_with_vibe_recovery(
     )
 
 
-@patch("vibectl.command_handler.Config")
+@patch("vibectl.config.Config")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
@@ -1040,11 +1131,11 @@ async def test_handle_command_output_model_name_from_config(
 
     # Create output flags with model name from config
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="model-from-config",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -1103,11 +1194,11 @@ async def test_process_vibe_output_show_streaming_false(
 
     # 2. Create OutputFlags
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,  # KEY FLAG: Streaming display is off
     )
 

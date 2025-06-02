@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from vibectl.config import Config
 from vibectl.execution.edit import (
     _apply_patch,
     _fetch_resource,
@@ -21,7 +22,7 @@ from vibectl.schema import (
     LLMPlannerResponse,
     ThoughtAction,
 )
-from vibectl.types import Config, Error, OutputFlags, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
 
 
 class TestEditErrorPaths:
@@ -31,11 +32,11 @@ class TestEditErrorPaths:
     def output_flags(self) -> OutputFlags:
         """Create output flags for testing."""
         return OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=False,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_kubectl=False,
             warn_no_proxy=True,
             show_streaming=False,
@@ -82,9 +83,15 @@ class TestEditErrorPaths:
             ) as mock_prompt,
         ):
             mock_adapter = Mock()
-            mock_adapter.get_model = Mock()
+            mock_adapter.get_model.return_value = Mock()
+
+            # Create a proper metrics mock instead of Mock()
+            from vibectl.types import LLMMetrics
+
+            mock_metrics = LLMMetrics(token_input=10, token_output=5, latency_ms=100.0)
+
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = ("", Mock())
+            mock_adapter.execute_and_log_metrics.return_value = ("", mock_metrics)
             mock_get_adapter.return_value = mock_adapter
 
             mock_prompt.return_value = ([], [])
@@ -97,7 +104,8 @@ class TestEditErrorPaths:
 
             assert isinstance(result, Error)
             assert (
-                "LLM returned empty response for resource summarization" in result.error
+                "LLM returned an empty response for resource summarization"
+                in result.error
             )
 
     @pytest.mark.asyncio
@@ -194,7 +202,10 @@ class TestEditErrorPaths:
             mock_adapter = Mock()
             mock_adapter.get_model = Mock()
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = ("", Mock())
+            mock_adapter.execute_and_log_metrics.return_value = (
+                "",
+                LLMMetrics(token_input=15, token_output=0, latency_ms=150.0),
+            )
             mock_get_adapter.return_value = mock_adapter
 
             mock_prompt.return_value = ([], [])
@@ -210,7 +221,7 @@ class TestEditErrorPaths:
             )
 
             assert isinstance(result, Error)
-            assert "LLM returned empty response for patch generation" in result.error
+            assert "LLM returned an empty response for patch generation" in result.error
 
     @pytest.mark.asyncio
     async def test_generate_patch_error_action(
@@ -231,7 +242,10 @@ class TestEditErrorPaths:
             mock_adapter = Mock()
             mock_adapter.get_model = Mock()
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = (response_json, Mock())
+            mock_adapter.execute_and_log_metrics.return_value = (
+                response_json,
+                LLMMetrics(token_input=20, token_output=25, latency_ms=200.0),
+            )
             mock_get_adapter.return_value = mock_adapter
 
             mock_prompt.return_value = ([], [])
@@ -270,7 +284,10 @@ class TestEditErrorPaths:
             mock_adapter = Mock()
             mock_adapter.get_model = Mock()
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = (response_json, Mock())
+            mock_adapter.execute_and_log_metrics.return_value = (
+                response_json,
+                LLMMetrics(token_input=20, token_output=25, latency_ms=200.0),
+            )
             mock_get_adapter.return_value = mock_adapter
 
             mock_prompt.return_value = ([], [])
@@ -310,7 +327,7 @@ class TestEditErrorPaths:
             mock_adapter.execute_and_log_metrics = AsyncMock()
             mock_adapter.execute_and_log_metrics.return_value = (
                 '{"action": {}}',
-                Mock(),
+                LLMMetrics(token_input=22, token_output=8, latency_ms=220.0),
             )
             mock_get_adapter.return_value = mock_adapter
 
@@ -365,7 +382,7 @@ class TestEditErrorPaths:
         self, output_flags: OutputFlags, config: Config
     ) -> None:
         """Test _apply_patch with show_raw flag enabled."""
-        output_flags.show_raw = True
+        output_flags.show_raw_output = True
 
         with (
             patch("vibectl.execution.edit.run_kubectl") as mock_kubectl,
@@ -469,7 +486,10 @@ metadata:
             mock_adapter = Mock()
             mock_adapter.get_model = Mock()
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = ("", Mock())
+            mock_adapter.execute_and_log_metrics.return_value = (
+                "",
+                LLMMetrics(token_input=15, token_output=0, latency_ms=150.0),
+            )
             mock_get_adapter.return_value = mock_adapter
 
             mock_plan_scope.return_value = ([], [])
@@ -504,7 +524,10 @@ metadata:
             mock_adapter = Mock()
             mock_adapter.get_model = Mock()
             mock_adapter.execute_and_log_metrics = AsyncMock()
-            mock_adapter.execute_and_log_metrics.return_value = (response_json, Mock())
+            mock_adapter.execute_and_log_metrics.return_value = (
+                response_json,
+                LLMMetrics(token_input=25, token_output=30, latency_ms=250.0),
+            )
             mock_get_adapter.return_value = mock_adapter
 
             mock_plan_scope.return_value = ([], [])

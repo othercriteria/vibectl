@@ -11,6 +11,7 @@ from click.testing import CliRunner
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
 from vibectl.prompts.logs import logs_prompt
+from vibectl.types import MetricsDisplayMode
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
 DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
@@ -75,12 +76,12 @@ async def test_logs_with_flags(
     from vibectl.types import Success
 
     mock_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         model_name="test-model-foo",
         warn_no_output=True,
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
     mock_configure_flags.model_name_check = "test-model-bar"
@@ -214,12 +215,12 @@ async def test_logs_error_handling(
 
     # Configure output flags
     mock_configure_flags.return_value = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="model-xyz-1.2.3",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Setup mock to return an Error
@@ -326,12 +327,12 @@ async def test_logs_follow_with_show_vibe_flag(
 
     # Configure output flags mock
     mock_flags = OutputFlags(
-        show_raw=False,  # Default for this test path
+        show_raw_output=False,  # Default for this test path
         show_vibe=True,  # Explicitly set by --show-vibe flag
         warn_no_output=False,
         model_name=DEFAULT_MODEL,  # Use defined DEFAULT_MODEL
         show_kubectl=False,  # Default
-        show_metrics=False,  # Default
+        show_metrics=MetricsDisplayMode.NONE,  # Default
         show_streaming=True,  # Assumed True when show_vibe is True for logs
     )
     mock_configure_output_flags.return_value = mock_flags

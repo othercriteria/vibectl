@@ -5,17 +5,19 @@ Contains common type definitions used across the application.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     NewType,
     Protocol,
     runtime_checkable,
 )
 
-# Import Config for type hinting
-from .config import Config
+# Import Config for type hinting only when needed
+if TYPE_CHECKING:
+    from .config import Config
 
 # Type alias for the structure of examples used in format_ml_examples
 MLExampleItem = tuple[str, str, dict[str, Any]]
@@ -68,74 +70,113 @@ class PredicateCheckExitCode(int, Enum):
     CANNOT_DETERMINE = 3  # Cannot determine predicate truthiness
 
 
+class MetricsDisplayMode(str, Enum):
+    """Enumeration for different metrics display modes."""
+
+    NONE = "none"  # Show no metrics
+    TOTAL = "total"  # Show only total/accumulated metrics
+    SUB = "sub"  # Show only individual sub-metrics
+    ALL = "all"  # Show both sub-metrics and totals
+
+    @classmethod
+    def from_value(cls, value: str | None) -> "MetricsDisplayMode":
+        """Convert string input to MetricsDisplayMode."""
+        if value is None:
+            return cls.NONE
+        elif isinstance(value, str):
+            try:
+                return cls(value.lower())
+            except ValueError:
+                # Invalid string value, default to NONE
+                return cls.NONE
+        else:
+            # Unknown type, default to NONE
+            return cls.NONE
+
+    @classmethod
+    def from_config(cls, config: "Config") -> "MetricsDisplayMode":
+        """Get MetricsDisplayMode from config, handling the config interface."""
+        # Import here to avoid circular imports
+        from .config import DEFAULT_CONFIG
+
+        config_value = config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
+        return cls.from_value(config_value)
+
+    def should_show_sub_metrics(self) -> bool:
+        """Whether individual LLM call metrics should be displayed."""
+        return self in (self.SUB, self.ALL)
+
+    def should_show_total_metrics(self) -> bool:
+        """Whether accumulated/total metrics should be displayed."""
+        return self in (self.TOTAL, self.ALL)
+
+
 @dataclass
 class OutputFlags:
-    """Configuration for output display flags."""
+    """Flags that control command output behavior."""
 
-    show_raw: bool
-    show_vibe: bool
-    warn_no_output: bool
     model_name: str
-    show_metrics: bool  # Added flag for controlling metrics display
-    show_kubectl: bool = False  # Flag to control showing kubectl commands
-    warn_no_proxy: bool = (
-        True  # Flag to control warnings about missing proxy configuration
-    )
-    show_streaming: bool = (
-        True  # Whether to show intermediate streaming output for Vibe (default True)
-    )
+    show_raw_output: bool
+    show_vibe: bool
+    show_kubectl: bool = False  # Default value
+    show_metrics: MetricsDisplayMode = MetricsDisplayMode.NONE  # Default value
+    show_streaming: bool = False  # Default value
+    warn_no_output: bool = True  # Default value
+    warn_no_proxy: bool = True  # Default value
+    freeze_memory: bool = False  # Default value
+    unfreeze_memory: bool = False  # Default value
 
-    def replace(self, **kwargs: Any) -> "OutputFlags":
-        """Create a new OutputFlags instance with specified fields replaced.
+    def with_updates(self, **updates: Any) -> "OutputFlags":
+        """Create a new OutputFlags instance with specified updates."""
+        # No conversion needed - all inputs should already be correct types
+        return replace(self, **updates)
 
-        Similar to dataclasses.replace(), this allows creating a modified copy
-        with only specific fields changed.
+    @classmethod
+    def from_args(
+        cls,
+        model: str | None = None,
+        show_raw_output: bool | None = None,
+        show_vibe: bool | None = None,
+        show_kubectl: bool | None = None,
+        show_metrics: MetricsDisplayMode
+        | None = None,  # Only support MetricsDisplayMode now
+        show_streaming: bool | None = None,
+        warn_no_output: bool | None = None,
+        warn_no_proxy: bool | None = None,
+        freeze_memory: bool = False,
+        unfreeze_memory: bool = False,
+        config: "Config | None" = None,
+    ) -> "OutputFlags":
+        """Create OutputFlags from command arguments with config fallbacks."""
+        # Import only once at runtime to avoid circular imports
+        from .config import DEFAULT_CONFIG, Config
 
-        Args:
-            **kwargs: Field values to change in the new instance
+        if config is None:
+            config = Config()
 
-        Returns:
-            A new OutputFlags instance with the specified changes
-        """
-        # Start with current values
-        show_raw = self.show_raw
-        show_vibe = self.show_vibe
-        warn_no_output = self.warn_no_output
-        model_name = self.model_name
-        show_metrics = self.show_metrics
-        show_kubectl = self.show_kubectl
-        warn_no_proxy = self.warn_no_proxy
-        show_streaming = self.show_streaming
-
-        # Update with any provided values
-        for key, value in kwargs.items():
-            if key == "show_raw":
-                show_raw = value
-            elif key == "show_vibe":
-                show_vibe = value
-            elif key == "warn_no_output":
-                warn_no_output = value
-            elif key == "model_name":
-                model_name = value
-            elif key == "show_metrics":
-                show_metrics = value
-            elif key == "show_kubectl":
-                show_kubectl = value
-            elif key == "warn_no_proxy":
-                warn_no_proxy = value
-            elif key == "show_streaming":
-                show_streaming = value
-
-        # Create new instance with updated values
-        return OutputFlags(
-            show_raw=show_raw,
-            show_vibe=show_vibe,
-            warn_no_output=warn_no_output,
-            model_name=model_name,
-            show_metrics=show_metrics,
-            show_kubectl=show_kubectl,
-            warn_no_proxy=warn_no_proxy,
-            show_streaming=show_streaming,
+        return cls(
+            model_name=model or config.get("model"),
+            show_raw_output=show_raw_output
+            if show_raw_output is not None
+            else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"]),
+            show_vibe=show_vibe
+            if show_vibe is not None
+            else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"]),
+            show_kubectl=show_kubectl
+            if show_kubectl is not None
+            else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"]),
+            show_metrics=show_metrics or MetricsDisplayMode.from_config(config),
+            show_streaming=show_streaming
+            if show_streaming is not None
+            else config.get("show_streaming", DEFAULT_CONFIG["show_streaming"]),
+            warn_no_output=warn_no_output
+            if warn_no_output is not None
+            else config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"]),
+            warn_no_proxy=warn_no_proxy
+            if warn_no_proxy is not None
+            else config.get("warn_no_proxy", DEFAULT_CONFIG["warn_no_proxy"]),
+            freeze_memory=freeze_memory,
+            unfreeze_memory=unfreeze_memory,
         )
 
 
@@ -167,7 +208,7 @@ Result = Success | Error
 
 
 # --- Type Hints for Functions ---
-SummaryPromptFragmentFunc = Callable[[Config | None, str | None], PromptFragments]
+SummaryPromptFragmentFunc = Callable[["Config | None", str | None], PromptFragments]
 # -----------------------------
 
 
@@ -243,6 +284,42 @@ class LLMMetrics:
             total_processing_duration_ms=final_summed_total_duration,
             call_count=self.call_count + other.call_count,
         )
+
+
+class LLMMetricsAccumulator:
+    """
+    Helper class to accumulate LLM metrics across multiple calls.
+
+    This reduces boilerplate when accumulating metrics in commands that
+    make multiple LLM calls (like the check command). It handles both
+    accumulation and immediate display of sub-metrics.
+    """
+
+    def __init__(self, output_flags: "OutputFlags") -> None:
+        self.accumulated_metrics = LLMMetrics()
+        self.output_flags = output_flags
+
+    def add_metrics(self, metrics: "LLMMetrics | None", source: str) -> None:
+        """Add metrics from LLM call to accumulator; display sub-metrics if enabled."""
+        if metrics:
+            self.accumulated_metrics += metrics
+            # Import here to avoid circular import
+            from .console import print_sub_metrics_if_enabled
+
+            print_sub_metrics_if_enabled(metrics, self.output_flags, source)
+
+    def print_total_if_enabled(self, source: str) -> None:
+        """Print accumulated metrics if total metrics are enabled."""
+        # Import here to avoid circular import
+        from .console import print_total_metrics_if_enabled
+
+        print_total_metrics_if_enabled(
+            self.accumulated_metrics, self.output_flags, source
+        )
+
+    def get_metrics(self) -> "LLMMetrics":
+        """Get the accumulated metrics."""
+        return self.accumulated_metrics
 
 
 # --- Kubectl Command Types ---

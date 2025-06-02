@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vibectl.execution.edit import _summarize_resource
-from vibectl.types import Error, LLMMetrics, OutputFlags, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.fixture
@@ -39,12 +39,12 @@ spec:
 def output_flags() -> OutputFlags:
     """Standard output flags for testing."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         show_kubectl=False,
         warn_no_output=False,
         model_name="claude-3.7-sonnet",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,
     )
 
@@ -144,7 +144,7 @@ async def test_summarize_resource_handles_empty_response(
 
         # Verify it returns an error for empty response
         assert isinstance(result, Error)
-        assert "LLM returned empty response" in result.error
+        assert "LLM returned an empty response" in result.error
 
 
 @pytest.mark.asyncio

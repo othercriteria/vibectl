@@ -1,5 +1,6 @@
 """Tests for model adapter."""
 
+import asyncio
 import json
 import logging
 import re
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from vibectl.model_adapter import (
     LLMAdaptationError,
     LLMModelAdapter,
+    LLMResponseParseError,
     LLMUsage,
     ModelAdapter,
     ModelResponse,
@@ -23,6 +25,7 @@ from vibectl.model_adapter import (
 )
 from vibectl.types import (
     Fragment,
+    RecoverableApiError,
     SystemFragments,
     UserFragments,
 )
@@ -937,3 +940,286 @@ def test_model_response_protocol_runtime_check() -> None:
     class DummyResponse:
         def text(self) -> str:
             return "foo"
+
+
+class TestModelValidation:
+    """Tests for model validation functionality."""
+
+    def setup_method(self) -> None:
+        """Setup for each test."""
+        self.adapter = LLMModelAdapter()
+
+    def test_validate_model_name_valid(self) -> None:
+        """Test validation of valid model names."""
+        # Mock the helper function to return valid
+        with patch(
+            "vibectl.model_adapter.is_valid_llm_model_name", return_value=(True, None)
+        ):
+            result = self.adapter.validate_model_name("gpt-4")
+            assert result is None
+
+    def test_validate_model_name_invalid(self) -> None:
+        """Test validation of invalid model names."""
+        # Mock the helper function to return invalid
+        with patch(
+            "vibectl.model_adapter.is_valid_llm_model_name",
+            return_value=(False, "Invalid model"),
+        ):
+            result = self.adapter.validate_model_name("invalid-model")
+            assert result == "Invalid model"
+
+    def test_validate_model_key_unknown_provider(self) -> None:
+        """Test model key validation for unknown provider."""
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value=None
+        ):
+            result = self.adapter.validate_model_key("unknown-model")
+            assert result is not None
+            assert "Unknown model provider" in result
+
+    def test_validate_model_key_ollama_provider(self) -> None:
+        """Test model key validation for ollama provider."""
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="ollama"
+        ):
+            result = self.adapter.validate_model_key("llama2")
+            assert result is None  # Ollama doesn't need key validation
+
+    def test_validate_model_key_missing_key(self) -> None:
+        """Test model key validation when no key is configured."""
+        mock_config = Mock()
+        mock_config.get_model_key.return_value = None
+        self.adapter.config = mock_config
+
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="openai"
+        ):
+            result = self.adapter.validate_model_key("gpt-4")
+            assert result is not None
+            assert "No API key found" in result
+            assert "export VIBECTL_OPENAI_API_KEY" in result
+
+    def test_validate_model_key_invalid_anthropic_format(self) -> None:
+        """Test anthropic key format validation."""
+        mock_config = Mock()
+        mock_config.get_model_key.return_value = (
+            "invalid-anthropic-key-that-is-long-enough"
+        )
+        self.adapter.config = mock_config
+
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="anthropic"
+        ):
+            result = self.adapter.validate_model_key("claude-3")
+            assert result is not None
+            assert "Anthropic API key format looks invalid" in result
+
+    def test_validate_model_key_invalid_openai_format(self) -> None:
+        """Test openai key format validation."""
+        mock_config = Mock()
+        mock_config.get_model_key.return_value = (
+            "invalid-openai-key-that-is-long-enough"
+        )
+        self.adapter.config = mock_config
+
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="openai"
+        ):
+            result = self.adapter.validate_model_key("gpt-4")
+            assert result is not None
+            assert "Openai API key format looks invalid" in result
+
+    def test_validate_model_key_valid_key_format(self) -> None:
+        """Test valid key format passes validation."""
+        mock_config = Mock()
+        mock_config.get_model_key.return_value = "sk-valid-key-format"
+        self.adapter.config = mock_config
+
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="openai"
+        ):
+            result = self.adapter.validate_model_key("gpt-4")
+            assert result is None
+
+    def test_validate_model_key_short_key_passes(self) -> None:
+        """Test short keys pass validation regardless of format."""
+        mock_config = Mock()
+        mock_config.get_model_key.return_value = "short"  # Less than 20 chars
+        self.adapter.config = mock_config
+
+        with patch.object(
+            self.adapter, "_determine_provider_from_model", return_value="openai"
+        ):
+            result = self.adapter.validate_model_key("gpt-4")
+            assert result is None
+
+    def test_format_api_key_message_error(self) -> None:
+        """Test formatting API key error message."""
+        result = self.adapter._format_api_key_message("openai", "gpt-4", is_error=True)
+        assert "Failed to get model 'gpt-4'" in result
+        assert "export VIBECTL_OPENAI_API_KEY" in result
+        assert "VIBECTL_OPENAI_API_KEY_FILE" in result
+
+    def test_format_api_key_message_warning(self) -> None:
+        """Test formatting API key warning message."""
+        result = self.adapter._format_api_key_message(
+            "anthropic", "claude-3", is_error=False
+        )
+        assert "Warning: No API key found" in result
+        assert "export VIBECTL_ANTHROPIC_API_KEY" in result
+
+    def test_format_key_validation_message(self) -> None:
+        """Test formatting key validation message."""
+        result = self.adapter._format_key_validation_message("openai")
+        assert "Openai API key format looks invalid" in result
+        assert "typically start with 'sk-'" in result
+
+
+class TestSyncLLMResponseAdapterErrors:
+    """Tests for error handling in SyncLLMResponseAdapter."""
+
+    def test_json_parse_error(self) -> None:
+        """Test JSON parsing error handling."""
+        mock_response = Mock()
+        mock_response.text.return_value = "invalid json content"
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        with pytest.raises(LLMResponseParseError) as exc_info:
+            asyncio.run(adapter.json())
+
+        assert "Failed to parse response as JSON" in str(exc_info.value)
+        assert exc_info.value.original_text == "invalid json content"
+
+    def test_usage_callable_error(self) -> None:
+        """Test error handling when usage() method call fails."""
+        mock_response = Mock()
+        mock_response.usage = Mock(side_effect=Exception("Usage call failed"))
+        mock_response.model.model_id = "test-model"
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        result = asyncio.run(adapter.usage())
+        result_dict = cast(dict, result)
+        assert result_dict["input"] == 0
+        assert result_dict["output"] == 0
+        assert "error_calling_usage_method" in result_dict["details"]
+
+    def test_usage_unrecognized_format(self) -> None:
+        """Test usage with unrecognized format."""
+        mock_response = Mock()
+        mock_response.usage = "unrecognized_format"
+        mock_response.model.model_id = "test-model"
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        result = asyncio.run(adapter.usage())
+        result_dict = cast(dict, result)
+        assert result_dict["input"] == 0
+        assert result_dict["output"] == 0
+        assert result_dict["details"] == "unrecognized_format"
+
+    def test_usage_object_with_invalid_attrs(self) -> None:
+        """Test usage object with input/output attrs that can't be cast to int."""
+        mock_usage = Mock()
+        mock_usage.input = "not_a_number"
+        mock_usage.output = "also_not_a_number"
+
+        mock_response = Mock()
+        mock_response.usage = mock_usage
+        mock_response.model.model_id = "test-model"
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        result = asyncio.run(adapter.usage())
+        result_dict = cast(dict, result)
+        assert result_dict["input"] == 0
+        assert result_dict["output"] == 0
+
+    def test_usage_model_name_extraction_error(self) -> None:
+        """Test error handling in model name extraction for logging."""
+        mock_response = Mock()
+        mock_response.usage = {"prompt_tokens": 10, "completion_tokens": 20}
+        # Mock model with problematic attribute access
+        mock_response.model = Mock()
+        mock_response.model.model_id = Mock(side_effect=Exception("Model access error"))
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        result = asyncio.run(adapter.usage())
+        result_dict = cast(dict, result)
+        assert result_dict["input"] == 10
+        assert result_dict["output"] == 20
+
+    def test_properties_with_none_response(self) -> None:
+        """Test property accessors with None response."""
+        mock_response = Mock()
+        del mock_response.id  # Remove attribute
+        del mock_response.created
+        del mock_response.response_ms
+        mock_response.model = Mock()
+        del mock_response.model.id
+
+        adapter = SyncLLMResponseAdapter(mock_response)
+
+        assert adapter.id is None
+        assert adapter.model is None
+        assert adapter.created is None
+        assert adapter.response_ms is None
+
+
+class TestModelAdapterEdgeCases:
+    """Tests for edge cases and error paths in ModelAdapter."""
+
+    def setup_method(self) -> None:
+        """Setup for each test."""
+        self.adapter = LLMModelAdapter()
+
+    @patch("vibectl.model_adapter.ModelEnvironment")
+    async def test_stream_execute_type_error_with_recovery_keywords(
+        self, mock_env: MagicMock
+    ) -> None:
+        """Test stream execute with TypeError containing recoverable keywords."""
+        mock_model = Mock()
+        mock_model.model_id = "test-model"
+        mock_model.prompt.side_effect = Exception("rate limit exceeded")
+
+        system_fragments = SystemFragments([])
+        user_fragments = UserFragments([Fragment("test")])
+
+        with pytest.raises(RecoverableApiError):
+            async for _ in self.adapter.stream_execute(
+                mock_model, system_fragments, user_fragments
+            ):
+                pass
+
+    @patch("vibectl.model_adapter.ModelEnvironment")
+    async def test_stream_execute_general_exception(self, mock_env: MagicMock) -> None:
+        """Test stream execute with general exception."""
+        mock_model = Mock()
+        mock_model.model_id = "test-model"
+        mock_model.prompt.side_effect = Exception("general error")
+
+        system_fragments = SystemFragments([])
+        user_fragments = UserFragments([Fragment("test")])
+
+        with pytest.raises(ValueError, match="LLM Streaming Execution Error"):
+            async for _ in self.adapter.stream_execute(
+                mock_model, system_fragments, user_fragments
+            ):
+                pass
+
+    async def test_execute_and_log_metrics_exception_handling(self) -> None:
+        """Test exception handling in execute_and_log_metrics wrapper."""
+        mock_model = Mock()
+        system_fragments = SystemFragments([])
+        user_fragments = UserFragments([Fragment("test")])
+
+        # Mock execute to raise an exception
+        with (
+            patch.object(self.adapter, "execute", side_effect=Exception("test error")),
+            pytest.raises(Exception, match="test error"),
+        ):
+            await self.adapter.execute_and_log_metrics(
+                mock_model, system_fragments, user_fragments
+            )

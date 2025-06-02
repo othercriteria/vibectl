@@ -6,7 +6,7 @@ import pytest
 
 from vibectl.config import DEFAULT_CONFIG
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.fixture
@@ -14,11 +14,11 @@ def default_cluster_info_output_flags() -> OutputFlags:
     """Provides default OutputFlags for cluster-info command tests."""
     # Need to cast from DEFAULT_CONFIG for type safety if linter complains
     return OutputFlags(
-        show_raw=bool(DEFAULT_CONFIG["show_raw_output"]),
+        show_raw_output=bool(DEFAULT_CONFIG["show_raw_output"]),
         show_vibe=bool(DEFAULT_CONFIG["show_vibe"]),
         warn_no_output=bool(DEFAULT_CONFIG["warn_no_output"]),
         model_name=str(DEFAULT_CONFIG["model"]),
-        show_metrics=bool(DEFAULT_CONFIG["show_metrics"]),
+        show_metrics=MetricsDisplayMode.from_value(str(DEFAULT_CONFIG["show_metrics"])),
         show_kubectl=bool(DEFAULT_CONFIG["show_kubectl"]),
         warn_no_proxy=bool(DEFAULT_CONFIG["warn_no_proxy"]),
     )
@@ -41,7 +41,7 @@ async def test_cluster_info_basic(
     # Execute directly
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw,
+        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
@@ -72,7 +72,7 @@ async def test_cluster_info_with_args(
 
     result = await run_cluster_info_command(
         args=("dump",),
-        show_raw_output=default_cluster_info_output_flags.show_raw,
+        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
@@ -98,11 +98,11 @@ async def test_cluster_info_with_flags(
 ) -> None:
     """Test with specific output flags passed to run_cluster_info_command."""
     configured_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         warn_no_output=True,
         model_name="custom-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_kubectl=True,
         warn_no_proxy=True,
     )
@@ -119,7 +119,7 @@ async def test_cluster_info_with_flags(
         show_vibe=False,
         model="custom-model",
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         freeze_memory=False,
         unfreeze_memory=False,
         show_streaming=True,
@@ -134,7 +134,7 @@ async def test_cluster_info_with_flags(
         show_vibe=False,
         model="custom-model",
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     # Also check that handle_command_output received the flags from mock_configure_flags
@@ -155,7 +155,7 @@ async def test_cluster_info_no_output(
 
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw,
+        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
@@ -197,7 +197,7 @@ async def test_cluster_info_vibe_no_request_direct(  # Renamed for clarity
 
     result = await run_cluster_info_command(
         args=("vibe",),  # Only 'vibe', no request
-        show_raw_output=default_cluster_info_output_flags.show_raw,
+        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,
@@ -234,7 +234,7 @@ async def test_cluster_info_error_handling_direct(
 
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw,
+        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         model=default_cluster_info_output_flags.model_name,
         show_kubectl=default_cluster_info_output_flags.show_kubectl,

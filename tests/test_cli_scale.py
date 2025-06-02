@@ -9,7 +9,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.prompts.scale import scale_plan_prompt, scale_resource_prompt
-from vibectl.types import Error, Success
+from vibectl.types import Error, MetricsDisplayMode, Success
 
 
 @pytest.mark.asyncio
@@ -55,7 +55,7 @@ async def test_scale_vibe_no_request() -> None:
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 

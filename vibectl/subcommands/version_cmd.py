@@ -1,39 +1,29 @@
-import asyncio
-
 from vibectl.command_handler import (
     configure_output_flags,
-    handle_command_output,
+    handle_standard_command,
 )
-from vibectl.config import Config
-from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
-from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.version import version_plan_prompt, version_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_version_command(
-    args: tuple[str, ...],
+    args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
-    """
-    Implements the 'version' subcommand logic, including logging and error handling.
-    Returns a Result (Success or Error).
-    Aligns with patterns from diff_cmd.py.
-    """
+    """Executes the version command logic."""
+
     logger.info(f"Invoking 'version' subcommand with args: {args}")
 
-    # Restore local flag configuration and Config instantiation
-    configure_memory_flags(freeze_memory, unfreeze_memory)
     output_flags = configure_output_flags(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
@@ -42,77 +32,42 @@ async def run_version_command(
         show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
-    config = Config()  # Restored Config instantiation
+    configure_memory_flags(freeze_memory, unfreeze_memory)
 
-    result: Result
-
+    # Handle vibe request for natural language version queries
     if args and args[0] == "vibe":
         if len(args) < 2:
-            logger.debug("[Vibe Path] Missing request after 'vibe' command.")
-            result = Error(error="Missing request after 'vibe' command.")
-        else:
-            request = " ".join(args[1:])
-            logger.info(f"[Vibe Path] Planning how to get version info for: {request}")
-            console_manager.print_processing(
-                f"Vibing on how to get version info for: {request}..."
-            )
-            try:
-                result = await handle_vibe_request(
-                    request=request,
-                    command="version",
-                    plan_prompt_func=version_plan_prompt,
-                    summary_prompt_func=version_prompt,
-                    output_flags=output_flags,
-                )
-                logger.info(
-                    "[Vibe Path] Completed 'version' subcommand for vibe request."
-                )
-            except Exception as e:
-                logger.error(
-                    "[Vibe Path] Error in handle_vibe_request: %s", e, exc_info=True
-                )
-                result = Error(error="Exception in handle_vibe_request", exception=e)
-    else:
-        # Standard version command
-        cmd = ["version", *args]
-        if "--output=json" not in args:  # Keep this specific logic for version
-            cmd.append("--output=json")
-        logger.info(f"[Standard Path] Running kubectl command: {' '.join(cmd)}")
-
-        try:
-            # Run kubectl version
-            kubectl_result = await asyncio.to_thread(
-                run_kubectl,
-                cmd,
-                config=config,  # Use locally defined config
+            return Error(
+                error="Missing request after 'vibe' command. "
+                "Please provide a natural language version query, e.g.: "
+                'vibectl version vibe "what version of kubernetes am I running?"'
             )
 
-            if isinstance(kubectl_result, Error):
-                logger.error(
-                    f"[Standard Path] Error from run_kubectl: {kubectl_result.error}"
-                )
-                result = kubectl_result  # Propagate the Error object
-            elif not kubectl_result.data:
-                logger.info("[Standard Path] No output from kubectl version.")
-                result = Success(message="No output from kubectl version.")
-            else:
-                logger.debug(
-                    "[Standard Path] run_kubectl returned Success, data: "
-                    f"{kubectl_result.data!r}"
-                )
-                result = await handle_command_output(
-                    output=kubectl_result,
-                    output_flags=output_flags,
-                    summary_prompt_func=version_prompt,
-                    command="version",
-                )
-            logger.info(
-                "[Standard Path] Completed direct 'version' subcommand execution."
-            )
-        except Exception as e:
-            logger.error(
-                "[Standard Path] Error processing kubectl version: %s", e, exc_info=True
-            )
-            result = Error(error="Exception processing kubectl version", exception=e)
+        request = " ".join(args[1:])
+        logger.info(f"Planning version query: {request}")
 
+        result = await handle_vibe_request(
+            request=request,
+            command="version",
+            plan_prompt_func=version_plan_prompt,
+            output_flags=output_flags,
+            summary_prompt_func=version_prompt,
+        )
+        logger.info("Completed 'version' command for vibe request.")
+        return result
+
+    # Standard kubectl version - add --output=json if not present
+    version_args = list(args)
+    if "--output=json" not in version_args:
+        version_args.append("--output=json")
+
+    logger.info("Handling standard 'version' command.")
+    result = await handle_standard_command(
+        command="version",
+        resource="",  # version doesn't take a resource parameter
+        args=tuple(version_args),
+        output_flags=output_flags,
+        summary_prompt_func=version_prompt,
+    )
+    logger.info("Completed 'version' command.")
     return result

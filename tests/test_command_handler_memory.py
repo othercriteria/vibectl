@@ -5,7 +5,7 @@ focusing on how commands update and interact with memory.
 """
 
 import json
-from collections.abc import AsyncIterator, Generator
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
@@ -23,6 +23,7 @@ from vibectl.types import (
     Error,
     Fragment,
     LLMMetrics,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -155,11 +156,11 @@ async def test_handle_command_output_updates_memory(
 
     # Configure output flags
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Call handle_command_output with a command
@@ -217,8 +218,8 @@ async def test_handle_command_output_updates_memory(
     #     model_name="test-model",
     # )
 
-    # Check that the LLM was called for the summary
-    assert mock_get_adapter.execute_and_log_metrics.call_count == 0
+    # Check that the LLM was called for the memory update
+    assert mock_get_adapter.execute_and_log_metrics.call_count == 1
 
     # At the end of the test, restore the original side_effect if necessary,
     # though pytest fixtures usually handle teardown if side_effect was set on
@@ -237,11 +238,11 @@ async def test_handle_command_output_does_not_update_memory_without_command(
 ) -> None:
     """Test that memory is updated with 'Unknown' command when no command provided."""
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_get_adapter.execute_and_log_metrics.return_value = (
         "LLM summary for no command",
@@ -284,12 +285,12 @@ async def test_handle_command_output_updates_memory_with_error_output(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     error_input = Error(error="Error from server: not found")
 
@@ -360,17 +361,11 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
 
     overloaded_error_msg = "ERROR: Model capacity is overloaded."
 
-    # This test simulates an error *during streaming summary* of a successful command.
-    # So, stream_execute should yield the error.
-    async def mock_stream_overloaded_error() -> AsyncIterator[str]:
-        yield overloaded_error_msg
-        if False:
-            yield  # Keep linter happy
-
-    mock_adapter.stream_execute = MagicMock(return_value=mock_stream_overloaded_error())
-    # And execute_and_log_metrics should NOT be called for the summary part.
-    mock_adapter.execute_and_log_metrics = MagicMock(
-        return_value=("SHOULD_NOT_BE_CALLED", LLMMetrics())
+    # This test simulates an error during summary of a successful command.
+    # Since show_streaming=False (default), it uses execute_and_log_metrics,
+    # not stream_execute.
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(overloaded_error_msg, LLMMetrics())
     )
 
     mock_process_auto.return_value = Truncation(
@@ -378,12 +373,13 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,  # Vibe is True, so _process_vibe_output is called
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
+        show_streaming=False,  # Explicitly set to ensure non-streaming path
     )
     success_input = Success(data="Normal output")
 
@@ -422,7 +418,7 @@ async def test_handle_command_output_updates_memory_with_overloaded_error(
     local_mock_update_memory.assert_called_once_with(
         command_message="get pods",
         command_output="Normal output",
-        vibe_output=overloaded_error_msg,  # The streamed error message
+        vibe_output=overloaded_error_msg,  # The error message
         model_name="test-model",
         config=ANY,
     )
@@ -452,11 +448,11 @@ async def test_handle_vibe_request_updates_memory_on_error(
         )
 
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         with patch("vibectl.execution.vibe.Config") as mock_vibe_config_cls:
@@ -573,12 +569,12 @@ async def test_handle_vibe_request_error_recovery_flow(
     ]
 
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,  # Important for recovery path in handle_command_output
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     original_execution_error = Error(
         error="kubectl failed: pod not found", exception=RuntimeError("simulated")
@@ -695,12 +691,12 @@ async def test_handle_vibe_request_includes_memory_context(
     mock_get_memory.return_value = "Previous memory context"
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Mock the LLM response for the planning phase
@@ -813,19 +809,16 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
 
     mock_summary_prompt_creator.side_effect = summary_prompt_side_effect
 
-    # This is the mock for the LLM call that `update_memory` itself makes
-    # for summarization.
-    mock_get_adapter.execute_and_log_metrics.return_value = (
-        "LLM summary influenced by memory",
-        LLMMetrics(),
-    )
+    # Note: Using streaming path, so no need to mock execute_and_log_metrics
+    # for main vibe call
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,  # Vibe must be true for update_memory to be called on success
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
+        show_streaming=True,  # Enable streaming for this test
     )
 
     with (
@@ -855,8 +848,10 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     assert "summary_prompt_func" not in update_memory_call_args.kwargs
 
     # Verify the other relevant arguments passed to update_memory
-    assert update_memory_call_args.kwargs.get("command_message") == "get pods"
-    assert update_memory_call_args.kwargs.get("command_output") == "kubectl output data"
+    assert (
+        update_memory_call_args.kwargs.get("command_message")
+        == "command: get pods output: kubectl output data"
+    )
 
     # The vibe_output passed to update_memory should be the concatenation of
     # the streamed chunks from the main vibe LLM call.
@@ -882,13 +877,16 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     # First, verify that the correct model name was requested from the adapter
     mock_get_adapter.get_model.assert_called_once_with(output_flags.model_name)
 
-    # Then, check the arguments passed to stream_execute
-    mock_get_adapter.stream_execute.assert_called_once()
-    actual_call_args_list = mock_get_adapter.stream_execute.call_args_list
+    # Then, check the arguments passed to stream_execute_and_log_metrics
+    # (not stream_execute)
+    mock_get_adapter.stream_execute_and_log_metrics.assert_called_once()
+    actual_call_args_list = (
+        mock_get_adapter.stream_execute_and_log_metrics.call_args_list
+    )
     assert len(actual_call_args_list) == 1
     actual_call = actual_call_args_list[0]
 
-    # Check keyword arguments for stream_execute
+    # Check keyword arguments for stream_execute_and_log_metrics
     assert isinstance(
         actual_call.kwargs["model"], Mock
     )  # Check it's some Mock instance

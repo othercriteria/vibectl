@@ -51,6 +51,7 @@ from .logutil import init_logging, logger
 from .model_adapter import validate_model_key_on_startup
 from .types import (
     Error,
+    MetricsDisplayMode,
     Result,
     Success,
 )
@@ -120,10 +121,13 @@ def common_command_options(
         if include_show_metrics:
             options.append(
                 click.option(
-                    "--show-metrics/--no-show-metrics",
-                    is_flag=True,
+                    "--show-metrics",
+                    type=click.Choice(
+                        ["none", "total", "sub", "all"], case_sensitive=False
+                    ),
                     default=None,
-                    help="Show LLM latency and token usage metrics",
+                    help="Show LLM latency and token usage metrics "
+                    "(none, total, sub, all)",
                 )
             )
         if include_show_streaming:
@@ -220,7 +224,7 @@ async def get(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
@@ -253,7 +257,7 @@ async def describe(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
@@ -285,7 +289,7 @@ async def logs(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
@@ -317,7 +321,7 @@ async def create(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
@@ -350,7 +354,7 @@ async def delete(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Delete a resource."""
@@ -611,7 +615,7 @@ async def auto(
     interval: int = 5,
     limit: int | None = None,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
@@ -657,7 +661,7 @@ async def semiauto(
     freeze_memory: bool,
     unfreeze_memory: bool,
     limit: int | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Run vibe command in semiauto mode with manual confirmation.
@@ -696,7 +700,7 @@ async def events(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """List events in the cluster."""
@@ -726,7 +730,7 @@ async def check(
     freeze_memory: bool,
     unfreeze_memory: bool,
     yes: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> None:
     """Determine if a predicate about the cluster is true."""
@@ -749,10 +753,10 @@ async def check(
 @click.argument("request", required=False)
 @common_command_options(include_show_kubectl=True, include_yes=True)
 @click.option(
-    "--show-metrics/--no-show-metrics",
-    is_flag=True,
+    "--show-metrics",
+    type=click.Choice(["none", "total", "sub", "all"], case_sensitive=False),
     default=None,
-    help="Show LLM latency and token usage metrics",
+    help="Show LLM latency and token usage metrics (none, total, sub, all)",
 )
 async def vibe(
     request: str | None,
@@ -763,7 +767,7 @@ async def vibe(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """LLM interprets natural language request and runs fitting kubectl command."""
@@ -796,7 +800,7 @@ async def version(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     yes: bool = False,
     show_streaming: bool | None = None,
 ) -> None:
@@ -826,7 +830,7 @@ async def cluster_info(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     yes: bool = False,
     show_streaming: bool | None = None,
 ) -> None:
@@ -992,7 +996,7 @@ async def scale(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Scale resources.
@@ -1035,7 +1039,7 @@ async def patch(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Apply patches to Kubernetes resources in place.
@@ -1086,7 +1090,7 @@ async def edit(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Edit Kubernetes resources in place.
@@ -1137,7 +1141,7 @@ def rollout(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Manage rollouts of deployments, statefulsets, and daemonsets."""
@@ -1174,7 +1178,7 @@ async def _rollout_common(
     unfreeze_memory: bool,
     show_kubectl: bool | None,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     # Await run_rollout_command
@@ -1207,7 +1211,7 @@ async def status(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="status",
@@ -1237,7 +1241,7 @@ async def history(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="history",
@@ -1269,7 +1273,7 @@ async def undo(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="undo",
@@ -1299,7 +1303,7 @@ async def restart(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="restart",
@@ -1329,7 +1333,7 @@ async def pause(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="pause",
@@ -1359,7 +1363,7 @@ async def resume(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
         subcommand="resume",
@@ -1395,7 +1399,7 @@ async def wait(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Wait for a specific condition on one or more resources."""
@@ -1434,7 +1438,7 @@ async def port_forward(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Forward one or more local ports to a pod, service, or deployment."""
@@ -1469,7 +1473,7 @@ async def diff(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Diff configurations between local files/stdin and the live cluster state."""
@@ -1499,7 +1503,7 @@ async def apply(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Apply a configuration to a resource by filename or stdin."""

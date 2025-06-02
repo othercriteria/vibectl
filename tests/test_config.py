@@ -72,7 +72,9 @@ def test_config_initialization(test_config: MockConfig) -> None:
 def test_config_get_with_default(test_config: MockConfig) -> None:
     """Test getting configuration values with defaults."""
     assert test_config.get("nonexistent", "default") == "default"
-    assert test_config.get("theme", "default") == "dark"  # Default from initialization
+    assert (
+        test_config.get("theme", "default") == "default"
+    )  # Default from initialization
 
 
 def test_config_set_boolean_values(test_config: MockConfig) -> None:
@@ -176,7 +178,7 @@ def test_config_unset_default_key(test_config: MockConfig) -> None:
     assert test_config.get("theme") == "light"
     # Unset should reset to default
     test_config.unset("theme")
-    assert test_config.get("theme") == "dark"  # dark is the default theme
+    assert test_config.get("theme") == "default"  # default is the default theme
 
 
 def test_config_unset_custom_key(test_config: MockConfig) -> None:
@@ -282,7 +284,7 @@ def test_config_get_all(test_config: MockConfig) -> None:
     all_config = test_config.get_all()
     assert isinstance(all_config, dict)
     assert "theme" in all_config
-    assert all_config["theme"] == "dark"  # Default
+    assert all_config["theme"] == "default"  # Default
 
 
 def test_config_handle_none_value(test_config: MockConfig) -> None:
@@ -318,7 +320,7 @@ def test_config_empty_file() -> None:
         config = Config(Path(temp_dir))
 
         # Config should be initialized with defaults
-        assert config.get("theme") == "dark"  # Default theme
+        assert config.get("theme") == "default"  # Default theme
 
 
 def test_config_load_error() -> None:

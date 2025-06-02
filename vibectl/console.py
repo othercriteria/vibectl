@@ -4,7 +4,7 @@ Console UI for vibectl.
 This module provides console UI functionality for vibectl.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.errors import MarkupError
@@ -15,6 +15,10 @@ from rich.text import Text
 from rich.theme import Theme
 
 from .logutil import logger
+
+# Import types only for type hints to avoid circular imports
+if TYPE_CHECKING:
+    from .types import LLMMetrics, OutputFlags
 
 
 class ConsoleManager:
@@ -364,6 +368,48 @@ class ConsoleManager:
     def print_waiting(self, message: str = "Waiting...") -> None:
         """Display a waiting message."""
         self.safe_print(self.console, message, style="info")
+
+
+def should_show_sub_metrics(output_flags: "OutputFlags") -> bool:
+    """Determine if individual LLM call metrics should be displayed."""
+    return output_flags.show_metrics.should_show_sub_metrics()
+
+
+def should_show_total_metrics(output_flags: "OutputFlags") -> bool:
+    """Determine if accumulated/total metrics should be displayed."""
+    return output_flags.show_metrics.should_show_total_metrics()
+
+
+def print_sub_metrics_if_enabled(
+    metrics: "LLMMetrics | None",
+    output_flags: "OutputFlags",
+    source: str,
+) -> None:
+    """Print individual LLM call metrics if sub-metrics are enabled."""
+    if metrics and should_show_sub_metrics(output_flags):
+        console_manager.print_metrics(
+            latency_ms=metrics.latency_ms,
+            tokens_in=metrics.token_input,
+            tokens_out=metrics.token_output,
+            source=source,
+            total_duration=metrics.total_processing_duration_ms,
+        )
+
+
+def print_total_metrics_if_enabled(
+    metrics: "LLMMetrics | None",
+    output_flags: "OutputFlags",
+    source: str,
+) -> None:
+    """Print accumulated/total metrics if total metrics are enabled."""
+    if metrics and should_show_total_metrics(output_flags) and metrics.call_count > 0:
+        console_manager.print_metrics(
+            latency_ms=metrics.latency_ms,
+            tokens_in=metrics.token_input,
+            tokens_out=metrics.token_output,
+            source=source,
+            total_duration=metrics.total_processing_duration_ms,
+        )
 
 
 # Create global instance for easy import

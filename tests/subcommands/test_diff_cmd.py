@@ -5,7 +5,7 @@ import pytest
 from vibectl.config import Config
 from vibectl.prompts.diff import diff_output_prompt
 from vibectl.subcommands.diff_cmd import run_diff_command
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.mark.asyncio
@@ -28,7 +28,7 @@ async def test_run_diff_command_success_no_differences(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
@@ -62,7 +62,7 @@ async def test_run_diff_command_success_no_differences(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -84,7 +84,7 @@ async def test_run_diff_command_success_no_differences(
         show_vibe=True,
         model="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -126,7 +126,7 @@ async def test_run_diff_command_success_with_differences(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = True
+    mock_output_flags.show_raw_output = True
     mock_output_flags.show_vibe = False
     mock_output_flags.show_kubectl = True
     mock_output_flags.model_name = None
@@ -160,7 +160,7 @@ async def test_run_diff_command_success_with_differences(
         model=None,
         freeze_memory=True,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -180,7 +180,7 @@ async def test_run_diff_command_success_with_differences(
         show_vibe=False,
         model=None,
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -219,7 +219,7 @@ async def test_run_diff_command_kubectl_error(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = False
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = None
@@ -242,7 +242,7 @@ async def test_run_diff_command_kubectl_error(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -260,7 +260,7 @@ async def test_run_diff_command_kubectl_error(
         show_vibe=False,
         model=None,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -294,7 +294,7 @@ async def test_run_diff_command_handle_output_error(
     mock_config_cls.return_value = mock_config_instance
 
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
@@ -329,7 +329,7 @@ async def test_run_diff_command_handle_output_error(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -355,7 +355,7 @@ async def test_run_diff_command_handle_output_error(
         show_vibe=True,
         model="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_config_cls.assert_called_once()
@@ -386,7 +386,7 @@ async def test_run_diff_command_vibe_missing_request(
 ) -> None:
     """Test run_diff_command with 'vibe' resource but no request args."""
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-model"
@@ -403,7 +403,7 @@ async def test_run_diff_command_vibe_missing_request(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -415,7 +415,7 @@ async def test_run_diff_command_vibe_missing_request(
         show_vibe=True,
         model="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -435,7 +435,7 @@ async def test_run_diff_command_vibe_error_from_handler(
 ) -> None:
     """Test run_diff_command with 'vibe' where handle_vibe_request returns Error."""
     mock_output_flags = MagicMock(spec=OutputFlags)
-    mock_output_flags.show_raw = False
+    mock_output_flags.show_raw_output = False
     mock_output_flags.show_vibe = True
     mock_output_flags.show_kubectl = False
     mock_output_flags.model_name = "test-diff-model"
@@ -458,7 +458,7 @@ async def test_run_diff_command_vibe_error_from_handler(
         model=None,
         freeze_memory=False,
         unfreeze_memory=True,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -485,7 +485,7 @@ async def test_run_diff_command_vibe_error_from_handler(
         show_vibe=False,
         model=None,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
     mock_handle_vibe_request.assert_called_once()

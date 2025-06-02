@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Enhanced LLM metrics recording and reporting system (WIP)
+  - Configurable display of sub-metrics (individual LLM calls) vs total metrics (final command completion)
+  - Consistent instrumentation across all LLM call sites
+  - DRY boilerplate reduction for LLM call patterns
+  - Improved metrics configuration options with backward compatibility
+  - Bug fixes for LLM call edge cases and error conditions
+
 ## [0.9.0] - 2025-05-28
 
 ### Added

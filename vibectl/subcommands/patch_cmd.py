@@ -9,7 +9,7 @@ from vibectl.prompts.patch import (
     patch_plan_prompt,
     patch_resource_prompt,
 )
-from vibectl.types import Error, Result
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_patch_command(
@@ -21,7 +21,7 @@ async def run_patch_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """Executes the patch command logic."""
@@ -56,8 +56,6 @@ async def run_patch_command(
             plan_prompt_func=patch_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=patch_resource_prompt,
-            semiauto=False,
-            config=None,
         )
         logger.info("Completed 'patch' command for vibe request.")
         return result

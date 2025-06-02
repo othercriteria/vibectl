@@ -14,7 +14,7 @@ from vibectl.prompts.edit import (
     edit_plan_prompt,
     edit_resource_prompt,
 )
-from vibectl.types import Error, Result
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_edit_command(
@@ -26,7 +26,7 @@ async def run_edit_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """Executes the edit command logic."""

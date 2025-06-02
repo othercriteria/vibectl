@@ -7,12 +7,12 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.port_forward import port_forward_plan_prompt, port_forward_prompt
-from vibectl.types import Error, Result
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_port_forward_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     show_kubectl: bool | None = None,
@@ -20,7 +20,7 @@ async def run_port_forward_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
     exit_on_error: bool = True,
 ) -> Result:

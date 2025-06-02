@@ -11,8 +11,12 @@ handling. Do not print or log user-facing errors here; use logging for diagnosti
 from rich.table import Table
 
 from .config import (
-    DEFAULT_CONFIG,
     Config,
+)
+
+# Import console utility functions for metrics display
+from .console import (
+    print_sub_metrics_if_enabled,
 )
 from .k8s_utils import (
     create_kubectl_error,
@@ -29,10 +33,13 @@ from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompts.recovery import recovery_prompt
+from .truncation_logic import truncate_string
 from .types import (
     Error,
     Fragment,
     LLMMetrics,
+    LLMMetricsAccumulator,
+    MetricsDisplayMode,
     OutputFlags,
     Result,
     Success,
@@ -226,6 +233,8 @@ async def handle_command_output(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
+    suppress_total_metrics: bool = False,
 ) -> Result:
     """Handle the output of a kubectl command.
 
@@ -235,47 +244,38 @@ async def handle_command_output(
         output: The command output Result object.
         output_flags: Flags controlling the output format.
         command: The original kubectl command type (e.g., get, describe).
+        llm_metrics_accumulator: Optional existing accumulator to merge with.
+        suppress_total_metrics: If True, don't print total metrics at the end.
 
     Returns:
         Result object containing the processed output or original error.
     """
     _check_output_visibility(output_flags)
 
+    # Initialize metrics accumulator for this command execution
+    # If an accumulator is provided, use it; otherwise create a new one
+    if llm_metrics_accumulator is None:
+        llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
+    # If accumulator was provided, we'll add to it and it already has existing metrics
+
     output_data: str | None = None  # Initialize output_data here
     output_message: str = ""  # Initialize output_message here
     original_error_object: Error | None = None
-    result_metrics: LLMMetrics | None = (
-        None  # Metrics from this result (summary/recovery)
-    )
     result_original_exit_code: int | None = None
 
     if isinstance(output, Error):
         original_error_object = output
         console_manager.print_error(original_error_object.error)
         output_data = original_error_object.error  # error is a string
-        result_metrics = original_error_object.metrics  # Get metrics from Error
     elif isinstance(output, Success):
         output_message = (
             output.message or ""
         )  # output_message seems unused before vibe processing
         output_data = output.data or ""  # data is a string or empty string
-        result_metrics = output.metrics
         result_original_exit_code = output.original_exit_code
 
     _display_kubectl_command(output_flags, command)
-
-    # This check should now always have output_data defined if logic above is correct
-    if output_data is not None:
-        _display_raw_output(output_flags, output_data)
-    else:
-        # This case should ideally not be reached if the above logic is exhaustive
-        # for setting output_data. Log a warning if it is.
-        logger.warning(
-            "output_data was None before vibe processing, which is unexpected."
-        )
-        # If output_data is None here, and show_vibe is false, we
-        # might return None implicitly later if not careful.
-        # Ensure we return the original_error_object if it exists from the 'else' block.
+    _display_raw_output(output_flags, output_data or "")
 
     vibe_result: Result | None = None
     if output_flags.show_vibe:
@@ -310,6 +310,10 @@ async def handle_command_output(
                             model,
                             system_fragments=SystemFragments(recovery_system_fragments),
                             user_fragments=UserFragments(recovery_user_fragments),
+                        )
+                        # Accumulate recovery metrics
+                        llm_metrics_accumulator.add_metrics(
+                            recovery_metrics, "LLM Recovery Suggestions"
                         )
                         suggestions_generated = True
                     except Exception as llm_exc:
@@ -357,14 +361,10 @@ async def handle_command_output(
                             model_name=output_flags.model_name,
                             config=Config(),
                         )
-                        if memory_update_metrics_error and output_flags.show_metrics:
-                            console_manager.print_metrics(
-                                latency_ms=memory_update_metrics_error.latency_ms,
-                                tokens_in=memory_update_metrics_error.token_input,
-                                tokens_out=memory_update_metrics_error.token_output,
-                                source="LLM Memory Update (Recovery)",
-                                total_duration=memory_update_metrics_error.total_processing_duration_ms,
-                            )
+                        # Accumulate memory update metrics
+                        llm_metrics_accumulator.add_metrics(
+                            memory_update_metrics_error, "LLM Memory Update (Recovery)"
+                        )
 
                     except Exception as mem_err:
                         logger.error(
@@ -373,7 +373,6 @@ async def handle_command_output(
 
                     # The recovery path returns the modified original_error_object
                     # which now contains recovery_metrics in its .metrics field.
-                    # We use result_metrics extracted earlier.
                     vibe_result = original_error_object
                     # If recovery was attempted and vibe_result is set, return it.
                     return vibe_result
@@ -399,14 +398,12 @@ async def handle_command_output(
                         summary_user_fragments=summary_user_fragments,
                         command=command,
                         original_error_object=original_error_object,
+                        llm_metrics_accumulator=llm_metrics_accumulator,
                     )
                     if isinstance(vibe_result, Success):
-                        result_metrics = vibe_result.metrics  # Get metrics from summary
                         vibe_result.original_exit_code = result_original_exit_code
                     elif isinstance(vibe_result, Error):
-                        result_metrics = (
-                            vibe_result.metrics
-                        )  # Get metrics from API error
+                        pass  # Error case, no additional processing needed
             except RecoverableApiError as api_err:
                 # Catch specific recoverable errors from _get_llm_summary
                 logger.warning(
@@ -458,34 +455,42 @@ async def handle_command_output(
                     error="Input command output was None, cannot generate Vibe summary."
                 )
 
-    if output_flags.show_vibe:
-        # Display only the metrics from the current result (summary/recovery)
-        current_metrics = result_metrics  # Already extracted from output
-
-        if current_metrics and output_flags.show_metrics:
-            console_manager.print_metrics(
-                latency_ms=current_metrics.latency_ms,
-                tokens_in=current_metrics.token_input,
-                tokens_out=current_metrics.token_output,
-                source="LLM Output Processing",
-                total_duration=current_metrics.total_processing_duration_ms,
-            )
-
     # If vibe processing occurred and resulted in a Success/Error, return that.
     # Otherwise, return the original result (or Success if only raw was shown).
     if vibe_result:
         logger.debug(
             f"Vibe output processing complete. Result type: {type(vibe_result)}"
         )
+        # Ensure accumulated metrics are included in the result
+        if isinstance(vibe_result, Success | Error):
+            vibe_result.metrics = llm_metrics_accumulator.get_metrics()
+        # Display total metrics if enabled after all vibe processing is complete
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return vibe_result
     elif original_error_object:
         # Return original error if vibe wasn't shown or only recovery happened
+        # Ensure accumulated metrics are included
+        original_error_object.metrics = llm_metrics_accumulator.get_metrics()
+        # Display total metrics if enabled
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return original_error_object
     else:
         # Return Success with the original output string if no vibe processing
+        # Display total metrics if enabled
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return Success(
             message=output_data if output_data is not None else "",
             original_exit_code=result_original_exit_code,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
 
@@ -523,7 +528,7 @@ def _check_output_visibility(output_flags: OutputFlags) -> None:
         output_flags: Output configuration flags
     """
     if (
-        not output_flags.show_raw
+        not output_flags.show_raw_output
         and not output_flags.show_vibe
         and output_flags.warn_no_output
     ):
@@ -538,7 +543,7 @@ def _display_raw_output(output_flags: OutputFlags, output: str) -> None:
         output_flags: Output configuration flags
         output: Command output to display
     """
-    if output_flags.show_raw:
+    if output_flags.show_raw_output:
         logger.debug("Showing raw output.")
         console_manager.print_raw(output)
 
@@ -551,6 +556,7 @@ async def _process_vibe_output(
     summary_user_fragments: UserFragments,
     command: str | None = None,
     original_error_object: Error | None = None,
+    llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
     """Helper to process Vibe output, potentially stream, and update memory."""
     # Truncate output if necessary
@@ -583,16 +589,32 @@ async def _process_vibe_output(
             console_manager.start_live_vibe_panel()
             full_vibe_response_text = ""
             try:
-                async for chunk in model_adapter.stream_execute(
+                # Use streaming with metrics instead of plain streaming
+                (
+                    stream_iterator,
+                    stream_metrics_collector,
+                ) = await model_adapter.stream_execute_and_log_metrics(
                     model=model,
                     system_fragments=summary_system_fragments,
                     user_fragments=UserFragments(formatted_user_fragments),
-                ):
+                )
+
+                async for chunk in stream_iterator:
                     console_manager.update_live_vibe_panel(chunk)
                     full_vibe_response_text += chunk
                 vibe_output_text = full_vibe_response_text
-                # Metrics are typically not available or hard to get accurately
-                # for pure streaming
+
+                # Get the final metrics after streaming is complete
+                final_stream_metrics = await stream_metrics_collector.get_metrics()
+
+                # Accumulate streaming metrics if available
+                if (
+                    llm_metrics_accumulator is not None
+                    and final_stream_metrics is not None
+                ):
+                    llm_metrics_accumulator.add_metrics(
+                        final_stream_metrics, "LLM Vibe Summary (Streaming)"
+                    )
             finally:
                 # stop_live_vibe_panel will display the final accumulated content
                 # in the panel
@@ -618,6 +640,15 @@ async def _process_vibe_output(
                 system_fragments=summary_system_fragments,
                 user_fragments=UserFragments(formatted_user_fragments),
             )
+            # Accumulate LLM summary metrics
+            if llm_metrics_accumulator and metrics:
+                llm_metrics_accumulator.add_metrics(metrics, "LLM Summary Generation")
+            elif metrics:
+                # Fallback for standalone calls without accumulator
+                print_sub_metrics_if_enabled(
+                    metrics, output_flags, "LLM Summary Generation"
+                )
+
             # Display the fetched output. If show_streaming was false, print
             # without panel.
             # If it was an error recovery, print with panel.
@@ -670,13 +701,17 @@ async def _process_vibe_output(
                 model_name=output_flags.model_name,
                 config=Config(),
             )
-            if memory_update_metrics_err and output_flags.show_metrics:
-                console_manager.print_metrics(
-                    latency_ms=memory_update_metrics_err.latency_ms,
-                    tokens_in=memory_update_metrics_err.token_input,
-                    tokens_out=memory_update_metrics_err.token_output,
-                    source="LLM Memory Update (Summary Error)",
-                    total_duration=memory_update_metrics_err.total_processing_duration_ms,
+            # Accumulate memory update metrics and display if enabled
+            if llm_metrics_accumulator:
+                llm_metrics_accumulator.add_metrics(
+                    memory_update_metrics_err, "LLM Memory Update (Summary Error)"
+                )
+            else:
+                # Fallback for standalone calls without accumulator
+                print_sub_metrics_if_enabled(
+                    memory_update_metrics_err,
+                    output_flags,
+                    "LLM Memory Update (Summary Error)",
                 )
             return create_api_error(error_message, metrics=metrics)
 
@@ -685,23 +720,23 @@ async def _process_vibe_output(
         # The display was handled either by stop_live_vibe_panel() or by the
         # console_manager.print_vibe(..., use_panel=...) call.
 
-        memory_update_metrics_ok = await update_memory(
-            command_message=command
-            if command
-            else (output_message or "Unknown"),  # Prioritize command
-            command_output=output_data,
-            vibe_output=vibe_output_text,  # Successful Vibe summary
+        # Update memory with summary after vibe processing
+        memory_update_metrics = await update_memory(
+            command_message=f"command: {command} output: "
+            f"{truncate_string(output_data, 200)}",
+            command_output=truncate_string(vibe_output_text, 200)
+            if vibe_output_text
+            else "",
+            vibe_output=truncate_string(vibe_output_text, 200)
+            if vibe_output_text
+            else "",
             model_name=output_flags.model_name,
-            config=Config(),
         )
-        if memory_update_metrics_ok and output_flags.show_metrics:
-            console_manager.print_metrics(
-                latency_ms=memory_update_metrics_ok.latency_ms,
-                tokens_in=memory_update_metrics_ok.token_input,
-                tokens_out=memory_update_metrics_ok.token_output,
-                source="LLM Memory Update (Summary)",
-                total_duration=memory_update_metrics_ok.total_processing_duration_ms,
+        if llm_metrics_accumulator:
+            llm_metrics_accumulator.add_metrics(
+                memory_update_metrics, "LLM Memory Update (Summary)"
             )
+
         return Success(message=vibe_output_text, metrics=metrics)
 
     except RecoverableApiError as api_err:
@@ -752,7 +787,12 @@ def _create_display_command(verb: str, args: list[str], has_yaml: bool) -> str:
     """
     # Quote arguments appropriately
     display_args = _quote_args(args)
-    base_cmd = f"kubectl {verb} {' '.join(display_args)}"
+
+    # Build base command, avoiding extra space when no args
+    if display_args:
+        base_cmd = f"kubectl {verb} {' '.join(display_args)}"
+    else:
+        base_cmd = f"kubectl {verb}"
 
     if has_yaml:
         return f"{base_cmd} (with YAML content)"
@@ -800,57 +840,19 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode
+    | None = None,  # Only support MetricsDisplayMode now
     show_streaming: bool | None = None,
 ) -> OutputFlags:
-    """Configure output flags based on config."""
-    config = Config()
-
-    show_raw_output_flag = (
-        show_raw_output
-        if show_raw_output is not None
-        else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"])
-    )
-
-    show_vibe_flag = (
-        show_vibe
-        if show_vibe is not None
-        else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"])
-    )
-
-    warn_no_output_flag = config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"])
-
-    warn_no_proxy_flag = config.get("warn_no_proxy", True)
-
-    model_name = model if model else config.get("model", DEFAULT_CONFIG["model"])
-
-    show_kubectl_flag = (
-        show_kubectl
-        if show_kubectl is not None
-        else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
-    )
-
-    show_metrics_flag = (
-        show_metrics
-        if show_metrics is not None
-        else config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
-    )
-
-    show_streaming_flag = (
-        show_streaming
-        if show_streaming is not None
-        else config.get("show_streaming", DEFAULT_CONFIG["show_streaming"])
-    )
-
-    return OutputFlags(
-        show_raw=show_raw_output_flag,
-        show_vibe=show_vibe_flag,
-        warn_no_output=warn_no_output_flag,
-        model_name=model_name,
-        show_metrics=show_metrics_flag,
-        show_kubectl=show_kubectl_flag,
-        warn_no_proxy=warn_no_proxy_flag,
-        show_streaming=show_streaming_flag,
+    """Configure OutputFlags with the given parameters."""
+    # Use OutputFlags.from_args which handles all the config logic
+    return OutputFlags.from_args(
+        model=model,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
 

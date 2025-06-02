@@ -381,6 +381,29 @@ class ModelAdapter(ABC, Generic[T]):
         if False:
             yield ""
 
+    @abstractmethod
+    async def stream_execute_and_log_metrics(
+        self,
+        model: Any,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
+        response_model: type[BaseModel] | None = None,
+    ) -> tuple[AsyncIterator[str], "StreamingMetricsCollector"]:
+        """Execute a prompt on the model and stream the response with metrics.
+
+        Args:
+            model: The model instance to execute the prompt on
+            system_fragments: List of system prompt fragments.
+            user_fragments: List of user prompt fragments.
+            response_model: Optional Pydantic model (ignored for streaming).
+
+        Returns:
+            tuple[AsyncIterator[str], StreamingMetricsCollector]:
+                A tuple containing the async iterator
+                for response chunks and metrics collector.
+        """
+        pass
+
 
 class ModelEnvironment:
     """Context manager for handling model-specific environment variables.
@@ -462,6 +485,33 @@ class ModelEnvironment:
         for key in legacy_keys:
             if key not in self.original_env and key in os.environ:
                 del os.environ[key]
+
+
+class StreamingMetricsCollector:
+    """Helper class to collect metrics from a streaming operation."""
+
+    def __init__(self) -> None:
+        self._completed: bool = False
+        self._metrics: LLMMetrics | None = None
+
+    def _mark_completed(self, metrics: LLMMetrics) -> None:
+        """Internal method to mark streaming as completed with metrics."""
+        self._completed = True
+        self._metrics = metrics
+
+    async def get_metrics(self) -> LLMMetrics | None:
+        """Get the final metrics. This should be called after the stream is consumed."""
+        if not self._completed:
+            # If streaming hasn't completed yet, return None
+            # This can happen if get_metrics is called before the stream
+            # is fully consumed
+            return None
+        return self._metrics
+
+    @property
+    def is_completed(self) -> bool:
+        """Check if the streaming operation has completed."""
+        return self._completed
 
 
 class LLMModelAdapter(ModelAdapter):
@@ -1271,6 +1321,144 @@ class LLMModelAdapter(ModelAdapter):
             else:
                 raise ValueError(
                     "LLM Streaming Execution Error for model "
+                    f"{current_model_id_for_log}: {e}"
+                ) from e
+
+    async def stream_execute_and_log_metrics(
+        self,
+        model: Any,
+        system_fragments: SystemFragments,
+        user_fragments: UserFragments,
+        response_model: type[BaseModel] | None = None,  # Ignored for streaming
+    ) -> tuple[AsyncIterator[str], "StreamingMetricsCollector"]:
+        """Execute a prompt on the model and stream the response with metrics.
+
+        Args:
+            model: The model instance to execute the prompt on
+            system_fragments: List of system prompt fragments.
+            user_fragments: List of user prompt fragments.
+            response_model: Optional Pydantic model (ignored for streaming).
+
+        Returns:
+            tuple[AsyncIterator[str], StreamingMetricsCollector]:
+                A tuple containing the async iterator
+                for response chunks and metrics collector.
+        """
+        import time
+
+        current_model_id_for_log = getattr(model, "model_id", "Unknown")
+        logger.debug(
+            "Streaming call with metrics to model '%s'",
+            current_model_id_for_log,
+        )
+
+        overall_start_time = time.monotonic()
+        first_chunk_time: float | None = None
+        total_chunks = 0
+        accumulated_text = ""
+        completed = False
+        final_metrics: LLMMetrics | None = None
+
+        metrics_collector = StreamingMetricsCollector()
+
+        async def metered_stream() -> AsyncIterator[str]:
+            nonlocal \
+                first_chunk_time, \
+                total_chunks, \
+                accumulated_text, \
+                completed, \
+                final_metrics
+
+            try:
+                # Start the streaming
+                stream_iterator = self.stream_execute(
+                    model, system_fragments, user_fragments, response_model
+                )
+
+                async for chunk in stream_iterator:
+                    if first_chunk_time is None:
+                        first_chunk_time = time.monotonic()
+                    total_chunks += 1
+                    accumulated_text += chunk
+                    yield chunk
+
+            except Exception as e:
+                logger.error(
+                    f"Error during streaming for model {current_model_id_for_log}: {e}"
+                )
+                raise
+            finally:
+                # Calculate final metrics after streaming completes
+                overall_end_time = time.monotonic()
+                total_duration_ms = (overall_end_time - overall_start_time) * 1000
+
+                # Calculate latency (time to first chunk)
+                latency_ms = 0.0
+                if first_chunk_time is not None:
+                    latency_ms = (first_chunk_time - overall_start_time) * 1000
+
+                # Estimate token counts (rough approximation)
+                def estimate_tokens(text: str) -> int:
+                    # Rough estimate: ~4 characters per token on average
+                    return max(1, len(text) // 4)
+
+                input_prompt = "\n\n".join(system_fragments) if system_fragments else ""
+                input_prompt += (
+                    "\n\n" + "\n\n".join(user_fragments) if user_fragments else ""
+                )
+                token_input = estimate_tokens(input_prompt)
+                token_output = estimate_tokens(accumulated_text)
+
+                final_metrics = LLMMetrics(
+                    latency_ms=latency_ms,
+                    total_processing_duration_ms=total_duration_ms,
+                    token_input=token_input,
+                    token_output=token_output,
+                    call_count=1,
+                )
+
+                # Mark metrics as completed
+                metrics_collector._mark_completed(final_metrics)
+                completed = True
+
+                logger.info(
+                    "LLM streaming call to "
+                    f"{current_model_id_for_log} completed. "
+                    f"Latency (first chunk): {latency_ms:.2f} ms, "
+                    f"Total Duration: {total_duration_ms:.2f} ms, "
+                    f"Chunks: {total_chunks}, "
+                    f"Estimated Tokens In: {token_input}, "
+                    f"Estimated Tokens Out: {token_output}"
+                )
+
+        try:
+            # Return the metered stream iterator and metrics collector
+            return metered_stream(), metrics_collector
+
+        except Exception as e:
+            overall_end_time = time.monotonic()
+            total_duration_ms = (overall_end_time - overall_start_time) * 1000
+
+            error_str = str(e).lower()
+            logger.warning(
+                "LLM streaming call with metrics to "
+                f"{current_model_id_for_log} failed. "
+                f"Total Duration: {total_duration_ms:.2f} ms. "
+                f"Error: {e}"
+            )
+
+            if any(keyword in error_str for keyword in RECOVERABLE_API_ERROR_KEYWORDS):
+                logger.warning(
+                    "Recoverable API error detected during streaming with metrics for "
+                    f"model {current_model_id_for_log}: {e}"
+                )
+                raise RecoverableApiError(
+                    "Recoverable API Error during LLM stream with metrics to "
+                    f"{current_model_id_for_log}: {e}"
+                ) from e
+            else:
+                raise ValueError(
+                    "LLM Streaming Execution Error with metrics for model "
                     f"{current_model_id_for_log}: {e}"
                 ) from e
 
