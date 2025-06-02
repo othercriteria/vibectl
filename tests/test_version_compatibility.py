@@ -5,6 +5,8 @@ This module tests the version parsing, comparison, and compatibility checking
 logic used for plugin installation validation.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from vibectl.version_compat import (
@@ -179,30 +181,34 @@ class TestVersionCompatibilityChecking:
 class TestPluginCompatibilityIntegration:
     """Tests for plugin compatibility checking integration."""
 
+    @patch("vibectl.version_compat.__version__", "0.9.0")
     def test_plugin_compatibility_current_version(self) -> None:
         """Test plugin compatibility with current vibectl version."""
-        # This should be compatible with current version (0.9.0)
+        # This should be compatible with mocked version (0.9.0)
         is_compatible, error = check_plugin_compatibility(">=0.8.0,<1.0.0")
         assert is_compatible
         assert error == ""
 
+    @patch("vibectl.version_compat.__version__", "0.9.0")
     def test_plugin_compatibility_future_version(self) -> None:
         """Test plugin compatibility with future version requirements."""
-        # This should be incompatible with current version (0.9.0)
+        # This should be incompatible with mocked version (0.9.0)
         is_compatible, error = check_plugin_compatibility(">=2.0.0,<3.0.0")
         assert not is_compatible
         assert "Requires version >= 2.0.0, got 0.9.0" in error
 
+    @patch("vibectl.version_compat.__version__", "0.9.0")
     def test_plugin_compatibility_old_version(self) -> None:
         """Test plugin compatibility with old version requirements."""
-        # This should be incompatible with current version (0.9.0)
+        # This should be incompatible with mocked version (0.9.0)
         is_compatible, error = check_plugin_compatibility("<0.8.0")
         assert not is_compatible
         assert "Requires version < 0.8.0, got 0.9.0" in error
 
+    @patch("vibectl.version_compat.__version__", "0.9.0")
     def test_plugin_compatibility_exact_match(self) -> None:
         """Test plugin compatibility with exact version match."""
-        # Test exact match with current version
+        # Test exact match with mocked version
         is_compatible, error = check_plugin_compatibility("==0.9.0")
         assert is_compatible
         assert error == ""

@@ -1080,6 +1080,7 @@ class TestRuntimeVersionCompatibility:
     """Tests for runtime version compatibility validation."""
 
     @patch("vibectl.plugins.logger")
+    @patch("vibectl.version_compat.__version__", "0.9.0")
     def test_runtime_version_check_skips_incompatible_plugin(
         self, mock_logger: Mock, mock_plugin_store: PluginStore
     ) -> None:

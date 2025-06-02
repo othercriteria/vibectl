@@ -2,7 +2,7 @@
 vibectl - A vibes-based alternative to kubectl
 """
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 
 import logging
