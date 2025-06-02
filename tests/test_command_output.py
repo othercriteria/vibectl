@@ -215,7 +215,14 @@ async def test_handle_command_output_empty_response(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_return_async(), mock_collector)
@@ -295,7 +302,14 @@ async def test_handle_command_output_with_command(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_return_async(), mock_collector)
@@ -356,9 +370,10 @@ async def test_handle_command_output_with_command(
     mock_update_memory.assert_called_once()
     called_args, called_kwargs = mock_update_memory.call_args
     assert called_kwargs.get("vibe_output") == expected_llm_response_text
-    assert called_kwargs.get("command_message") == command_name
-    # Optional: More detailed check for metrics passed to update_memory if relevant
-    # assert isinstance(called_kwargs.get("metrics"), LLMMetrics)
+    assert (
+        called_kwargs.get("command_message")
+        == f"command: {command_name} output: test output"
+    )
 
 
 @patch("vibectl.command_handler.logger")
@@ -491,7 +506,14 @@ async def test_handle_command_output_model_name_from_default(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_return_async(), mock_collector)
@@ -576,7 +598,14 @@ async def test_handle_command_output_basic(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_return_async(), mock_collector)
@@ -748,7 +777,14 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_execute_return_async(), mock_collector)
@@ -807,8 +843,10 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     called_args, called_kwargs = mock_update_memory.call_args
     assert called_kwargs.get("vibe_output") == expected_llm_response_text
     assert called_kwargs.get("model_name") == "auton-model"
-    assert called_kwargs.get("command_message") == "autonomous_command"
-    assert called_kwargs.get("command_output") == original_output_data
+    assert (
+        called_kwargs.get("command_message")
+        == f"command: autonomous_command output: {original_output_data}"
+    )
 
 
 @patch("vibectl.command_handler.output_processor")
@@ -836,7 +874,14 @@ async def test_handle_command_output_llm_error(
     from vibectl.model_adapter import StreamingMetricsCollector
 
     mock_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
+    mock_collector.get_metrics = AsyncMock(
+        return_value=LLMMetrics(
+            token_input=50,
+            token_output=100,
+            latency_ms=150.5,
+            total_processing_duration_ms=200.0,
+        )
+    )
 
     mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
         return_value=(mock_stream_return_async(), mock_collector)

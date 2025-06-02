@@ -848,8 +848,10 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     assert "summary_prompt_func" not in update_memory_call_args.kwargs
 
     # Verify the other relevant arguments passed to update_memory
-    assert update_memory_call_args.kwargs.get("command_message") == "get pods"
-    assert update_memory_call_args.kwargs.get("command_output") == "kubectl output data"
+    assert (
+        update_memory_call_args.kwargs.get("command_message")
+        == "command: get pods output: kubectl output data"
+    )
 
     # The vibe_output passed to update_memory should be the concatenation of
     # the streamed chunks from the main vibe LLM call.

@@ -400,6 +400,7 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
             get_test_summary_fragments,
             command="delete",  # Expect the original command verb here
             llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
+            suppress_total_metrics=True,  # Add the new parameter
         )
 
     # Verify result
@@ -466,6 +467,7 @@ async def test_vibe_non_delete_commands_skip_confirmation(
             get_test_summary_fragments,
             command="get",  # Expect the original command verb here
             llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
+            suppress_total_metrics=True,  # Add the new parameter
         )
 
     # Verify result
@@ -685,6 +687,7 @@ async def test_vibe_delete_confirmation_yes_and_fuzzy_update_success(
         get_test_summary_fragments,
         command="delete",
         llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
+        suppress_total_metrics=True,  # Add the new parameter
     )
 
 

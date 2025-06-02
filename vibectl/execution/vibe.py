@@ -308,7 +308,7 @@ async def handle_vibe_request(
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
             )
         else:
-            return await _confirm_and_execute_plan(
+            result = await _confirm_and_execute_plan(
                 kubectl_verb=kubectl_verb,
                 kubectl_args=kubectl_args,
                 yaml_content=response_action.yaml_manifest,
@@ -323,6 +323,13 @@ async def handle_vibe_request(
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
                 llm_metrics_accumulator=llm_metrics_accumulator,
             )
+
+            # Print total metrics for the entire vibe operation
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
+
+            return result
 
     else:  # Default case (Unknown ActionType)
         logger.error(
@@ -443,6 +450,7 @@ async def _confirm_and_execute_plan(
             summary_prompt_func,
             command=kubectl_verb,
             llm_metrics_accumulator=llm_metrics_accumulator,
+            suppress_total_metrics=True,
         )
     except RecoverableApiError as api_err:
         logger.warning(

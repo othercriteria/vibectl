@@ -197,11 +197,14 @@ spec:
         patch("vibectl.execution.edit.console_manager"),
     ):
         # Mock update_memory to return metrics
-        mock_metrics = Mock()
-        mock_metrics.latency_ms = 100
-        mock_metrics.token_input = 50
-        mock_metrics.token_output = 25
-        mock_metrics.total_processing_duration_ms = 150
+        from vibectl.types import LLMMetrics
+
+        mock_metrics = LLMMetrics(
+            token_input=50,
+            token_output=25,
+            latency_ms=100.0,
+            total_processing_duration_ms=150.0,
+        )
         mock_update_memory.return_value = mock_metrics
 
         config = Mock()

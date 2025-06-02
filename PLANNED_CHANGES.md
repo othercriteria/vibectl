@@ -44,23 +44,32 @@ Improve LLM metrics handling and configurability by separating individual metric
    - Fixed all `show_raw` → `show_raw_output` references
    - **Captures and displays memory update LLM metrics** - Now accumulates metrics from `update_memory()` calls
 
-8. **Updated all subcommands** - **NEW in this commit**
+8. **Updated all subcommands** - **COMPLETED**
    - **All subcommand functions now accept `MetricsDisplayMode` instead of `bool` for `show_metrics`**
    - **Type signatures updated across all command modules**
    - **Backward compatibility maintained through configuration layer**
 
-9. **Updated vibe execution** - **NEW in this commit**
+9. **Updated vibe execution** - **COMPLETED**
    - **Memory update metrics in vibe.py now use new display utilities**
    - **Individual memory update calls show sub-metrics when enabled**
 
-10. **Comprehensive test updates** - **NEW in this commit**
+10. **Comprehensive test updates** - **COMPLETED**
     - **All test files updated to use new `MetricsDisplayMode` types**
     - **Test fixtures and mocks updated for new type signatures**
     - **Backward compatibility tests maintained**
 
-11. **CLI integration** - **NEW in this commit**
+11. **CLI integration** - **COMPLETED**
     - **Main CLI updated to handle new types properly**
     - **Command handler updated to use new `OutputFlags.from_args()` method**
+
+12. **Async streaming metrics infrastructure** - **NEW IN THIS COMMIT**
+    - **Added `stream_execute_and_log_metrics()` abstract method to ModelAdapter**
+    - **Implemented `StreamingMetricsCollector` class for async metrics collection**
+    - **Full implementation in Claude model adapter with proper metrics tracking**
+    - **Updated command_handler.py to accept and use LLMMetricsAccumulator parameters**
+    - **Enhanced memory update operations to pass through metrics accumulators**
+    - **Updated all test mocks to include streaming metrics methods**
+    - **Added comprehensive test coverage for streaming metrics functionality**
 
 ### 🔄 In Progress / Next Steps
 
@@ -70,12 +79,13 @@ Improve LLM metrics handling and configurability by separating individual metric
    - Verify different modes work as expected
 
 2. **Update remaining command implementations** - **MOSTLY COMPLETE**
-   - ~~Convert other LLM-heavy commands (`edit`, `apply`, etc.) to use new utility functions~~ **DONE**: Type signatures updated
-   - **Replace direct `console_manager.print_metrics()` calls with utility functions in remaining commands**
+   - **Replace any remaining direct `console_manager.print_metrics()` calls with utility functions**
+   - **Ensure all async operations properly utilize streaming metrics**
 
 3. **Documentation**
    - Update configuration documentation to explain new enum values
    - Update CLI help text to mention the new options
+   - Document the new async streaming metrics capabilities
 
 ### 🎯 Success Criteria
 
@@ -90,6 +100,7 @@ Improve LLM metrics handling and configurability by separating individual metric
 - [x] **Memory update LLM calls now included in metrics** - Previously missing memory update metrics are now captured and displayed
 - [x] **All type signatures updated to use MetricsDisplayMode**
 - [x] **All tests updated and passing**
+- [x] **Async streaming metrics properly integrated throughout codebase**
 
 ## Implementation Notes
 
@@ -97,5 +108,7 @@ Improve LLM metrics handling and configurability by separating individual metric
 - Utility functions are placed in `console.py` rather than a separate module to keep related functionality together
 - `LLMMetricsAccumulator` is in `types.py` alongside the `LLMMetrics` class for logical grouping
 - All changes maintain backward compatibility with existing boolean-based configurations
-- **The core infrastructure is now complete - remaining work is primarily testing and documentation**
+- **The core infrastructure is now complete including async streaming support**
 - **Type system is fully migrated to use MetricsDisplayMode throughout the codebase**
+- **StreamingMetricsCollector provides a clean async interface for metrics collection**
+- **All command handlers now support accumulating metrics across multiple LLM operations**

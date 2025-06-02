@@ -104,7 +104,8 @@ class TestEditErrorPaths:
 
             assert isinstance(result, Error)
             assert (
-                "LLM returned empty response for resource summarization" in result.error
+                "LLM returned an empty response for resource summarization"
+                in result.error
             )
 
     @pytest.mark.asyncio
@@ -220,7 +221,7 @@ class TestEditErrorPaths:
             )
 
             assert isinstance(result, Error)
-            assert "LLM returned empty response for patch generation" in result.error
+            assert "LLM returned an empty response for patch generation" in result.error
 
     @pytest.mark.asyncio
     async def test_generate_patch_error_action(

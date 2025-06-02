@@ -8,6 +8,7 @@ from subprocess import TimeoutExpired
 
 # Assuming these imports are needed based on the function content
 from .config import Config
+from .truncation_logic import truncate_string
 from .types import Error, Result, Success
 
 logger = logging.getLogger(__name__)
@@ -117,8 +118,8 @@ def run_kubectl(
 
         logger.debug(
             f"kubectl command (exit code {process_result.returncode}) "
-            f"produced stdout: '{stdout_data[:200]}...'"
-            f"produced stderr: '{stderr_data[:200]}...'"
+            f"produced stdout: '{truncate_string(stdout_data, 200)}'"
+            f"produced stderr: '{truncate_string(stderr_data, 200)}'"
         )
 
         if process_result.returncode in allowed_exit_codes:

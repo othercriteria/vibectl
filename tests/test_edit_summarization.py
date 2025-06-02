@@ -144,7 +144,7 @@ async def test_summarize_resource_handles_empty_response(
 
         # Verify it returns an error for empty response
         assert isinstance(result, Error)
-        assert "LLM returned empty response" in result.error
+        assert "LLM returned an empty response" in result.error
 
 
 @pytest.mark.asyncio

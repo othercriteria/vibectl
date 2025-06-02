@@ -33,6 +33,7 @@ from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
 from .output_processor import OutputProcessor
 from .prompts.recovery import recovery_prompt
+from .truncation_logic import truncate_string
 from .types import (
     Error,
     Fragment,
@@ -233,6 +234,7 @@ async def handle_command_output(
     summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
     llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
+    suppress_total_metrics: bool = False,
 ) -> Result:
     """Handle the output of a kubectl command.
 
@@ -243,6 +245,7 @@ async def handle_command_output(
         output_flags: Flags controlling the output format.
         command: The original kubectl command type (e.g., get, describe).
         llm_metrics_accumulator: Optional existing accumulator to merge with.
+        suppress_total_metrics: If True, don't print total metrics at the end.
 
     Returns:
         Result object containing the processed output or original error.
@@ -452,9 +455,6 @@ async def handle_command_output(
                     error="Input command output was None, cannot generate Vibe summary."
                 )
 
-    # Display total metrics if enabled
-    llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
-
     # If vibe processing occurred and resulted in a Success/Error, return that.
     # Otherwise, return the original result (or Success if only raw was shown).
     if vibe_result:
@@ -464,14 +464,29 @@ async def handle_command_output(
         # Ensure accumulated metrics are included in the result
         if isinstance(vibe_result, Success | Error):
             vibe_result.metrics = llm_metrics_accumulator.get_metrics()
+        # Display total metrics if enabled after all vibe processing is complete
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return vibe_result
     elif original_error_object:
         # Return original error if vibe wasn't shown or only recovery happened
         # Ensure accumulated metrics are included
         original_error_object.metrics = llm_metrics_accumulator.get_metrics()
+        # Display total metrics if enabled
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return original_error_object
     else:
         # Return Success with the original output string if no vibe processing
+        # Display total metrics if enabled
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
         return Success(
             message=output_data if output_data is not None else "",
             original_exit_code=result_original_exit_code,
@@ -705,25 +720,23 @@ async def _process_vibe_output(
         # The display was handled either by stop_live_vibe_panel() or by the
         # console_manager.print_vibe(..., use_panel=...) call.
 
-        memory_update_metrics_ok = await update_memory(
-            command_message=command
-            if command
-            else (output_message or "Unknown"),  # Prioritize command
-            command_output=output_data,
-            vibe_output=vibe_output_text,  # Successful Vibe summary
+        # Update memory with summary after vibe processing
+        memory_update_metrics = await update_memory(
+            command_message=f"command: {command} output: "
+            f"{truncate_string(output_data, 200)}",
+            command_output=truncate_string(vibe_output_text, 200)
+            if vibe_output_text
+            else "",
+            vibe_output=truncate_string(vibe_output_text, 200)
+            if vibe_output_text
+            else "",
             model_name=output_flags.model_name,
-            config=Config(),
         )
-        # Accumulate memory update metrics and display if enabled
         if llm_metrics_accumulator:
             llm_metrics_accumulator.add_metrics(
-                memory_update_metrics_ok, "LLM Memory Update (Summary)"
+                memory_update_metrics, "LLM Memory Update (Summary)"
             )
-        else:
-            # Fallback for standalone calls without accumulator
-            print_sub_metrics_if_enabled(
-                memory_update_metrics_ok, output_flags, "LLM Memory Update (Summary)"
-            )
+
         return Success(message=vibe_output_text, metrics=metrics)
 
     except RecoverableApiError as api_err:
