@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **Enhanced LLM Metrics Recording and Reporting System**: Comprehensive system for tracking and displaying LLM operation metrics
+  - **Configurable Display Modes**: Four distinct metrics display options via `MetricsDisplayMode` enum (NONE/TOTAL/SUB/ALL)
+    - NONE: No metrics display
+    - TOTAL: Show only final aggregated metrics for command completion
+    - SUB: Show individual LLM call metrics in real-time
+    - ALL: Show both individual call metrics and final aggregated totals
+  - **Rich Metrics Infrastructure**: New `model_adapter.py` module (1,534 lines) providing streaming metrics collection
+    - `LLMMetrics` dataclass for tracking tokens (input/output), latency, and call counts
+    - `LLMMetricsAccumulator` for aggregating metrics across multiple LLM operations
+    - Consistent instrumentation across all LLM call sites
+  - **Async Streaming Support**: Modern `ModelResponse` protocol enabling real-time metrics streaming
+    - Support for streaming token counts and latency measurements
+    - Non-blocking metrics collection during LLM response generation
+  - **Enhanced Type System**: Updated `types.py` with comprehensive metrics types
+    - Backward-compatible integration with existing interfaces
+    - Type-safe metrics handling and accumulation patterns
+  - **DRY Boilerplate Reduction**: Centralized LLM call patterns with built-in metrics collection
+    - Simplified integration for new LLM-powered features
+    - Consistent error handling and metrics recording across all call sites
+- Planned: LLM Proxy Server Architecture - Client/server delegation for centralized LLM management (WIP)
+  - **Centralized LLM Management**: Allow vibectl CLI instances to delegate LLM calls to a centralized server
+  - **Simplified Client Setup**: Users no longer need to manage API keys, model selection, or provider authentication
+  - **gRPC Protocol**: Modern, type-safe communication protocol suitable for Kubernetes ecosystem
+  - **Flexible Configuration**: Hierarchical config structure supporting both client and server configurations
+  - **ProxyModelAdapter**: New adapter implementing existing ModelAdapter interface for transparent LLM proxying
+  - **Authentication System**: Secure shared secrets with expiration times and JWT token support
+  - **Server Features**: Model management, rate limiting, usage controls, and multi-client support
+  - **Setup Tooling**: `vibectl setup-proxy` command for easy client configuration and connection validation
+  - **Backward Compatibility**: Coexists with direct LLM usage without requiring migration
+
 ## [0.9.1] - 2025-06-02
 
 ### Added
