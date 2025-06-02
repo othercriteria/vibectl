@@ -12,6 +12,7 @@ from vibectl.memory import configure_memory_flags
 from vibectl.prompts.diff import diff_output_prompt, diff_plan_prompt
 from vibectl.types import (
     Error,
+    MetricsDisplayMode,
     Result,
     Success,
 )
@@ -26,7 +27,7 @@ async def run_diff_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """

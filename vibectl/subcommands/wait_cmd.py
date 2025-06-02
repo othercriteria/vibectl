@@ -8,7 +8,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.wait import wait_plan_prompt, wait_resource_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_wait_command(
@@ -21,7 +21,7 @@ async def run_wait_command(
     freeze_memory: bool,
     unfreeze_memory: bool,
     live_display: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """

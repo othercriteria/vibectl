@@ -21,7 +21,7 @@ from vibectl.execution.apply import (
     run_intelligent_apply_workflow,
     validate_manifest_content,
 )
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.fixture
@@ -35,8 +35,8 @@ def output_flags() -> OutputFlags:
     """Provide basic OutputFlags for testing."""
     return OutputFlags(
         show_vibe=True,
-        show_metrics=False,
-        show_raw=False,
+        show_metrics=MetricsDisplayMode.NONE,
+        show_raw_output=False,
         show_kubectl=False,
         warn_no_output=False,
         model_name="test-model",
@@ -492,11 +492,11 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
                     mock_model,
                     test_config,
                     OutputFlags(
-                        show_raw=False,
+                        show_raw_output=False,
                         show_vibe=True,
                         warn_no_output=False,
                         model_name="test-model",
-                        show_metrics=False,
+                        show_metrics=MetricsDisplayMode.NONE,
                         show_kubectl=False,
                         warn_no_proxy=False,
                         show_streaming=False,
@@ -538,11 +538,11 @@ async def test_plan_and_execute_final_commands_parse_error(test_config: Config) 
         llm_model=mock_model,
         cfg=test_config,
         output_flags=OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_kubectl=False,
             warn_no_proxy=False,
             show_streaming=False,
@@ -572,11 +572,11 @@ async def test_execute_planned_commands_single_success(test_config: Config) -> N
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -626,11 +626,11 @@ metadata:
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -677,11 +677,11 @@ async def test_execute_planned_commands_kubectl_failure(test_config: Config) -> 
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -719,11 +719,11 @@ async def test_execute_planned_commands_empty_command_list(test_config: Config) 
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -784,11 +784,11 @@ async def test_execute_planned_commands_all_empty_commands(test_config: Config) 
     planned_commands[1].commands = []
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -826,11 +826,11 @@ async def test_execute_planned_commands_multiple_commands_mixed_results(
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,
@@ -882,11 +882,11 @@ async def test_execute_planned_commands_yaml_manifest_without_stdin(
     ]
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=False,
         show_streaming=False,

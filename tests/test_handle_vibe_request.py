@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
+from vibectl.config import Config
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import (
@@ -20,9 +21,9 @@ from vibectl.schema import (
 )
 from vibectl.types import (
     ActionType,
-    Config,
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -92,12 +93,12 @@ async def test_handle_vibe_request_command_execution(
 
     # Create default output flags for this test
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     mock_model = Mock()
@@ -174,12 +175,12 @@ async def test_handle_vibe_request_yaml_execution(
 
     # Create default output flags for this test
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     # === Mocks ===
     mock_model = Mock()
@@ -249,11 +250,11 @@ async def test_handle_vibe_request_llm_planning_error(
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.ERROR."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterForErrorTest")
     mock_model = Mock()
@@ -312,11 +313,11 @@ async def test_handle_vibe_request_llm_wait(
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.WAIT."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterInstanceForWaitTest")
     mock_model_instance = Mock(name="ModelInstanceForWaitTest")
@@ -381,11 +382,11 @@ async def test_handle_vibe_request_llm_feedback(
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.FEEDBACK."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterInstanceForFeedbackTest")
     mock_model_instance = Mock(name="ModelInstanceForFeedbackTest")
@@ -440,11 +441,11 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
 ) -> None:
     """Test handle_vibe_request with ActionType.FEEDBACK but no explanation."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterInstanceForFeedbackNoExpTest")
     mock_model_instance = Mock(name="ModelInstanceForFeedbackNoExpTest")
@@ -500,11 +501,11 @@ async def test_handle_vibe_request_llm_invalid_json(
 ) -> None:
     """Test handle_vibe_request when LLM returns invalid JSON."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter = Mock()
     mock_model = Mock()
@@ -545,11 +546,11 @@ async def test_handle_vibe_request_llm_invalid_schema(
     """Test handle_vibe_request when LLM returns valid JSON but invalid schema."""
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterInstanceForInvalidSchemaTest")
     mock_model_instance = Mock(name="ModelInstanceForInvalidSchemaTest")
@@ -596,11 +597,11 @@ async def test_handle_vibe_request_llm_empty_response(
 ) -> None:
     """Test handle_vibe_request when LLM returns an empty string."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter = Mock()
     mock_model = Mock()
@@ -641,11 +642,11 @@ async def test_handle_vibe_request_action_error_no_message(
 ) -> None:
     """Test handle_vibe_request with ActionType.ERROR but missing error message."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterForErrorNoMsgTest")
     mock_model_instance = Mock(name="ModelForErrorNoMsgTest")
@@ -688,11 +689,11 @@ async def test_handle_vibe_request_action_wait_no_duration(
 ) -> None:
     """Test handle_vibe_request with ActionType.WAIT but missing duration."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterForWaitNoDurTest")
     mock_model_instance = Mock(name="ModelForWaitNoDurTest")
@@ -734,11 +735,11 @@ async def test_handle_vibe_request_action_command_empty_verb(
 ) -> None:
     """Test handle_vibe_request with ActionType.COMMAND but LLM provides empty verb."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterForCmdEmptyVerbTest")
     mock_model_instance = Mock(name="ModelForCmdEmptyVerbTest")
@@ -785,11 +786,11 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
 ) -> None:
     """Test handle_vibe_request where handle_command_output raises generic Exception."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter_instance = Mock(name="AdapterForGenericErrInHandlerTest")
     mock_model_instance = Mock(name="ModelForGenericErrInHandlerTest")
@@ -847,11 +848,11 @@ async def test_handle_vibe_request_action_unknown(
 ) -> None:
     """Test handle_vibe_request with an unknown ActionType from LLM."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter = Mock()
     mock_model = Mock()
@@ -906,11 +907,11 @@ async def test_handle_vibe_request_planning_recoverable_api_error(
     from vibectl.model_adapter import RecoverableApiError
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter = Mock()
     mock_model = Mock()
@@ -951,11 +952,11 @@ async def test_handle_vibe_request_planning_generic_error(
 ) -> None:
     """Test handle_vibe_request when planning LLM call raises generic Exception."""
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_adapter = Mock()
     mock_model = Mock()

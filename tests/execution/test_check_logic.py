@@ -16,7 +16,14 @@ from vibectl.schema import (
     ThoughtAction,
     WaitAction,
 )
-from vibectl.types import Error, OutputFlags, PredicateCheckExitCode, Result, Success
+from vibectl.types import (
+    Error,
+    MetricsDisplayMode,
+    OutputFlags,
+    PredicateCheckExitCode,
+    Result,
+    Success,
+)
 
 
 @pytest.mark.asyncio
@@ -28,10 +35,10 @@ async def test_run_check_command_done_action_immediate_success() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -73,10 +80,10 @@ async def test_run_check_command_done_action_immediate_false() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -118,10 +125,10 @@ async def test_run_check_command_done_action_cannot_determine() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -162,10 +169,10 @@ async def test_run_check_command_thought_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -220,10 +227,10 @@ async def test_run_check_command_command_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -290,10 +297,10 @@ async def test_run_check_command_non_read_only_command_error() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -342,10 +349,10 @@ async def test_run_check_command_wait_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -399,10 +406,10 @@ async def test_run_check_command_error_action_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -452,10 +459,10 @@ async def test_run_check_command_feedback_action_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -508,10 +515,10 @@ async def test_run_check_command_max_iterations_reached() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = max_iterations
@@ -558,10 +565,10 @@ async def test_run_check_command_llm_plan_error() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations
@@ -603,10 +610,10 @@ async def test_run_check_command_kubectl_error_then_done() -> None:
     mock_output_flags = OutputFlags(
         show_vibe=False,
         show_kubectl=False,
-        show_raw=False,
+        show_raw_output=False,
         model_name="test-model",
         warn_no_output=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_config = MagicMock()
     mock_config.get_typed.return_value = 10  # check_max_iterations

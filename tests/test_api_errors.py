@@ -10,6 +10,7 @@ from vibectl.config import DEFAULT_CONFIG, Config
 from vibectl.types import (
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     RecoverableApiError,
@@ -118,10 +119,10 @@ async def test_handle_command_output_api_error_marked_non_halting(
     """Test that handle_command_output marks API errors as non-halting for auto loop."""
     # Create output flags
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         # Explicitly cast to string to satisfy mypy
         model_name=str(DEFAULT_CONFIG["model"]),
     )

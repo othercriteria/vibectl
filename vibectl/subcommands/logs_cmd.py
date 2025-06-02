@@ -11,19 +11,19 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.logs import logs_plan_prompt, logs_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_logs_command(
     resource: str,
-    args: tuple,
+    args: tuple[str, ...],
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """

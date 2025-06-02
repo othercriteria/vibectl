@@ -138,7 +138,7 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:  # Mark 
     assert isinstance(passed_output_to_handler, Success)
     assert passed_output_to_handler.data == "test output with flags"
     output_flags = call_kwargs["output_flags"]
-    assert output_flags.show_raw is True
+    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
     assert output_flags.model_name == "test-model"
     assert output_flags.show_kubectl is True

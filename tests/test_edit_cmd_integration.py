@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vibectl.subcommands.edit_cmd import run_edit_command
-from vibectl.types import Error, Success
+from vibectl.types import Error, MetricsDisplayMode, Success
 
 
 @pytest.mark.asyncio
@@ -37,7 +37,7 @@ class TestEditCommandIntegration:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -69,7 +69,7 @@ class TestEditCommandIntegration:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -101,7 +101,7 @@ class TestEditCommandIntegration:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -137,7 +137,7 @@ class TestEditCommandIntegration:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -161,7 +161,7 @@ class TestEditCommandIntegration:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -199,7 +199,7 @@ class TestEditCommandIntegration:
                 model="gpt-4",
                 freeze_memory=True,
                 unfreeze_memory=False,
-                show_metrics=True,
+                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )
 
@@ -211,7 +211,7 @@ class TestEditCommandIntegration:
                 show_vibe=True,
                 model="gpt-4",
                 show_kubectl=True,
-                show_metrics=True,
+                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )
             mock_configure_memory.assert_called_once_with(True, False)

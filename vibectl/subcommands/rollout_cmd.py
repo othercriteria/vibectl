@@ -7,6 +7,7 @@ from vibectl.command_handler import (
     handle_command_output,
     run_kubectl,
 )
+from vibectl.config import Config
 from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
@@ -17,7 +18,7 @@ from vibectl.prompts.rollout import (
     rollout_plan_prompt,
     rollout_status_prompt,
 )
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_rollout_command(
@@ -32,8 +33,9 @@ async def run_rollout_command(
     unfreeze_memory: bool,
     yes: bool,
     exit_on_error: bool = True,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
+    config: Config | None = None,
 ) -> Result:
     """
     Implements the 'rollout' subcommands logic, including logging and error handling.

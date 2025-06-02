@@ -2,11 +2,12 @@ from vibectl.command_handler import (
     configure_output_flags,
     handle_standard_command,
 )
+from vibectl.config import Config
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.delete import delete_plan_prompt, delete_resource_prompt
-from vibectl.types import Error, Result
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_delete_command(
@@ -19,8 +20,9 @@ async def run_delete_command(
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
     yes: bool = False,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
+    config: Config | None = None,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -34,7 +36,6 @@ async def run_delete_command(
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
             show_streaming=show_streaming,

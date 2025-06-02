@@ -8,7 +8,9 @@ from json import JSONDecodeError
 from pydantic import ValidationError
 
 from vibectl.config import Config
-from vibectl.console import console_manager
+from vibectl.console import (
+    console_manager,
+)
 from vibectl.k8s_utils import is_kubectl_command_read_only, run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import (
@@ -16,7 +18,6 @@ from vibectl.memory import (
     update_memory,
 )
 from vibectl.model_adapter import (
-    LLMMetrics,
     RecoverableApiError,
     get_model_adapter,
 )
@@ -33,6 +34,7 @@ from vibectl.schema import (
 from vibectl.types import (
     Error,
     Fragment,
+    LLMMetricsAccumulator,
     OutputFlags,
     PredicateCheckExitCode,
     Result,
@@ -127,7 +129,7 @@ async def run_check_command(
 
     cfg = Config()
     check_max_iterations = cfg.get_typed("check_max_iterations", 10)
-    llm_metrics_accumulator: LLMMetrics = LLMMetrics()
+    llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
 
     logger.info(f"Evaluating predicate: {predicate}")
 
@@ -172,9 +174,10 @@ async def run_check_command(
             plan_result.original_exit_code = final_exit_code
             return plan_result
 
-        # Accumulate metrics if plan_result.metrics is not None
-        if plan_result.metrics:
-            llm_metrics_accumulator += plan_result.metrics
+        # Accumulate and display metrics from planning
+        llm_metrics_accumulator.add_metrics(
+            plan_result.metrics, f"LLM Check Planning (Iteration {iteration})"
+        )
 
         if not isinstance(plan_result.data, LLMPlannerResponse):
             logger.error(
@@ -184,7 +187,7 @@ async def run_check_command(
             return Error(
                 error="Internal error: Unexpected data type from LLM plan.",
                 original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
-                metrics=llm_metrics_accumulator,
+                metrics=llm_metrics_accumulator.get_metrics(),
             )
 
         llm_planner_response: LLMPlannerResponse = plan_result.data
@@ -210,18 +213,29 @@ async def run_check_command(
                 console_manager.print_vibe(
                     f"Result: {done_message} (Exit Code: {exit_code.value})"
                 )
-            await update_memory(
+
+            # Capture and accumulate memory update metrics
+            memory_metrics = await update_memory(
                 command_message=f"Checking predicate: {predicate} (Result)",
                 command_output=f"Determined: {done_message} (Exit: {exit_code.name})",
                 vibe_output="",
                 model_name=output_flags.model_name,
                 config=cfg,
             )
+            llm_metrics_accumulator.add_metrics(
+                memory_metrics, "LLM Memory Update (Result)"
+            )
+
             final_success_result = Success(
                 message=done_message,
                 original_exit_code=exit_code.value,
                 continue_execution=False,
-                metrics=llm_metrics_accumulator,
+                metrics=llm_metrics_accumulator.get_metrics(),
+            )
+
+            # Display total metrics if enabled
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM for Check (Completed)"
             )
 
             logger.debug(f"run_check_command returning Success: {final_success_result}")
@@ -232,13 +246,18 @@ async def run_check_command(
             logger.info(f"LLM Thought: {action.text}")
             if output_flags.show_vibe:
                 console_manager.print_vibe(f"AI Thought: {action.text}")
-            await update_memory(
+
+            # Capture and accumulate memory update metrics
+            memory_metrics = await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1})",
                 command_output=f"Thought: {action.text}",
                 vibe_output="",
                 model_name=output_flags.model_name,
                 config=cfg,
+            )
+            llm_metrics_accumulator.add_metrics(
+                memory_metrics, f"LLM Memory Update (Thought, Iteration {iteration})"
             )
 
             logger.info(
@@ -257,13 +276,18 @@ async def run_check_command(
                     f"LLM planned a malformed or empty command: {command_to_execute}. "
                     "Re-planning with error."
                 )
-                await update_memory(
+                # Capture and accumulate memory update metrics
+                memory_metrics = await update_memory(
                     command_message=f"Checking predicate: {predicate} "
                     f"(Iter {iteration + 1}) - Malformed Command",
                     command_output=f"LLM planned: {command_to_execute!s}",
                     vibe_output="System detected a malformed command from LLM.",
                     model_name=output_flags.model_name,
                     config=cfg,
+                )
+                llm_metrics_accumulator.add_metrics(
+                    memory_metrics,
+                    f"LLM Memory Update (Malformed Command, Iteration {iteration})",
                 )
                 continue  # Skip to next iteration to re-plan
 
@@ -274,7 +298,8 @@ async def run_check_command(
                     f"CRITICAL: LLM for 'check' planned a non-read-only command: "
                     f"{display_command}. Terminating."
                 )
-                await update_memory(
+                # Capture and accumulate memory update metrics
+                memory_metrics = await update_memory(
                     command_message=f"Checking predicate: {predicate} "
                     f"(Iter {iteration + 1}) - Non-Read-Only Command",
                     command_output=f"LLM planned: {display_command}",
@@ -283,11 +308,15 @@ async def run_check_command(
                     model_name=output_flags.model_name,
                     config=cfg,
                 )
+                llm_metrics_accumulator.add_metrics(
+                    memory_metrics,
+                    f"LLM Memory Update (Non-Read-Only Command, Iteration {iteration})",
+                )
                 return Error(
                     error="LLM planned a non-read-only command. "
                     "This is not allowed for 'vibectl check'.",
                     original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
-                    metrics=llm_metrics_accumulator,
+                    metrics=llm_metrics_accumulator.get_metrics(),
                 )
 
             if output_flags.show_kubectl:
@@ -303,24 +332,27 @@ async def run_check_command(
                 allowed_exit_codes=exec_allowed_exit_codes,
                 config=cfg,
             )
-            llm_metrics_accumulator += cmd_result.metrics or LLMMetrics()
+            llm_metrics_accumulator.add_metrics(
+                cmd_result.metrics, f"Command Execution (Iteration {iteration})"
+            )
 
             if isinstance(cmd_result, Error):
                 logger.warning(
                     f"kubectl command {display_command} failed: {cmd_result.error}"
                 )
                 command_output_str = f"Error executing command: {cmd_result.error}"
-                if output_flags.show_raw and cmd_result.error:
+                if output_flags.show_raw_output and cmd_result.error:
                     console_manager.print(cmd_result.error)
             else:
                 command_output_str = (
                     cmd_result.data if cmd_result.data is not None else ""
                 )
                 logger.info(f"Command output for 'check':\\n{command_output_str}")
-                if output_flags.show_raw:
+                if output_flags.show_raw_output:
                     console_manager.print(command_output_str)
 
-            await update_memory(
+            # Capture and accumulate memory update metrics
+            memory_metrics = await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - Ran command: {display_command}",
                 command_output=command_output_str,
@@ -328,6 +360,10 @@ async def run_check_command(
                 model_name=output_flags.model_name,
                 config=cfg,
             )
+            llm_metrics_accumulator.add_metrics(
+                memory_metrics, f"LLM Memory Update (Command, Iteration {iteration})"
+            )
+
             logger.info(
                 "CommandAction processed for 'check'. Continuing loop for re-planning."
             )
@@ -337,7 +373,9 @@ async def run_check_command(
             logger.info(f"WaitAction received. Waiting for {duration}s.")
             if output_flags.show_vibe:
                 console_manager.print_vibe(f"AI requests wait for {duration}s.")
-            await update_memory(
+
+            # Capture and accumulate memory update metrics
+            memory_metrics = await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - Wait requested",
                 command_output=f"AI requested wait for {duration}s.",
@@ -345,6 +383,10 @@ async def run_check_command(
                 model_name=output_flags.model_name,
                 config=cfg,
             )
+            llm_metrics_accumulator.add_metrics(
+                memory_metrics, f"LLM Memory Update (Wait, Iteration {iteration})"
+            )
+
             await asyncio.sleep(duration)
 
         elif isinstance(action, ErrorAction | FeedbackAction):
@@ -360,13 +402,18 @@ async def run_check_command(
                     "or re-planning."
                 )
 
-            await update_memory(
+            # Capture and accumulate memory update metrics
+            memory_metrics = await update_memory(
                 command_message=f"Checking predicate: {predicate} "
                 f"(Iter {iteration + 1}) - {action_type_str} received",
                 command_output=f"{action_type_str}: {message}",
                 vibe_output="",
                 model_name=output_flags.model_name,
                 config=cfg,
+            )
+            llm_metrics_accumulator.add_metrics(
+                memory_metrics,
+                f"LLM Memory Update ({action_type_str}, Iteration {iteration})",
             )
 
         else:
@@ -377,7 +424,8 @@ async def run_check_command(
     # Loop finished due to max_iterations
     logger.warning(f"'check' command reached max iterations ({check_max_iterations}).")
 
-    await update_memory(
+    # Capture and accumulate memory update metrics
+    memory_metrics = await update_memory(
         command_message=f"Checking predicate: {predicate} "
         f"(Max Iterations Reached) - {check_max_iterations} iterations",
         command_output="",
@@ -385,18 +433,16 @@ async def run_check_command(
         model_name=output_flags.model_name,
         config=cfg,
     )
+    llm_metrics_accumulator.add_metrics(
+        memory_metrics, "LLM Memory Update (Max Iterations)"
+    )
 
     final_error_result_max_iter = Error(
         error=f"Cannot determine predicate within {check_max_iterations} iterations.",
         original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
-        metrics=llm_metrics_accumulator,
+        metrics=llm_metrics_accumulator.get_metrics(),
     )
-    if output_flags.show_metrics and llm_metrics_accumulator.call_count > 0:
-        console_manager.print_metrics(
-            latency_ms=llm_metrics_accumulator.latency_ms,
-            tokens_in=llm_metrics_accumulator.token_input,
-            tokens_out=llm_metrics_accumulator.token_output,
-            source="Total LLM for Check (Max Iterations)",
-            total_duration=llm_metrics_accumulator.total_processing_duration_ms,
-        )
+    llm_metrics_accumulator.print_total_if_enabled(
+        "Total LLM for Check (Max Iterations)"
+    )
     return final_error_result_max_iter

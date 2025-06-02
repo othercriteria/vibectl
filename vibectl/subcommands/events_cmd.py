@@ -12,19 +12,19 @@ from vibectl.prompts.events import (
     events_plan_prompt,
     events_prompt,
 )
-from vibectl.types import Result
+from vibectl.types import MetricsDisplayMode, Result
 
 
 async def run_events_command(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
     model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: bool | None,
-    show_streaming: bool | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
+    show_kubectl: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
+    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'events' subcommand logic, including logging and error handling.
@@ -57,7 +57,7 @@ async def run_events_command(
         logger.info("Handling 'events' command with --watch flag using live display.")
         result = await handle_watch_with_live_display(
             command="events",
-            resource="",
+            resource="",  # events command doesn't take a resource
             args=args,
             output_flags=output_flags,
             summary_prompt_func=events_prompt,
@@ -68,7 +68,7 @@ async def run_events_command(
         logger.info("Handling standard 'events' command.")
         result = await handle_standard_command(
             command="events",
-            resource="",
+            resource="",  # events command doesn't take a resource
             args=args,
             output_flags=output_flags,
             summary_prompt_func=events_prompt,

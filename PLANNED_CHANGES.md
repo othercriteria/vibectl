@@ -1,40 +1,101 @@
-# Planned Changes for feature/improve-llm-metrics
+# Planned Changes for vibectl LLM Metrics Improvements
 
 ## Overview
-Improve LLM metrics recording and reporting for better consistency, completeness, and configurability.
+Improve LLM metrics handling and configurability by separating individual metrics reporting from rolled-up/total metrics reporting.
 
-## Goals
-- Adjust `show_metrics` configuration to separately control:
-  - Sub-metrics: Individual LLM call metrics
-  - Total metrics: Final command completion metrics (successful or failed)
-- Ensure every LLM call is correctly and consistently instrumented
-- DRY up boilerplate around LLM calls
-- Fix any obvious bugs around LLM calls discovered during this work
+## Progress Status
 
-## Configuration Options Under Consideration
-- Extend `show_metrics` to accept enumerated values instead of just boolean
-- Create new separate configuration options for sub-metrics vs total metrics
-- Maintain backward compatibility with existing boolean `show_metrics` behavior
+### ✅ Completed
+1. **New MetricsDisplayMode enum** - Added to `vibectl/types.py`
+   - `NONE`: Show no metrics
+   - `TOTAL`: Show only total/accumulated metrics
+   - `SUB`: Show only individual sub-metrics
+   - `ALL`: Show both sub-metrics and totals
 
-## Areas to Investigate
-1. Current LLM call patterns and instrumentation
-2. Existing metrics collection and reporting mechanisms
-3. Configuration system for metrics display
-4. Boilerplate code that can be consolidated
-5. Edge cases and error conditions in LLM metrics
+2. **Backward compatibility** - `MetricsDisplayMode.from_value()` converts boolean values
+   - `False/None` → `NONE`
+   - `True` → `ALL` (maintains existing behavior)
 
-## Implementation Tasks
-- [ ] Audit current LLM call sites for consistent instrumentation
-- [ ] Design improved configuration schema for metrics display
-- [ ] Create utility functions/decorators to reduce LLM call boilerplate
-- [ ] Update metrics collection and reporting logic
-- [ ] Add comprehensive tests for metrics functionality
-- [ ] Update documentation for new metrics configuration
-- [ ] Ensure backward compatibility with existing configurations
+3. **Updated OutputFlags** - Now uses `MetricsDisplayMode` instead of boolean
+   - Maintains backward compatibility in constructor
+   - Updated all field references (`show_raw` → `show_raw_output`)
+   - **Complete refactor of OutputFlags with new `from_args()` class method**
+   - **All references throughout codebase updated to use new field names**
 
-## Testing Strategy
-- Unit tests for metrics collection functions
-- Integration tests for end-to-end metrics reporting
-- Test different configuration combinations
-- Verify LLM call instrumentation across all command types
-- Test error conditions and edge cases
+4. **Configuration system updates**
+   - Updated schema to accept both `bool` and `str` for `show_metrics`
+   - Updated validation logic to handle enum conversion
+   - Maintains backward compatibility with existing config files
+
+5. **Console utility functions** - Added to `vibectl/console.py`
+   - `should_show_sub_metrics()`: Check if individual metrics should be shown
+   - `should_show_total_metrics()`: Check if total metrics should be shown
+   - `print_sub_metrics_if_enabled()`: Print individual LLM call metrics if enabled
+   - `print_total_metrics_if_enabled()`: Print accumulated metrics if enabled
+
+6. **LLMMetricsAccumulator class** - Added to `vibectl/types.py`
+   - Reduces boilerplate for accumulating metrics across multiple LLM calls
+   - Provides `print_total_if_enabled()` convenience method
+
+7. **Updated check command** - `vibectl/execution/check.py`
+   - Now uses new utility functions for metrics display
+   - Shows individual LLM call metrics when enabled
+   - Shows total metrics on completion
+   - Fixed all `show_raw` → `show_raw_output` references
+   - **Captures and displays memory update LLM metrics** - Now accumulates metrics from `update_memory()` calls
+
+8. **Updated all subcommands** - **NEW in this commit**
+   - **All subcommand functions now accept `MetricsDisplayMode` instead of `bool` for `show_metrics`**
+   - **Type signatures updated across all command modules**
+   - **Backward compatibility maintained through configuration layer**
+
+9. **Updated vibe execution** - **NEW in this commit**
+   - **Memory update metrics in vibe.py now use new display utilities**
+   - **Individual memory update calls show sub-metrics when enabled**
+
+10. **Comprehensive test updates** - **NEW in this commit**
+    - **All test files updated to use new `MetricsDisplayMode` types**
+    - **Test fixtures and mocks updated for new type signatures**
+    - **Backward compatibility tests maintained**
+
+11. **CLI integration** - **NEW in this commit**
+    - **Main CLI updated to handle new types properly**
+    - **Command handler updated to use new `OutputFlags.from_args()` method**
+
+### 🔄 In Progress / Next Steps
+
+1. **Test CLI interface**
+   - Test string values: `vibectl config set show_metrics total`
+   - Test boolean values: `vibectl config set show_metrics true` (should map to `all`)
+   - Verify different modes work as expected
+
+2. **Update remaining command implementations** - **MOSTLY COMPLETE**
+   - ~~Convert other LLM-heavy commands (`edit`, `apply`, etc.) to use new utility functions~~ **DONE**: Type signatures updated
+   - **Replace direct `console_manager.print_metrics()` calls with utility functions in remaining commands**
+
+3. **Documentation**
+   - Update configuration documentation to explain new enum values
+   - Update CLI help text to mention the new options
+
+### 🎯 Success Criteria
+
+- [x] `show_metrics: false` → No metrics displayed
+- [x] `show_metrics: true` → Both individual and total metrics displayed (backward compatible)
+- [ ] `show_metrics: "none"` → No metrics displayed
+- [ ] `show_metrics: "sub"` → Only individual LLM call metrics displayed
+- [ ] `show_metrics: "total"` → Only accumulated/total metrics displayed
+- [ ] `show_metrics: "all"` → Both individual and total metrics displayed
+- [x] Backward compatibility maintained for existing configurations
+- [x] No breaking changes to existing API
+- [x] **Memory update LLM calls now included in metrics** - Previously missing memory update metrics are now captured and displayed
+- [x] **All type signatures updated to use MetricsDisplayMode**
+- [x] **All tests updated and passing**
+
+## Implementation Notes
+
+- The `MetricsDisplayMode` enum uses string values to make it easily serializable in config files
+- Utility functions are placed in `console.py` rather than a separate module to keep related functionality together
+- `LLMMetricsAccumulator` is in `types.py` alongside the `LLMMetrics` class for logical grouping
+- All changes maintain backward compatibility with existing boolean-based configurations
+- **The core infrastructure is now complete - remaining work is primarily testing and documentation**
+- **Type system is fully migrated to use MetricsDisplayMode throughout the codebase**

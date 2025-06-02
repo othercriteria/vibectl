@@ -9,7 +9,7 @@ import pytest
 
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
-from vibectl.types import Error, Success
+from vibectl.types import Error, MetricsDisplayMode, Success
 
 # Assuming common fixtures like cli_runner, mock_run_kubectl, etc. are available
 # from conftest.py or fixtures.py
@@ -76,11 +76,11 @@ async def test_get_with_flags(
 ) -> None:
     """Test get command with output flags."""
     mock_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         model_name="test-model",
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
     mock_handle_standard.return_value = Success(data="test output")
@@ -112,11 +112,11 @@ async def test_get_with_show_kubectl_flag(
     """Test get command with --show-kubectl flag."""
     mock_flags = OutputFlags(
         show_kubectl=True,
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
     mock_handle_standard.return_value = Success(data="test output")
@@ -141,9 +141,9 @@ async def test_get_vibe_basic(
     mock_flags = OutputFlags(
         show_vibe=True,
         model_name="default",
-        show_raw=False,
+        show_raw_output=False,
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
     mock_handle_vibe.return_value = Success()
@@ -166,11 +166,11 @@ async def test_get_vibe_with_output_flags(
 ) -> None:
     """Test get vibe command with output flags."""
     mock_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
     mock_handle_vibe.return_value = Success()
@@ -225,11 +225,11 @@ async def test_get_watch_success(
 ) -> None:
     """Test 'get --watch' calls handle_watch_with_live_display and returns Success."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_watch.return_value = Success(message="Watch completed")
@@ -258,11 +258,11 @@ async def test_get_watch_error(
 ) -> None:
     """Test that 'get --watch' handles errors from handler."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_watch.return_value = Error(error="Watch failed")
@@ -285,11 +285,11 @@ async def test_get_standard_command_error_propagation(
 ) -> None:
     """Test errors from handle_standard_command are propagated."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_standard.return_value = Error(error="Standard failed")
@@ -311,11 +311,11 @@ async def test_get_vibe_request_error_propagation(
 ) -> None:
     """Test errors from handle_vibe_request are propagated."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_vibe.return_value = Error(error="Vibe failed")
@@ -361,11 +361,11 @@ async def test_get_standard_command_success_no_data(
 ) -> None:
     """Test success path when handler returns Success with no data."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_standard.return_value = Success(data=None)
@@ -387,11 +387,11 @@ async def test_get_vibe_request_success_no_data(
 ) -> None:
     """Test success path when vibe handler returns Success with no data."""
     mock_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output.return_value = mock_flags
     mock_handle_vibe.return_value = Success(data=None)

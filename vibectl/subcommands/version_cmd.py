@@ -11,19 +11,20 @@ from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.version import version_plan_prompt, version_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_version_command(
-    args: tuple[str, ...],
+    args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
+    config: Config | None = None,
 ) -> Result:
     """
     Implements the 'version' subcommand logic, including logging and error handling.
@@ -42,7 +43,8 @@ async def run_version_command(
         show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
-    config = Config()  # Restored Config instantiation
+    if config is None:
+        config = Config()  # Restored Config instantiation
 
     result: Result
 

@@ -213,8 +213,8 @@ async def _execute_wait_with_live_display(
         )
 
         # Add a small visual separator before the output
-        # if output_flags.show_raw or output_flags.show_vibe: # Handled by caller
-        #     console_manager.console.print()
+        if output_flags.show_raw_output or output_flags.show_vibe:  # Handled by caller
+            console_manager.console.print()
 
         # Return the raw Success result for the caller to handle output processing
         return result
@@ -227,7 +227,7 @@ async def _execute_wait_with_live_display(
         console_manager.safe_print(console_manager.console, success_message)
 
         # Add a small note if no output will be shown
-        if not output_flags.show_raw and not output_flags.show_vibe:
+        if not output_flags.show_raw_output and not output_flags.show_vibe:
             message = (
                 "\nNo output display enabled. Use --show-raw-output or "
                 "--show-vibe to see details."

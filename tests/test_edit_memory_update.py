@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vibectl.execution.edit import _apply_patch, run_intelligent_edit_workflow
-from vibectl.types import OutputFlags, Success
+from vibectl.types import MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.mark.asyncio
@@ -33,11 +33,11 @@ async def test_apply_patch_captures_vibe_output_for_memory() -> None:
     ):
         config = Mock()
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -80,11 +80,11 @@ async def test_apply_patch_handles_vibe_error() -> None:
     ):
         config = Mock()
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -117,11 +117,11 @@ async def test_apply_patch_with_show_raw() -> None:
     ):
         config = Mock()
         output_flags = OutputFlags(
-            show_raw=True,
+            show_raw_output=True,
             show_vibe=False,  # Raw mode, no vibe
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -206,11 +206,11 @@ spec:
 
         config = Mock()
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=True,
             warn_no_output=False,
             model_name="test-model",
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 

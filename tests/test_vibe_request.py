@@ -39,6 +39,7 @@ from vibectl.types import (
     ActionType,
     Error,
     Fragment,
+    MetricsDisplayMode,
     PromptFragments,
     Result,
     Success,
@@ -79,11 +80,11 @@ def default_output_flags(
     mock_config: MagicMock,
 ) -> OutputFlags:  # Ensure mock_config is used
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,  # Changed to True
         warn_no_output=True,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_kubectl=True,  # Changed to True for more comprehensive testing
         warn_no_proxy=True,
     )
@@ -886,12 +887,12 @@ async def test_handle_vibe_request_no_output(
 
     # Create custom OutputFlags with no outputs
     no_output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=True,
         model_name="model-xyz-1.2.3",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
 
     # Mock console_manager directly for this test to add print_raw and check
@@ -975,12 +976,12 @@ async def test_show_kubectl_flag_controls_command_display(
 
         # Create output flags for this iteration
         output_flags = OutputFlags(
-            show_raw=False,
+            show_raw_output=False,
             show_vibe=False,
             warn_no_output=False,
             model_name="test",
             show_kubectl=show_flag_value,  # Set based on loop
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         # Mock _execute_command and handle_command_output within the loop
@@ -1121,6 +1122,9 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
     caplog.set_level("WARNING")
     default_output_flags.show_vibe = True  # Ensure Vibe processing is enabled
 
+    # Enable streaming to match test expectations
+    default_output_flags.show_streaming = True
+
     command_action = CommandAction(
         action_type=ActionType.COMMAND, commands=["get", "pods"]
     )
@@ -1139,6 +1143,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
     mock_get_adapter.execute_and_log_metrics.side_effect = [
         plan_response,  # For initial plan
         memory_update_response,  # For update_memory call by real_update_memory_impl
+        # No third entry needed since streaming is enabled and will use stream_execute
     ]
 
     # Configure the side_effect for the mock LLM adapter's stream_execute (streaming)

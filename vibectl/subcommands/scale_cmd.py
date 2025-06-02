@@ -10,7 +10,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.prompts.scale import scale_plan_prompt, scale_resource_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_scale_command(
@@ -22,7 +22,7 @@ async def run_scale_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """Executes the scale command logic."""

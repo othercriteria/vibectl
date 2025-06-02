@@ -11,7 +11,6 @@ handling. Do not print or log user-facing errors here; use logging for diagnosti
 from rich.table import Table
 
 from .config import (
-    DEFAULT_CONFIG,
     Config,
 )
 from .k8s_utils import (
@@ -33,6 +32,7 @@ from .types import (
     Error,
     Fragment,
     LLMMetrics,
+    MetricsDisplayMode,
     OutputFlags,
     Result,
     Success,
@@ -263,19 +263,7 @@ async def handle_command_output(
         result_original_exit_code = output.original_exit_code
 
     _display_kubectl_command(output_flags, command)
-
-    # This check should now always have output_data defined if logic above is correct
-    if output_data is not None:
-        _display_raw_output(output_flags, output_data)
-    else:
-        # This case should ideally not be reached if the above logic is exhaustive
-        # for setting output_data. Log a warning if it is.
-        logger.warning(
-            "output_data was None before vibe processing, which is unexpected."
-        )
-        # If output_data is None here, and show_vibe is false, we
-        # might return None implicitly later if not careful.
-        # Ensure we return the original_error_object if it exists from the 'else' block.
+    _display_raw_output(output_flags, output_data or "")
 
     vibe_result: Result | None = None
     if output_flags.show_vibe:
@@ -357,7 +345,10 @@ async def handle_command_output(
                             model_name=output_flags.model_name,
                             config=Config(),
                         )
-                        if memory_update_metrics_error and output_flags.show_metrics:
+                        if (
+                            memory_update_metrics_error
+                            and output_flags.show_metrics.should_show_sub_metrics()
+                        ):
                             console_manager.print_metrics(
                                 latency_ms=memory_update_metrics_error.latency_ms,
                                 tokens_in=memory_update_metrics_error.token_input,
@@ -462,7 +453,7 @@ async def handle_command_output(
         # Display only the metrics from the current result (summary/recovery)
         current_metrics = result_metrics  # Already extracted from output
 
-        if current_metrics and output_flags.show_metrics:
+        if current_metrics and output_flags.show_metrics.should_show_sub_metrics():
             console_manager.print_metrics(
                 latency_ms=current_metrics.latency_ms,
                 tokens_in=current_metrics.token_input,
@@ -523,7 +514,7 @@ def _check_output_visibility(output_flags: OutputFlags) -> None:
         output_flags: Output configuration flags
     """
     if (
-        not output_flags.show_raw
+        not output_flags.show_raw_output
         and not output_flags.show_vibe
         and output_flags.warn_no_output
     ):
@@ -538,7 +529,7 @@ def _display_raw_output(output_flags: OutputFlags, output: str) -> None:
         output_flags: Output configuration flags
         output: Command output to display
     """
-    if output_flags.show_raw:
+    if output_flags.show_raw_output:
         logger.debug("Showing raw output.")
         console_manager.print_raw(output)
 
@@ -670,7 +661,10 @@ async def _process_vibe_output(
                 model_name=output_flags.model_name,
                 config=Config(),
             )
-            if memory_update_metrics_err and output_flags.show_metrics:
+            if (
+                memory_update_metrics_err
+                and output_flags.show_metrics.should_show_sub_metrics()
+            ):
                 console_manager.print_metrics(
                     latency_ms=memory_update_metrics_err.latency_ms,
                     tokens_in=memory_update_metrics_err.token_input,
@@ -694,7 +688,10 @@ async def _process_vibe_output(
             model_name=output_flags.model_name,
             config=Config(),
         )
-        if memory_update_metrics_ok and output_flags.show_metrics:
+        if (
+            memory_update_metrics_ok
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics_ok.latency_ms,
                 tokens_in=memory_update_metrics_ok.token_input,
@@ -800,57 +797,19 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode
+    | None = None,  # Only support MetricsDisplayMode now
     show_streaming: bool | None = None,
 ) -> OutputFlags:
-    """Configure output flags based on config."""
-    config = Config()
-
-    show_raw_output_flag = (
-        show_raw_output
-        if show_raw_output is not None
-        else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"])
-    )
-
-    show_vibe_flag = (
-        show_vibe
-        if show_vibe is not None
-        else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"])
-    )
-
-    warn_no_output_flag = config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"])
-
-    warn_no_proxy_flag = config.get("warn_no_proxy", True)
-
-    model_name = model if model else config.get("model", DEFAULT_CONFIG["model"])
-
-    show_kubectl_flag = (
-        show_kubectl
-        if show_kubectl is not None
-        else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
-    )
-
-    show_metrics_flag = (
-        show_metrics
-        if show_metrics is not None
-        else config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
-    )
-
-    show_streaming_flag = (
-        show_streaming
-        if show_streaming is not None
-        else config.get("show_streaming", DEFAULT_CONFIG["show_streaming"])
-    )
-
-    return OutputFlags(
-        show_raw=show_raw_output_flag,
-        show_vibe=show_vibe_flag,
-        warn_no_output=warn_no_output_flag,
-        model_name=model_name,
-        show_metrics=show_metrics_flag,
-        show_kubectl=show_kubectl_flag,
-        warn_no_proxy=warn_no_proxy_flag,
-        show_streaming=show_streaming_flag,
+    """Configure OutputFlags with the given parameters."""
+    # Use OutputFlags.from_args which handles all the config logic
+    return OutputFlags.from_args(
+        model=model,
+        show_raw_output=show_raw_output,
+        show_vibe=show_vibe,
+        show_kubectl=show_kubectl,
+        show_metrics=show_metrics,
+        show_streaming=show_streaming,
     )
 
 

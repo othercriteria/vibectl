@@ -8,7 +8,14 @@ from asyncclick.testing import CliRunner  # Use CliRunner from asyncclick
 
 from vibectl.cli import cli  # Assuming main cli object is here
 from vibectl.subcommands.check_cmd import run_check_command
-from vibectl.types import Error, OutputFlags, PredicateCheckExitCode, Result, Success
+from vibectl.types import (
+    Error,
+    MetricsDisplayMode,
+    OutputFlags,
+    PredicateCheckExitCode,
+    Result,
+    Success,
+)
 
 # Mark all tests in this file as asyncio
 pytestmark = pytest.mark.asyncio
@@ -25,12 +32,12 @@ async def test_run_check_command_success(
     """Test run_check_command successful execution path."""
     predicate = "is the cluster healthy?"
     mock_output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model",
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
     )
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -46,7 +53,7 @@ async def test_run_check_command_success(
         model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         yes=False,
         show_streaming=True,
     )
@@ -60,7 +67,7 @@ async def test_run_check_command_success(
     #     show_vibe=True,
     #     model="test-model",
     #     show_kubectl=False,
-    #     show_metrics=False,
+    #     show_metrics=MetricsDisplayMode.NONE,
     # )
     mock_execute_check_logic.assert_called_once_with(
         predicate=predicate,
@@ -79,12 +86,12 @@ async def test_run_check_command_error_from_vibe(
     """Test run_check_command when execute_check_logic returns an Error."""
     predicate = "is the sky blue?"
     mock_output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=True,
         model_name="",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_output_flags.return_value = mock_output_flags
 
@@ -100,7 +107,7 @@ async def test_run_check_command_error_from_vibe(
         model=None,
         freeze_memory=True,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         yes=False,
         show_streaming=True,
     )
@@ -128,7 +135,7 @@ async def test_run_check_command_empty_predicate() -> None:
             model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             yes=False,
             show_streaming=True,
         )

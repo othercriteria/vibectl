@@ -136,7 +136,10 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if memory_update_metrics and output_flags.show_metrics:
+        if (
+            memory_update_metrics
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
@@ -178,7 +181,10 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if memory_update_metrics and output_flags.show_metrics:
+        if (
+            memory_update_metrics
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
@@ -207,7 +213,10 @@ async def handle_vibe_request(
             vibe_output="",
             model_name=output_flags.model_name,
         )
-        if memory_update_metrics and output_flags.show_metrics:
+        if (
+            memory_update_metrics
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
@@ -258,7 +267,10 @@ async def handle_vibe_request(
             vibe_output=feedback_message,
             model_name=output_flags.model_name,
         )
-        if memory_update_metrics and output_flags.show_metrics:
+        if (
+            memory_update_metrics
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,
@@ -411,7 +423,10 @@ async def _confirm_and_execute_plan(
             model_name=output_flags.model_name,
         )
         logger.info("Memory updated after command execution.")
-        if memory_update_metrics and output_flags.show_metrics:
+        if (
+            memory_update_metrics
+            and output_flags.show_metrics.should_show_sub_metrics()
+        ):
             console_manager.print_metrics(
                 latency_ms=memory_update_metrics.latency_ms,
                 tokens_in=memory_update_metrics.token_input,

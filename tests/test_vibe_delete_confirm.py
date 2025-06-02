@@ -14,6 +14,7 @@ from vibectl.schema import CommandAction, FeedbackAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
     Fragment,
+    MetricsDisplayMode,
     PromptFragments,
     Result,
     Success,
@@ -75,12 +76,12 @@ def prevent_exit() -> Generator[MagicMock, None, None]:
 def standard_output_flags() -> OutputFlags:
     """Standard output flags for testing."""
     return OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-sonnet",
         show_kubectl=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
 

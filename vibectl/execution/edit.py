@@ -388,11 +388,12 @@ async def _generate_patch_from_changes(
                 )
             else:
                 # Handle all other non-COMMAND action types
+                action_type_str = str(action.action_type)
                 logger.warning(
-                    f"LLM returned unexpected action type: {action.action_type}"
+                    f"LLM returned unexpected action type: {action_type_str}"
                 )
                 return Error(
-                    error=f"LLM returned unexpected action type '{action.action_type}' "
+                    error=f"LLM returned unexpected action type '{action_type_str}' "
                     "instead of COMMAND for patch generation",
                     metrics=metrics,
                 )
@@ -433,7 +434,7 @@ async def _apply_patch(
             )
 
         # Process the output for display and capture the vibe output
-        if output_flags.show_raw:
+        if output_flags.show_raw_output:
             console_manager.print(result.data or "")
 
         vibe_output = None

@@ -9,7 +9,7 @@ from vibectl.prompts.describe import (
     describe_plan_prompt,
     describe_resource_prompt,
 )
-from vibectl.types import Error, Result
+from vibectl.types import Error, MetricsDisplayMode, Result
 
 
 async def run_describe_command(
@@ -21,7 +21,7 @@ async def run_describe_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """Executes the describe command logic."""

@@ -19,6 +19,7 @@ from vibectl.prompts.vibe import vibe_autonomous_prompt
 from vibectl.types import (
     Fragment,
     LLMMetrics,
+    MetricsDisplayMode,
     PromptFragments,
     Success,
     SummaryPromptFragmentFunc,
@@ -81,11 +82,11 @@ async def test_handle_command_output_with_raw_output_only(
     """Test handle_command_output with raw output only."""
     # Create output flags with raw output only
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Call the function with only raw output enabled
@@ -114,11 +115,11 @@ async def test_handle_command_output_with_vibe_only(
 
     # Create output flags with vibe output only
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Mock output processor to avoid any real processing
@@ -158,11 +159,11 @@ async def test_handle_command_output_both_outputs(
 
     # Create output flags with both outputs enabled
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Mock output processor to avoid any real processing
@@ -225,11 +226,11 @@ async def test_handle_command_output_empty_response(
 
     # Create output flags
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -289,11 +290,11 @@ async def test_handle_command_output_with_command(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Explicitly testing streaming path
     )
     command_name = "get pods"
@@ -345,7 +346,7 @@ def test_configure_output_flags_no_flags(mock_config_constructor: MagicMock) -> 
     output_flags = configure_output_flags()
 
     # Verify defaults from DEFAULT_CONFIG are used
-    assert output_flags.show_raw == DEFAULT_CONFIG["show_raw_output"]
+    assert output_flags.show_raw_output == DEFAULT_CONFIG["show_raw_output"]
     assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_CONFIG["model"]
@@ -362,7 +363,7 @@ def test_configure_output_flags_raw_only() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is True
+    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -377,7 +378,7 @@ def test_configure_output_flags_vibe_only() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is False
+    assert output_flags.show_raw_output is False
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -392,7 +393,7 @@ def test_configure_output_flags_both_flags() -> None:
     )
 
     # Verify flags
-    assert output_flags.show_raw is True
+    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is True
     assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
@@ -410,7 +411,7 @@ def test_configure_output_flags_with_show_kubectl() -> None:
     assert output_flags.show_kubectl is False
 
 
-@patch("vibectl.command_handler.Config")
+@patch("vibectl.config.Config")
 def test_configure_output_flags_with_show_kubectl_from_config(
     mock_config_class: MagicMock,
 ) -> None:
@@ -418,7 +419,7 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     # Mock Config to return True for show_kubectl
     mock_config = Mock()
     mock_config.get.side_effect = (
-        lambda key, default: True if key == "show_kubectl" else default
+        lambda key, default=None: True if key == "show_kubectl" else default
     )
     mock_config_class.return_value = mock_config
 
@@ -473,11 +474,11 @@ async def test_handle_command_output_model_name_from_default(
     # OutputFlags should represent the state where no specific model was requested,
     # so it defaults to DEFAULT_MODEL (as configure_output_flags would do).
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Test streaming path
     )
 
@@ -546,11 +547,11 @@ async def test_handle_command_output_basic(
         original="test output", truncated="processed test output"
     )
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=False,  # Test with metrics off for this basic case
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,
     )
 
@@ -609,11 +610,11 @@ async def test_handle_command_output_raw(
     mock_get_adapter.return_value = mock_adapter_instance
 
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         model_name="test-model",
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
@@ -655,9 +656,9 @@ async def test_handle_command_output_no_vibe(
     output_flags = OutputFlags(
         show_vibe=False,
         model_name="test-model",
-        show_raw=True,
+        show_raw_output=True,
         warn_no_output=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     with patch("vibectl.command_handler.update_memory") as mock_update_memory:
@@ -717,11 +718,11 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="auton-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=True,  # Test streaming path
     )
 
@@ -814,11 +815,11 @@ async def test_handle_command_output_llm_error(
     )
 
     output_flags = OutputFlags(
-        show_raw=True,  # Keep raw output for context if Vibe fails
+        show_raw_output=True,  # Keep raw output for context if Vibe fails
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model-llm-error",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -885,11 +886,11 @@ async def test_handle_command_output_error_input_no_vibe(
     error_data = "Error: Something went wrong."
     error_input = Error(error=error_data, exception=RuntimeError(error_data))
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     mock_output_processor.process_auto.return_value = Truncation(
@@ -964,11 +965,11 @@ async def test_handle_command_output_error_input_with_vibe_recovery(
     )
 
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,  # Vibe is on to allow recovery
         warn_no_output=False,
         model_name="test-model-recovery",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,  # Even if true, recovery path is non-streaming
         show_kubectl=True,  # For command context in recovery prompt
     )
@@ -1018,7 +1019,7 @@ async def test_handle_command_output_error_input_with_vibe_recovery(
     )
 
 
-@patch("vibectl.command_handler.Config")
+@patch("vibectl.config.Config")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.command_handler.output_processor")
 @patch("vibectl.command_handler.console_manager")
@@ -1040,11 +1041,11 @@ async def test_handle_command_output_model_name_from_config(
 
     # Create output flags with model name from config
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="model-from-config",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -1103,11 +1104,11 @@ async def test_process_vibe_output_show_streaming_false(
 
     # 2. Create OutputFlags
     output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name=DEFAULT_MODEL,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,  # KEY FLAG: Streaming display is off
     )
 

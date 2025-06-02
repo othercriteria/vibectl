@@ -6,6 +6,7 @@ import pytest
 
 from vibectl.cli import rollout
 from vibectl.command_handler import OutputFlags, handle_command_output
+from vibectl.types import MetricsDisplayMode
 
 
 def test_rollout_commands_exist() -> None:
@@ -25,11 +26,11 @@ def test_rollout_commands_with_mocked_handler(command: str) -> None:
     """Test that rollout subcommands call handle_command_output with OutputFlags."""
     with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = OutputFlags(
-            show_raw=True,
+            show_raw_output=True,
             show_vibe=True,
             warn_no_output=True,
             model_name="test-model",
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         # Since we can't directly call the command callbacks due to the Click context,
@@ -45,11 +46,11 @@ def test_rollout_commands_with_mocked_handler(command: str) -> None:
 def standard_output_flags() -> OutputFlags:
     """Standard output flags for testing."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=False,
         model_name="test",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
 
@@ -58,11 +59,11 @@ def test_rollout_commands_with_mocked_handler_async(command: str) -> None:
     """Test that rollout subcommands call handle_command_output with OutputFlags."""
     with patch("vibectl.command_handler.configure_output_flags") as mock_flags:
         mock_flags.return_value = OutputFlags(
-            show_raw=True,
+            show_raw_output=True,
             show_vibe=True,
             warn_no_output=False,
             model_name="test",
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
         )
 
         # Since we can't directly call the command callbacks due to the Click context,

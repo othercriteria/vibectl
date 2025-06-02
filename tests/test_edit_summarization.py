@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vibectl.execution.edit import _summarize_resource
-from vibectl.types import Error, LLMMetrics, OutputFlags, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.fixture
@@ -39,12 +39,12 @@ spec:
 def output_flags() -> OutputFlags:
     """Standard output flags for testing."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         show_kubectl=False,
         warn_no_output=False,
         model_name="claude-3.7-sonnet",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,
     )
 

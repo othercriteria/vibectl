@@ -5,9 +5,7 @@ import pytest
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
 from vibectl.prompts.events import events_plan_prompt, events_prompt
-
-# from asyncclick.testing import CliRunner # No longer needed if using main directly
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -66,12 +64,12 @@ async def test_events_output_processing(
     # This OutputFlags object is an example of what configure_output_flags might return.
     # The actual assertion will be on the mock_handle_output call.
     # expected_output_flags = OutputFlags(
-    #     show_raw=False,
+    #     show_raw_output=False,
     #     show_vibe=True,
     #     model_name=str(DEFAULT_CONFIG.get("model")),
     #     warn_no_output=True,
     #     show_kubectl=False,
-    #     show_metrics=False,
+    #     show_metrics=MetricsDisplayMode.NONE,
     #     show_streaming=True,
     # )
 
@@ -114,12 +112,12 @@ async def test_events_vibe_path(
 ) -> None:
     """Test the 'vibe' path in the events command."""
     dummy_output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         model_name="test_model_vibe",
         warn_no_output=False,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,
     )
     mock_configure_output_flags.return_value = dummy_output_flags
@@ -179,12 +177,12 @@ async def test_events_watch_path(
 ) -> None:
     """Test the '--watch' / '-w' path in the events command."""
     dummy_output_flags = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         model_name="test_model_watch",
         warn_no_output=False,
         show_kubectl=False,
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_streaming=False,
     )
     mock_configure_output_flags.return_value = dummy_output_flags

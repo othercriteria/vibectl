@@ -15,7 +15,7 @@ from vibectl.console import console_manager
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags, get_memory
 from vibectl.subcommands.vibe_cmd import run_vibe_command
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_auto_command(
@@ -31,7 +31,7 @@ async def run_auto_command(
     semiauto: bool = False,
     exit_on_error: bool = True,
     limit: int | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> Result:
     """
@@ -238,7 +238,7 @@ async def run_semiauto_command(
     unfreeze_memory: bool = False,
     exit_on_error: bool = False,
     limit: int | None = None,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> Result:
     """

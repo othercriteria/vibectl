@@ -16,7 +16,7 @@ from asyncclick.testing import CliRunner  # New import
 from vibectl.cli import cli
 from vibectl.command_handler import OutputFlags
 from vibectl.subcommands import wait_cmd as wait_cmd_module
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 @pytest.fixture
@@ -212,11 +212,11 @@ async def test_wait_with_flags(
 
     # Configure output flags
     mock_configure_flags.return_value = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=True,
         warn_no_output=True,
         model_name="claude-3.7-haiku",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Set up mock kubectl output

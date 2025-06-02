@@ -13,6 +13,7 @@ from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.types import (
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -39,11 +40,11 @@ def default_output_flags_fixture() -> OutputFlags:
     # Ensure mock_config is used if it's available and OutputFlags needs it
     # Or directly instantiate if no complex config needed for these defaults
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,  # Typically false for version
         warn_no_output=True,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=True,
     )
@@ -62,11 +63,11 @@ async def test_run_version_command_success() -> None:
     # would behave with no specific CLI args for the version command.
     # This often means it will use values from DEFAULT_CONFIG.
     expected_flags = OutputFlags(
-        show_raw=cast(bool, DEFAULT_CONFIG["show_raw_output"]),
+        show_raw_output=cast(bool, DEFAULT_CONFIG["show_raw_output"]),
         show_vibe=cast(bool, DEFAULT_CONFIG["show_vibe"]),
         warn_no_output=cast(bool, DEFAULT_CONFIG["warn_no_output"]),
         model_name=cast(str, DEFAULT_CONFIG["model"]),
-        show_metrics=cast(bool, DEFAULT_CONFIG["show_metrics"]),
+        show_metrics=MetricsDisplayMode.from_value(str(DEFAULT_CONFIG["show_metrics"])),
         show_kubectl=cast(bool, DEFAULT_CONFIG["show_kubectl"]),
         warn_no_proxy=cast(bool, DEFAULT_CONFIG["warn_no_proxy"]),
     )
@@ -503,11 +504,11 @@ async def test_cli_version_memory_flags() -> None:
     mock_handle_output_sub = AsyncMock(return_value=Success(data="version vibe output"))
     mock_configure_mem_sub = MagicMock()
     mock_output_flags_instance = OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=False,
         warn_no_output=True,
         model_name="test-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=True,
     )

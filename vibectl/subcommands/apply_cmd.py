@@ -18,6 +18,7 @@ from vibectl.prompts.apply import (
 )
 from vibectl.types import (
     Error,
+    MetricsDisplayMode,
     Result,
 )
 
@@ -30,7 +31,7 @@ async def run_apply_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: bool | None,
+    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """

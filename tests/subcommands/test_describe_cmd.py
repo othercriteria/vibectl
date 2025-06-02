@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.prompts.describe import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
-from vibectl.types import Error, Success
+from vibectl.types import Error, MetricsDisplayMode, Success
 
 
 @pytest.mark.asyncio
@@ -32,7 +32,7 @@ async def test_describe_basic(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -84,7 +84,7 @@ async def test_describe_args_variants(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -127,7 +127,7 @@ async def test_describe_with_flags(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -138,7 +138,7 @@ async def test_describe_with_flags(
         show_vibe=True,
         model=None,
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
@@ -169,7 +169,7 @@ async def test_describe_error_handling(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -204,7 +204,7 @@ async def test_describe_vibe_request(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -242,7 +242,7 @@ async def test_describe_vibe_no_request(
         model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -282,7 +282,7 @@ async def test_run_describe_command_normal() -> None:
             model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -324,7 +324,7 @@ async def test_run_describe_command_vibe() -> None:
             model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -363,7 +363,7 @@ async def test_run_describe_command_vibe_no_args() -> None:
             model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -400,7 +400,7 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -434,7 +434,7 @@ async def test_run_describe_command_standard_command_exception() -> None:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=False,
+                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -458,7 +458,7 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=True,
+                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )
 
@@ -489,6 +489,6 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
                 model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=True,
+                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )

@@ -9,10 +9,11 @@ import pytest
 from vibectl.command_handler import (
     handle_standard_command,
 )
+from vibectl.config import Config
 from vibectl.types import (
-    Config,
     Error,
     Fragment,
+    MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
     Success,
@@ -56,12 +57,12 @@ def test_handle_standard_command_logs(
     )
 
     output_flags = OutputFlags(
-        show_raw=True,
+        show_raw_output=True,
         show_vibe=False,
         warn_no_output=False,
         model_name="test-model",
         show_kubectl=True,
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
     )
 
     # Test handling the logs command

@@ -7,7 +7,7 @@ from vibectl.execution.vibe import (
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.vibe import plan_vibe_fragments, vibe_autonomous_prompt
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 
 async def run_vibe_command(
@@ -21,7 +21,7 @@ async def run_vibe_command(
     yes: bool = False,
     semiauto: bool = False,
     exit_on_error: bool = True,
-    show_metrics: bool | None = None,
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> Result:
     """

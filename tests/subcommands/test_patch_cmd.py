@@ -6,18 +6,18 @@ import pytest
 
 from vibectl.prompts.patch import patch_plan_prompt, patch_resource_prompt
 from vibectl.subcommands.patch_cmd import run_patch_command
-from vibectl.types import Error, OutputFlags, Success
+from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 
 
 @pytest.fixture
 def default_patch_output_flags() -> OutputFlags:
     """Default OutputFlags for patch command tests."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="default-model",
-        show_metrics=False,
+        show_metrics=MetricsDisplayMode.NONE,
         show_kubectl=False,
         warn_no_proxy=True,
         show_streaming=True,
@@ -53,7 +53,7 @@ class TestRunPatchCommand:
             model="default-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=True,
         )
 
@@ -65,7 +65,7 @@ class TestRunPatchCommand:
             show_vibe=True,
             model="default-model",
             show_kubectl=False,
-            show_metrics=False,
+            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=True,
         )
         mock_configure_memory.assert_called_once_with(False, False)
@@ -101,7 +101,7 @@ class TestRunPatchCommand:
             model="test-model",
             freeze_memory=True,
             unfreeze_memory=False,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
 
@@ -113,7 +113,7 @@ class TestRunPatchCommand:
             show_vibe=False,
             model="test-model",
             show_kubectl=True,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(True, False)
@@ -182,7 +182,7 @@ class TestRunPatchCommand:
             model="claude-3.5-sonnet",
             freeze_memory=False,
             unfreeze_memory=True,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
 
@@ -194,7 +194,7 @@ class TestRunPatchCommand:
             show_vibe=True,
             model="claude-3.5-sonnet",
             show_kubectl=True,
-            show_metrics=True,
+            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(False, True)

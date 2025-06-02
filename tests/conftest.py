@@ -18,7 +18,7 @@ from rich.console import Console
 from vibectl.command_handler import OutputFlags
 from vibectl.config import Config
 from vibectl.console import ConsoleManager
-from vibectl.types import Error, LLMMetrics, Success
+from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, Success
 
 # Define UnknownModelError at the module level if it can't be imported
 try:
@@ -176,8 +176,8 @@ def mock_configure_output_flags(mocker: MockerFixture) -> Generator[Mock, None, 
     mock = mocker.patch("vibectl.command_handler.configure_output_flags")
     mock.return_value = OutputFlags(
         show_vibe=True,
-        show_metrics=True,
-        show_raw=False,
+        show_metrics=MetricsDisplayMode.ALL,
+        show_raw_output=False,
         show_kubectl=False,
         warn_no_output=True,
         model_name="test-model",
@@ -466,11 +466,11 @@ def mock_kubectl_output() -> str:
 def default_output_flags() -> OutputFlags:
     """Provides a default OutputFlags instance for tests."""
     return OutputFlags(
-        show_raw=False,
+        show_raw_output=False,
         show_vibe=True,
         warn_no_output=True,
         model_name="test-model",
-        show_metrics=True,
+        show_metrics=MetricsDisplayMode.ALL,
         show_kubectl=True,
         warn_no_proxy=True,
     )
@@ -481,8 +481,8 @@ def no_vibe_output_flags() -> OutputFlags:
     """Provides an OutputFlags instance with show_vibe=False."""
     return OutputFlags(
         show_vibe=False,
-        show_metrics=True,
-        show_raw=True,
+        show_metrics=MetricsDisplayMode.ALL,
+        show_raw_output=True,
         show_kubectl=False,
         warn_no_output=True,
         model_name="test-model",
