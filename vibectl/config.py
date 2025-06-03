@@ -281,12 +281,16 @@ class Config:
         Args:
             base_dir: Optional base directory for configuration (used in testing)
         """
-        # Use environment variable, provided base directory, or default to user's home
-        env_config_dir = os.environ.get("VIBECTL_CONFIG_DIR")
-        if env_config_dir:
-            self.config_dir = Path(env_config_dir)
+        # Use provided base directory first (for testing), then
+        # environment variable, then default
+        if base_dir is not None:
+            self.config_dir = base_dir / ".config" / "vibectl" / "client"
         else:
-            self.config_dir = (base_dir or Path.home()) / ".vibectl"
+            env_config_dir = os.environ.get("VIBECTL_CONFIG_DIR")
+            if env_config_dir:
+                self.config_dir = Path(env_config_dir)
+            else:
+                self.config_dir = Path.home() / ".config" / "vibectl" / "client"
 
         self.config_file = self.config_dir / "config.yaml"
         self._config: dict[str, Any] = {}
@@ -506,14 +510,22 @@ class Config:
     def unset(self, key: str) -> None:
         """Unset a configuration key, resetting it to default."""
         if "." in key:
-            # Hierarchical path - reset to default value from DEFAULT_CONFIG
+            # Hierarchical path - validate first, then reset to default
+            # value from DEFAULT_CONFIG
+            _validate_hierarchical_key(key)
             try:
                 default_value = _get_nested_value(DEFAULT_CONFIG, key)
                 _set_nested_value(self._config, key, default_value)
             except KeyError as err:
                 raise ValueError(f"Config path not found: {key}") from err
         else:
-            # Top-level key
+            # Top-level key - validate first
+            if key not in CONFIG_SCHEMA:
+                valid_keys = list(CONFIG_SCHEMA.keys())
+                raise ValueError(
+                    f"Unknown configuration key: {key}. Valid sections: {valid_keys}"
+                )
+
             if key not in self._config:
                 raise ValueError(f"Key not found in configuration: {key}")
 

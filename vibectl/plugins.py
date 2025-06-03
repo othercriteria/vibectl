@@ -133,7 +133,8 @@ class PluginStore:
 
     def _get_plugins_directory(self) -> Path:
         """Get the plugins storage directory."""
-        # Use ~/.config/vibectl/plugins/ as discussed
+        # Use ~/.config/vibectl/plugins/ - keeping plugins at vibectl level,
+        # not client-specific
         config_dir = Path.home() / ".config" / "vibectl" / "plugins"
         return config_dir
 

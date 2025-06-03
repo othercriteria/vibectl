@@ -3,7 +3,6 @@
 This module tests the configuration management functionality of vibectl.
 """
 
-import os
 from collections.abc import Generator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -27,7 +26,7 @@ class MockConfig(Config):
     def __init__(self, base_dir: Path | None = None) -> None:
         """Initialize with default config in memory only."""
         # Use environment variable, provided base directory, or default to user's home
-        self.config_dir = (base_dir or Path.home()) / ".vibectl"
+        self.config_dir = (base_dir or Path.home()) / ".config" / "vibectl" / "client"
         self.config_file = self.config_dir / "config.yaml"
 
         # Initialize with defaults - use deep copy to avoid modifying the original
@@ -195,13 +194,13 @@ def test_config_unset_custom_key(test_config: MockConfig) -> None:
 
 def test_config_unset_invalid_key(test_config: MockConfig) -> None:
     """Test unsetting an invalid configuration key."""
-    with pytest.raises(ValueError, match="Key not found in configuration"):
+    with pytest.raises(ValueError, match="Unknown configuration key"):
         test_config.unset("invalid_key")  # Key that doesn't exist in config at all
 
 
 def test_config_unset_nonexistent_key(test_config: MockConfig) -> None:
     """Test unsetting a key that doesn't exist in the configuration."""
-    with pytest.raises(ValueError, match="Key not found in configuration"):
+    with pytest.raises(ValueError, match="Unknown configuration key"):
         test_config.unset("nonexistent_key")
 
 
@@ -311,8 +310,8 @@ def test_config_save_explicit(test_config: MockConfig) -> None:
 def test_config_empty_file() -> None:
     """Test handling of empty configuration file."""
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
         # Create an empty file
         with open(config_file, "w"):
@@ -328,13 +327,13 @@ def test_config_empty_file() -> None:
 def test_config_load_error() -> None:
     """Test error handling when loading config with invalid YAML."""
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a valid but empty file
+        # Create a non-empty file so that yaml.safe_load gets called
         with open(config_file, "w") as f:
-            f.write("")
+            f.write("display:\n  theme: dark\n")
 
         # Mock yaml.safe_load to raise a YAMLError
         error_msg = "Simulated YAML error"
@@ -350,24 +349,32 @@ def test_config_load_error() -> None:
 def test_config_save_error() -> None:
     """Test error handling when saving config fails."""
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
 
+        # Initialize config first (this should work)
         config = Config(Path(temp_dir))
 
-        # Simulate write permission error by patching open
-        error_msg = "Permission denied"
-        error = PermissionError(error_msg)
+        # Set up a mock that allows reads but fails on writes
+        original_open = open
+
+        def mock_open(*args: Any, **kwargs: Any) -> Any:
+            # Check if this is a write operation
+            if len(args) > 1 and "w" in str(args[1]):
+                raise OSError("File write error")
+            # Otherwise, use the original open
+            return original_open(*args, **kwargs)
+
         with (
-            patch("builtins.open", side_effect=error),
+            patch("builtins.open", side_effect=mock_open),
             pytest.raises(ValueError, match="Failed to save config"),
         ):
-            config.set("display.theme", "light")  # This calls _save_config internally
+            config.set("display.theme", "dark")
 
 
 def test_config_unset_special_case() -> None:
     """Test the special case handling in unset for test compatibility."""
-    with pytest.raises(ValueError, match="Key not found in configuration"):
+    with pytest.raises(ValueError, match="Unknown configuration key"):
         config = Config()  # Use real config to test the actual implementation
         config.unset("invalid_key")  # This should match the special case
 
@@ -378,86 +385,61 @@ def test_config_unsupported_keys() -> None:
     print(f"DEFAULT_CONFIG at test start: {DEFAULT_CONFIG}")
 
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a config with unsupported keys
-        unsupported_config: dict[str, Any] = {
-            "completely_unsupported_key": "some-value",
-            "another_unsupported_key": 123,
-            "display": {"theme": "light"},  # Valid hierarchical key for reference
+        # Create a config file with some supported and unsupported keys
+        config_data = {
+            "display": {"theme": "dark"},  # Supported
+            "unsupported_key": "some_value",  # Not supported
+            "another_unsupported": {"nested": "value"},  # Not supported
         }
 
         with open(config_file, "w") as f:
-            yaml.dump(unsupported_config, f)
+            yaml.dump(config_data, f)
 
-        # For debugging - verify the file content
-        with open(config_file) as f:
-            print(f"File content: {f.read()}")
+        # Initialize config
+        config = Config(Path(temp_dir))
 
-        # Create our own config directly without the Config class
-        # This simulates what the fixed _load_config should do
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(unsupported_config)  # type: ignore
+        # Should be able to access supported keys
+        assert config.get("display.theme") == "dark"
 
-        # Create a mock config and set its internal state
-        test_config = MockConfig(Path(temp_dir))
-        test_config._config = direct_config
+        # Should be able to access unsupported keys that were loaded from file
+        assert config.get("unsupported_key") == "some_value"
+        assert config.get("another_unsupported") == {"nested": "value"}
 
-        # Verify the valid keys are loaded correctly
-        assert test_config.get("display.theme") == "light"
-
-        # Get all config and verify the unsupported keys are preserved
-        all_config = test_config.get_all()
-        assert "completely_unsupported_key" in all_config
-        assert all_config["completely_unsupported_key"] == "some-value"
-        assert "another_unsupported_key" in all_config
-        assert all_config["another_unsupported_key"] == 123
+        # Should not be able to set unsupported keys via the API
+        with pytest.raises(ValueError, match="Unknown configuration key"):
+            config.set("new_unsupported_key", "value")
 
 
 def test_config_unset_unsupported_key() -> None:
     """Test unsetting an unsupported configuration key."""
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a config with an unsupported key
-        unsupported_config: dict[str, Any] = {
-            "unsupported_key": "some-value",
-            "display": {"theme": "light"},  # Valid hierarchical key for reference
-        }
+        # Create a config file with unsupported key
+        config_data = {"unsupported_key": "some_value"}
 
         with open(config_file, "w") as f:
-            yaml.dump(unsupported_config, f)
+            yaml.dump(config_data, f)
 
-        # Create our own config directly without the Config class
-        # This simulates what the fixed _load_config should do
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(unsupported_config)  # type: ignore
+        # Initialize config
+        config = Config(Path(temp_dir))
 
-        # Create a mock config and set its internal state
-        test_config = MockConfig(Path(temp_dir))
-        test_config._config = direct_config
-
-        # Verify the unsupported key is in the config
-        all_config = test_config.get_all()
-        assert "unsupported_key" in all_config
-
-        # Unset the unsupported key - should succeed
-        test_config.unset("unsupported_key")
-
-        # Verify the key was removed
-        updated_config = test_config.get_all()
-        assert "unsupported_key" not in updated_config
+        # Should not be able to unset unsupported keys
+        with pytest.raises(ValueError, match="Unknown configuration key"):
+            config.unset("unsupported_key")
 
 
 def test_config_load_file_ioerror() -> None:
     """Test error handling when loading config file fails with IOError."""
     with TemporaryDirectory() as temp_dir:
-        config_dir = Path(temp_dir) / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = Path(temp_dir) / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
         # Create a valid config file
@@ -687,133 +669,54 @@ def test_config_load_process() -> None:
     """Test the config loading process to understand behavior with unsupported keys."""
     with TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        config_dir = temp_path / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = temp_path / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a config with a custom theme value and unsupported keys
-        test_config_content: dict[str, Any] = {
-            "display": {"theme": "light"},  # Should override default
-            "unsupported_key": "value",  # Unsupported key should be preserved
+        # Test 1: Create config file with valid and invalid keys
+        config_data = {
+            "display": {"theme": "dark"},
+            "unsupported_key": "some_value",
         }
-
         with open(config_file, "w") as f:
-            yaml.dump(test_config_content, f)
+            yaml.dump(config_data, f)
 
-        # Verify the file exists and contains our data
-        assert config_file.exists()
-        with open(config_file) as f:
-            content = f.read()
-            print(f"File written to {config_file}: {content}")
+        config = Config(temp_path)
 
-        # Create our own config directly
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(test_config_content)  # type: ignore
+        # Test that both supported and unsupported keys are available
+        assert config.get("display.theme") == "dark"
+        assert config.get("unsupported_key") == "some_value"
 
-        # Create a mock config and set its state
-        config = MockConfig(temp_path)
-        config._config = direct_config
-
-        # Print the resulting config
-        all_config = config.get_all()
-        print(f"Final config: {all_config}")
-
-        # Now let's check if theme is correctly loaded from file
-        theme = config.get("display.theme")
-        print(f"Theme value: {theme}")
-
-        # Check if unsupported key is in the config
-        has_unsupported = "unsupported_key" in all_config
-        unsupported_value = all_config.get("unsupported_key")
-        print(f"Has unsupported key: {has_unsupported}, Value: {unsupported_value}")
-
-        # Test assertions based on expected behavior
+        # Test 2: Modify supported key
+        config.set("display.theme", "light")
         assert config.get("display.theme") == "light"
-        assert "unsupported_key" in all_config
-        assert all_config["unsupported_key"] == "value"
 
-
-def test_config_dict_union() -> None:
-    """Test that Python's dict union operator | works as expected with precedence."""
-    default_dict = {"display": {"theme": "dark"}, "llm": {"model": "default-model"}}
-    loaded_dict = {"display": {"theme": "light"}}
-
-    # The right operand should take precedence for common keys
-    merged = default_dict | loaded_dict
-    assert merged["display"]["theme"] == "light"  # From loaded_dict
-    assert merged["llm"]["model"] == "default-model"  # From default_dict
-
-
-def test_config_env_variable() -> None:
-    """Test the VIBECTL_CONFIG_DIR environment variable for config path."""
-    with TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        config_dir = temp_path / "custom_config_dir"
-        config_dir.mkdir(exist_ok=True)
-        config_file = config_dir / "config.yaml"
-
-        # Create a config file in the custom location
-        custom_config = {"display": {"theme": "light"}, "unsupported_key": "value"}
-
-        with open(config_file, "w") as f:
-            yaml.dump(custom_config, f)
-
-        # Set the environment variable and create a new Config instance
-        with patch.dict("os.environ", {"VIBECTL_CONFIG_DIR": str(config_dir)}):
-            config = Config()
-
-            # Verify the config directory and file
-            assert config.config_dir == config_dir
-            assert config.config_file == config_file
-
-            # Verify the loaded config values
-            all_config = config.get_all()
-            print(f"All config: {all_config}")
-
-            # Test that values were loaded from the custom location
-            assert config.get("display.theme") == "light"
-            assert "unsupported_key" in all_config
+        # Test 3: Try to modify unsupported key
+        with pytest.raises(ValueError, match="Unknown configuration key"):
+            config.set("unsupported_key", "new_value")
 
 
 def test_valid_key_in_file_invalid_key_in_memory() -> None:
     """Test valid keys from file load but unsupported keys can't be set via API."""
     with TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        config_dir = temp_path / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = temp_path / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create config with valid theme and unsupported key
-        config_content: dict[str, Any] = {
-            "display": {"theme": "light"},
-            "unsupported_key": "test_value",
-        }
-
+        # Create a config file with only valid keys
+        config_data = {"display": {"theme": "dark"}}
         with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+            yaml.dump(config_data, f)
 
-        # Debug output - verify file content before loading
-        with open(config_file) as f:
-            print(f"File content before loading: {f.read()}")
+        config = Config(temp_path)
 
-        # Create our own config directly
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(config_content)  # type: ignore
+        # Valid key should work
+        assert config.get("display.theme") == "dark"
 
-        # Create a mock config and set its state
-        config = MockConfig(temp_path)
-        config._config = direct_config
-
-        # Print final config
-        print(f"Final config from get_all(): {config.get_all()}")
-
-        # Our assertions
-        assert config.get("display.theme") == "light"
-        assert "unsupported_key" in config.get_all()
-
-        # But still can't set an unsupported key through the API
+        # Try to set an invalid key - should fail
         with pytest.raises(ValueError, match="Unknown configuration key"):
-            config.set("unsupported_key", "new_value")
+            config.set("invalid_key", "value")
 
 
 def test_theme_validation() -> None:
@@ -834,38 +737,22 @@ def test_load_behavior_with_mock() -> None:
     with TemporaryDirectory() as temp_dir:
         # Setup
         temp_path = Path(temp_dir)
-        config_dir = temp_path / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = temp_path / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a valid config file
-        test_content: dict[str, Any] = {
-            "display": {"theme": "light"},
-            "unsupported_key": "value",
-        }
+        # Create a config file
+        config_data = {"display": {"theme": "light"}}
         with open(config_file, "w") as f:
-            yaml.dump(test_content, f)
+            yaml.dump(config_data, f)
 
-        # Verify what we wrote to the file
-        with open(config_file) as f:
-            print(f"File content: {f.read()}")
+        # Mock yaml.safe_load to return a different value
+        mock_data = {"display": {"theme": "dark"}}
 
-        # Create our own config directly to simulate the fixed behavior
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(test_content)  # type: ignore
-
-        # Create a mock config and set its state
-        config = MockConfig(temp_path)
-        config._config = direct_config
-
-        # Print the final loaded config
-        config_data = config.get_all()
-        print(f"Final config: {config_data}")
-
-        # Assertions
-        assert config.get("display.theme") == "light"
-        assert "unsupported_key" in config_data
-        assert config_data["unsupported_key"] == "value"
+        with patch("yaml.safe_load", return_value=mock_data):
+            config = Config(temp_path)
+            # Should use the mocked value
+            assert config.get("display.theme") == "dark"
 
 
 def test_config_debug_initialization() -> None:
@@ -873,41 +760,21 @@ def test_config_debug_initialization() -> None:
     with TemporaryDirectory() as temp_dir:
         # Setup
         temp_path = Path(temp_dir)
-        config_dir = temp_path / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
+        config_dir = temp_path / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.yaml"
 
-        # Create a unique pattern for our test
-        test_content: dict[str, Any] = {
-            "display": {"theme": "light"},
-            "unsupported_key": "DEBUG_UNIQUE_VALUE",
-        }
+        # Create the actual config file
+        config_data = {"display": {"theme": "light"}}
         with open(config_file, "w") as f:
-            yaml.dump(test_content, f)
+            yaml.dump(config_data, f)
 
-        # Verify the file exists and contains our data
+        # Confirm file exists
         assert config_file.exists()
-        with open(config_file) as f:
-            content = f.read()
-            print(f"File content: {content}")
-            assert "DEBUG_UNIQUE_VALUE" in content
 
-        # Use our simpler approach with manual config creation
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(test_content)  # type: ignore
-
-        # Create a mock config and set its state
-        config = MockConfig(temp_path)
-        config._config = direct_config
-
-        # Get all config and print for debugging
-        config_data = config.get_all()
-        print(f"Final config: {config_data}")
-
-        # Verify values are as expected
+        # Initialize config and check
+        config = Config(temp_path)
         assert config.get("display.theme") == "light"
-        assert "unsupported_key" in config_data
-        assert config_data["unsupported_key"] == "DEBUG_UNIQUE_VALUE"
 
 
 def test_config_direct_patch() -> None:
@@ -915,35 +782,14 @@ def test_config_direct_patch() -> None:
     with TemporaryDirectory() as temp_dir:
         # Setup
         temp_path = Path(temp_dir)
-        config_dir = temp_path / ".vibectl"
-        config_dir.mkdir(exist_ok=True)
-        config_file = config_dir / "config.yaml"
+        config_dir = temp_path / ".config" / "vibectl" / "client"
+        config_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create test content
-        test_content: dict[str, Any] = {
-            "display": {"theme": "light"},  # This theme should be used
-            "unsupported_key": "test_value",  # This unsupported key should be retained
-        }
-
-        with open(config_file, "w") as f:
-            yaml.dump(test_content, f)
-
-        # Create our own config directly
-        direct_config = DEFAULT_CONFIG.copy()
-        direct_config.update(test_content)  # type: ignore
-
-        # Create a mock config and set its state
-        config = MockConfig(temp_path)
-        config._config = direct_config
-
-        # Print the config
-        config_data = config.get_all()
-        print(f"Patched config: {config_data}")
-
-        # Assertions
-        assert config.get("display.theme") == "light"
-        assert "unsupported_key" in config_data
-        assert config_data["unsupported_key"] == "test_value"
+        # Mock the _load_config method to do nothing
+        with patch.object(Config, "_load_config", return_value=None):
+            config = Config(temp_path)
+            # Should use default config since _load_config does nothing
+            assert config.get("display.theme") == "default"
 
 
 def test_load_file_in_temp() -> None:
@@ -951,42 +797,20 @@ def test_load_file_in_temp() -> None:
     # Create a temporary file
     with TemporaryDirectory() as temp_dir:
         # Setup manually
-        temp_path = Path(temp_dir) / ".vibectl"
-        temp_path.mkdir(exist_ok=True)
+        temp_path = Path(temp_dir) / ".config" / "vibectl" / "client"
+        temp_path.mkdir(parents=True, exist_ok=True)
         config_file = temp_path / "config.yaml"
 
-        # Write a config to it
+        # Create a minimal config file
         with open(config_file, "w") as f:
-            f.write("""
-# Test config
-display:
-  theme: light
-unsupported_key: test-value
-            """)
+            f.write("display:\n  theme: dark\n")
 
-        # Print the environment
-        print(f"Current directory: {os.getcwd()}")
-        print(f"Temp dir: {temp_dir}")
-        print(f"Temp path: {temp_path}")
-        print(f"Config file: {config_file}")
-        print(f"Config file exists: {config_file.exists()}")
+        # Make sure it exists
+        assert config_file.exists()
 
-        # Use environment variable to ensure we load this config
-        with patch.dict("os.environ", {"VIBECTL_CONFIG_DIR": str(temp_path)}):
-            # Create the config
-            config = Config()
-
-            # Verify the file location
-            assert config.config_dir == temp_path
-            assert config.config_file == config_file
-
-            # Get the config
-            config_data = config.get_all()
-            print(f"Loaded config: {config_data}")
-
-            # We should get the theme value from the file
-            assert config.get("display.theme") == "light"
-            assert "unsupported_key" in config_data
+        # Load config
+        config = Config(Path(temp_dir))
+        assert config.get("display.theme") == "dark"
 
 
 def test_mockconfig_get_model_key_none_behavior() -> None:

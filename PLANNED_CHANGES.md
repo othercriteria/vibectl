@@ -19,7 +19,9 @@ Implement a client/server architecture that allows vibectl CLI instances to dele
 - **Server**: Manages models, API keys, usage limits, and actual LLM execution
 - **Protocol**: gRPC for strong typing, streaming support, and k8s ecosystem fit
 
-### Configuration Structure
+### ✅ Configuration Structure (COMPLETED)
+
+**Status**: Implemented and deployed locally
 
 Move from flat config to structured approach:
 
@@ -31,9 +33,11 @@ The current config structure is a flat dictionary with 30+ top-level keys:
 - Difficult to navigate and understand relationships
 - Hard to extend for client/server separation
 
-### New Hierarchical Structure
+### ✅ New Hierarchical Structure (COMPLETED)
 
-Reorganize config into logical sections:
+Reorganized config into logical sections and implemented directory structure:
+
+**Configuration Location**: `~/.config/vibectl/client/config.yaml` (standardized on XDG Base Directory specification)
 
 ```yaml
 # ~/.config/vibectl/client/config.yaml
@@ -56,14 +60,17 @@ llm:
   model: claude-4-sonnet
   max_retries: 2
   retry_delay_seconds: 1.0
-  model_keys:
-    anthropic: null
-    ollama: null
-    openai: null
-  model_key_files:
-    anthropic: null
-    ollama: null
-    openai: null
+
+providers:
+  anthropic:
+    key: null
+    key_file: null
+  ollama:
+    key: null
+    key_file: null
+  openai:
+    key: null
+    key_file: null
 
 memory:
   enabled: true
@@ -112,7 +119,7 @@ memory_content: |
   User working on Kubernetes deployment testing across multiple namespaces...
 ```
 
-### Enhanced CLI Features
+### ✅ Enhanced CLI Features (COMPLETED)
 
 1. **Sectioned Display**:
    ```bash
@@ -143,24 +150,32 @@ memory_content: |
    - Show helpful error messages for invalid paths
    - Support tab completion for available sections/keys
 
-### Client/Server Config Separation
+### ✅ Client/Server Config Separation (Directory Structure Ready)
 
-Prepare directory structure for client/server split:
+Directory structure implemented for client/server split:
 
 ```
 ~/.config/vibectl/
 ├── client/
 │   ├── config.yaml          # client-specific config (above structure)
-│   └── server-secrets/      # server connection secrets
+│   └── server-secrets/      # server connection secrets (for future)
 │       └── prod-server.key
-└── server/
+├── plugins/                 # shared plugin storage
+│   ├── apply-comprehensive-demo-1.0.0.json
+│   └── ...
+└── server/                  # server config (for future implementation)
     ├── config.yaml          # server config (models, limits, etc.)
     └── client-secrets/      # issued client secrets
         ├── user1.key
         └── user2.key
 ```
 
-Initial implementation focuses on client config restructuring, with server config structure to be defined later.
+**Changes Made**:
+- ✅ Updated `Config` class to use `~/.config/vibectl/client/config.yaml`
+- ✅ Moved existing config from `~/.vibectl/config.yaml` to new location
+- ✅ Updated plugin storage to `~/.config/vibectl/plugins/` (shared across client/server)
+- ✅ Verified backward compatibility removal works correctly
+- ✅ Updated all test files to use new directory structure
 
 ## Model Adapter Architecture
 
@@ -312,20 +327,15 @@ service VibectlLLMProxy {
 - Configuration migration utilities
 - Enhanced testing infrastructure for client/server scenarios
 
-## Provider Configuration Restructuring
+## ✅ Provider Configuration Restructuring (COMPLETED)
 
-### Current Issue
+**Status**: Implemented as part of hierarchical config restructuring
 
-The hierarchical config structure has a validation problem with provider-specific keys:
-- Current structure: `llm.model_keys.openai`, `llm.model_key_files.anthropic`
-- Validation fails because `model_keys` is defined as `dict` in schema but validation tries to look up specific provider names
-- Complex validation logic needed to handle arbitrary dictionary keys
+### Solution Implemented
 
-### Proposed Solution
+Restructured provider configuration into explicit hierarchy:
 
-Restructure provider configuration into explicit hierarchy:
-
-**From:**
+**From (old flat structure):**
 ```yaml
 llm:
   model_keys:
@@ -336,7 +346,7 @@ llm:
     anthropic: "/path/to/key"
 ```
 
-**To:**
+**To (new hierarchical structure):**
 ```yaml
 providers:
   openai:
@@ -350,7 +360,7 @@ providers:
     key_file: null
 ```
 
-### Benefits
+### Benefits Achieved
 
 1. **Cleaner paths**: `providers.openai.key` vs `llm.model_keys.openai`
 2. **Explicit schema**: No arbitrary dictionary keys, all paths defined explicitly
@@ -358,15 +368,11 @@ providers:
 4. **Better organization**: Provider-specific config grouped together
 5. **Extensible**: Easy to add new providers or provider-specific settings
 
-### Implementation Plan
+### Implementation Completed
 
-1. **Update DEFAULT_CONFIG**: Move provider keys to new `providers` section
-2. **Update CONFIG_SCHEMA**: Define explicit provider structure
-3. **Update validation**: Remove special dictionary key handling
-4. **Update config methods**: Modify `get_model_key` and `set_model_key` methods
-5. **Update tests**: Change all `llm.model_keys.*` paths to `providers.*.key`
-6. **Update CLI examples**: Update help text and documentation
-
-### Migration Path
-
-Since we're still in development and removing backward compatibility was already decided, this change will be part of the hierarchical config restructuring. All existing tests will be updated to use the new paths.
+1. ✅ **Updated DEFAULT_CONFIG**: Moved provider keys to new `providers` section
+2. ✅ **Updated CONFIG_SCHEMA**: Defined explicit provider structure
+3. ✅ **Updated validation**: Removed special dictionary key handling
+4. ✅ **Updated config methods**: Modified `get_model_key` and `set_model_key` methods
+5. ✅ **Updated tests**: Changed all `llm.model_keys.*` paths to `providers.*.key`
+6. ✅ **Updated CLI examples**: Updated help text and documentation
