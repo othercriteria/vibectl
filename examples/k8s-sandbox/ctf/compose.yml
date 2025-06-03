@@ -57,13 +57,11 @@ services:
       - STATUS_DIR=/tmp/status
       # Add the control plane container name for direct port access
       - KIND_CONTAINER=ctf-cluster-control-plane
-      # LLM config
-      - OPENAI_API_KEY=""  # Empty value to avoid errors
+      # Empty OPENAI_API_KEY to avoid errors
+      - OPENAI_API_KEY=""
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw  # Mount docker socket for Kind with explicit rw
       - status-volume:/tmp/status:rw  # Use a named volume to avoid permission issues
-      # Mount a named volume for LLM keys to persist between restarts
-      - llm-keys-volume:/home/sandbox/.local/share/llm:rw
       - ../../../:/home/sandbox/vibectl-src:ro # Mount project root read-only
     networks:
       - ctf-network
@@ -112,4 +110,3 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: "size=100m,mode=1777"  # World-writable with sticky bit (like /tmp)
-  llm-keys-volume:  # Named volume for LLM keys

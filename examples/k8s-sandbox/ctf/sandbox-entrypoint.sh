@@ -3,13 +3,6 @@ set -e
 
 echo "🚀 Starting K8S CTF Sandbox Environment..."
 
-# Check if VIBECTL_ANTHROPIC_API_KEY is set (fail fast)
-if [ -z "$VIBECTL_ANTHROPIC_API_KEY" ]; then
-  echo "❌ ERROR: VIBECTL_ANTHROPIC_API_KEY environment variable is not set."
-  echo "Please provide the API key when running the sandbox."
-  exit 1
-fi
-
 # The status directory is shared between containers
 STATUS_DIR=${STATUS_DIR:-"/tmp/status"}
 mkdir -p "$STATUS_DIR" || echo "⚠️ Could not create status directory - it may already exist"
@@ -69,28 +62,16 @@ fi
 
 echo "🧠 Setting up vibectl with the challenge task..."
 
-# Set up LLM tool API keys directly
-echo "🔑 Setting up LLM tool API keys..."
-# Get the exact path for the keys.json file from the llm tool
-LLM_KEYS_PATH=$(llm keys path)
-if [ -z "$LLM_KEYS_PATH" ]; then
-  echo "❌ ERROR: Could not determine keys path from llm tool."
-  echo "This is required for the sandbox to work properly."
+# Set up vibectl API keys using the correct configuration structure
+echo "🔑 Setting up API keys using vibectl configuration..."
+if [ -n "$VIBECTL_ANTHROPIC_API_KEY" ]; then
+  vibectl config set model_keys anthropic:"$VIBECTL_ANTHROPIC_API_KEY"
+  echo "✅ Anthropic API key configured"
+else
+  echo "❌ ERROR: VIBECTL_ANTHROPIC_API_KEY environment variable is not set."
+  echo "Please provide the API key when running the sandbox."
   exit 1
 fi
-echo "📁 Using LLM keys path: $LLM_KEYS_PATH"
-
-# Ensure the directory exists
-mkdir -p "$(dirname "$LLM_KEYS_PATH")"
-
-# Write the keys file
-cat > "$LLM_KEYS_PATH" << EOF
-{
-  "anthropic": "$VIBECTL_ANTHROPIC_API_KEY"
-}
-EOF
-chmod 600 "$LLM_KEYS_PATH"
-echo "✅ LLM API key set via direct file configuration"
 
 # Check Docker socket permissions
 if ! docker ps >/dev/null 2>&1; then
@@ -183,21 +164,21 @@ fi
 
 # Set vibectl config (from environment variables provided by Docker Compose)
 echo "📝 Configuring vibectl..."
-vibectl config set memory_max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}
-vibectl config set model "$VIBECTL_MODEL"
-vibectl config set show_memory true
-vibectl config set show_streaming false
+vibectl config set memory.max_chars ${VIBECTL_MEMORY_MAX_CHARS:-1500}
+vibectl config set llm.model "$VIBECTL_MODEL"
+vibectl config set display.show_memory true
+vibectl config set display.show_streaming false
 # Configure output options based on verbose mode
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "📝 Verbose mode enabled: showing raw output and kubectl commands"
-  vibectl config set show_raw_output true
-  vibectl config set show_kubectl true
-  vibectl config set show_metrics true
+  vibectl config set display.show_raw_output true
+  vibectl config set display.show_kubectl true
+  vibectl config set display.show_metrics all
   export VIBECTL_TRACEBACK=1
 else
-  vibectl config set show_raw_output false
-  vibectl config set show_kubectl false
-  vibectl config set show_metrics false
+  vibectl config set display.show_raw_output false
+  vibectl config set display.show_kubectl false
+  vibectl config set display.show_metrics none
 fi
 
 echo "🏆 Starting challenge - setting up Kubernetes environment..."
@@ -266,7 +247,6 @@ echo "🔄 Starting vibectl autonomous mode with 5s interval..."
 # Show vibectl memory in verbose mode (will be shown by auto if configured)
 if [ "$VIBECTL_VERBOSE" = "true" ]; then
   echo "Verbose mode is enabled. vibectl auto will show memory if configured."
-  # vibectl memory show # Not needed here, auto handles it
 fi
 
 # Capture full output and error for debugging (less critical for auto, but useful if it fails)

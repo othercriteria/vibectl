@@ -60,13 +60,12 @@ WORKDIR /home/sandbox/vibectl-src
 # Set up virtual environment (will be cached if requirements don't change)
 RUN python3.11 -m venv /home/sandbox/.venv \
     && . /home/sandbox/.venv/bin/activate \
-    && pip install --no-cache-dir pip setuptools wheel --upgrade \
-    && pip install --no-cache-dir llm-anthropic \
-    && python3.11 -m llm install llm-anthropic
+    && pip install --no-cache-dir pip setuptools wheel --upgrade
 
 # We'll install the package from GitHub directly
 RUN . /home/sandbox/.venv/bin/activate \
     && pip install --no-cache-dir git+https://github.com/anthropics/anthropic-sdk-python.git \
+    && pip install --no-cache-dir llm llm-anthropic \
     && pip install --no-cache-dir vibectl
 
 # Ensure PATH includes venv binaries
