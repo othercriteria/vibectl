@@ -31,7 +31,7 @@ def memory_update_prompt(
 ) -> PromptFragments:
     """Generate system and user fragments for memory update."""
     cfg = config or Config()
-    max_chars = int(cfg.get("memory_max_chars", 500))
+    max_chars = int(cfg.get("memory.max_chars", 500))
 
     system_fragments: SystemFragments = SystemFragments(
         [
@@ -77,7 +77,7 @@ def memory_fuzzy_update_prompt(
         PromptFragments: System and user fragments for memory update
     """
     cfg = config or Config()
-    max_chars = int(cfg.get("memory_max_chars", 500))
+    max_chars = int(cfg.get("memory.max_chars", 500))
 
     # Use custom instructions if provided by plugin
     if custom_mapping and custom_mapping.get("description"):

@@ -79,9 +79,9 @@ def test_get_formatting_fragments_no_custom(test_config: Config) -> None:
     """Test get_formatting_fragments without custom instructions."""
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("custom_instructions", None)
+    test_config.set("system.custom_instructions", None)
     test_config.set(
-        "memory_enabled", False
+        "memory.enabled", False
     )  # This doesn't affect get_formatting_fragments directly
 
     # Patch datetime.now specifically within the vibectl.prompts.shared module
@@ -108,8 +108,8 @@ def test_get_formatting_fragments_with_custom(test_config: Config) -> None:
     """Test get_formatting_fragments with custom instructions."""
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("custom_instructions", "Test custom instruction")
-    test_config.set("memory_enabled", False)
+    test_config.set("system.custom_instructions", "Test custom instruction")
+    test_config.set("memory.enabled", False)
 
     with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
         mock_prompt_datetime.now.return_value = fixed_dt
@@ -127,9 +127,9 @@ def test_get_formatting_fragments_with_custom(test_config: Config) -> None:
 def test_get_formatting_fragments_with_memory(test_config: Config) -> None:
     """Test get_formatting_fragments correctly excludes memory."""
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    test_config.set("custom_instructions", None)
+    test_config.set("system.custom_instructions", None)
     test_config.set(
-        "memory_enabled", True
+        "memory.enabled", True
     )  # This setting is for callers, not get_formatting_fragments
 
     with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
@@ -383,7 +383,7 @@ def test_plan_create_prompt_structure() -> None:
 
 def test_memory_update_prompt(test_config: Config) -> None:
     """Verify memory_update_prompt structure."""
-    test_config.set("memory_max_chars", 300)
+    test_config.set("memory.max_chars", 300)
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     dummy_memory_content = "dummy_current_memory"
@@ -425,7 +425,7 @@ def test_memory_update_prompt(test_config: Config) -> None:
 
 def test_memory_fuzzy_update_prompt(test_config: Config) -> None:
     """Verify memory_fuzzy_update_prompt structure."""
-    test_config.set("memory_max_chars", 400)
+    test_config.set("memory.max_chars", 400)
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
     fuzzy_memory_content = "fuzzy_current_memory"
@@ -462,7 +462,7 @@ def test_recovery_prompt(test_config: Config) -> None:  # Added test_config
     error = "Error: the server doesn't have a resource type 'pods'"
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("memory_max_chars", 250)  # Added config.set for memory_max_chars
+    test_config.set("memory.max_chars", 250)  # Added config.set for memory_max_chars
 
     # Mock the plugin system to return no custom mapping, then import
     with (
@@ -685,7 +685,7 @@ def test_recovery_prompt_with_original_explanation(
     error = "Error: the server doesn't have a resource type 'pods'"
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("memory_max_chars", 200)  # Different from other recovery test
+    test_config.set("memory.max_chars", 200)  # Different from other recovery test
 
     # Import and access the unwrapped function
 

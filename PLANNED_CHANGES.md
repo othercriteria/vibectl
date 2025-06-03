@@ -23,10 +23,134 @@ Implement a client/server architecture that allows vibectl CLI instances to dele
 
 Move from flat config to structured approach:
 
+### Current Flat Structure Issues
+
+The current config structure is a flat dictionary with 30+ top-level keys:
+- No logical grouping of related settings
+- Verbose key names like `live_display_max_lines`, `live_display_wrap_text`
+- Difficult to navigate and understand relationships
+- Hard to extend for client/server separation
+
+### New Hierarchical Structure
+
+Reorganize config into logical sections:
+
+```yaml
+# ~/.config/vibectl/client/config.yaml
+core:
+  kubeconfig: /etc/rancher/k3s/k3s.yaml
+  kubectl_command: kubectl
+
+display:
+  theme: light
+  show_raw_output: false
+  show_vibe: true
+  show_kubectl: true
+  show_memory: true
+  show_iterations: true
+  show_metrics: all
+  colored_output: true
+  show_streaming: true
+
+llm:
+  model: claude-4-sonnet
+  max_retries: 2
+  retry_delay_seconds: 1.0
+  model_keys:
+    anthropic: null
+    ollama: null
+    openai: null
+  model_key_files:
+    anthropic: null
+    ollama: null
+    openai: null
+
+memory:
+  enabled: true
+  max_chars: 1000
+
+warnings:
+  warn_no_output: true
+  warn_no_proxy: true
+
+live_display:
+  max_lines: 10
+  wrap_text: false
+  stream_buffer_max_lines: 100000
+  default_filter_regex: null
+  save_dir: .
+
+features:
+  intelligent_apply: true
+  intelligent_edit: true
+  max_correction_retries: 1
+  check_max_iterations: 10
+
+networking:
+  intermediate_port_range: 10000-11000
+
+plugins:
+  precedence:
+    - paranoid-security-vibe
+    - terse-minimalist-vibe
+    - devious-organizer-vibe
+    - clumsy-vibe
+    - focused-recovery-suggestions
+    - smart-port-selection
+    - memory-update-counter-v1
+    - intelligent-edit-enhanced
+    - security-focused-check
+    - apply-comprehensive-demo
+    - annotating-patch
+
+system:
+  log_level: WARNING
+  custom_instructions: Use a ton of emojis! 😁
+
+# Auto-managed by vibectl memory commands
+memory_content: |
+  User working on Kubernetes deployment testing across multiple namespaces...
+```
+
+### Enhanced CLI Features
+
+1. **Sectioned Display**:
+   ```bash
+   vibectl config show           # Show all sections with headers
+   vibectl config show llm       # Show only LLM section
+   vibectl config show display   # Show only display section
+   ```
+
+2. **Dotted Path Access**:
+   ```bash
+   vibectl config set llm.model claude-4-sonnet
+   vibectl config set display.theme dark
+   vibectl config unset memory.max_chars  # Reset to default
+   vibectl config show llm.max_retries    # Show single value
+   ```
+
+3. **Config File Location Display**:
+   ```bash
+   vibectl config info
+   # Output:
+   # Configuration file: ~/.config/vibectl/client/config.yaml
+   # Type: client
+   # Last modified: 2024-12-30 15:30:45
+   ```
+
+4. **Section Validation**:
+   - Validate section names and keys during set operations
+   - Show helpful error messages for invalid paths
+   - Support tab completion for available sections/keys
+
+### Client/Server Config Separation
+
+Prepare directory structure for client/server split:
+
 ```
 ~/.config/vibectl/
 ├── client/
-│   ├── config.yaml          # client-specific config
+│   ├── config.yaml          # client-specific config (above structure)
 │   └── server-secrets/      # server connection secrets
 │       └── prod-server.key
 └── server/
@@ -36,7 +160,9 @@ Move from flat config to structured approach:
         └── user2.key
 ```
 
-### Model Adapter Architecture
+Initial implementation focuses on client config restructuring, with server config structure to be defined later.
+
+## Model Adapter Architecture
 
 Implement `ProxyModelAdapter` that:
 - Implements existing `ModelAdapter` interface
@@ -185,3 +311,62 @@ service VibectlLLMProxy {
 - Potential JWT library for token handling
 - Configuration migration utilities
 - Enhanced testing infrastructure for client/server scenarios
+
+## Provider Configuration Restructuring
+
+### Current Issue
+
+The hierarchical config structure has a validation problem with provider-specific keys:
+- Current structure: `llm.model_keys.openai`, `llm.model_key_files.anthropic`
+- Validation fails because `model_keys` is defined as `dict` in schema but validation tries to look up specific provider names
+- Complex validation logic needed to handle arbitrary dictionary keys
+
+### Proposed Solution
+
+Restructure provider configuration into explicit hierarchy:
+
+**From:**
+```yaml
+llm:
+  model_keys:
+    openai: "sk-..."
+    anthropic: "sk-ant-..."
+  model_key_files:
+    openai: "/path/to/key"
+    anthropic: "/path/to/key"
+```
+
+**To:**
+```yaml
+providers:
+  openai:
+    key: "sk-..."
+    key_file: "/path/to/key"
+  anthropic:
+    key: "sk-ant-..."
+    key_file: "/path/to/key"
+  ollama:
+    key: null
+    key_file: null
+```
+
+### Benefits
+
+1. **Cleaner paths**: `providers.openai.key` vs `llm.model_keys.openai`
+2. **Explicit schema**: No arbitrary dictionary keys, all paths defined explicitly
+3. **Simpler validation**: Standard hierarchical validation, no special cases
+4. **Better organization**: Provider-specific config grouped together
+5. **Extensible**: Easy to add new providers or provider-specific settings
+
+### Implementation Plan
+
+1. **Update DEFAULT_CONFIG**: Move provider keys to new `providers` section
+2. **Update CONFIG_SCHEMA**: Define explicit provider structure
+3. **Update validation**: Remove special dictionary key handling
+4. **Update config methods**: Modify `get_model_key` and `set_model_key` methods
+5. **Update tests**: Change all `llm.model_keys.*` paths to `providers.*.key`
+6. **Update CLI examples**: Update help text and documentation
+
+### Migration Path
+
+Since we're still in development and removing backward compatibility was already decided, this change will be part of the hierarchical config restructuring. All existing tests will be updated to use the new paths.

@@ -22,7 +22,7 @@ def reset_logger_handlers() -> Generator[None, None, None]:
 def test_logger_respects_config_log_level(monkeypatch: MonkeyPatch) -> None:
     class DummyConfig:
         def get(self, key: str, default: object = None) -> object:
-            if key == "log_level":
+            if key == "system.log_level":
                 return "ERROR"
             return default
 

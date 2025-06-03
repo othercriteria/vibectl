@@ -36,7 +36,7 @@ def mock_model_adapter() -> Generator[Mock, None, None]:
 
 @pytest.fixture
 def test_config() -> Generator[Config, None, None]:
-    """Create a test configuration with a temporary directory."""
+    """Create a test config with memory enabled."""
     # Create a temporary config directory
     test_dir = Path("/tmp/vibectl-test-" + os.urandom(4).hex())
     test_dir.mkdir(parents=True, exist_ok=True)
@@ -45,12 +45,13 @@ def test_config() -> Generator[Config, None, None]:
     config = Config(base_dir=test_dir)
 
     # Ensure memory is enabled
-    config.set("memory_enabled", True)
+    config.set("memory.enabled", True)
 
     # Return the config for use in tests
     yield config
 
 
+@pytest.mark.asyncio
 async def test_update_memory_basic(
     mock_model_adapter: Mock, test_config: Config
 ) -> None:

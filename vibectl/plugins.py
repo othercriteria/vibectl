@@ -358,7 +358,7 @@ class PromptResolver:
             PromptMapping if found in any active plugin, None otherwise
         """
         # Get plugin precedence from config
-        precedence_order = self.config.get("plugin_precedence", [])
+        precedence_order = self.config.get("plugins.precedence", [])
 
         if precedence_order:
             # Use configured precedence order

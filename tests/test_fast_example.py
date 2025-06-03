@@ -29,7 +29,7 @@ def test_config_in_memory_operations() -> None:
         config = Config()
 
         # Set a value (would normally write to disk, but we've patched it)
-        config.set("theme", "light")
+        config.set("display.theme", "light")
 
         # Verify the value was set in memory
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"

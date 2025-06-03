@@ -189,7 +189,7 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
     # Initialize the console manager with the configured theme
     try:
         cfg = Config()
-        theme_name = cfg.get("theme", "default")
+        theme_name = cfg.get("display.theme", "default")
         console_manager.set_theme(theme_name)
     except Exception as e:
         logger.warning(f"Failed to set theme: {e}")
@@ -198,7 +198,7 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
 
     # Validate model configuration on startup - outside try/except for testing
     cfg = Config()  # Get a fresh config instance
-    model_name = cfg.get("model", DEFAULT_CONFIG["model"])
+    model_name = cfg.get("llm.model", DEFAULT_CONFIG["llm"]["model"])
     validation_warning = validate_model_key_on_startup(model_name)
     if validation_warning and ctx.invoked_subcommand not in ["config", "help"]:
         console_manager.print_warning(validation_warning)
@@ -404,10 +404,13 @@ def config() -> None:
 def config_set(key: str, value: str) -> None:
     """Set a configuration value.
 
+    Supports hierarchical keys using dot notation.
+
     Examples:
-        vibectl config set theme dark
-        vibectl config set kubeconfig ~/.kube/my-config
-        vibectl config set show_raw_output true
+        vibectl config set display.theme dark
+        vibectl config set core.kubeconfig ~/.kube/my-config
+        vibectl config set llm.model claude-4-sonnet
+        vibectl config set display.show_raw_output true
     """
     try:
         cfg = Config()
@@ -419,22 +422,75 @@ def config_set(key: str, value: str) -> None:
 
 
 @config.command()
-def show() -> None:
-    """Show all configuration values.
+@click.argument("section", required=False)
+def show(section: str | None = None) -> None:
+    """Show configuration values.
+
+    Can show all config or just a specific section.
 
     Examples:
-        vibectl config show
+        vibectl config show           # Show all configuration
+        vibectl config show llm       # Show only LLM section
+        vibectl config show display   # Show only display section
+        vibectl config show core.kubeconfig  # Show single value
     """
     try:
         cfg = Config()
         config_data = cfg.get_all()
 
+        # Handle specific path or section
+        if section:
+            if "." in section:
+                # Single value (e.g., llm.model)
+                try:
+                    value = cfg.get(section)
+                    console_manager.print(f"{section}: {value}")
+                    return
+                except Exception:
+                    console_manager.print_error(f"Config path not found: {section}")
+                    return
+            else:
+                # Section filter (e.g., llm, display)
+                if section not in config_data:
+                    available_sections = list(config_data.keys())
+                    console_manager.print_error(
+                        f"Section '{section}' not found. Available sections: "
+                        f"{', '.join(available_sections)}"
+                    )
+                    return
+
+                # Show only the specified section
+                section_data = config_data[section]
+                if isinstance(section_data, dict):
+                    table = Table(title=f"Configuration - {section.title()} Section")
+                    table.add_column("Key")
+                    table.add_column("Value", style="green")
+
+                    for key, value in section_data.items():
+                        table.add_row(f"{section}.{key}", str(value))
+
+                    console_manager.safe_print(console_manager.console, table)
+                else:
+                    console_manager.print(f"{section}: {section_data}")
+                return
+
+        # Show all configuration with section headers
         table = Table(title="Configuration")
         table.add_column("Key")
         table.add_column("Value", style="green")
 
+        # Group top-level items first
         for key, value in config_data.items():
-            table.add_row(key, str(value))
+            if not isinstance(value, dict):
+                table.add_row(key, str(value))
+
+        # Then show each section
+        for section_name, section_data in config_data.items():
+            if isinstance(section_data, dict):
+                # Add a separator row for the section
+                table.add_row(f"[bold blue]{section_name.upper()}[/bold blue]", "")
+                for key, value in section_data.items():
+                    table.add_row(f"  {section_name}.{key}", str(value))
 
         console_manager.safe_print(console_manager.console, table)
     except Exception as e:
@@ -446,15 +502,57 @@ def show() -> None:
 def unset(key: str) -> None:
     """Unset a configuration value, resetting it to default.
 
+    Supports hierarchical keys using dot notation.
+
     Examples:
-        vibectl config unset theme  # Reset theme to default
-        vibectl config unset kubeconfig  # Reset kubeconfig to default
+        vibectl config unset display.theme  # Reset theme to default
+        vibectl config unset core.kubeconfig  # Reset kubeconfig to default
+        vibectl config unset llm.model_keys.openai  # Reset openai key to default
     """
     try:
         cfg = Config()
         cfg.unset(key)
         console_manager.print_success(f"Configuration {key} reset to default")
     except ValueError as e:
+        handle_exception(e)
+
+
+@config.command()
+def info() -> None:
+    """Show configuration file information.
+
+    Examples:
+        vibectl config info
+    """
+    try:
+        cfg = Config()
+
+        # Get file info
+        config_file = cfg.config_file
+        file_exists = config_file.exists()
+
+        table = Table(title="Configuration Information")
+        table.add_column("Property")
+        table.add_column("Value", style="green")
+
+        table.add_row("Configuration file", str(config_file))
+        table.add_row("File exists", "Yes" if file_exists else "No")
+
+        if file_exists:
+            import time
+
+            stat = config_file.stat()
+            last_modified = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)
+            )
+            table.add_row("Last modified", last_modified)
+            table.add_row("File size", f"{stat.st_size} bytes")
+
+        table.add_row("Config directory", str(cfg.config_dir))
+
+        console_manager.safe_print(console_manager.console, table)
+
+    except Exception as e:
         handle_exception(e)
 
 
@@ -472,7 +570,7 @@ async def instructions_set(
 ) -> None:
     """Set custom instructions for the LLM."""
     cfg = Config()
-    current_instructions = cfg.get("custom_instructions", "")
+    current_instructions = cfg.get("system.custom_instructions", "")
 
     if edit:
         logger.info("Opening editor for custom instructions")
@@ -496,7 +594,7 @@ async def instructions_set(
             raise ValueError("No instructions text provided.")
 
     try:
-        cfg.set("custom_instructions", instructions_text)
+        cfg.set("system.custom_instructions", instructions_text)
         cfg.save()
         logger.info("Custom instructions saved successfully")
         console_manager.print_success("Custom instructions set successfully.")
@@ -510,7 +608,7 @@ async def instructions_show() -> None:
     """Show the current custom instructions."""
     cfg = Config()
     try:
-        instructions_text = cfg.get("custom_instructions", "")
+        instructions_text = cfg.get("system.custom_instructions", "")
         if instructions_text:
             console_manager.print_note("Custom instructions:")
             console_manager.print(instructions_text)
@@ -526,7 +624,7 @@ async def clear() -> None:
     """Clear the custom instructions."""
     cfg = Config()
     try:
-        cfg.set("custom_instructions", "")
+        cfg.set("system.custom_instructions", "")
         cfg.save()
         logger.info("Custom instructions cleared successfully")
         console_manager.print_success("Custom instructions cleared.")
@@ -550,7 +648,7 @@ def _set_theme_logic(theme_name: str) -> None:
 
     # Save theme in config
     cfg = Config()
-    cfg.set("theme", theme_name)
+    cfg.set("display.theme", theme_name)
     cfg.save()  # Save the config after setting
     console_manager.print_success(f"Theme set to '{theme_name}'.")
 

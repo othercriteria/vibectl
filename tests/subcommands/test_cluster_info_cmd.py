@@ -14,13 +14,15 @@ def default_cluster_info_output_flags() -> OutputFlags:
     """Provides default OutputFlags for cluster-info command tests."""
     # Need to cast from DEFAULT_CONFIG for type safety if linter complains
     return OutputFlags(
-        show_raw_output=bool(DEFAULT_CONFIG["show_raw_output"]),
-        show_vibe=bool(DEFAULT_CONFIG["show_vibe"]),
-        warn_no_output=bool(DEFAULT_CONFIG["warn_no_output"]),
-        model_name=str(DEFAULT_CONFIG["model"]),
-        show_metrics=MetricsDisplayMode.from_value(str(DEFAULT_CONFIG["show_metrics"])),
-        show_kubectl=bool(DEFAULT_CONFIG["show_kubectl"]),
-        warn_no_proxy=bool(DEFAULT_CONFIG["warn_no_proxy"]),
+        show_raw_output=bool(DEFAULT_CONFIG["display"]["show_raw_output"]),
+        show_vibe=bool(DEFAULT_CONFIG["display"]["show_vibe"]),
+        warn_no_output=bool(DEFAULT_CONFIG["warnings"]["warn_no_output"]),
+        model_name=str(DEFAULT_CONFIG["llm"]["model"]),
+        show_metrics=MetricsDisplayMode.from_value(
+            str(DEFAULT_CONFIG["display"]["show_metrics"])
+        ),
+        show_kubectl=bool(DEFAULT_CONFIG["display"]["show_kubectl"]),
+        warn_no_proxy=bool(DEFAULT_CONFIG["warnings"]["warn_no_proxy"]),
     )
 
 

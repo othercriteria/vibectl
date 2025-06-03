@@ -43,7 +43,7 @@ def test_run_kubectl_basic(mock_subprocess: MagicMock) -> None:
 
 def test_run_kubectl_success(mock_subprocess: MagicMock, test_config: Any) -> None:
     """Test successful kubectl command execution."""
-    test_config.set("kubeconfig", "/test/kubeconfig")
+    test_config.set("core.kubeconfig", "/test/kubeconfig")
 
     mock_process_result = Mock()
     mock_process_result.returncode = 0
@@ -75,7 +75,7 @@ def test_run_kubectl_no_kubeconfig(
     mock_subprocess: MagicMock, test_config: Any
 ) -> None:
     """Test kubectl command without kubeconfig."""
-    test_config.set("kubeconfig", None)
+    test_config.set("core.kubeconfig", None)
     mock_process_result = Mock()
     mock_process_result.returncode = 0
     mock_process_result.stdout = "test output"

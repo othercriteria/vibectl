@@ -32,7 +32,7 @@ def init_logging() -> None:
     cfg = Config()
     log_level = os.environ.get("VIBECTL_LOG_LEVEL")
     if not log_level:
-        log_level = getattr(cfg, "get", lambda k, d=None: None)("log_level", "INFO")
+        log_level = cfg.get("system.log_level", "INFO")
     level = getattr(logging, str(log_level).upper(), logging.INFO)
 
     # Clear any existing handlers to prevent duplicates

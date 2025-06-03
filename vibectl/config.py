@@ -1,58 +1,84 @@
 """Configuration management for vibectl"""
 
+import copy
 import os
-import re
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import yaml
 
 # Import the adapter function to use for validation
-# Remove this import as we'll use the llm_interface directly
-# from .model_adapter import get_model_adapter
 from .llm_interface import is_valid_llm_model_name
 
-# Default values
+# Default values - Hierarchical structure
 DEFAULT_CONFIG: dict[str, Any] = {
-    "kubeconfig": None,  # Will use default kubectl config location if None
-    "kubectl_command": "kubectl",
-    "theme": "default",
-    "show_raw_output": False,
-    "show_vibe": True,
-    "show_kubectl": False,  # Show kubectl commands when they are executed
-    "show_memory": False,  # Show memory content before each auto/semiauto iteration
-    "show_iterations": False,  # Show iteration count in auto/semiauto mode
-    "show_metrics": "none",  # Show LLM metrics (latency, tokens)
-    "model": "claude-3.7-sonnet",
-    "memory_enabled": True,
-    "memory_max_chars": 500,
-    "warn_no_output": True,
-    "warn_no_proxy": True,  # Show warning when intermediate_port_range is not set
-    "colored_output": True,
-    "intermediate_port_range": None,  # Port range for intermediary port-forwarding
-    # Model Key Configuration Section
-    "model_keys": {
-        "openai": None,  # API key for OpenAI models
-        "anthropic": None,  # API key for Anthropic models
-        "ollama": None,  # Not usually needed, but for custom Ollama setups
+    "core": {
+        "kubeconfig": None,  # Will use default kubectl config location if None
+        "kubectl_command": "kubectl",
     },
-    "model_key_files": {
-        "openai": None,  # Path to file containing OpenAI API key
-        "anthropic": None,  # Path to file containing Anthropic API key
-        "ollama": None,  # Path to file containing Ollama API key (if needed)
+    "display": {
+        "theme": "default",
+        "show_raw_output": False,
+        "show_vibe": True,
+        "show_kubectl": False,  # Show kubectl commands when they are executed
+        "show_memory": True,  # Show memory content before each auto/semiauto iteration
+        "show_iterations": True,  # Show iteration count in auto/semiauto mode
+        "show_metrics": "none",  # Show LLM metrics (none/total/sub/all)
+        "colored_output": True,
+        "show_streaming": True,  # Show intermediate streaming Vibe output
     },
-    "log_level": "WARNING",  # Default log level for logging
-    "live_display_max_lines": 20,  # Default number of lines for live display
-    "live_display_wrap_text": True,  # Default to wrapping text in live display
-    "live_display_stream_buffer_max_lines": 100000,  # Max lines for in-memory stream
-    "live_display_default_filter_regex": None,  # Default regex filter (string or None)
-    "live_display_save_dir": ".",  # Default directory to save watch output logs
-    "intelligent_apply": True,  # Enable intelligent apply features
-    "intelligent_edit": True,  # Enable intelligent edit features
-    "max_correction_retries": 1,
-    "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
-    "show_streaming": True,  # Default for showing intermediate streaming Vibe output
-    "plugin_precedence": [],  # Plugin precedence order; empty listno explicit order
+    "llm": {
+        "model": "claude-3.7-sonnet",  # Default LLM model to use
+        "max_retries": 2,  # Max retries for LLM calls
+        "retry_delay_seconds": 1.0,  # Delay between retries
+    },
+    "providers": {
+        "openai": {
+            "key": None,  # OpenAI API key
+            "key_file": None,  # Path to file containing OpenAI API key
+        },
+        "anthropic": {
+            "key": None,  # Anthropic API key
+            "key_file": None,  # Path to file containing Anthropic API key
+        },
+        "ollama": {
+            "key": None,  # Ollama API key (if needed)
+            "key_file": None,  # Path to file containing Ollama API key (if needed)
+        },
+    },
+    "memory": {
+        "enabled": True,
+        "max_chars": 500,
+    },
+    "warnings": {
+        "warn_no_output": True,
+        "warn_no_proxy": True,  # Show warning when intermediate_port_range is not set
+    },
+    "live_display": {
+        "max_lines": 20,  # Default number of lines for live display
+        "wrap_text": True,  # Default to wrapping text in live display
+        "stream_buffer_max_lines": 100000,  # Max lines for in-memory stream
+        "default_filter_regex": None,  # Default regex filter (string or None)
+        "save_dir": ".",  # Default directory to save watch output logs
+    },
+    "features": {
+        "intelligent_apply": True,  # Enable intelligent apply features
+        "intelligent_edit": True,  # Enable intelligent edit features
+        "max_correction_retries": 1,
+        "check_max_iterations": 10,  # Default max iterations for 'vibectl check'
+    },
+    "networking": {
+        "intermediate_port_range": None,  # Port range for intermediary port-forwarding
+    },
+    "plugins": {
+        "precedence": [],  # Plugin precedence order; empty list = no explicit order
+    },
+    "system": {
+        "log_level": "WARNING",  # Default log level for logging
+        "custom_instructions": None,
+    },
+    # Auto-managed by vibectl memory commands - keep at top level for now
+    "memory_content": None,
 }
 
 # Define type for expected types that can be a single type or a tuple of types
@@ -61,43 +87,75 @@ ConfigType = type | tuple[type, ...]
 # T is a generic type variable for return type annotation
 T = TypeVar("T")
 
-# Valid configuration keys and their types
-CONFIG_SCHEMA: dict[str, ConfigType] = {
-    "kubeconfig": (str, type(None)),
-    "kubectl_command": str,
-    "theme": str,
-    "show_raw_output": bool,
-    "show_vibe": bool,
-    "show_kubectl": bool,
-    "show_memory": bool,  # Show memory before each iteration in auto/semiauto mode
-    "show_iterations": bool,  # Show iteration count and limit in auto/semiauto mode
-    "show_metrics": str,  # Show LLM metrics
-    "warn_no_output": bool,
-    "warn_no_proxy": bool,
-    "model": str,
-    "custom_instructions": (str, type(None)),
-    "memory": (str, type(None)),
-    "memory_enabled": bool,
-    "memory_max_chars": int,
-    "colored_output": bool,
-    "intermediate_port_range": (
-        str,
-        type(None),
-    ),  # Format: "min-max" (e.g., "10000-20000") or None to disable
-    "model_keys": dict,
-    "model_key_files": dict,
-    "log_level": str,  # Log level for logging
-    "live_display_max_lines": int,
-    "live_display_wrap_text": bool,
-    "live_display_stream_buffer_max_lines": int,
-    "live_display_default_filter_regex": (str, type(None)),  # Allow str or None
-    "live_display_save_dir": str,
-    "intelligent_apply": bool,
-    "intelligent_edit": bool,
-    "max_correction_retries": int,
-    "check_max_iterations": int,
-    "show_streaming": bool,
-    "plugin_precedence": list,
+# Valid configuration keys and their types - Hierarchical structure
+CONFIG_SCHEMA: dict[str, Any] = {
+    "core": {
+        "kubeconfig": (str, type(None)),
+        "kubectl_command": str,
+    },
+    "display": {
+        "theme": str,
+        "show_raw_output": bool,
+        "show_vibe": bool,
+        "show_kubectl": bool,
+        "show_memory": bool,
+        "show_iterations": bool,
+        "show_metrics": str,  # Show LLM metrics
+        "colored_output": bool,
+        "show_streaming": bool,
+    },
+    "llm": {
+        "model": str,
+        "max_retries": int,
+        "retry_delay_seconds": float,
+    },
+    "providers": {
+        "openai": {
+            "key": (str, type(None)),
+            "key_file": (str, type(None)),
+        },
+        "anthropic": {
+            "key": (str, type(None)),
+            "key_file": (str, type(None)),
+        },
+        "ollama": {
+            "key": (str, type(None)),
+            "key_file": (str, type(None)),
+        },
+    },
+    "memory": {
+        "enabled": bool,
+        "max_chars": int,
+    },
+    "warnings": {
+        "warn_no_output": bool,
+        "warn_no_proxy": bool,
+    },
+    "live_display": {
+        "max_lines": int,
+        "wrap_text": bool,
+        "stream_buffer_max_lines": int,
+        "default_filter_regex": (str, type(None)),
+        "save_dir": str,
+    },
+    "features": {
+        "intelligent_apply": bool,
+        "intelligent_edit": bool,
+        "max_correction_retries": int,
+        "check_max_iterations": int,
+    },
+    "networking": {
+        "intermediate_port_range": (str, type(None)),
+    },
+    "plugins": {
+        "precedence": list,
+    },
+    "system": {
+        "log_level": str,
+        "custom_instructions": (str, type(None)),
+    },
+    # Top-level items that remain
+    "memory_content": (str, type(None)),
 }
 
 # Valid values for specific keys
@@ -119,19 +177,99 @@ ENV_KEY_MAPPINGS = {
     "openai": {
         "key": "VIBECTL_OPENAI_API_KEY",
         "key_file": "VIBECTL_OPENAI_API_KEY_FILE",
-        "legacy_key": "OPENAI_API_KEY",
     },
     "anthropic": {
         "key": "VIBECTL_ANTHROPIC_API_KEY",
         "key_file": "VIBECTL_ANTHROPIC_API_KEY_FILE",
-        "legacy_key": "ANTHROPIC_API_KEY",
     },
     "ollama": {
         "key": "VIBECTL_OLLAMA_API_KEY",
         "key_file": "VIBECTL_OLLAMA_API_KEY_FILE",
-        "legacy_key": "OLLAMA_API_KEY",
     },
 }
+
+
+def _get_nested_value(config: dict[str, Any], path: str) -> Any:
+    """Get a value from nested config using dotted path notation.
+
+    Args:
+        config: The config dictionary
+        path: Dotted path like 'display.theme' or 'llm.model_keys'
+
+    Returns:
+        The value at the specified path
+
+    Raises:
+        KeyError: If the path doesn't exist
+    """
+    parts = path.split(".")
+    current = config
+
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            raise KeyError(f"Config path not found: {path}")
+        current = current[part]
+
+    return current
+
+
+def _set_nested_value(config: dict[str, Any], path: str, value: Any) -> None:
+    """Set a value in nested config using dotted path notation.
+
+    Args:
+        config: The config dictionary to modify
+        path: Dotted path like 'display.theme' or 'llm.model_keys'
+        value: The value to set
+    """
+    parts = path.split(".")
+    current = config
+
+    # Navigate to the parent of the final key
+    for part in parts[:-1]:
+        if part not in current:
+            current[part] = {}
+        elif not isinstance(current[part], dict):
+            raise ValueError(f"Cannot set nested value: {part} is not a dictionary")
+        current = current[part]
+
+    # Set the final key
+    current[parts[-1]] = value
+
+
+def _validate_hierarchical_key(path: str) -> None:
+    """Validate that a hierarchical path exists in the schema.
+
+    Args:
+        path: Dotted path like 'display.theme'
+
+    Raises:
+        ValueError: If the path is invalid
+    """
+    parts = path.split(".")
+    current_schema = CONFIG_SCHEMA
+
+    for i, part in enumerate(parts):
+        if not isinstance(current_schema, dict) or part not in current_schema:
+            # Generate helpful error message
+            current_path = ".".join(parts[:i])
+            if current_path:
+                available_keys = (
+                    list(current_schema.keys())
+                    if isinstance(current_schema, dict)
+                    else []
+                )
+                raise ValueError(
+                    f"Invalid config path: {path}. "
+                    f"'{part}' not found in section '{current_path}'. "
+                    f"Available keys: {available_keys}"
+                )
+            else:
+                available_sections = list(CONFIG_SCHEMA.keys())
+                raise ValueError(
+                    f"Invalid config section: {part}. "
+                    f"Available sections: {available_sections}"
+                )
+        current_schema = current_schema[part]
 
 
 class Config:
@@ -160,7 +298,7 @@ class Config:
         if self.config_file.exists():
             self._load_config()
         else:
-            self._config = DEFAULT_CONFIG.copy()
+            self._config = copy.deepcopy(DEFAULT_CONFIG)
             self._save_config()
 
     def _load_config(self) -> None:
@@ -175,112 +313,161 @@ class Config:
                     loaded_config = yaml.safe_load(f) or {}
 
             # Start with a copy of the default config
-            self._config = DEFAULT_CONFIG.copy()
-            # Update with all loaded values to ensure they take precedence
-            # This preserves unsupported keys
-            self._config.update(loaded_config)
+            self._config = copy.deepcopy(DEFAULT_CONFIG)
+            # Deep merge the loaded config into defaults
+            self._deep_merge(self._config, loaded_config)
         except (yaml.YAMLError, OSError) as e:
             raise ValueError(f"Failed to load config: {e}") from e
+
+    def _deep_merge(self, base: dict[str, Any], updates: dict[str, Any]) -> None:
+        """Deep merge updates into base dictionary."""
+        for key, value in updates.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
 
     def _save_config(self) -> None:
         """Save configuration to file."""
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
-                yaml.dump(self._config, f)
+                yaml.dump(self._config, f, default_flow_style=False)
         except (yaml.YAMLError, OSError) as e:
             raise ValueError(f"Failed to save config: {e}") from e
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value."""
-        return self._config.get(key, default)
+        """Get configuration value using either flat key or dotted path."""
+        if "." in key:
+            # Hierarchical path like 'display.theme'
+            try:
+                return _get_nested_value(self._config, key)
+            except KeyError:
+                return default
+        else:
+            # Top-level key
+            return self._config.get(key, default)
 
-    def _validate_key(self, key: str) -> None:
-        """Validate that a key exists in the configuration schema.
-
-        Args:
-            key: The configuration key to validate
-
-        Raises:
-            ValueError: If the key is invalid
-        """
-        if key not in CONFIG_SCHEMA:
-            valid_keys = ", ".join(CONFIG_SCHEMA.keys())
-            raise ValueError(
-                f"Unknown configuration key: {key}. Valid keys are: {valid_keys}"
-            )
-
-    def _convert_to_type(self, key: str, value: str) -> Any:
-        """Convert a string value to the correct type based on the schema.
-
-        Args:
-            key: The configuration key
-            value: The string value to convert
-
-        Returns:
-            The value converted to the correct type
-
-        Raises:
-            ValueError: If the value can't be converted to the expected type
-        """
-        expected_type = CONFIG_SCHEMA[key]
-
-        # Handle None special case
-        if value.lower() == "none":
-            if isinstance(expected_type, tuple) and type(None) in expected_type:
-                return None
-            raise ValueError(f"None is not a valid value for {key}")
-
-        # Special handling for show_metrics which only supports enum string values
-        if key == "show_metrics":
-            # Check if it's a valid enum string
-            if value.lower() in ("none", "total", "sub", "all"):
-                return value.lower()
-            else:
+    def set(self, key: str, value: Any) -> None:
+        """Set configuration value using either flat key or dotted path."""
+        if "." in key:
+            # Hierarchical path like 'display.theme'
+            _validate_hierarchical_key(key)
+            # Convert string values to appropriate types
+            converted_value = self._convert_hierarchical_value(key, value)
+            # Validate the converted value
+            self._validate_hierarchical_value(key, converted_value)
+            _set_nested_value(self._config, key, converted_value)
+        else:
+            # Top-level key
+            if key not in CONFIG_SCHEMA:
+                valid_keys = list(CONFIG_SCHEMA.keys())
                 raise ValueError(
-                    f"Invalid value for {key}: {value}. "
-                    "Expected: none, total, sub, or all"
+                    f"Unknown configuration key: {key}. Valid sections: {valid_keys}"
                 )
+            # For top-level keys, just set directly
+            self._config[key] = value
 
-        # Handle boolean conversion
-        if (isinstance(expected_type, type) and expected_type is bool) or (
-            isinstance(expected_type, tuple) and bool in expected_type
-        ):
-            return self._convert_to_bool(key, value)
+        self._save_config()
 
-        # Handle list conversion
-        if (isinstance(expected_type, type) and expected_type is list) or (
-            isinstance(expected_type, tuple) and list in expected_type
-        ):
-            return self._convert_to_list(key, value)
+    def _validate_hierarchical_value(self, path: str, value: Any) -> None:
+        """Validate a hierarchical value against constraints."""
+        # Get the schema for this path to check if None is allowed
+        parts = path.split(".")
+        current_schema = CONFIG_SCHEMA
 
-        # Handle other types
+        for part in parts:
+            current_schema = current_schema[part]
+
+        expected_type = current_schema
+
+        # Check if None is allowed for this field
+        if value is None:
+            if isinstance(expected_type, tuple) and type(None) in expected_type:
+                return  # None is allowed
+            else:
+                raise ValueError(f"None is not a valid value for {path}")
+
+        # Extract the key name for validation lookup
+        key_name = parts[-1]  # Last part is the actual key name
+
+        # Check against CONFIG_VALID_VALUES if it exists for this key
+        if key_name in CONFIG_VALID_VALUES:
+            valid_values = CONFIG_VALID_VALUES[key_name]
+
+            # Special handling for model validation with LLM interface
+            if key_name == "model":
+                is_valid, error_msg = is_valid_llm_model_name(str(value))
+                if not is_valid:
+                    raise ValueError(error_msg or f"Invalid model: {value}")
+            else:
+                # Standard validation against allowed values
+                if value not in valid_values:
+                    raise ValueError(
+                        f"Invalid value for {path}: {value}. "
+                        f"Valid values are: {valid_values}"
+                    )
+
+    def _convert_hierarchical_value(self, path: str, value: Any) -> Any:
+        """Convert string value to appropriate type for hierarchical path."""
         try:
-            if isinstance(expected_type, tuple):
-                # Use the first non-None type for conversion
+            # Get the expected type from schema
+            parts = path.split(".")
+            current_schema = CONFIG_SCHEMA
+
+            for part in parts:
+                current_schema = current_schema[part]
+
+            expected_type = current_schema
+
+            # If value is already the right type, return it
+            if not isinstance(value, str):
+                return value
+
+            # Always convert string "none" to Python None first
+            if value.lower() == "none":
+                return None
+
+            # Convert string to appropriate type
+            if expected_type is bool:
+                return self._convert_to_bool(path, value)
+            elif expected_type is int:
+                return int(value)
+            elif expected_type is float:
+                return float(value)
+            elif expected_type is list:
+                return self._convert_to_list(path, value)
+            elif isinstance(expected_type, tuple):
+                # Convert to the first non-None type in the tuple
                 for t in expected_type:
                     if t is not type(None):
-                        return t(value)
-                # Fallback
-                return value
-            return expected_type(value)
-        except (ValueError, TypeError) as err:
-            raise ValueError(
-                f"Invalid value for {key}: {value}. Expected type: {expected_type}"
-            ) from err
+                        if t is bool:
+                            return self._convert_to_bool(path, value)
+                        elif t is int:
+                            return int(value)
+                        elif t is float:
+                            return float(value)
+                        elif t is str:
+                            return value
+                        elif t is list:
+                            return self._convert_to_list(path, value)
+                        else:
+                            # Handle custom class types in tuple
+                            return t(value)
+                        break
+            elif isinstance(expected_type, type):
+                # Handle custom class types - attempt to instantiate
+                return expected_type(value)
+
+            # Default to string
+            return value
+        except (ValueError, TypeError) as e:
+            # Re-raise with better error message that includes the path
+            if "Invalid value for" in str(e):
+                raise  # Don't double-wrap our custom errors
+            raise ValueError(f"Invalid value for {path}: {e}") from e
 
     def _convert_to_bool(self, key: str, value: str) -> bool:
-        """Convert a string value to a boolean.
-
-        Args:
-            key: The configuration key (for error messages)
-            value: The string value to convert
-
-        Returns:
-            The boolean value
-
-        Raises:
-            ValueError: If the value can't be converted to a boolean
-        """
+        """Convert a string value to a boolean."""
         if value.lower() in ("true", "yes", "1", "on"):
             return True
         if value.lower() in ("false", "no", "0", "off"):
@@ -291,25 +478,7 @@ class Config:
         )
 
     def _convert_to_list(self, key: str, value: str) -> list[Any]:
-        """Convert a string value to a list.
-
-        Args:
-            key: The configuration key (for error messages)
-            value: The string value to convert
-
-        Returns:
-            The value converted to a list
-
-        Raises:
-            ValueError: If the value can't be converted to a list
-        """
-        # Handle None special case
-        if value.lower() == "none":
-            expected_type = CONFIG_SCHEMA[key]
-            if isinstance(expected_type, tuple) and type(None) in expected_type:
-                return []  # Return empty list instead of None for list fields
-            raise ValueError(f"None is not a valid value for {key}")
-
+        """Convert a string value to a list."""
         # Handle string representation of lists (e.g., "['item1', 'item2']")
         value = value.strip()
         if value.startswith("[") and value.endswith("]"):
@@ -334,150 +503,50 @@ class Config:
         # Empty string means empty list
         return []
 
-    def _validate_allowed_values(self, key: str, value: Any) -> None:
-        """Validate that a value is allowed for a given key, if applicable."""
-        if key in CONFIG_VALID_VALUES:
-            valid_values = CONFIG_VALID_VALUES[key]
-            # Allow any ollama:<model> value
-            if key == "model" and isinstance(value, str):
-                if value.startswith("ollama:"):
-                    return
-                # Allow providerless alias (e.g., 'llama3.2:1b-text-q2_K') if
-                # it looks like a valid alias
-                if re.match(r"^[a-zA-Z0-9_\-:./]+$", value) and not (
-                    value.startswith("gpt-") or value.startswith("claude-")
-                ):
-                    return
-            # Remove the strict check against the hardcoded list for 'model'
-            # if value not in valid_values:
-            if key != "model" and value not in valid_values:
-                # For model, show pattern in error message
-                # This part is now unreachable for 'model', but kept for other keys
-                if key == "model":
-                    valid_str = (
-                        ", ".join(str(v) for v in valid_values)
-                        + ", ollama:<model>, or a registered alias (see 'llm models')"
-                    )
-                else:
-                    valid_str = ", ".join(str(v) for v in valid_values)
-                raise ValueError(
-                    f"Invalid value for {key}: {value}. Valid values are: {valid_str}"
-                )
-
-    def set(self, key: str, value: Any) -> None:
-        """Set a configuration value, with type and allowed value validation."""
-        self._validate_key(key)
-
-        # Handle list types specially - don't convert to string first
-        expected_type = CONFIG_SCHEMA[key]
-        if expected_type is list or (
-            isinstance(expected_type, tuple) and list in expected_type
-        ):
-            if isinstance(value, list):
-                converted_value = value
-            else:
-                # If it's not already a list, convert the string representation
-                converted_value = self._convert_to_type(key, str(value))
+    def unset(self, key: str) -> None:
+        """Unset a configuration key, resetting it to default."""
+        if "." in key:
+            # Hierarchical path - reset to default value from DEFAULT_CONFIG
+            try:
+                default_value = _get_nested_value(DEFAULT_CONFIG, key)
+                _set_nested_value(self._config, key, default_value)
+            except KeyError as err:
+                raise ValueError(f"Config path not found: {key}") from err
         else:
-            # Convert to correct type for non-list types
-            converted_value = self._convert_to_type(key, str(value))
+            # Top-level key
+            if key not in self._config:
+                raise ValueError(f"Key not found in configuration: {key}")
 
-        # Perform model name validation if setting the 'model' key
-        if key == "model":
-            # Call the config-independent validation function directly
-            if isinstance(converted_value, str):
-                is_valid, error_msg = is_valid_llm_model_name(converted_value)
-                if not is_valid:
-                    raise ValueError(error_msg)
+            if key in DEFAULT_CONFIG:
+                self._config[key] = copy.deepcopy(DEFAULT_CONFIG[key])
             else:
-                raise ValueError(
-                    f"Model value must be a string, got {type(converted_value)}"
-                )
+                del self._config[key]
 
-        # Validate allowed values (if any) - this no longer checks model name existence
-        self._validate_allowed_values(key, converted_value)
-        self._config[key] = converted_value
         self._save_config()
 
-    def get_typed(self, key: str, default: T) -> T:
-        """Get a typed configuration value with a default.
-
-        Args:
-            key: The key to get
-            default: The default value (used for type information)
-
-        Returns:
-            The configuration value with the same type as the default
-        """
-        value = self.get(key, default)
-        # Safe since we're providing the same type as the default
-        return cast("T", value)
-
-    def get_available_themes(self) -> list[str]:
-        """Get list of available themes.
-
-        Returns:
-            List of theme names
-        """
-        return CONFIG_VALID_VALUES["theme"]
+    def get_all(self) -> dict[str, Any]:
+        """Get all configuration values."""
+        return copy.deepcopy(self._config)
 
     def show(self) -> dict[str, Any]:
-        """Show the current configuration.
-
-        Returns:
-            The current configuration dictionary
-        """
-        return self._config.copy()
+        """Show the current configuration."""
+        return self.get_all()
 
     def save(self) -> None:
         """Save the current configuration to disk."""
         self._save_config()
 
-    def get_all(self) -> dict[str, Any]:
-        """Get all configuration values.
+    def get_typed(self, key: str, default: T) -> T:
+        """Get a typed configuration value with a default."""
+        value = self.get(key, default)
+        return cast("T", value)
 
-        Returns:
-            The full configuration dictionary
-        """
-        return self._config.copy()
-
-    def unset(self, key: str) -> None:
-        """Unset a configuration key, resetting it to default if applicable.
-
-        Args:
-            key: The key to unset
-
-        Raises:
-            ValueError: If the key is not found
-        """
-        if key not in self._config:
-            raise ValueError(f"Key not found in configuration: {key}")
-
-        if key in DEFAULT_CONFIG:
-            # Reset to default value
-            self._config[key] = DEFAULT_CONFIG[key]
-        else:
-            # Remove entirely if no default
-            del self._config[key]
-
-        self._save_config()
+    def get_available_themes(self) -> list[str]:
+        """Get list of available themes."""
+        return CONFIG_VALID_VALUES["theme"]
 
     def get_model_key(self, provider: str) -> str | None:
-        """Get API key for a specific model provider.
-
-        This method checks multiple sources in this order:
-        1. Environment variable override (VIBECTL_*_API_KEY)
-        2. Key file path from environment variable (VIBECTL_*_API_KEY_FILE)
-        3. Configured key in model_keys dictionary
-        4. Configured key file in model_key_files dictionary
-        5. Legacy environment variable (*_API_KEY)
-
-        Args:
-            provider: The model provider (openai, anthropic, ollama)
-
-        Returns:
-            The API key if found, None otherwise
-        """
+        """Get API key for a specific model provider."""
         # Check if we have mappings for this provider
         if provider not in ENV_KEY_MAPPINGS:
             return None
@@ -498,50 +567,27 @@ class Config:
                 if key_path.exists():
                     return key_path.read_text().strip()
             except OSError:
-                # Log warning but continue with other methods
                 pass
 
         # 3. Check configured key
-        model_keys = self._config.get("model_keys", {})
-        if (
-            isinstance(model_keys, dict)
-            and provider in model_keys
-            and model_keys[provider]
-        ):
-            return str(model_keys[provider])
+        provider_key = self.get(f"providers.{provider}.key")
+        if provider_key:
+            return str(provider_key)
 
         # 4. Check configured key file
-        model_key_files = self._config.get("model_key_files", {})
-        if (
-            isinstance(model_key_files, dict)
-            and provider in model_key_files
-            and model_key_files[provider]
-        ):
+        provider_key_file = self.get(f"providers.{provider}.key_file")
+        if provider_key_file:
             try:
-                key_path = Path(model_key_files[provider]).expanduser()
+                key_path = Path(provider_key_file).expanduser()
                 if key_path.exists():
                     return key_path.read_text().strip()
             except OSError:
-                # Continue with legacy environment variable
                 pass
-
-        # 5. Check legacy environment variable
-        legacy_key = os.environ.get(mapping["legacy_key"])
-        if legacy_key:
-            return legacy_key
 
         return None
 
     def set_model_key(self, provider: str, key: str) -> None:
-        """Set API key for a specific model provider in the config.
-
-        Args:
-            provider: The model provider (openai, anthropic, ollama)
-            key: The API key to set
-
-        Raises:
-            ValueError: If the provider is invalid
-        """
+        """Set API key for a specific model provider in the config."""
         if provider not in ENV_KEY_MAPPINGS:
             valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
             raise ValueError(
@@ -549,24 +595,11 @@ class Config:
                 f"Valid providers are: {valid_providers}"
             )
 
-        # Initialize the model_keys dict if it doesn't exist
-        if "model_keys" not in self._config:
-            self._config["model_keys"] = {}
-
-        # Set the key
-        self._config["model_keys"][provider] = key
-        self._save_config()
+        # Set the key in the new provider structure
+        self.set(f"providers.{provider}.key", key)
 
     def set_model_key_file(self, provider: str, file_path: str) -> None:
-        """Set path to key file for a specific model provider.
-
-        Args:
-            provider: The model provider (openai, anthropic, ollama)
-            file_path: Path to file containing the API key
-
-        Raises:
-            ValueError: If the provider is invalid or the file doesn't exist
-        """
+        """Set path to key file for a specific model provider."""
         if provider not in ENV_KEY_MAPPINGS:
             valid_providers = ", ".join(ENV_KEY_MAPPINGS.keys())
             raise ValueError(
@@ -579,10 +612,5 @@ class Config:
         if not path.exists():
             raise ValueError(f"Key file does not exist: {file_path}")
 
-        # Initialize the model_key_files dict if it doesn't exist
-        if "model_key_files" not in self._config:
-            self._config["model_key_files"] = {}
-
-        # Set the file path
-        self._config["model_key_files"][provider] = str(path)
-        self._save_config()
+        # Set the file path in the new provider structure
+        self.set(f"providers.{provider}.key_file", str(path))

@@ -98,7 +98,7 @@ async def test_events_output_processing(
         actual_output_flags.show_streaming is True
     )  # Since --show-streaming was passed
     assert actual_output_flags.show_vibe is True  # Default or from --show-streaming
-    assert actual_output_flags.model_name == str(DEFAULT_CONFIG.get("model"))
+    assert actual_output_flags.model_name == str(DEFAULT_CONFIG["llm"]["model"])
 
 
 @patch("vibectl.subcommands.events_cmd.handle_vibe_request")

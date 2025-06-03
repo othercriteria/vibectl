@@ -28,7 +28,7 @@ def recovery_prompt(
 ) -> PromptFragments:
     """Generate system and user fragments for suggesting recovery actions."""
     cfg = config or Config()
-    max_chars = int(cfg.get("memory_max_chars", 500))
+    max_chars = int(cfg.get("memory.max_chars", 500))
 
     # Get custom mapping attributes, if provided
     task_description = (

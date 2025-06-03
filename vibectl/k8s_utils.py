@@ -95,7 +95,7 @@ def run_kubectl(
     """
     try:
         cfg = config or Config()
-        kubeconfig = cfg.get("kubeconfig")
+        kubeconfig = cfg.get("core.kubeconfig")
         kubectl_full_cmd = ["kubectl"]  # Renamed to avoid conflict with cmd parameter
         if kubeconfig:
             kubectl_full_cmd.extend(["--kubeconfig", str(kubeconfig)])
@@ -185,8 +185,8 @@ def run_kubectl_with_yaml(
     try:
         # Get a Config instance if not provided
         cfg = config or Config()
-        kubeconfig_path = cfg.get("kubeconfig")
-        kubectl_executable = cfg.get_typed("kubectl_path", "kubectl")
+        kubeconfig_path = cfg.get("core.kubeconfig")
+        kubectl_executable = cfg.get_typed("core.kubectl_command", "kubectl")
 
         # Fix multi-document YAML formatting issues for robustness
         yaml_content = re.sub(r"^(\s+)---\s*$", "---", yaml_content, flags=re.MULTILINE)
@@ -315,7 +315,7 @@ async def create_async_kubectl_process(
         Exception: For other errors during process creation.
     """
     cfg = config or Config()
-    kubeconfig = cfg.get("kubeconfig")
+    kubeconfig = cfg.get("core.kubeconfig")
 
     kubectl_cmd = ["kubectl"]
     if kubeconfig:

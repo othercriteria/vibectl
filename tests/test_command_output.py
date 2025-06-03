@@ -29,7 +29,7 @@ from vibectl.types import (
 )
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
-DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
+DEFAULT_MODEL = str(DEFAULT_CONFIG["llm"]["model"])
 
 
 @pytest.fixture
@@ -390,13 +390,13 @@ def test_configure_output_flags_no_flags(mock_config_constructor: MagicMock) -> 
     output_flags = configure_output_flags()
 
     # Verify defaults from DEFAULT_CONFIG are used
-    assert output_flags.show_raw_output == DEFAULT_CONFIG["show_raw_output"]
-    assert output_flags.show_vibe == DEFAULT_CONFIG["show_vibe"]
-    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
-    assert output_flags.model_name == DEFAULT_CONFIG["model"]
-    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
-    assert output_flags.show_kubectl == DEFAULT_CONFIG["show_kubectl"]
-    assert output_flags.warn_no_proxy == DEFAULT_CONFIG["warn_no_proxy"]
+    assert output_flags.show_raw_output == DEFAULT_CONFIG["display"]["show_raw_output"]
+    assert output_flags.show_vibe == DEFAULT_CONFIG["display"]["show_vibe"]
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warnings"]["warn_no_output"]
+    assert output_flags.model_name == DEFAULT_CONFIG["llm"]["model"]
+    assert output_flags.show_metrics == DEFAULT_CONFIG["display"]["show_metrics"]
+    assert output_flags.show_kubectl == DEFAULT_CONFIG["display"]["show_kubectl"]
+    assert output_flags.warn_no_proxy == DEFAULT_CONFIG["warnings"]["warn_no_proxy"]
 
 
 def test_configure_output_flags_raw_only() -> None:
@@ -409,9 +409,9 @@ def test_configure_output_flags_raw_only() -> None:
     # Verify flags
     assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
-    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warnings"]["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
-    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
+    assert output_flags.show_metrics == DEFAULT_CONFIG["display"]["show_metrics"]
 
 
 def test_configure_output_flags_vibe_only() -> None:
@@ -424,9 +424,9 @@ def test_configure_output_flags_vibe_only() -> None:
     # Verify flags
     assert output_flags.show_raw_output is False
     assert output_flags.show_vibe is True
-    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warnings"]["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
-    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
+    assert output_flags.show_metrics == DEFAULT_CONFIG["display"]["show_metrics"]
 
 
 def test_configure_output_flags_both_flags() -> None:
@@ -439,9 +439,9 @@ def test_configure_output_flags_both_flags() -> None:
     # Verify flags
     assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is True
-    assert output_flags.warn_no_output == DEFAULT_CONFIG["warn_no_output"]
+    assert output_flags.warn_no_output == DEFAULT_CONFIG["warnings"]["warn_no_output"]
     assert output_flags.model_name == DEFAULT_MODEL
-    assert output_flags.show_metrics == DEFAULT_CONFIG["show_metrics"]
+    assert output_flags.show_metrics == DEFAULT_CONFIG["display"]["show_metrics"]
 
 
 def test_configure_output_flags_with_show_kubectl() -> None:
@@ -463,14 +463,16 @@ def test_configure_output_flags_with_show_kubectl_from_config(
     # Mock Config to return True for show_kubectl
     mock_config = Mock()
     mock_config.get.side_effect = (
-        lambda key, default=None: True if key == "show_kubectl" else default
+        lambda key, default=None: True if key == "display.show_kubectl" else default
     )
     mock_config_class.return_value = mock_config
 
     # Call with no show_kubectl flag - should use config value
     output_flags = configure_output_flags()
     assert output_flags.show_kubectl is True
-    mock_config.get.assert_any_call("show_kubectl", DEFAULT_CONFIG["show_kubectl"])
+    mock_config.get.assert_any_call(
+        "display.show_kubectl", DEFAULT_CONFIG["display"]["show_kubectl"]
+    )
 
     # Reset mock
     mock_config.reset_mock()

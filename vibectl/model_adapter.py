@@ -1207,9 +1207,10 @@ class LLMModelAdapter(ModelAdapter):
         instructions = (
             f"Set a key using one of these methods:\n"
             f"- Environment variable: export {env_key}=your-api-key\n"
-            f"- Config key file: vibectl config set model_key_files.{provider} \n"
+            f"- Config key file: vibectl config set providers.{provider}.key_file \n"
             f"  /path/to/key/file\n"
-            f"- Direct config: vibectl config set model_keys.{provider} your-api-key\n"
+            f"- Direct config: vibectl config set "
+            f"providers.{provider}.key your-api-key\n"
             f"- Environment variable key file: export {file_key}=/path/to/key/file"
         )
 

@@ -95,11 +95,8 @@ class MetricsDisplayMode(str, Enum):
 
     @classmethod
     def from_config(cls, config: "Config") -> "MetricsDisplayMode":
-        """Get MetricsDisplayMode from config, handling the config interface."""
-        # Import here to avoid circular imports
-        from .config import DEFAULT_CONFIG
-
-        config_value = config.get("show_metrics", DEFAULT_CONFIG["show_metrics"])
+        """Create MetricsDisplayMode from config, with fallback to default."""
+        config_value = config.get("display.show_metrics", "none")
         return cls.from_value(config_value)
 
     def should_show_sub_metrics(self) -> bool:
@@ -149,32 +146,32 @@ class OutputFlags:
     ) -> "OutputFlags":
         """Create OutputFlags from command arguments with config fallbacks."""
         # Import only once at runtime to avoid circular imports
-        from .config import DEFAULT_CONFIG, Config
+        from .config import Config
 
         if config is None:
             config = Config()
 
         return cls(
-            model_name=model or config.get("model"),
+            model_name=model or config.get("llm.model", "claude-3.7-sonnet"),
             show_raw_output=show_raw_output
             if show_raw_output is not None
-            else config.get("show_raw_output", DEFAULT_CONFIG["show_raw_output"]),
+            else config.get("display.show_raw_output", False),
             show_vibe=show_vibe
             if show_vibe is not None
-            else config.get("show_vibe", DEFAULT_CONFIG["show_vibe"]),
+            else config.get("display.show_vibe", True),
             show_kubectl=show_kubectl
             if show_kubectl is not None
-            else config.get("show_kubectl", DEFAULT_CONFIG["show_kubectl"]),
+            else config.get("display.show_kubectl", False),
             show_metrics=show_metrics or MetricsDisplayMode.from_config(config),
             show_streaming=show_streaming
             if show_streaming is not None
-            else config.get("show_streaming", DEFAULT_CONFIG["show_streaming"]),
+            else config.get("display.show_streaming", True),
             warn_no_output=warn_no_output
             if warn_no_output is not None
-            else config.get("warn_no_output", DEFAULT_CONFIG["warn_no_output"]),
+            else config.get("warnings.warn_no_output", True),
             warn_no_proxy=warn_no_proxy
             if warn_no_proxy is not None
-            else config.get("warn_no_proxy", DEFAULT_CONFIG["warn_no_proxy"]),
+            else config.get("warnings.warn_no_proxy", True),
             freeze_memory=freeze_memory,
             unfreeze_memory=unfreeze_memory,
         )

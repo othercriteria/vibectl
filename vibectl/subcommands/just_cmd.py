@@ -20,7 +20,7 @@ async def run_just_command(args: tuple) -> Result:
     try:
         cmd = ["kubectl"]
         cfg = Config()
-        kubeconfig = cfg.get("kubeconfig")
+        kubeconfig = cfg.get("core.kubeconfig")
         if kubeconfig:
             cmd.extend(["--kubeconfig", str(kubeconfig)])
         cmd.extend(args)

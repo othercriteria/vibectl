@@ -60,7 +60,7 @@ async def run_plugin_install_command(
         config = Config()
         precedence_updated = False
         if precedence:
-            current_precedence = config.get("plugin_precedence", [])
+            current_precedence = config.get("plugins.precedence", [])
 
             # Remove if already in list (for updates)
             if plugin.metadata.name in current_precedence:
@@ -74,7 +74,7 @@ async def run_plugin_install_command(
                 precedence_updated = True
 
             if precedence_updated:
-                config.set("plugin_precedence", current_precedence)
+                config.set("plugins.precedence", current_precedence)
 
         result_message = (
             f"✓ Installed plugin '{plugin.metadata.name}' "
@@ -174,13 +174,13 @@ async def run_plugin_uninstall_command(plugin_id: str) -> Result:
 
         # Check if plugin is in precedence list before uninstalling
         config = Config()
-        precedence = config.get("plugin_precedence", [])
+        precedence = config.get("plugins.precedence", [])
         was_in_precedence = plugin_id in precedence
 
         # Remove from precedence list if present
         if was_in_precedence:
             precedence.remove(plugin_id)
-            config.set("plugin_precedence", precedence)
+            config.set("plugins.precedence", precedence)
 
         store.uninstall_plugin(plugin_id)
 
@@ -252,7 +252,7 @@ async def run_plugin_precedence_list_command() -> Result:
     """
     try:
         config = Config()
-        precedence = config.get("plugin_precedence", [])
+        precedence = config.get("plugins.precedence", [])
 
         if not precedence:
             return Success(
@@ -295,7 +295,7 @@ async def run_plugin_precedence_set_command(precedence_list: list[str]) -> Resul
             )
 
         # Set the precedence configuration
-        config.set("plugin_precedence", precedence_list)
+        config.set("plugins.precedence", precedence_list)
 
         result_message = "✓ Plugin precedence updated:"
         for i, plugin_name in enumerate(precedence_list, 1):
@@ -328,7 +328,7 @@ async def run_plugin_precedence_add_command(
         if not store.get_plugin(plugin_name):
             return Error(error=f"✗ Plugin '{plugin_name}' not found.")
 
-        precedence = config.get("plugin_precedence", [])
+        precedence = config.get("plugins.precedence", [])
 
         # Remove if already in list
         if plugin_name in precedence:
@@ -342,7 +342,7 @@ async def run_plugin_precedence_add_command(
         else:
             precedence.append(plugin_name)
 
-        config.set("plugin_precedence", precedence)
+        config.set("plugins.precedence", precedence)
 
         result_message = f"✓ Added '{plugin_name}' to precedence list:"
         for i, p in enumerate(precedence, 1):
@@ -367,13 +367,13 @@ async def run_plugin_precedence_remove_command(plugin_name: str) -> Result:
     """
     try:
         config = Config()
-        precedence = config.get("plugin_precedence", [])
+        precedence = config.get("plugins.precedence", [])
 
         if plugin_name not in precedence:
             return Error(error=f"✗ Plugin '{plugin_name}' not in precedence list.")
 
         precedence.remove(plugin_name)
-        config.set("plugin_precedence", precedence)
+        config.set("plugins.precedence", precedence)
 
         if precedence:
             result_message = f"✓ Removed '{plugin_name}' from precedence list:"

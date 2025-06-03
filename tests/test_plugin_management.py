@@ -461,7 +461,7 @@ class TestPluginPrecedence:
             assert "Plugin precedence updated" in result.message
             assert "1. test-plugin" in result.message
             mock_config_instance.set.assert_called_once_with(
-                "plugin_precedence", ["test-plugin"]
+                "plugins.precedence", ["test-plugin"]
             )
 
     async def test_precedence_set_unknown_plugins(
@@ -502,7 +502,7 @@ class TestPluginPrecedence:
             assert "Added 'test-plugin' to precedence list" in result.message
             assert "1. test-plugin ← new" in result.message
             mock_config_instance.set.assert_called_once_with(
-                "plugin_precedence", ["test-plugin"]
+                "plugins.precedence", ["test-plugin"]
             )
 
     async def test_precedence_add_plugin_with_position(
@@ -526,7 +526,7 @@ class TestPluginPrecedence:
             assert isinstance(result, Success)
             assert "Added 'test-plugin' to precedence list" in result.message
             mock_config_instance.set.assert_called_once_with(
-                "plugin_precedence", ["test-plugin", "existing-plugin"]
+                "plugins.precedence", ["test-plugin", "existing-plugin"]
             )
 
     async def test_precedence_remove_plugin(self) -> None:
@@ -542,7 +542,7 @@ class TestPluginPrecedence:
             assert "Removed 'plugin-a' from precedence list" in result.message
             assert "1. plugin-b" in result.message
             mock_config_instance.set.assert_called_once_with(
-                "plugin_precedence", ["plugin-b"]
+                "plugins.precedence", ["plugin-b"]
             )
 
     async def test_precedence_remove_plugin_not_in_list(self) -> None:
@@ -1221,7 +1221,7 @@ class TestRuntimeVersionCompatibility:
 
         # Mock config to return precedence order
         config = Config()
-        config.set("plugin_precedence", ["incompatible-plugin", "compatible-plugin"])
+        config.set("plugins.precedence", ["incompatible-plugin", "compatible-plugin"])
 
         # Mock plugin store methods
         def mock_get_plugin(name: str) -> Plugin | None:

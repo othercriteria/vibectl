@@ -124,7 +124,7 @@ async def test_handle_command_output_api_error_marked_non_halting(
         warn_no_output=True,
         show_metrics=MetricsDisplayMode.ALL,
         # Explicitly cast to string to satisfy mypy
-        model_name=str(DEFAULT_CONFIG["model"]),
+        model_name=str(DEFAULT_CONFIG["llm"]["model"]),
     )
 
     # Create a RecoverableApiError

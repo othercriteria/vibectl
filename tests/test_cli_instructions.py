@@ -27,7 +27,9 @@ async def test_instructions_set_basic(mock_config: Mock) -> None:
 
     await set_cmd.main(["Test instructions"], standalone_mode=False)  # type: ignore[attr-defined]
 
-    mock_config.set.assert_called_once_with("custom_instructions", "Test instructions")
+    mock_config.set.assert_called_once_with(
+        "system.custom_instructions", "Test instructions"
+    )
     mock_config.save.assert_called_once()
 
 
@@ -46,10 +48,10 @@ async def test_instructions_set_with_editor(
 
     await set_cmd.main(["--edit"], standalone_mode=False)  # type: ignore[attr-defined]
 
-    mock_config.get.assert_called_once_with("custom_instructions", "")
+    mock_config.get.assert_called_once_with("system.custom_instructions", "")
     mock_edit.assert_called_once_with("Existing instructions")
     mock_config.set.assert_called_once_with(
-        "custom_instructions", "Edited instructions"
+        "system.custom_instructions", "Edited instructions"
     )
     mock_config.save.assert_called_once()
 
@@ -120,7 +122,7 @@ async def test_instructions_show_basic(mock_config: Mock) -> None:
     with patch("vibectl.cli.console_manager") as mock_console:
         await show_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-        mock_config.get.assert_called_once_with("custom_instructions", "")
+        mock_config.get.assert_called_once_with("system.custom_instructions", "")
         mock_console.print_note.assert_called_once_with("Custom instructions:")
         mock_console.print.assert_called_once_with("Test instructions")
 
@@ -136,7 +138,7 @@ async def test_instructions_show_empty(mock_config_class: Mock) -> None:
     with patch("vibectl.cli.console_manager") as mock_console:
         await show_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-        mock_config.get.assert_called_once_with("custom_instructions", "")
+        mock_config.get.assert_called_once_with("system.custom_instructions", "")
         mock_console.print_note.assert_called_once_with("No custom instructions set")
         mock_console.print.assert_not_called()
 
@@ -167,7 +169,7 @@ async def test_instructions_clear_basic(mock_config_class: Mock) -> None:
 
     await clear_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-    mock_config.set.assert_called_once_with("custom_instructions", "")
+    mock_config.set.assert_called_once_with("system.custom_instructions", "")
     mock_config.save.assert_called_once()
 
 
@@ -205,5 +207,5 @@ async def test_instructions_set_stdin_accepted(
 
     await set_cmd.main([], standalone_mode=False)  # type: ignore[attr-defined]
 
-    mock_config.set.assert_called_once_with("custom_instructions", test_input)
+    mock_config.set.assert_called_once_with("system.custom_instructions", test_input)
     mock_config.save.assert_called_once()

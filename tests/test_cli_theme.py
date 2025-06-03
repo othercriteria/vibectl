@@ -92,7 +92,7 @@ def test_theme_set_valid_theme_logic(mock_console: Mock, mock_config: Mock) -> N
     _set_theme_logic(valid_theme)
 
     # Verify config.set and config.save were called
-    mock_config.set.assert_called_once_with("theme", valid_theme)
+    mock_config.set.assert_called_once_with("display.theme", valid_theme)
     mock_config.save.assert_called_once()
     # Verify success message was printed
     mock_console.print_success.assert_called_once_with(f"Theme set to '{valid_theme}'.")

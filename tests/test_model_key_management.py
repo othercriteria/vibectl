@@ -7,16 +7,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from tests.test_config import MockConfig  # Use MockConfig instead of real Config
+from tests.test_config import MockConfig
 from vibectl.model_adapter import (
-    LLMMetrics,
     LLMModelAdapter,
     ModelEnvironment,
-    SystemFragments,
-    UserFragments,
     validate_model_key_on_startup,
 )
-from vibectl.types import Fragment
+from vibectl.types import Fragment, LLMMetrics, SystemFragments, UserFragments
 
 
 class TestModelKeyConfig:
@@ -51,45 +48,21 @@ class TestModelKeyConfig:
                 Path(temp_file.name).unlink(missing_ok=True)
 
     def test_get_model_key_from_config(self) -> None:
-        """Test getting a model key from configuration."""
+        """Test retrieving model key from config structure."""
+        # Test with configured key
+        mock_config = MockConfig()
+        mock_config.set("providers.openai.key", "config-key")
+        assert mock_config.get_model_key("openai") == "config-key"
+
+    def test_get_model_key_from_config_file(self, tmp_path: Path) -> None:
+        """Test getting a model key from a configured file."""
         config = MockConfig()
-        config.set_model_key("openai", "test-openai-key-from-config")
+        key_file = tmp_path / "openai_key"
+        key_file.write_text("test-openai-key")
+        config.set("providers.openai.key_file", str(key_file))
+
         key = config.get_model_key("openai")
-        assert key == "test-openai-key-from-config"
-
-    def test_get_model_key_from_config_file(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test getting a model key from configuration key file."""
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY_FILE", raising=False)
-
-        with TemporaryDirectory() as temp_dir:
-            config_dir = Path(temp_dir)
-
-            # Create a key file
-            key_file = config_dir / "anthropic-key.txt"
-            key_file.write_text("test-anthropic-key-from-config-file")
-
-            config = MockConfig()
-            config.set_model_key_file("anthropic", str(key_file))
-            key = config.get_model_key("anthropic")
-            assert key == "test-anthropic-key-from-config-file"
-
-    def test_get_model_key_from_legacy_env(self) -> None:
-        """Test getting a model key from legacy environment variable."""
-        with patch.dict(
-            os.environ, {"OPENAI_API_KEY": "test-openai-key-legacy"}, clear=True
-        ):
-            config = MockConfig()
-            # Don't set any config values, only use env var
-            config._config["model_keys"] = {}
-            config._config["model_key_files"] = {}
-            key = config.get_model_key("openai")
-            assert key == "test-openai-key-legacy", (
-                f"Expected 'test-openai-key-legacy', got '{key}'"
-            )
+        assert key == "test-openai-key"
 
     def test_precedence_order(self) -> None:
         """Test precedence order of key sources."""
@@ -117,7 +90,6 @@ class TestModelKeyConfig:
                         {
                             "VIBECTL_ANTHROPIC_API_KEY": "test-key-from-env",
                             "VIBECTL_ANTHROPIC_API_KEY_FILE": env_key_file.name,
-                            "ANTHROPIC_API_KEY": "legacy-key",
                         },
                         clear=True,
                     ):
@@ -130,7 +102,6 @@ class TestModelKeyConfig:
                         os.environ,
                         {
                             "VIBECTL_ANTHROPIC_API_KEY_FILE": env_key_file.name,
-                            "ANTHROPIC_API_KEY": "legacy-key",
                         },
                         clear=True,
                     ):
@@ -138,27 +109,21 @@ class TestModelKeyConfig:
                         assert key == "test-key-from-env-file"
 
                     # Remove VIBECTL_ANTHROPIC_API_KEY_FILE, config key should win
-                    with patch.dict(
-                        os.environ, {"ANTHROPIC_API_KEY": "legacy-key"}, clear=True
-                    ):
+                    with patch.dict(os.environ, {}, clear=True):
                         key = config.get_model_key("anthropic")
                         assert key == "test-key-from-config"
 
-                    # Test with only config key file and legacy env var
-                    config._config["model_keys"]["anthropic"] = None
-                    with patch.dict(
-                        os.environ, {"ANTHROPIC_API_KEY": "legacy-key"}, clear=True
-                    ):
+                    # Test with only config key file
+                    config.set("providers.anthropic.key", None)
+                    with patch.dict(os.environ, {}, clear=True):
                         key = config.get_model_key("anthropic")
                         assert key == "test-key-from-config-file"
 
-                    # Test with only legacy env var
-                    config._config["model_key_files"]["anthropic"] = None
-                    with patch.dict(
-                        os.environ, {"ANTHROPIC_API_KEY": "legacy-key"}, clear=True
-                    ):
+                    # Test with no keys at all
+                    config.set("providers.anthropic.key_file", None)
+                    with patch.dict(os.environ, {}, clear=True):
                         key = config.get_model_key("anthropic")
-                        assert key == "legacy-key"
+                        assert key is None
                 finally:
                     # Clean up temp file
                     Path(env_key_file.name).unlink(missing_ok=True)
@@ -186,6 +151,28 @@ class TestModelKeyConfig:
         config = MockConfig()
         with pytest.raises(ValueError, match="Key file does not exist"):
             config.set_model_key_file("openai", "/nonexistent/path")
+
+    # Test env key file overrides configured key
+    def test_get_model_key_from_config_file_override(self, tmp_path: Path) -> None:
+        """Test retrieving model key from configured file."""
+        mock_config = MockConfig()
+        key_file = tmp_path / "openai_key"
+        key_file.write_text("file-key")
+
+        with patch.dict(
+            os.environ, {"VIBECTL_ANTHROPIC_API_KEY_FILE": str(key_file)}, clear=True
+        ):
+            mock_config.set("providers.anthropic.key", "config-key")
+            assert mock_config.get_model_key("anthropic") == "file-key"
+
+            # Test configured key is used when no env vars
+            del os.environ["VIBECTL_ANTHROPIC_API_KEY_FILE"]
+            assert mock_config.get_model_key("anthropic") == "config-key"
+
+            # Test configured key file is used when key is not set
+            mock_config.set("providers.anthropic.key", None)
+            mock_config.set("providers.anthropic.key_file", str(key_file))
+            assert mock_config.get_model_key("anthropic") == "file-key"
 
 
 class TestModelAdapterWithKeys:
@@ -263,7 +250,7 @@ class TestModelAdapterWithKeys:
             error_msg = str(exc_info.value)
             assert "API key for openai not found" in error_msg
             assert "VIBECTL_OPENAI_API_KEY" in error_msg
-            assert "model_keys.openai" in error_msg
+            assert "providers.openai.key" in error_msg
 
     @patch("vibectl.model_adapter.llm")
     async def test_execute_preserves_environment(self, mock_llm: Mock) -> None:

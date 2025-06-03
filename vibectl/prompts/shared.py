@@ -266,7 +266,7 @@ with matched closing tags:
     )
 
     # System: Custom instructions (less frequent change than memory)
-    custom_instructions = cfg.get("custom_instructions")
+    custom_instructions = cfg.get("system.custom_instructions")
     if custom_instructions:
         system_fragments.append(
             Fragment(f"Custom instructions:\n{custom_instructions}")

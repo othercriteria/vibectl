@@ -14,7 +14,7 @@ from vibectl.prompts.logs import logs_prompt
 from vibectl.types import MetricsDisplayMode
 
 # Ensure DEFAULT_MODEL is always a string for use in OutputFlags
-DEFAULT_MODEL = str(DEFAULT_CONFIG["model"])
+DEFAULT_MODEL = str(DEFAULT_CONFIG["llm"]["model"])
 
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")

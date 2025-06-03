@@ -250,7 +250,7 @@ def test_run_kubectl_with_config(
 
     assert isinstance(result, Success)
     assert result.data == "success data"
-    mock_config_instance.get.assert_called_once_with("kubeconfig")
+    mock_config_instance.get.assert_called_once_with("core.kubeconfig")
     mock_run.assert_called_once_with(
         ["kubectl", "--kubeconfig", "/path/to/my/kubeconfig", "get", "svc"],
         capture_output=True,
@@ -277,7 +277,7 @@ def test_run_kubectl_without_config(
     assert isinstance(result, Success)
     assert result.data == "more success data"
     mock_config_class.assert_called_once()
-    mock_config_instance.get.assert_called_once_with("kubeconfig")
+    mock_config_instance.get.assert_called_once_with("core.kubeconfig")
     mock_run.assert_called_once_with(
         ["kubectl", "get", "ns"],
         capture_output=True,
@@ -559,10 +559,10 @@ def test_run_kubectl_with_yaml_uses_vibectl_config_kubeconfig(
     custom_kubeconfig_path = "/custom/path/kube.config"
 
     def mock_get_side_effect(key: str, default: Any = None) -> Any:
-        if key == "kubeconfig":
+        if key == "core.kubeconfig":
             return custom_kubeconfig_path
-        if key == "kubectl_path":
-            return "kubectl"  # Ensure kubectl_path returns a string
+        if key == "core.kubectl_command":
+            return "kubectl"  # Ensure kubectl_command returns a string
         return default
 
     mock_config_instance.get.side_effect = mock_get_side_effect
@@ -595,8 +595,8 @@ def test_run_kubectl_with_yaml_uses_vibectl_config_kubeconfig(
     ]
     assert called_args == expected_cmd
 
-    # Verify that Config().get('kubeconfig') was called
-    mock_config_instance.get.assert_called_once_with("kubeconfig")
+    # Verify that Config().get('core.kubeconfig') was called
+    mock_config_instance.get.assert_called_once_with("core.kubeconfig")
 
 
 @pytest.mark.asyncio
@@ -637,7 +637,7 @@ async def test_create_async_kubectl_process_with_kubeconfig(
     )
 
     assert process == mock_process
-    mock_config.return_value.get.assert_called_once_with("kubeconfig")
+    mock_config.return_value.get.assert_called_once_with("core.kubeconfig")
     mock_create_subprocess.assert_awaited_once_with(
         "kubectl",
         "--kubeconfig",

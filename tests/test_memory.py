@@ -39,7 +39,7 @@ def test_get_memory(mock_config_class: Mock) -> None:
 
     # Assert
     assert result == "Test memory content"
-    mock_config.get.assert_called_once_with("memory", "")
+    mock_config.get.assert_called_once_with("memory_content", "")
 
 
 @patch("vibectl.memory.Config")
@@ -54,39 +54,39 @@ def test_get_memory_with_config(mock_config_class: Mock) -> None:
 
     # Assert
     assert result == "Test memory content"
-    mock_config.get.assert_called_once_with("memory", "")
+    mock_config.get.assert_called_once_with("memory_content", "")
     mock_config_class.assert_not_called()
 
 
 @patch("vibectl.memory.Config")
 def test_is_memory_enabled(mock_config_class: Mock) -> None:
-    """Test checking if memory is enabled."""
-    # Setup mock
+    """Test memory enabled check."""
+    # Setup
     mock_config = Mock()
-    mock_config_class.return_value = mock_config
     mock_config.get.return_value = True
+    mock_config_class.return_value = mock_config
 
-    # Execute
+    # Test
     result = is_memory_enabled()
 
-    # Assert
+    # Verify
     assert result is True
-    mock_config.get.assert_called_once_with("memory_enabled", True)
+    mock_config.get.assert_called_once_with("memory.enabled", True)
 
 
 @patch("vibectl.memory.Config")
 def test_is_memory_enabled_with_config(mock_config_class: Mock) -> None:
-    """Test checking if memory is enabled with provided config."""
+    """Test memory enabled check with custom config."""
     # Setup
     mock_config = Mock()
     mock_config.get.return_value = False
 
-    # Execute
+    # Test
     result = is_memory_enabled(mock_config)
 
-    # Assert
+    # Verify
     assert result is False
-    mock_config.get.assert_called_once_with("memory_enabled", True)
+    mock_config.get.assert_called_once_with("memory.enabled", True)
     mock_config_class.assert_not_called()
 
 
@@ -103,7 +103,7 @@ def test_set_memory(mock_config_class: Mock) -> None:
     set_memory("New memory content")
 
     # Assert
-    mock_config.set.assert_called_once_with("memory", "New memory content")
+    mock_config.set.assert_called_once_with("memory_content", "New memory content")
     mock_config.save.assert_called_once()
 
 
@@ -120,7 +120,7 @@ def test_set_memory_truncation(mock_config_class: Mock) -> None:
     set_memory(memory_text)
 
     # Assert
-    mock_config.set.assert_called_once_with("memory", "This ")
+    mock_config.set.assert_called_once_with("memory_content", "This ")
     mock_config.save.assert_called_once()
 
 
@@ -135,7 +135,7 @@ def test_enable_memory(mock_config_class: Mock) -> None:
     enable_memory()
 
     # Assert
-    mock_config.set.assert_called_once_with("memory_enabled", True)
+    mock_config.set.assert_called_once_with("memory.enabled", True)
     mock_config.save.assert_called_once()
 
 
@@ -150,7 +150,7 @@ def test_disable_memory(mock_config_class: Mock) -> None:
     disable_memory()
 
     # Assert
-    mock_config.set.assert_called_once_with("memory_enabled", False)
+    mock_config.set.assert_called_once_with("memory.enabled", False)
     mock_config.save.assert_called_once()
 
 
@@ -166,7 +166,7 @@ def test_clear_memory(mock_config_class: Mock) -> None:
     clear_memory()
 
     # Assert
-    mock_config.set.assert_called_once_with("memory", "")
+    mock_config.set.assert_called_once_with("memory_content", "")
     mock_config.save.assert_called_once()
 
 
@@ -179,13 +179,13 @@ async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -
 
     # Configure mock_config.get to return specific values based on the key
     def mock_config_get_side_effect(key: str, default: Any = None) -> Any:
-        if key == "memory_enabled":
-            return True
-        if key == "memory_max_chars":
-            return 500  # Sufficiently large limit
-        if key == "memory":  # for get_memory() call within update_memory
-            return ""
-        return default
+        key_values = {
+            "memory.enabled": True,
+            "memory.max_chars": 500,
+            "memory_content": "",
+            "llm.model": "test-model",
+        }
+        return key_values.get(key, default)
 
     mock_config.get.side_effect = mock_config_get_side_effect
 
@@ -235,7 +235,7 @@ async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -
         user_fragments=["UserMemTemplate"],
     )
     mock_config.set.assert_any_call(
-        "memory", mock_response_text
+        "memory_content", mock_response_text
     )  # Using any_call due to other set calls
     mock_config.save.assert_called()
 
@@ -278,7 +278,9 @@ def test_test_isolation_doesnt_impact_real_config(
     initial_test_config_instance_for_get.get.return_value = "initial_mem_for_get"
 
     original_memory_value = get_memory(config=initial_test_config_instance_for_get)
-    initial_test_config_instance_for_get.get.assert_called_once_with("memory", "")
+    initial_test_config_instance_for_get.get.assert_called_once_with(
+        "memory_content", ""
+    )
 
     # Simulate a test operation that modifies memory
     # This set_memory call will instantiate its own Config if one isn't provided,
@@ -300,7 +302,7 @@ def test_test_isolation_doesnt_impact_real_config(
 
         # Verify the mocked Config instance was used for set and save
         mock_config_instance_for_set.set.assert_called_once_with(
-            "memory", "memory_value_set_in_test"
+            "memory_content", "memory_value_set_in_test"
         )
         mock_config_instance_for_set.save.assert_called_once()
 
@@ -318,7 +320,9 @@ def test_test_isolation_doesnt_impact_real_config(
         "Memory accessible via get_memory() should not have been changed by an "
         "isolated set_memory call."
     )
-    subsequent_test_config_instance_for_get.get.assert_called_once_with("memory", "")
+    subsequent_test_config_instance_for_get.get.assert_called_once_with(
+        "memory_content", ""
+    )
 
     # Ensure no *actual* file save operations occurred on any Config instance
     # because Config.save itself was mocked at the top level of the test.

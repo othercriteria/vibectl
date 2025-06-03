@@ -30,7 +30,7 @@ def get_memory(config: Config | None = None) -> str:
         str: Current memory content or empty string if not set
     """
     cfg = config or Config()
-    return cast("str", cfg.get("memory", ""))
+    return cast("str", cfg.get("memory_content", ""))
 
 
 def is_memory_enabled(config: Config | None = None) -> bool:
@@ -43,7 +43,7 @@ def is_memory_enabled(config: Config | None = None) -> bool:
         bool: True if memory is enabled, False otherwise
     """
     cfg = config or Config()
-    return cast("bool", cfg.get("memory_enabled", True))
+    return cast("bool", cfg.get("memory.enabled", True))
 
 
 def set_memory(memory_text: str, config: Config | None = None) -> None:
@@ -54,13 +54,13 @@ def set_memory(memory_text: str, config: Config | None = None) -> None:
         config: Optional Config instance. If not provided, creates a new one.
     """
     cfg = config or Config()
-    max_chars = cfg.get("memory_max_chars", 500)
+    max_chars = cfg.get("memory.max_chars", 500)
 
     # Truncate if needed
     if memory_text and len(memory_text) > max_chars:
         memory_text = memory_text[:max_chars]
 
-    cfg.set("memory", memory_text)
+    cfg.set("memory_content", memory_text)
     cfg.save()
 
 
@@ -71,7 +71,7 @@ def enable_memory(config: Config | None = None) -> None:
         config: Optional Config instance. If not provided, creates a new one.
     """
     cfg = config or Config()
-    cfg.set("memory_enabled", True)
+    cfg.set("memory.enabled", True)
     cfg.save()
 
 
@@ -82,7 +82,7 @@ def disable_memory(config: Config | None = None) -> None:
         config: Optional Config instance. If not provided, creates a new one.
     """
     cfg = config or Config()
-    cfg.set("memory_enabled", False)
+    cfg.set("memory.enabled", False)
     cfg.save()
 
 
@@ -93,7 +93,7 @@ def clear_memory(config: Config | None = None) -> None:
         config: Optional Config instance. If not provided, creates a new one.
     """
     cfg = config or Config()
-    cfg.set("memory", "")
+    cfg.set("memory_content", "")
     cfg.save()
 
 

@@ -30,8 +30,10 @@ class MockConfig(Config):
         self.config_dir = (base_dir or Path.home()) / ".vibectl"
         self.config_file = self.config_dir / "config.yaml"
 
-        # Initialize with defaults
-        self._config = DEFAULT_CONFIG.copy()
+        # Initialize with defaults - use deep copy to avoid modifying the original
+        import copy
+
+        self._config = copy.deepcopy(DEFAULT_CONFIG)
 
     def _load_config(self) -> None:
         """Load configuration for mock - now preserves unsupported keys."""
@@ -73,7 +75,7 @@ def test_config_get_with_default(test_config: MockConfig) -> None:
     """Test getting configuration values with defaults."""
     assert test_config.get("nonexistent", "default") == "default"
     assert (
-        test_config.get("theme", "default") == "default"
+        test_config.get("display.theme", "default") == "default"
     )  # Default from initialization
 
 
@@ -92,61 +94,61 @@ def test_config_set_boolean_values(test_config: MockConfig) -> None:
     ]
 
     for input_str, expected in test_cases:
-        test_config.set("show_raw_output", input_str)
-        assert test_config.get("show_raw_output") == expected
+        test_config.set("display.show_raw_output", input_str)
+        assert test_config.get("display.show_raw_output") == expected
 
 
 def test_config_set_show_kubectl(test_config: MockConfig) -> None:
     """Test setting show_kubectl configuration value."""
     # Set show_kubectl to true
-    test_config.set("show_kubectl", True)
-    assert test_config.get("show_kubectl") is True
+    test_config.set("display.show_kubectl", True)
+    assert test_config.get("display.show_kubectl") is True
 
     # Set show_kubectl to false
-    test_config.set("show_kubectl", False)
-    assert test_config.get("show_kubectl") is False
+    test_config.set("display.show_kubectl", False)
+    assert test_config.get("display.show_kubectl") is False
 
     # Test string conversion to boolean
-    test_config.set("show_kubectl", "true")
-    assert test_config.get("show_kubectl") is True
+    test_config.set("display.show_kubectl", "true")
+    assert test_config.get("display.show_kubectl") is True
 
     # Unset should reset to default (False)
-    test_config.unset("show_kubectl")
-    assert test_config.get("show_kubectl") is False
+    test_config.unset("display.show_kubectl")
+    assert test_config.get("display.show_kubectl") is False
 
 
 def test_config_set_warn_no_proxy(test_config: MockConfig) -> None:
     """Test setting warn_no_proxy configuration value."""
     # Default should be True
-    assert test_config.get("warn_no_proxy", True) is True
+    assert test_config.get("warnings.warn_no_proxy", True) is True
 
     # Set warn_no_proxy to false
-    test_config.set("warn_no_proxy", False)
-    assert test_config.get("warn_no_proxy") is False
+    test_config.set("warnings.warn_no_proxy", False)
+    assert test_config.get("warnings.warn_no_proxy") is False
 
     # Set warn_no_proxy to true
-    test_config.set("warn_no_proxy", True)
-    assert test_config.get("warn_no_proxy") is True
+    test_config.set("warnings.warn_no_proxy", True)
+    assert test_config.get("warnings.warn_no_proxy") is True
 
     # Test string conversion to boolean
-    test_config.set("warn_no_proxy", "false")
-    assert test_config.get("warn_no_proxy") is False
+    test_config.set("warnings.warn_no_proxy", "false")
+    assert test_config.get("warnings.warn_no_proxy") is False
 
     # Unset should reset to default (True)
-    test_config.unset("warn_no_proxy")
-    assert test_config.get("warn_no_proxy", True) is True
+    test_config.unset("warnings.warn_no_proxy")
+    assert test_config.get("warnings.warn_no_proxy", True) is True
 
 
 def test_config_set_invalid_boolean(test_config: MockConfig) -> None:
     """Test setting invalid boolean value."""
     with pytest.raises(ValueError, match="Invalid boolean value"):
-        test_config.set("show_raw_output", "invalid")
+        test_config.set("display.show_raw_output", "invalid")
 
 
 def test_config_get_typed(test_config: MockConfig) -> None:
     """Test getting typed configuration values."""
-    test_config.set("show_raw_output", True)
-    assert test_config.get_typed("show_raw_output", False) is True
+    test_config.set("display.show_raw_output", True)
+    assert test_config.get_typed("display.show_raw_output", False) is True
 
 
 def test_config_get_available_themes(test_config: MockConfig) -> None:
@@ -159,36 +161,36 @@ def test_config_get_available_themes(test_config: MockConfig) -> None:
 
 def test_config_show(test_config: MockConfig) -> None:
     """Test showing configuration."""
-    test_config.set("theme", "dark")
+    test_config.set("display.theme", "dark")
     config_data = test_config.show()
-    assert "theme" in config_data
-    assert config_data["theme"] == "dark"
+    assert "display" in config_data
+    assert config_data["display"]["theme"] == "dark"
 
 
 def test_config_none_values(test_config: MockConfig) -> None:
     """Test handling of None values."""
-    test_config.set("kubeconfig", None)
-    assert test_config.get("kubeconfig") is None
+    test_config.set("core.kubeconfig", None)
+    assert test_config.get("core.kubeconfig") is None
 
 
 def test_config_unset_default_key(test_config: MockConfig) -> None:
     """Test unsetting a configuration key that has a default value."""
     # Set a non-default value
-    test_config.set("theme", "light")
-    assert test_config.get("theme") == "light"
+    test_config.set("display.theme", "light")
+    assert test_config.get("display.theme") == "light"
     # Unset should reset to default
-    test_config.unset("theme")
-    assert test_config.get("theme") == "default"  # default is the default theme
+    test_config.unset("display.theme")
+    assert test_config.get("display.theme") == "default"  # default is the default theme
 
 
 def test_config_unset_custom_key(test_config: MockConfig) -> None:
     """Test unsetting a configuration key that has no default value."""
     # Set a custom value
-    test_config.set("custom_instructions", "test instructions")
-    assert test_config.get("custom_instructions") == "test instructions"
+    test_config.set("system.custom_instructions", "test instructions")
+    assert test_config.get("system.custom_instructions") == "test instructions"
     # Unset should remove the key
-    test_config.unset("custom_instructions")
-    assert test_config.get("custom_instructions") is None
+    test_config.unset("system.custom_instructions")
+    assert test_config.get("system.custom_instructions") is None
 
 
 def test_config_unset_invalid_key(test_config: MockConfig) -> None:
@@ -213,25 +215,25 @@ def test_config_invalid_type_conversion(test_config: MockConfig) -> None:
     """Test invalid type conversion."""
     # Test invalid boolean
     with pytest.raises(ValueError, match="Invalid boolean value"):
-        test_config.set("show_raw_output", "not_a_bool")
+        test_config.set("display.show_raw_output", "not_a_bool")
 
     # Test invalid string for None-allowed field
     with pytest.raises(ValueError, match="None is not a valid value"):
-        test_config.set("theme", "none")
+        test_config.set("display.theme", "none")
 
     # Test invalid type for string field
     with pytest.raises(ValueError, match="Invalid value for"):
-        test_config.set("theme", "123")  # Theme must be a valid theme name
+        test_config.set("display.theme", "123")  # Theme must be a valid theme name
 
 
 def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
     """Test that invalid values for config keys raise ValueError."""
     # theme: invalid value
     with pytest.raises(ValueError):
-        test_config.set("theme", "not-a-theme")
+        test_config.set("display.theme", "not-a-theme")
     # log_level: invalid value
     with pytest.raises(ValueError):
-        test_config.set("log_level", "not-a-level")
+        test_config.set("system.log_level", "not-a-level")
 
     # Patch is_valid_llm_model_name for the model tests
     # The slow part is the model validation, so we mock it here.
@@ -239,7 +241,7 @@ def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
         # Configure mock to simulate an invalid model name
         mock_is_valid_llm.return_value = (False, "Mocked: Model not recognized")
         with pytest.raises(ValueError, match="Mocked: Model not recognized"):
-            test_config.set("model", "invalid-model-name-123")
+            test_config.set("llm.model", "invalid-model-name-123")
         # Ensure our mock was called with the correct model name
         mock_is_valid_llm.assert_called_once_with("invalid-model-name-123")
 
@@ -247,63 +249,63 @@ def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
         mock_is_valid_llm.reset_mock()
         mock_is_valid_llm.return_value = (False, "Mocked: Alias not registered")
         with pytest.raises(ValueError, match="Mocked: Alias not registered"):
-            test_config.set("model", "unregistered-alias")
+            test_config.set("llm.model", "unregistered-alias")
         mock_is_valid_llm.assert_called_once_with("unregistered-alias")
 
         # Example of testing a case that should pass if the mock allows it
         mock_is_valid_llm.reset_mock()
         mock_is_valid_llm.return_value = (True, None)  # Simulate a valid model
-        test_config.set("model", "valid-mocked-model")
-        assert test_config.get("model") == "valid-mocked-model"
+        test_config.set("llm.model", "valid-mocked-model")
+        assert test_config.get("llm.model") == "valid-mocked-model"
         mock_is_valid_llm.assert_called_once_with("valid-mocked-model")
 
 
 def test_config_convert_type_first_non_none(test_config: MockConfig) -> None:
     """Test type conversion uses first non-None type."""
-    test_config.set("kubeconfig", "some/path")
-    assert isinstance(test_config.get("kubeconfig"), str)
+    test_config.set("core.kubeconfig", "some/path")
+    assert isinstance(test_config.get("core.kubeconfig"), str)
 
 
 def test_config_convert_type_fallback(test_config: MockConfig) -> None:
     """Test type conversion fallback for tuples."""
     # This is a bit of a contrived test since we don't have a field with multiple
     # non-None types, but it exercises the code path
-    test_config.set("kubeconfig", "fallback")
-    assert test_config.get("kubeconfig") == "fallback"
+    test_config.set("core.kubeconfig", "fallback")
+    assert test_config.get("core.kubeconfig") == "fallback"
 
 
 def test_config_convert_type_exception_handling(test_config: MockConfig) -> None:
     """Test exception handling in type conversion."""
     # The convert_to_type method should handle conversion errors
-    with pytest.raises(ValueError, match="Invalid value for memory_max_chars"):
-        test_config.set("memory_max_chars", "not_an_int")
+    with pytest.raises(ValueError, match="Invalid value for memory.max_chars"):
+        test_config.set("memory.max_chars", "not_an_int")
 
 
 def test_config_get_all(test_config: MockConfig) -> None:
     """Test getting all configuration values."""
     all_config = test_config.get_all()
     assert isinstance(all_config, dict)
-    assert "theme" in all_config
-    assert all_config["theme"] == "default"  # Default
+    assert "display" in all_config
+    assert all_config["display"]["theme"] == "default"  # Default
 
 
 def test_config_handle_none_value(test_config: MockConfig) -> None:
     """Test handling None values in allowed fields."""
     # kubeconfig can be None
-    test_config.set("kubeconfig", None)
-    assert test_config.get("kubeconfig") is None
+    test_config.set("core.kubeconfig", None)
+    assert test_config.get("core.kubeconfig") is None
 
 
 def test_config_save_explicit(test_config: MockConfig) -> None:
     """Test explicitly saving configuration."""
-    test_config.set("theme", "light")
-    assert test_config.get("theme") == "light"
+    test_config.set("display.theme", "light")
+    assert test_config.get("display.theme") == "light"
 
     # This would normally save to file, but our mock version is a no-op
     test_config.save()
 
     # Value should still be in memory
-    assert test_config.get("theme") == "light"
+    assert test_config.get("display.theme") == "light"
 
 
 def test_config_empty_file() -> None:
@@ -320,7 +322,7 @@ def test_config_empty_file() -> None:
         config = Config(Path(temp_dir))
 
         # Config should be initialized with defaults
-        assert config.get("theme") == "default"  # Default theme
+        assert config.get("display.theme") == "default"  # Default theme
 
 
 def test_config_load_error() -> None:
@@ -360,7 +362,7 @@ def test_config_save_error() -> None:
             patch("builtins.open", side_effect=error),
             pytest.raises(ValueError, match="Failed to save config"),
         ):
-            config.set("theme", "light")  # This calls _save_config internally
+            config.set("display.theme", "light")  # This calls _save_config internally
 
 
 def test_config_unset_special_case() -> None:
@@ -384,7 +386,7 @@ def test_config_unsupported_keys() -> None:
         unsupported_config: dict[str, Any] = {
             "completely_unsupported_key": "some-value",
             "another_unsupported_key": 123,
-            "theme": "light",  # Valid key for reference
+            "display": {"theme": "light"},  # Valid hierarchical key for reference
         }
 
         with open(config_file, "w") as f:
@@ -404,7 +406,7 @@ def test_config_unsupported_keys() -> None:
         test_config._config = direct_config
 
         # Verify the valid keys are loaded correctly
-        assert test_config.get("theme") == "light"
+        assert test_config.get("display.theme") == "light"
 
         # Get all config and verify the unsupported keys are preserved
         all_config = test_config.get_all()
@@ -424,7 +426,7 @@ def test_config_unset_unsupported_key() -> None:
         # Create a config with an unsupported key
         unsupported_config: dict[str, Any] = {
             "unsupported_key": "some-value",
-            "theme": "light",  # Valid key for reference
+            "display": {"theme": "light"},  # Valid hierarchical key for reference
         }
 
         with open(config_file, "w") as f:
@@ -460,7 +462,7 @@ def test_config_load_file_ioerror() -> None:
 
         # Create a valid config file
         with open(config_file, "w") as f:
-            f.write("theme: dark\n")
+            f.write("display:\n  theme: dark\n")
 
         # Patch open to raise IOError
         error_msg = "File read error"
@@ -507,7 +509,7 @@ async def test_cli_config_set_save_error(
 
     # Expect SystemExit(1) because mock_handle_exception raises it
     with pytest.raises(SystemExit) as exc_info:
-        await set_cmd.main(["theme", "test"], standalone_mode=False)
+        await set_cmd.main(["display.theme", "test"], standalone_mode=False)
 
     # Assertions
     assert exc_info.value.code == 1
@@ -565,7 +567,10 @@ async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
     """Test basic CLI config show."""
     # Ensure get_all returns a dictionary
     mock_config_instance = mock_config_class.return_value
-    mock_config_instance.get_all.return_value = {"theme": "test", "model": "test"}
+    mock_config_instance.get_all.return_value = {
+        "display": {"theme": "test"},
+        "llm": {"model": "test"},
+    }
 
     runner = CliRunner()
     result = runner.invoke(cli.commands["config"], ["show"])  # type: ignore[arg-type]
@@ -577,12 +582,12 @@ async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
 def test_config_handle_none_value_full(test_config: MockConfig) -> None:
     """Test handling of 'none' string as None value when it's allowed."""
     # The kubeconfig config field allows None values
-    test_config.set("kubeconfig", "none")
-    assert test_config.get("kubeconfig") is None
+    test_config.set("core.kubeconfig", "none")
+    assert test_config.get("core.kubeconfig") is None
 
     # Setting 'none' value for a field that doesn't allow None should raise ValueError
-    with pytest.raises(ValueError, match="None is not a valid value for theme"):
-        test_config.set("theme", "none")
+    with pytest.raises(ValueError, match="None is not a valid value for display.theme"):
+        test_config.set("display.theme", "none")
 
 
 def test_config_convert_type_first_non_none_full(test_config: MockConfig) -> None:
@@ -636,7 +641,9 @@ def test_config_convert_type_fallback_full(test_config: MockConfig) -> None:
             test_cfg = Config(Path(temp_dir))
             # Use internal method directly since it's not expected to be called normally
             # when all types in a tuple are None
-            result = test_cfg._convert_to_type("test_bad_schema", "test_value")
+            result = test_cfg._convert_hierarchical_value(
+                "test_bad_schema", "test_value"
+            )
             assert result == "test_value"
     finally:
         # Restore the original schema
@@ -644,7 +651,7 @@ def test_config_convert_type_fallback_full(test_config: MockConfig) -> None:
 
 
 def test_config_convert_type_exception_handling_full(test_config: MockConfig) -> None:
-    """Test exception handling in the _convert_to_type method."""
+    """Test convert_type exception handling with full mock schema injection."""
     import vibectl.config
 
     # Create a test schema with a type that will fail conversion
@@ -654,8 +661,11 @@ def test_config_convert_type_exception_handling_full(test_config: MockConfig) ->
 
     original_schema = vibectl.config.CONFIG_SCHEMA.copy()
     try:
-        # Apply our test schema
-        vibectl.config.CONFIG_SCHEMA = {**original_schema, "failing_type": FailingType}
+        # Apply our test schema - add to system section to be hierarchical
+        vibectl.config.CONFIG_SCHEMA = {
+            **original_schema,
+            "system": {**original_schema["system"], "failing_type": FailingType},
+        }
 
         # Add our test key to valid values
         if "failing_type" not in vibectl.config.CONFIG_VALID_VALUES:
@@ -664,8 +674,10 @@ def test_config_convert_type_exception_handling_full(test_config: MockConfig) ->
         # Attempt to convert a value that will trigger the exception
         with TemporaryDirectory() as temp_dir:
             test_cfg = Config(Path(temp_dir))
-            with pytest.raises(ValueError, match="Invalid value for failing_type"):
-                test_cfg._convert_to_type("failing_type", "any_value")
+            with pytest.raises(
+                ValueError, match="Invalid value for system.failing_type"
+            ):
+                test_cfg._convert_hierarchical_value("system.failing_type", "any_value")
     finally:
         # Restore the original schema
         vibectl.config.CONFIG_SCHEMA = original_schema
@@ -681,7 +693,7 @@ def test_config_load_process() -> None:
 
         # Create a config with a custom theme value and unsupported keys
         test_config_content: dict[str, Any] = {
-            "theme": "light",  # Should override default
+            "display": {"theme": "light"},  # Should override default
             "unsupported_key": "value",  # Unsupported key should be preserved
         }
 
@@ -707,7 +719,7 @@ def test_config_load_process() -> None:
         print(f"Final config: {all_config}")
 
         # Now let's check if theme is correctly loaded from file
-        theme = config.get("theme")
+        theme = config.get("display.theme")
         print(f"Theme value: {theme}")
 
         # Check if unsupported key is in the config
@@ -716,20 +728,20 @@ def test_config_load_process() -> None:
         print(f"Has unsupported key: {has_unsupported}, Value: {unsupported_value}")
 
         # Test assertions based on expected behavior
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"
         assert "unsupported_key" in all_config
         assert all_config["unsupported_key"] == "value"
 
 
 def test_config_dict_union() -> None:
     """Test that Python's dict union operator | works as expected with precedence."""
-    default_dict = {"theme": "dark", "model": "default-model"}
-    loaded_dict = {"theme": "light"}
+    default_dict = {"display": {"theme": "dark"}, "llm": {"model": "default-model"}}
+    loaded_dict = {"display": {"theme": "light"}}
 
     # The right operand should take precedence for common keys
     merged = default_dict | loaded_dict
-    assert merged["theme"] == "light"  # From loaded_dict
-    assert merged["model"] == "default-model"  # From default_dict
+    assert merged["display"]["theme"] == "light"  # From loaded_dict
+    assert merged["llm"]["model"] == "default-model"  # From default_dict
 
 
 def test_config_env_variable() -> None:
@@ -741,7 +753,7 @@ def test_config_env_variable() -> None:
         config_file = config_dir / "config.yaml"
 
         # Create a config file in the custom location
-        custom_config = {"theme": "light", "unsupported_key": "value"}
+        custom_config = {"display": {"theme": "light"}, "unsupported_key": "value"}
 
         with open(config_file, "w") as f:
             yaml.dump(custom_config, f)
@@ -759,7 +771,7 @@ def test_config_env_variable() -> None:
             print(f"All config: {all_config}")
 
             # Test that values were loaded from the custom location
-            assert config.get("theme") == "light"
+            assert config.get("display.theme") == "light"
             assert "unsupported_key" in all_config
 
 
@@ -773,7 +785,7 @@ def test_valid_key_in_file_invalid_key_in_memory() -> None:
 
         # Create config with valid theme and unsupported key
         config_content: dict[str, Any] = {
-            "theme": "light",
+            "display": {"theme": "light"},
             "unsupported_key": "test_value",
         }
 
@@ -796,7 +808,7 @@ def test_valid_key_in_file_invalid_key_in_memory() -> None:
         print(f"Final config from get_all(): {config.get_all()}")
 
         # Our assertions
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"
         assert "unsupported_key" in config.get_all()
 
         # But still can't set an unsupported key through the API
@@ -809,12 +821,12 @@ def test_theme_validation() -> None:
     config = Config()
 
     # Valid theme
-    config.set("theme", "light")
-    assert config.get("theme") == "light"
+    config.set("display.theme", "light")
+    assert config.get("display.theme") == "light"
 
     # Invalid theme
-    with pytest.raises(ValueError, match="Invalid value for theme"):
-        config.set("theme", "invalid_theme")
+    with pytest.raises(ValueError, match="Invalid value for display.theme"):
+        config.set("display.theme", "invalid_theme")
 
 
 def test_load_behavior_with_mock() -> None:
@@ -828,7 +840,7 @@ def test_load_behavior_with_mock() -> None:
 
         # Create a valid config file
         test_content: dict[str, Any] = {
-            "theme": "light",
+            "display": {"theme": "light"},
             "unsupported_key": "value",
         }
         with open(config_file, "w") as f:
@@ -851,7 +863,7 @@ def test_load_behavior_with_mock() -> None:
         print(f"Final config: {config_data}")
 
         # Assertions
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"
         assert "unsupported_key" in config_data
         assert config_data["unsupported_key"] == "value"
 
@@ -867,7 +879,7 @@ def test_config_debug_initialization() -> None:
 
         # Create a unique pattern for our test
         test_content: dict[str, Any] = {
-            "theme": "light",
+            "display": {"theme": "light"},
             "unsupported_key": "DEBUG_UNIQUE_VALUE",
         }
         with open(config_file, "w") as f:
@@ -893,7 +905,7 @@ def test_config_debug_initialization() -> None:
         print(f"Final config: {config_data}")
 
         # Verify values are as expected
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"
         assert "unsupported_key" in config_data
         assert config_data["unsupported_key"] == "DEBUG_UNIQUE_VALUE"
 
@@ -909,7 +921,7 @@ def test_config_direct_patch() -> None:
 
         # Create test content
         test_content: dict[str, Any] = {
-            "theme": "light",  # This theme should be used
+            "display": {"theme": "light"},  # This theme should be used
             "unsupported_key": "test_value",  # This unsupported key should be retained
         }
 
@@ -929,7 +941,7 @@ def test_config_direct_patch() -> None:
         print(f"Patched config: {config_data}")
 
         # Assertions
-        assert config.get("theme") == "light"
+        assert config.get("display.theme") == "light"
         assert "unsupported_key" in config_data
         assert config_data["unsupported_key"] == "test_value"
 
@@ -947,7 +959,8 @@ def test_load_file_in_temp() -> None:
         with open(config_file, "w") as f:
             f.write("""
 # Test config
-theme: light
+display:
+  theme: light
 unsupported_key: test-value
             """)
 
@@ -972,13 +985,13 @@ unsupported_key: test-value
             print(f"Loaded config: {config_data}")
 
             # We should get the theme value from the file
-            assert config.get("theme") == "light"
+            assert config.get("display.theme") == "light"
             assert "unsupported_key" in config_data
 
 
 def test_mockconfig_get_model_key_none_behavior() -> None:
     config = MockConfig()
-    config._config["model_keys"] = {"openai": None}
+    config._config["llm"]["model_keys"] = {"openai": None}
     assert config.get_model_key("openai") is None
 
 
@@ -989,8 +1002,8 @@ def test_config_ollama_model_pattern_allowed(test_config: MockConfig) -> None:
     """
     # Should not raise because we mock the validation check
     with patch("vibectl.config.is_valid_llm_model_name", return_value=(True, None)):
-        test_config.set("model", "ollama:some-ollama-model")
-        assert test_config.get("model") == "ollama:some-ollama-model"
+        test_config.set("llm.model", "ollama:some-ollama-model")
+        assert test_config.get("llm.model") == "ollama:some-ollama-model"
 
     # Test that an ollama model that ISN'T valid according to llm *does* raise
     # when the mock is removed (or returns False)
@@ -1001,4 +1014,4 @@ def test_config_ollama_model_pattern_allowed(test_config: MockConfig) -> None:
         ),
         pytest.raises(ValueError, match="LLM says no"),
     ):
-        test_config.set("model", "ollama:invalid-model-for-test")
+        test_config.set("llm.model", "ollama:invalid-model-for-test")

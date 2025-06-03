@@ -26,7 +26,9 @@ async def run_memory_update_logic(
     try:
         cfg = Config()
         current_memory = get_memory(cfg)
-        model_name_to_use = model_name or cfg.get("model", DEFAULT_CONFIG["model"])
+        model_name_to_use = model_name or cfg.get(
+            "llm.model", DEFAULT_CONFIG["llm"]["model"]
+        )
 
         model_adapter = get_model_adapter(cfg)
         model_instance = model_adapter.get_model(model_name_to_use)

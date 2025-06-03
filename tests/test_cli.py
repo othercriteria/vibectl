@@ -106,7 +106,7 @@ def test_cli_init_with_theme(
     mock_config_instance.get.side_effect = (
         lambda key, default=None: None
         if key == "theme"
-        else DEFAULT_CONFIG["model"]
+        else DEFAULT_CONFIG["llm"]["model"]
         if key == "model"
         else DEFAULT_CONFIG.get(key, default)
     )  # Fallback to actual defaults

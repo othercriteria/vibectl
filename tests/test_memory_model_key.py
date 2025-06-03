@@ -33,16 +33,20 @@ def test_config() -> Generator[Config, None, None]:
     config = Config(base_dir=test_dir)
 
     # Ensure memory is enabled
-    config.set("memory_enabled", True)
+    config.set("memory.enabled", True)
 
     # Return the config for use in tests
     yield config
 
 
+@pytest.mark.asyncio
 async def test_memory_with_anthropic_api_key(
-    test_config: Config, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test memory correctly uses Anthropic API key during updates."""
+    """Test memory functionality with Anthropic API key."""
+    config = Config()
+    config.set("memory.enabled", True)
+
     # Ensure no real env var interferes from any source
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("VIBECTL_ANTHROPIC_API_KEY", raising=False)
@@ -52,7 +56,7 @@ async def test_memory_with_anthropic_api_key(
     monkeypatch.delenv("VIBECTL_OPENAI_API_KEY_FILE", raising=False)
 
     # Set a mock API key in the config
-    test_config.set_model_key("anthropic", "test-anthropic-key")
+    config.set_model_key("anthropic", "test-anthropic-key")
 
     # Track environment variables that are set
     set_env_vars: dict[str, str] = {}
@@ -73,7 +77,7 @@ async def test_memory_with_anthropic_api_key(
 
             # Set environment if provider is recognized
             if provider:
-                key = test_config.get_model_key(provider)
+                key = config.get_model_key(provider)
                 if key:
                     # Simulate environment setting
                     env_var = f"{provider.upper()}_API_KEY"
@@ -173,7 +177,7 @@ async def test_memory_with_anthropic_api_key(
             vibe_output="No pods found",
             # Claude model should use Anthropic key
             model_name="claude-3.7-sonnet",
-            config=test_config,
+            config=config,
         )
 
     # Verify that the adapter attempted to use our test key
