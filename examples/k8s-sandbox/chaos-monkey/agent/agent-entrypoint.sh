@@ -152,25 +152,29 @@ EOF
 chmod 600 "$LLM_KEYS_PATH"
 log "LLM API key configured via keys file."
 
+# Configure API key using new providers structure
+vibectl config set providers.anthropic.key "$VIBECTL_ANTHROPIC_API_KEY"
+log "Anthropic API key configured via vibectl config."
+
 # --- Vibectl Configuration ---
 log "Configuring vibectl settings..."
-vibectl config set model "${VIBECTL_MODEL}"
-vibectl config set memory_max_chars ${MEMORY_MAX_CHARS}
-vibectl config set show_memory true
-vibectl config set show_streaming false
-vibectl config set show_iterations true
+vibectl config set llm.model "${VIBECTL_MODEL}"
+vibectl config set memory.max_chars ${MEMORY_MAX_CHARS}
+vibectl config set display.show_memory true
+vibectl config set display.show_streaming false
+vibectl config set display.show_iterations true
 
 # Configure output options based on verbose mode
 if [ "$VERBOSE" = "true" ]; then
     echo -e "${COLOR_CODE}${AGENT_ROLE^^}: Verbose mode enabled: showing raw output and kubectl commands${NO_COLOR}"
-    vibectl config set show_raw_output true
-    vibectl config set show_kubectl true
-    vibectl config set show_metrics true
+    vibectl config set display.show_raw_output true
+    vibectl config set display.show_kubectl true
+    vibectl config set display.show_metrics all
     export VIBECTL_TRACEBACK=1 # Enable tracebacks for debugging
 else
-    vibectl config set show_raw_output false
-    vibectl config set show_kubectl false
-    vibectl config set show_metrics false
+    vibectl config set display.show_raw_output false
+    vibectl config set display.show_kubectl false
+    vibectl config set display.show_metrics none
 fi
 
 # --- Custom Instructions Setup ---
@@ -182,7 +186,7 @@ fi
 ORIGINAL_CUSTOM_INSTRUCTIONS=$(cat "${CUSTOM_INSTRUCTIONS_FILE}")
 log "Original custom instructions loaded."
 # Initially set the original instructions via config
-vibectl config set custom_instructions "${ORIGINAL_CUSTOM_INSTRUCTIONS}"
+vibectl config set system.custom_instructions "${ORIGINAL_CUSTOM_INSTRUCTIONS}"
 
 # --- Kubernetes Setup ---
 echo -e "[$(date +%H:%M:%S)] ${COLOR_CODE}${AGENT_ROLE^^}:${NO_COLOR} Setting up Kubernetes configuration..."

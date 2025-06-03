@@ -60,19 +60,6 @@ if [ -z "$CHALLENGE_TEXT" ]; then
   exit 1
 fi
 
-echo "🧠 Setting up vibectl with the challenge task..."
-
-# Set up vibectl API keys using the correct configuration structure
-echo "🔑 Setting up API keys using vibectl configuration..."
-if [ -n "$VIBECTL_ANTHROPIC_API_KEY" ]; then
-  vibectl config set model_keys anthropic:"$VIBECTL_ANTHROPIC_API_KEY"
-  echo "✅ Anthropic API key configured"
-else
-  echo "❌ ERROR: VIBECTL_ANTHROPIC_API_KEY environment variable is not set."
-  echo "Please provide the API key when running the sandbox."
-  exit 1
-fi
-
 # Check Docker socket permissions
 if ! docker ps >/dev/null 2>&1; then
   echo "❌ ERROR: Cannot access Docker socket. Permission denied."
@@ -160,6 +147,17 @@ else
     echo "❌ Error: vibectl source directory not found at ${VIBECTL_SOURCE_DIR}" >&2
     echo "   Make sure the volume is mounted correctly in compose.yml" >&2
     exit 1
+fi
+
+# Set up vibectl API keys using the correct configuration structure
+echo "🔑 Setting up API keys using vibectl configuration..."
+if [ -n "$VIBECTL_ANTHROPIC_API_KEY" ]; then
+  vibectl config set providers.anthropic.key "$VIBECTL_ANTHROPIC_API_KEY"
+  echo "✅ Anthropic API key configured"
+else
+  echo "❌ ERROR: VIBECTL_ANTHROPIC_API_KEY environment variable is not set."
+  echo "Please provide the API key when running the sandbox."
+  exit 1
 fi
 
 # Set vibectl config (from environment variables provided by Docker Compose)

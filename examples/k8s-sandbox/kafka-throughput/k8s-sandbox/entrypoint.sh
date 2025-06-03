@@ -338,7 +338,7 @@ EOF
             INSTRUCTIONS_CONTENT="${SUBSTITUTED_CONTENT}"
         fi
 
-        if ! vibectl config set custom_instructions "${INSTRUCTIONS_CONTENT}"; then
+        if ! vibectl config set system.custom_instructions "${INSTRUCTIONS_CONTENT}"; then
             echo "❌ Error: Failed to set custom instructions for vibectl." >&2
         else
             echo "✅ Custom instructions set from ${INSTRUCTIONS_FILE_PATH}."
@@ -348,30 +348,38 @@ EOF
         echo "⚠️ Warning: Instructions file not found at ${INSTRUCTIONS_FILE_PATH}. vibectl will run without them." >&2
     fi
 
+    # Configure API key using new providers structure
+    if [ -n "${VIBECTL_ANTHROPIC_API_KEY:-}" ]; then
+        vibectl config set providers.anthropic.key "$VIBECTL_ANTHROPIC_API_KEY"
+        echo "✅ Anthropic API key configured"
+    else
+        echo "❌ Warning: VIBECTL_ANTHROPIC_API_KEY not set"
+    fi
+
     # Set other vibectl configurations as needed
-    vibectl config set memory_max_chars 1000
+    vibectl config set memory.max_chars 1000
 
     # Now set other vibectl configurations
-    vibectl config set kubeconfig ${KUBECONFIG}
-    vibectl config set kubectl_command kubectl
-    vibectl config set show_memory true
-    vibectl config set show_iterations true
-    vibectl config set show_streaming false
+    vibectl config set core.kubeconfig ${KUBECONFIG}
+    vibectl config set core.kubectl_command kubectl
+    vibectl config set display.show_memory true
+    vibectl config set display.show_iterations true
+    vibectl config set display.show_streaming false
     if [ "${VIBECTL_VERBOSE:-false}" = "true" ]; then
         echo "Verbose mode enabled: showing raw output and kubectl commands"
-        vibectl config set show_raw_output true
-        vibectl config set show_kubectl true
-        vibectl config set show_metrics true
+        vibectl config set display.show_raw_output true
+        vibectl config set display.show_kubectl true
+        vibectl config set display.show_metrics all
         export VIBECTL_TRACEBACK=1 # Enable tracebacks for debugging
     else
-        vibectl config set show_raw_output false
-        vibectl config set show_kubectl false
-        vibectl config set show_metrics false
+        vibectl config set display.show_raw_output false
+        vibectl config set display.show_kubectl false
+        vibectl config set display.show_metrics none
     fi
 
     # Use model provided by environment variable AFTER key is set
     if [ -n "${VIBECTL_MODEL:-}" ]; then
-        vibectl config set model "${VIBECTL_MODEL}"
+        vibectl config set llm.model "${VIBECTL_MODEL}"
         echo "Vibectl model set to: ${VIBECTL_MODEL}"
     else
         echo "⚠️ VIBECTL_MODEL not set, using default model."

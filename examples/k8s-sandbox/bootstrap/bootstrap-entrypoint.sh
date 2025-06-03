@@ -283,9 +283,9 @@ function setup_vibectl() {
     fi
     echo "Vibectl version: $(vibectl --version)"
     echo "Configuring vibectl..."
-    vibectl config set model "${OLLAMA_MODEL}"
-    vibectl config set kubeconfig /home/bootstrap/kubeconfig
-    vibectl config set kubectl_command kubectl
+    vibectl config set llm.model "${OLLAMA_MODEL}"
+    vibectl config set core.kubeconfig /home/bootstrap/kubeconfig
+    vibectl config set core.kubectl_command kubectl
     vibectl config show
 }
 
