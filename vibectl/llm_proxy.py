@@ -89,19 +89,75 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
             response = model.prompt(prompt_text)
             response_text = response.text()
 
-            # Calculate metrics
+            # Calculate metrics and extract token usage
             duration_ms = int((time.time() - start_time) * 1000)
+
+            # Extract token usage from response if available
+            input_tokens = 0
+            output_tokens = 0
+
+            try:
+                if hasattr(response, "usage"):
+                    usage_data = response.usage
+
+                    # Handle callable usage (some models return a function)
+                    if callable(usage_data):
+                        try:
+                            usage_data = usage_data()
+                        except Exception as e:
+                            logger.warning(f"Error calling usage() method: {e}")
+                            usage_data = None
+
+                    # Extract tokens from usage data
+                    if isinstance(usage_data, dict):
+                        input_tokens = int(usage_data.get("prompt_tokens", 0))
+                        output_tokens = int(usage_data.get("completion_tokens", 0))
+                    elif (
+                        usage_data is not None
+                        and hasattr(usage_data, "input")
+                        and hasattr(usage_data, "output")
+                    ):
+                        input_tokens = int(getattr(usage_data, "input", 0))
+                        output_tokens = int(getattr(usage_data, "output", 0))
+
+                # If no token usage available or extraction failed,
+                # estimate based on text length
+                if input_tokens == 0 or output_tokens == 0:
+
+                    def estimate_tokens(text: str) -> int:
+                        # Rough estimate: ~4 characters per token
+                        return max(1, len(text) // 4)
+
+                    if input_tokens == 0:
+                        input_tokens = estimate_tokens(prompt_text)
+                    if output_tokens == 0:
+                        output_tokens = estimate_tokens(response_text)
+
+            except Exception as e:
+                logger.warning(f"Error extracting token usage: {e}")
+
+                # Fall back to estimation
+                def estimate_tokens(text: str) -> int:
+                    return max(1, len(text) // 4)
+
+                input_tokens = estimate_tokens(prompt_text)
+                output_tokens = estimate_tokens(response_text)
+
+            # Create metrics with token information
+            metrics = ExecutionMetrics(
+                duration_ms=duration_ms,
+                timestamp=int(time.time()),
+                retry_count=0,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
 
             return ExecuteResponse(
                 request_id=request_id,
                 success=ExecuteSuccess(
                     response_text=response_text,
                     actual_model_used=model_name,
-                    metrics=ExecutionMetrics(
-                        duration_ms=duration_ms,
-                        timestamp=int(time.time()),
-                        retry_count=0,
-                    ),
+                    metrics=metrics,
                 ),
             )
 
@@ -169,14 +225,74 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                 chunk_text = response_text[i : i + chunk_size]
                 yield StreamChunk(request_id=request_id, text_chunk=chunk_text)
 
-            # Send completion
+            # Calculate metrics and extract token usage
             duration_ms = int((time.time() - start_time) * 1000)
+
+            # Extract token usage from response if available
+            input_tokens = 0
+            output_tokens = 0
+
+            try:
+                if hasattr(response, "usage"):
+                    usage_data = response.usage
+
+                    # Handle callable usage (some models return a function)
+                    if callable(usage_data):
+                        try:
+                            usage_data = usage_data()
+                        except Exception as e:
+                            logger.warning(f"Error calling usage() method: {e}")
+                            usage_data = None
+
+                    # Extract tokens from usage data
+                    if isinstance(usage_data, dict):
+                        input_tokens = int(usage_data.get("prompt_tokens", 0))
+                        output_tokens = int(usage_data.get("completion_tokens", 0))
+                    elif (
+                        usage_data is not None
+                        and hasattr(usage_data, "input")
+                        and hasattr(usage_data, "output")
+                    ):
+                        input_tokens = int(getattr(usage_data, "input", 0))
+                        output_tokens = int(getattr(usage_data, "output", 0))
+
+                # If no token usage available or extraction failed,
+                # estimate based on text length
+                if input_tokens == 0 or output_tokens == 0:
+
+                    def estimate_tokens(text: str) -> int:
+                        # Rough estimate: ~4 characters per token
+                        return max(1, len(text) // 4)
+
+                    if input_tokens == 0:
+                        input_tokens = estimate_tokens(prompt_text)
+                    if output_tokens == 0:
+                        output_tokens = estimate_tokens(response_text)
+
+            except Exception as e:
+                logger.warning(f"Error extracting token usage: {e}")
+
+                # Fall back to estimation
+                def estimate_tokens(text: str) -> int:
+                    return max(1, len(text) // 4)
+
+                input_tokens = estimate_tokens(prompt_text)
+                output_tokens = estimate_tokens(response_text)
+
+            # Create metrics with token information
+            metrics = ExecutionMetrics(
+                duration_ms=duration_ms,
+                timestamp=int(time.time()),
+                retry_count=0,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
+            # Send completion with metrics
             yield StreamChunk(
                 request_id=request_id,
                 complete=StreamComplete(actual_model_used=model_name),
-                final_metrics=ExecutionMetrics(
-                    duration_ms=duration_ms, timestamp=int(time.time()), retry_count=0
-                ),
+                final_metrics=metrics,
             )
 
         except Exception as e:

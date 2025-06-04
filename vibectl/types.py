@@ -294,6 +294,33 @@ class LLMMetrics:
         )
 
 
+def _get_proxy_aware_source_name(source: str) -> str:
+    """Add proxy indication to source name if using proxy adapter.
+
+    Args:
+        source: Original source name
+
+    Returns:
+        Source name with "Proxy" prefix if using proxy, otherwise unchanged
+    """
+    try:
+        # Import here to avoid circular import
+        from .model_adapter import _default_adapter
+
+        # Check if we're using proxy adapter
+        if _default_adapter is not None:
+            # Import here to avoid circular import at module level
+            from .proxy_model_adapter import ProxyModelAdapter
+
+            if isinstance(_default_adapter, ProxyModelAdapter):
+                return f"LLM Proxy {source.replace('LLM ', '')}"
+
+        return source
+    except ImportError:
+        # If proxy adapter isn't available, return original source
+        return source
+
+
 class LLMMetricsAccumulator:
     """
     Helper class to accumulate LLM metrics across multiple calls.
@@ -314,15 +341,19 @@ class LLMMetricsAccumulator:
             # Import here to avoid circular import
             from .console import print_sub_metrics_if_enabled
 
-            print_sub_metrics_if_enabled(metrics, self.output_flags, source)
+            # Modify source name to indicate proxy usage if applicable
+            proxy_aware_source = _get_proxy_aware_source_name(source)
+            print_sub_metrics_if_enabled(metrics, self.output_flags, proxy_aware_source)
 
     def print_total_if_enabled(self, source: str) -> None:
         """Print accumulated metrics if total metrics are enabled."""
         # Import here to avoid circular import
         from .console import print_total_metrics_if_enabled
 
+        # Modify source name to indicate proxy usage if applicable
+        proxy_aware_source = _get_proxy_aware_source_name(source)
         print_total_metrics_if_enabled(
-            self.accumulated_metrics, self.output_flags, source
+            self.accumulated_metrics, self.output_flags, proxy_aware_source
         )
 
     def get_metrics(self) -> "LLMMetrics":
