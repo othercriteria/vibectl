@@ -59,6 +59,5 @@ prof/
 # Coding assistant may create this file
 COMMIT_EDITMSG
 
-# Generated gRPC files (regenerated during build)
-*_pb2.py
-*_pb2_grpc.py
+# Generated gRPC files are now committed to ensure consistent builds
+# They are excluded from linting in pyproject.toml and .pre-commit-config.yaml
