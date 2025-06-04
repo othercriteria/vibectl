@@ -142,6 +142,8 @@ exclude = [
 [[tool.mypy.overrides]]
 module = [
     "kubernetes.*",
+    "llm",
+    "llm.*",
 ]
 ignore_missing_imports = true
 

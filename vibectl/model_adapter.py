@@ -21,7 +21,7 @@ from typing import (
 )
 
 import llm
-from llm.models import Response as LLMResponseObject  # type: ignore
+from llm.models import Response as LLMResponseObject  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
 from .config import Config
@@ -1496,12 +1496,37 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
             # Get proxy configuration
             server_url = config.get("proxy.server_url")
 
-            # Parse the server URL
-            proxy_config = parse_proxy_url(server_url)
-            if proxy_config is None:
+            # Provide helpful error message if server_url is missing
+            if not server_url:
                 raise ValueError(
-                    "Proxy is enabled but server_url is not configured or invalid"
+                    "Proxy mode is enabled but no server URL is configured.\n"
+                    "Fix this by either:\n"
+                    "  1. Configure a proxy server: "
+                    "vibectl setup-proxy configure <server-url>\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
+                    "\nExample server URLs:\n"
+                    "  - vibectl-server://myserver.com:443\n"
+                    "  - vibectl-server-insecure://localhost:50051"
                 )
+
+            # Parse the server URL with better error handling
+            try:
+                proxy_config = parse_proxy_url(server_url)
+                if proxy_config is None:
+                    raise ValueError(f"Invalid proxy URL format: {server_url}")
+            except Exception as e:
+                raise ValueError(
+                    f"Invalid proxy server URL: {server_url}\n"
+                    f"Error: {e}\n\n"
+                    "Fix this by either:\n"
+                    "  1. Configure a valid proxy server: "
+                    "vibectl setup-proxy configure <server-url>\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
+                    "\nValid server URL formats:\n"
+                    "  - vibectl-server://myserver.com:443 (secure)\n"
+                    "  - vibectl-server-insecure://localhost:50051 (insecure)\n"
+                    "  - vibectl-server://secret@myserver.com:8080 (with auth)"
+                ) from e
 
             _default_adapter = ProxyModelAdapter(
                 config=config, host=proxy_config.host, port=proxy_config.port

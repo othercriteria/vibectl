@@ -23,20 +23,47 @@ from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
 
 
-def validate_proxy_url(url: str) -> bool:
+def validate_proxy_url(url: str) -> tuple[bool, str | None]:
     """Validate that a proxy URL has the correct format.
 
     Args:
         url: The proxy URL to validate
 
     Returns:
-        True if the URL is valid, False otherwise
+        Tuple of (is_valid, error_message). error_message is None if valid.
     """
+    if not url or not url.strip():
+        return False, "Proxy URL cannot be empty"
+
+    url = url.strip()
+
     try:
         proxy_config = parse_proxy_url(url)
-        return proxy_config is not None
-    except Exception:
-        return False
+        if proxy_config is None:
+            return False, "Invalid proxy URL format"
+        return True, None
+    except ValueError as e:
+        # Extract more specific error from parse_proxy_url
+        error_msg = str(e)
+        if "Invalid proxy URL scheme" in error_msg:
+            return False, (
+                "Invalid URL scheme. Use 'vibectl-server://' for secure connections "
+                "or 'vibectl-server-insecure://' for insecure connections.\n"
+                "Examples:\n"
+                "  - vibectl-server://myserver.com:443\n"
+                "  - vibectl-server-insecure://localhost:50051"
+            )
+        elif "must include hostname" in error_msg:
+            return False, (
+                "URL must include a hostname.\n"
+                "Examples:\n"
+                "  - vibectl-server://myserver.com:443\n"
+                "  - vibectl-server://localhost:50051"
+            )
+        else:
+            return False, f"Invalid URL format: {error_msg}"
+    except Exception as e:
+        return False, f"URL validation failed: {e}"
 
 
 async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
@@ -112,12 +139,57 @@ async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
 
         except grpc.RpcError as e:
             channel.close()
-            return Error(error=f"gRPC error: {e.details()}", exception=e)
+
+            # Provide detailed error messages based on gRPC status code
+            status_code = e.code()
+            details = e.details()
+
+            if status_code == grpc.StatusCode.UNAVAILABLE:
+                return Error(
+                    error=f"Server unavailable at {target}. "
+                    f"Please check:\n"
+                    f"  - Server is running and listening on port {proxy_config.port}\n"
+                    f"  - Network connectivity to {proxy_config.host}\n"
+                    f"  - No firewall blocking the connection\n"
+                    f"Original error: {details}",
+                    exception=e,
+                )
+            elif status_code == grpc.StatusCode.UNAUTHENTICATED:
+                return Error(
+                    error=f"Authentication failed. "
+                    f"Please check:\n"
+                    f"  - Server requires authentication secret\n"
+                    f"  - URL format: vibectl-server://secret@{proxy_config.host}:{proxy_config.port}\n"
+                    f"Original error: {details}",
+                    exception=e,
+                )
+            elif status_code == grpc.StatusCode.PERMISSION_DENIED:
+                return Error(
+                    error=f"Permission denied. "
+                    f"The provided authentication secret may be invalid.\n"
+                    f"Original error: {details}",
+                    exception=e,
+                )
+            elif status_code == grpc.StatusCode.UNIMPLEMENTED:
+                return Error(
+                    error=f"Server does not support the required service. "
+                    f"Please verify this is a vibectl LLM proxy server.\n"
+                    f"Original error: {details}",
+                    exception=e,
+                )
+            else:
+                return Error(
+                    error=f"gRPC error ({status_code.name}): {details}", exception=e
+                )
 
         except TimeoutError:
             channel.close()
             return Error(
-                error=f"Connection timeout after {timeout_seconds} seconds",
+                error=f"Connection timeout after {timeout_seconds} seconds. "
+                f"Please check:\n"
+                f"  - Server is running at {target}\n"
+                f"  - Network latency to {proxy_config.host}\n"
+                f"  - Try increasing timeout with --timeout option",
                 exception=TimeoutError(),
             )
 
@@ -136,9 +208,10 @@ def configure_proxy_settings(proxy_url: str) -> Result:
         Result indicating success or failure
     """
     try:
-        # Validate proxy URL format
-        if not validate_proxy_url(proxy_url):
-            return Error(error="Invalid proxy URL format")
+        # Validate proxy URL format with enhanced error messages
+        is_valid, error_message = validate_proxy_url(proxy_url)
+        if not is_valid:
+            return Error(error=error_message or "Invalid proxy URL format")
 
         # Parse proxy URL to validate components
         proxy_config = parse_proxy_url(proxy_url)
@@ -168,7 +241,12 @@ def disable_proxy() -> Result:
     try:
         config = Config()
 
-        # Disable proxy
+        # Check current state to provide helpful feedback
+        currently_enabled = config.get("proxy.enabled", False)
+        if not currently_enabled:
+            return Success(data="Proxy is already disabled")
+
+        # Disable proxy directly - avoid model adapter initialization
         config.set("proxy.enabled", False)
         config.unset("proxy.server_url")
 
@@ -176,7 +254,7 @@ def disable_proxy() -> Result:
         config.unset("proxy.timeout_seconds")
         config.unset("proxy.retry_attempts")
 
-        # Save configuration
+        # Save configuration - this is the critical step that was missing
         config.save()
 
         return Success(data="Proxy disabled")
@@ -230,7 +308,31 @@ def show_proxy_status() -> None:
 
 @click.group(name="setup-proxy")
 def setup_proxy_group() -> None:
-    """Setup and manage proxy configuration for LLM requests."""
+    """Setup and manage proxy configuration for LLM requests.
+
+    The proxy system allows you to centralize LLM API calls through a single
+    server, which can provide benefits like:
+
+    - Centralized API key management
+    - Request logging and monitoring
+    - Rate limiting and quotas
+    - Cost tracking across teams
+    - Caching for improved performance
+
+    Common workflows:
+
+    1. Configure a new proxy:
+       vibectl setup-proxy configure vibectl-server://myserver.com:443
+
+    2. Test connection to server:
+       vibectl setup-proxy test
+
+    3. Check current status:
+       vibectl setup-proxy status
+
+    4. Disable proxy mode:
+       vibectl setup-proxy disable
+    """
     pass
 
 
@@ -240,12 +342,28 @@ def setup_proxy_group() -> None:
 async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
     """Configure proxy settings for LLM calls.
 
-    SERVER_URL should be in the format:
-    vibectl-server://[secret@]host:port
+    PROXY_URL should be in the format:
+    vibectl-server://[secret@]host:port (secure)
+    vibectl-server-insecure://[secret@]host:port (insecure)
 
     Examples:
+        # Secure connection to production server
         vibectl setup-proxy configure vibectl-server://llm-server.example.com:443
+
+        # Secure connection with authentication
         vibectl setup-proxy configure vibectl-server://secret123@llm-server.example.com:8080
+
+        # Insecure connection for local development
+        vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
+
+        # Skip connection test if server isn't running yet
+        vibectl setup-proxy configure vibectl-server://myserver.com:443 --no-test
+
+    The command will:
+    1. Validate the URL format
+    2. Test connection to the server (unless --no-test is specified)
+    3. Save the configuration for future use
+    4. Show server information and capabilities
     """
     try:
         console_manager.print(f"Configuring proxy: {proxy_url}")
@@ -330,6 +448,25 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
     """Test connection to a proxy server.
 
     If no SERVER_URL is provided, tests the currently configured proxy.
+
+    This command verifies:
+    - Network connectivity to the server
+    - gRPC service availability
+    - Authentication (if configured)
+    - Server capabilities and supported models
+
+    Examples:
+        # Test current configuration
+        vibectl setup-proxy test
+
+        # Test a specific server
+        vibectl setup-proxy test vibectl-server://myserver.com:443
+
+        # Test with longer timeout for slow networks
+        vibectl setup-proxy test --timeout 30
+
+        # Test insecure local server
+        vibectl setup-proxy test vibectl-server-insecure://localhost:50051
     """
     try:
         # Use configured URL if none provided
@@ -376,14 +513,43 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
 
 @setup_proxy_group.command(name="status")
 def proxy_status() -> None:
-    """Show current proxy configuration status."""
+    """Show current proxy configuration status.
+
+    Displays:
+    - Whether proxy mode is enabled or disabled
+    - Configured server URL (if any)
+    - Connection settings (timeout, retry attempts)
+    - Current operational mode
+
+    This command is useful for:
+    - Verifying your current configuration
+    - Troubleshooting connection issues
+    - Confirming changes after configuration updates
+    """
     show_proxy_status()
 
 
 @setup_proxy_group.command(name="disable")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 def disable_proxy_cmd(yes: bool) -> None:
-    """Disable proxy mode and switch back to direct LLM calls."""
+    """Disable proxy mode and switch back to direct LLM calls.
+
+    This command will:
+    1. Turn off proxy mode in the configuration
+    2. Clear the stored server URL
+    3. Reset connection settings to defaults
+    4. Switch back to making direct API calls to LLM providers
+
+    After disabling proxy mode, vibectl will use your locally configured
+    API keys to make direct calls to OpenAI, Anthropic, and other providers.
+
+    Examples:
+        # Disable with confirmation prompt
+        vibectl setup-proxy disable
+
+        # Disable without confirmation (useful for scripts)
+        vibectl setup-proxy disable --yes
+    """
     try:
         if not yes:
             config = Config()
