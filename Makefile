@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test test-parallel test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog
+.PHONY: help format lint typecheck test test-parallel test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -160,3 +160,28 @@ pypi-release: clean pypi-check pypi-build pypi-test pypi-upload  ## Run all chec
 		git push origin "v$$VERSION"; \
 	fi
 	@echo "Release v$$(grep -Po '^version = "\K[^"]+' pyproject.toml) completed!"
+
+# gRPC code generation
+grpc-gen: ## Generate gRPC Python stubs from proto definitions
+	@echo "Generating gRPC Python stubs..."
+	python -m grpc_tools.protoc \
+		--python_out=. \
+		--grpc_python_out=. \
+		--proto_path=. \
+		vibectl/proto/llm_proxy.proto
+	@echo "gRPC stubs generated successfully"
+
+grpc-clean: ## Clean generated gRPC files
+	@echo "Cleaning generated gRPC files..."
+	rm -f vibectl/proto/*_pb2.py
+	rm -f vibectl/proto/*_pb2_grpc.py
+	@echo "Generated gRPC files cleaned"
+
+grpc-check: ## Check if gRPC dependencies are available
+	@echo "Checking gRPC dependencies..."
+	@python -c "import grpc_tools.protoc; print('✓ grpc_tools available')" || (echo "✗ grpc_tools not available - install grpcio-tools" && exit 1)
+	@python -c "import grpc; print('✓ grpc available')" || (echo "✗ grpc not available - install grpcio" && exit 1)
+	@echo "All gRPC dependencies available"
+
+# Add grpc-gen as a dependency for development setup
+dev-install: install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code

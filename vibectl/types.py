@@ -256,6 +256,7 @@ class LLMMetrics:
     total_processing_duration_ms: float | None = None
     fragments_used: list[str] | None = None  # Track fragments if used
     call_count: int = 0
+    cost_usd: float | None = None  # Cost in USD for the LLM call
 
     def __add__(self, other: "LLMMetrics") -> "LLMMetrics":
         """Allows adding metrics together, useful for aggregation."""
@@ -274,12 +275,22 @@ class LLMMetrics:
         else:
             final_summed_total_duration = summed_total_duration
 
+        # Sum costs if both are available
+        summed_cost: float | None = None
+        if self.cost_usd is not None and other.cost_usd is not None:
+            summed_cost = self.cost_usd + other.cost_usd
+        elif self.cost_usd is not None:
+            summed_cost = self.cost_usd
+        elif other.cost_usd is not None:
+            summed_cost = other.cost_usd
+
         return LLMMetrics(
             token_input=self.token_input + other.token_input,
             token_output=self.token_output + other.token_output,
             latency_ms=self.latency_ms + other.latency_ms,
             total_processing_duration_ms=final_summed_total_duration,
             call_count=self.call_count + other.call_count,
+            cost_usd=summed_cost,
         )
 
 

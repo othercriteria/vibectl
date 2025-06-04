@@ -3,7 +3,14 @@ branch = True
 source = vibectl
 parallel = True
 concurrency = thread, multiprocessing
-omit = *migrations*, *tests*, *__pycache__*, .venv/*
+omit =
+    *migrations*
+    *tests*
+    *__pycache__*
+    .venv/*
+    # Exclude generated protobuf/gRPC code
+    vibectl/proto/*_pb2.py
+    vibectl/proto/*_pb2_grpc.py
 
 [report]
 exclude_lines =
@@ -24,7 +31,13 @@ exclude_lines =
     except \(EOFError, KeyboardInterrupt\)
     except \(subprocess\.CalledProcessError, FileNotFoundError\)
     except OSError as e:
-omit = *migrations*, *test*, *__pycache__*
+omit =
+    *migrations*
+    *test*
+    *__pycache__*
+    # Exclude generated protobuf/gRPC code
+    vibectl/proto/*_pb2.py
+    vibectl/proto/*_pb2_grpc.py
 
 [html]
 directory = htmlcov

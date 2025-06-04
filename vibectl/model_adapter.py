@@ -1481,7 +1481,35 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
     """
     global _default_adapter
     if _default_adapter is None:
-        _default_adapter = LLMModelAdapter(config)
+        # Get or create config if not provided
+        if config is None:
+            config = Config()
+
+        # Check if proxy mode is enabled
+        proxy_enabled = config.get("proxy.enabled", False)
+
+        if proxy_enabled:
+            # Import here to avoid circular imports
+            from .config import parse_proxy_url
+            from .proxy_model_adapter import ProxyModelAdapter
+
+            # Get proxy configuration
+            server_url = config.get("proxy.server_url")
+
+            # Parse the server URL
+            proxy_config = parse_proxy_url(server_url)
+            if proxy_config is None:
+                raise ValueError(
+                    "Proxy is enabled but server_url is not configured or invalid"
+                )
+
+            _default_adapter = ProxyModelAdapter(
+                config=config, host=proxy_config.host, port=proxy_config.port
+            )
+        else:
+            # Use direct LLM adapter
+            _default_adapter = LLMModelAdapter(config)
+
     return _default_adapter
 
 

@@ -40,6 +40,7 @@ from vibectl.subcommands.plugin_cmd import plugin_group
 from vibectl.subcommands.port_forward_cmd import run_port_forward_command
 from vibectl.subcommands.rollout_cmd import run_rollout_command
 from vibectl.subcommands.scale_cmd import run_scale_command
+from vibectl.subcommands.setup_proxy_cmd import setup_proxy_group
 from vibectl.subcommands.version_cmd import run_version_command
 from vibectl.subcommands.vibe_cmd import run_vibe_command
 from vibectl.subcommands.wait_cmd import run_wait_command
@@ -209,6 +210,7 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
 
 
 cli.add_command(plugin_group)
+cli.add_command(setup_proxy_group)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})

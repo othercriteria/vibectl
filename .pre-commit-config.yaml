@@ -25,16 +25,36 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        # Exclude generated protobuf/gRPC code from linting
+        exclude: |
+          (?x)^(
+              vibectl/proto/llm_proxy_pb2\.py|
+              vibectl/proto/llm_proxy_pb2_grpc\.py
+          )$
       - id: ruff-format
+        # Exclude generated protobuf/gRPC code from formatting
+        exclude: |
+          (?x)^(
+              vibectl/proto/llm_proxy_pb2\.py|
+              vibectl/proto/llm_proxy_pb2_grpc\.py
+          )$
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0
     hooks:
       - id: mypy
+        pass_filenames: false
+        args: [vibectl, tests]
         additional_dependencies:
           - pydantic
           - types-PyYAML
           - types-setuptools
+          - grpc-stubs
+          - types-protobuf
+          - pytest
+          - types-click
+          - asyncclick
+          - pytest-mock
           # Add other specific type stubs as needed for your project
 
 # Re-add the local pytest hook

@@ -243,9 +243,16 @@
             gh  # GitHub CLI for interacting with GitHub
             docker
             docker-buildx
+            # gRPC and Protocol Buffer tools
+            protobuf
+            protoc-gen-go
+            grpcurl  # CLI tool for testing gRPC services
           ];
 
           shellHook = ''
+            # Fix gRPC tools library loading issue in Nix
+            export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH
+
             # Create virtualenv if it doesn't exist
             if [ ! -d .venv ]; then
               echo "Creating virtual environment..."

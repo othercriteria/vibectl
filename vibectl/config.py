@@ -2,8 +2,10 @@
 
 import copy
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar, cast
+from urllib.parse import urlparse
 
 import yaml
 
@@ -72,6 +74,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "plugins": {
         "precedence": [],  # Plugin precedence order; empty list = no explicit order
+    },
+    "proxy": {
+        "enabled": False,  # Enable proxy mode for LLM calls
+        "server_url": None,  # Server URL, e.g., vibectl-server://secret@llm-server.company.com:443
+        "timeout_seconds": 30,  # Request timeout for proxy calls
+        "retry_attempts": 3,  # Number of retry attempts for failed proxy calls
     },
     "system": {
         "log_level": "WARNING",  # Default log level for logging
@@ -149,6 +157,12 @@ CONFIG_SCHEMA: dict[str, Any] = {
     },
     "plugins": {
         "precedence": list,
+    },
+    "proxy": {
+        "enabled": bool,
+        "server_url": (str, type(None)),
+        "timeout_seconds": int,
+        "retry_attempts": int,
     },
     "system": {
         "log_level": str,
@@ -626,3 +640,83 @@ class Config:
 
         # Set the file path in the new provider structure
         self.set(f"providers.{provider}.key_file", str(path))
+
+
+# Proxy URL parsing utilities
+
+
+@dataclass
+class ProxyConfig:
+    """Parsed proxy configuration from URL."""
+
+    host: str
+    port: int
+    secret: str | None = None
+    use_tls: bool = True
+
+
+def parse_proxy_url(url: str | None) -> ProxyConfig | None:
+    """Parse a proxy URL into connection details.
+
+    Expected formats:
+    - vibectl-server://secret@host:port (secure, TLS enabled)
+    - vibectl-server://host:port (secure, no auth)
+    - vibectl-server-insecure://secret@host:port (insecure, TLS disabled)
+    - vibectl-server-insecure://host:port (insecure, no auth)
+
+    Args:
+        url: The proxy server URL
+
+    Returns:
+        ProxyConfig object with parsed details, or None if url is None/empty
+
+    Raises:
+        ValueError: If URL format is invalid
+    """
+    if not url:
+        return None
+
+    try:
+        parsed = urlparse(url)
+
+        # Validate scheme and determine TLS setting
+        if parsed.scheme == "vibectl-server":
+            use_tls = True
+        elif parsed.scheme == "vibectl-server-insecure":
+            use_tls = False
+        else:
+            raise ValueError(
+                f"Invalid proxy URL scheme: {parsed.scheme}. "
+                f"Expected 'vibectl-server' or 'vibectl-server-insecure'"
+            )
+
+        # Extract host and port
+        if not parsed.hostname:
+            raise ValueError("Proxy URL must include hostname")
+
+        host = parsed.hostname
+        port = parsed.port or 50051  # Default gRPC port
+
+        # Extract secret from username part
+        secret = parsed.username if parsed.username else None
+
+        return ProxyConfig(host=host, port=port, secret=secret, use_tls=use_tls)
+    except Exception as e:
+        raise ValueError(f"Invalid proxy URL format: {e}") from e
+
+
+def build_proxy_url(host: str, port: int, secret: str | None = None) -> str:
+    """Build a proxy URL from components.
+
+    Args:
+        host: Server hostname
+        port: Server port
+        secret: Optional authentication secret
+
+    Returns:
+        Formatted proxy URL
+    """
+    if secret:
+        return f"vibectl-server://{secret}@{host}:{port}"
+    else:
+        return f"vibectl-server://{host}:{port}"

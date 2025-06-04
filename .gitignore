@@ -58,3 +58,7 @@ prof/
 
 # Coding assistant may create this file
 COMMIT_EDITMSG
+
+# Generated gRPC files (regenerated during build)
+*_pb2.py
+*_pb2_grpc.py

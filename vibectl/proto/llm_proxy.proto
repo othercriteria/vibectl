@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package vibectl.llm_proxy;
+
+// Service definition for the vibectl LLM proxy
+service VibectlLLMProxy {
+  // Execute a single LLM request and return the response
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+
+  // Execute an LLM request with streaming response
+  rpc StreamExecute(ExecuteRequest) returns (stream StreamChunk);
+
+  // Get server information including available models and limits
+  rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
+}
+
+// Request message for LLM execution
+message ExecuteRequest {
+  // System fragments (context, instructions)
+  repeated string system_fragments = 1;
+
+  // User fragments (user input, questions)
+  repeated string user_fragments = 2;
+
+  // Optional model name (server chooses default if not specified)
+  optional string model_name = 3;
+
+  // Optional response model schema for structured responses
+  optional string response_model_schema = 4;
+
+  // Client request ID for tracing and debugging
+  string request_id = 5;
+}
+
+// Response message for LLM execution
+message ExecuteResponse {
+  // Request ID from the original request
+  string request_id = 1;
+
+  oneof result {
+    ExecuteSuccess success = 2;
+    ExecuteError error = 3;
+  }
+}
+
+// Successful execution response
+message ExecuteSuccess {
+  // The LLM response text
+  string response_text = 1;
+
+  // Metrics about the execution
+  ExecutionMetrics metrics = 2;
+
+  // The actual model used for the request
+  string actual_model_used = 3;
+}
+
+// Error response for failed execution
+message ExecuteError {
+  // Error code for programmatic handling
+  string error_code = 1;
+
+  // Human-readable error message
+  string error_message = 2;
+
+  // Optional details for debugging
+  optional string error_details = 3;
+}
+
+// Streaming chunk for incremental responses
+message StreamChunk {
+  // Request ID from the original request
+  string request_id = 1;
+
+  oneof chunk_type {
+    // Text chunk with partial response
+    string text_chunk = 2;
+
+    // Final metrics when stream is complete
+    ExecutionMetrics final_metrics = 3;
+
+    // Error occurred during streaming
+    ExecuteError error = 4;
+
+    // Stream completion marker
+    StreamComplete complete = 5;
+  }
+}
+
+// Stream completion marker
+message StreamComplete {
+  // The actual model used for the request
+  string actual_model_used = 1;
+}
+
+// Execution metrics for monitoring and debugging
+message ExecutionMetrics {
+  // Duration of the request in milliseconds
+  int64 duration_ms = 1;
+
+  // Number of input tokens (if available)
+  optional int32 input_tokens = 2;
+
+  // Number of output tokens (if available)
+  optional int32 output_tokens = 3;
+
+  // Total tokens used (if available)
+  optional int32 total_tokens = 4;
+
+  // Provider-specific cost information
+  optional double cost_usd = 5;
+
+  // Number of retries attempted
+  int32 retry_count = 6;
+
+  // Timestamp when request was processed (Unix timestamp)
+  int64 timestamp = 7;
+}
+
+// Request for server information
+message GetServerInfoRequest {
+  // Empty for now, may add client identification later
+}
+
+// Server information response
+message GetServerInfoResponse {
+  // List of available models on the server
+  repeated ModelInfo available_models = 1;
+
+  // Default model used when none specified
+  string default_model = 2;
+
+  // Server limits and configuration
+  ServerLimits limits = 3;
+
+  // Server version information
+  string server_version = 4;
+}
+
+// Information about an available model
+message ModelInfo {
+  // Model identifier (e.g., "claude-4-sonnet")
+  string model_id = 1;
+
+  // Human-readable model name
+  string display_name = 2;
+
+  // Provider (e.g., "anthropic", "openai")
+  string provider = 3;
+
+  // Whether the model supports streaming
+  bool supports_streaming = 4;
+
+  // Maximum context length for this model
+  optional int32 max_context_length = 5;
+}
+
+// Server limits and configuration
+message ServerLimits {
+  // Maximum requests per minute per client
+  optional int32 max_requests_per_minute = 1;
+
+  // Maximum concurrent requests per client
+  optional int32 max_concurrent_requests = 2;
+
+  // Maximum input length in characters
+  optional int32 max_input_length = 3;
+
+  // Request timeout in seconds
+  optional int32 request_timeout_seconds = 4;
+}
