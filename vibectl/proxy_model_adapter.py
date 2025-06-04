@@ -237,6 +237,7 @@ class ProxyModelAdapter(ModelAdapter):
             else 0,
             latency_ms=float(pb_metrics.duration_ms),
             total_processing_duration_ms=float(pb_metrics.duration_ms),
+            call_count=1,  # Each proxy call represents one LLM call
             cost_usd=pb_metrics.cost_usd if pb_metrics.HasField("cost_usd") else None,
         )
 
