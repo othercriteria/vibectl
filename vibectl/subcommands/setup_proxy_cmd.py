@@ -17,10 +17,20 @@ from rich.table import Table
 from vibectl.config import Config, build_proxy_url, parse_proxy_url
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-from vibectl.proto import (
-    llm_proxy_pb2,  # type: ignore[import-not-found]
-    llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
-)
+
+try:
+    from vibectl.proto import (
+        llm_proxy_pb2,  # type: ignore[import-not-found]
+        llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
+    )
+
+    GRPC_AVAILABLE = True
+except ImportError:
+    # Protobuf modules not available - this can happen in CI or testing environments
+    llm_proxy_pb2 = None  # type: ignore[assignment]
+    llm_proxy_pb2_grpc = None  # type: ignore[assignment]
+    GRPC_AVAILABLE = False
+
 from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
 
@@ -79,6 +89,14 @@ async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
     Returns:
         Result indicating success or failure with details
     """
+    if not GRPC_AVAILABLE:
+        return Error(
+            error="gRPC modules are not available. "
+            "This functionality requires protobuf files to be generated. "
+            "In development environments, this test may be skipped.",
+            exception=ImportError("protobuf modules not available"),
+        )
+
     try:
         proxy_config = parse_proxy_url(url)
         if not proxy_config:

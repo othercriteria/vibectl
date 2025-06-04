@@ -565,6 +565,44 @@ class ProxyConfig:
     use_tls: bool = True
 
 
+def _validate_jwt_token_format(token: str) -> bool:
+    """Validate that a token has the basic JWT format.
+
+    Checks for the standard JWT structure: header.payload.signature
+    Does not verify the signature or claims, just the format.
+
+    Args:
+        token: The token string to validate
+
+    Returns:
+        bool: True if the token has valid JWT format, False otherwise
+    """
+    if not token or not isinstance(token, str):
+        return False
+
+    # Remove any whitespace
+    token = token.strip()
+
+    # JWT tokens should have exactly 2 dots separating 3 base64url-encoded parts
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False
+
+    # Each part should be non-empty and contain only valid base64url characters
+    # Base64url uses: A-Z, a-z, 0-9, -, _
+    import re
+
+    base64url_pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    for part in parts:
+        if not part:  # Empty part
+            return False
+        if not base64url_pattern.match(part):
+            return False
+
+    return True
+
+
 def parse_proxy_url(url: str | None) -> ProxyConfig | None:
     """Parse a proxy URL into connection details.
 
@@ -581,7 +619,7 @@ def parse_proxy_url(url: str | None) -> ProxyConfig | None:
         ProxyConfig object with parsed details, or None if url is None/empty
 
     Raises:
-        ValueError: If URL format is invalid
+        ValueError: If URL format is invalid or JWT token format is invalid
     """
     if not url:
         return None
@@ -607,8 +645,18 @@ def parse_proxy_url(url: str | None) -> ProxyConfig | None:
         host = parsed.hostname
         port = parsed.port or 50051  # Default gRPC port
 
-        # Extract JWT token from username part
+        # Extract and validate JWT token from username part
         jwt_token = parsed.username if parsed.username else None
+
+        if jwt_token and not _validate_jwt_token_format(jwt_token):
+            raise ValueError(
+                "Invalid JWT token format. JWT tokens must have the structure "
+                "'header.payload.signature' with base64url-encoded parts.\n"
+                "Examples:\n"
+                "  - eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature\n"
+                "  - Use 'vibectl-server generate-token <subject>' to create "
+                "valid tokens"
+            )
 
         return ProxyConfig(host=host, port=port, jwt_token=jwt_token, use_tls=use_tls)
     except Exception as e:

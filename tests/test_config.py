@@ -845,9 +845,7 @@ def test_proxy_server_url_validation_valid_urls(test_config: MockConfig) -> None
     """Test that valid proxy server URLs are accepted."""
     valid_urls = [
         "vibectl-server://localhost:50051",
-        "vibectl-server://secret123@example.com:443",
         "vibectl-server-insecure://localhost:8080",
-        "vibectl-server-insecure://user:pass@server.local:9090",
     ]
 
     for url in valid_urls:
@@ -869,6 +867,38 @@ def test_proxy_server_url_validation_invalid_urls(test_config: MockConfig) -> No
 
     for url in invalid_urls:
         with pytest.raises(ValueError, match="Invalid proxy URL"):
+            test_config.set("proxy.server_url", url)
+
+
+def test_proxy_server_url_jwt_token_format_validation(test_config: MockConfig) -> None:
+    """Test JWT token format validation in proxy server URLs."""
+    # Valid URLs with proper JWT tokens (short format for testing)
+    valid_urls_with_jwt = [
+        "vibectl-server://eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdWIifQ.sig@host:443",
+        "vibectl-server-insecure://a.b.c@localhost:50051",
+    ]
+
+    # These should all work
+    for url in valid_urls_with_jwt:
+        test_config.set("proxy.server_url", url)
+        assert test_config.get("proxy.server_url") == url
+
+    # Invalid JWT token formats (short examples)
+    invalid_jwt_urls = [
+        "vibectl-server://nojwt@example.com:443",  # Missing dots
+        "vibectl-server://header.payload@example.com:443",  # Missing signature
+        "vibectl-server://a.b.c.d@example.com:443",  # Too many parts
+        "vibectl-server://.b.c@example.com:443",  # Empty header
+        "vibectl-server://a..c@example.com:443",  # Empty payload
+        "vibectl-server://a.b.@example.com:443",  # Empty signature
+        "vibectl-server://a b.c.d@example.com:443",  # Invalid characters
+        "vibectl-server://a$.b.c@example.com:443",  # Invalid character ($)
+        "vibectl-server://a+.b.c@example.com:443",  # Invalid character (+)
+    ]
+
+    # These should all fail
+    for url in invalid_jwt_urls:
+        with pytest.raises(ValueError, match="Invalid JWT token format"):
             test_config.set("proxy.server_url", url)
 
 
@@ -984,3 +1014,68 @@ def test_proxy_unset_behavior(test_config: MockConfig) -> None:
 
     test_config.unset("proxy.retry_attempts")
     assert test_config.get("proxy.retry_attempts") == 3  # Default
+
+
+def test_jwt_token_validation_helper() -> None:
+    """Test the JWT token format validation helper function."""
+    from vibectl.config import _validate_jwt_token_format
+
+    # Valid JWT tokens (short format for testing)
+    valid_tokens = [
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdWIifQ.sig",  # Short valid JWT
+        "a.b.c",  # Minimal valid format
+        "A-_9.B-_8.C-_7",  # Valid base64url characters
+    ]
+
+    # Invalid JWT tokens (short examples)
+    invalid_tokens = [
+        "not-a-jwt-token",  # No dots
+        "a.b",  # Missing signature
+        "a.b.c.d",  # Too many parts
+        ".b.c",  # Empty header
+        "a..c",  # Empty payload
+        "a.b.",  # Empty signature
+        "a b.c.d",  # Invalid characters
+        "a$.b.c",  # Invalid character ($)
+        "a+.b.c",  # Invalid character (+)
+    ]
+
+    for token in valid_tokens:
+        assert _validate_jwt_token_format(token), f"Token should be valid: {token}"
+
+    for token in invalid_tokens:
+        assert not _validate_jwt_token_format(token), (
+            f"Token should be invalid: {token}"
+        )
+
+
+def test_proxy_url_parsing_with_jwt_validation() -> None:
+    """Test proxy URL parsing with JWT token validation."""
+    from vibectl.config import parse_proxy_url
+
+    # Valid JWT token
+    valid_jwt = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    )
+
+    # Valid URL with JWT token
+    config = parse_proxy_url(f"vibectl-server://{valid_jwt}@example.com:443")
+    assert config is not None
+    assert config.host == "example.com"
+    assert config.port == 443
+    assert config.jwt_token == valid_jwt
+    assert config.use_tls is True
+
+    # Invalid JWT token format should raise ValueError
+    with pytest.raises(ValueError, match="Invalid JWT token format"):
+        parse_proxy_url("vibectl-server://invalid-jwt@example.com:443")
+
+    # URLs without JWT tokens should still work
+    config_no_jwt = parse_proxy_url("vibectl-server://example.com:443")
+    assert config_no_jwt is not None
+    assert config_no_jwt.host == "example.com"
+    assert config_no_jwt.port == 443
+    assert config_no_jwt.jwt_token is None
+    assert config_no_jwt.use_tls is True

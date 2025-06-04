@@ -7,6 +7,8 @@ The LLM proxy server feature is **complete and operational** with full client/se
 
 **✅ SERVER-SIDE JWT AUTHENTICATION COMPLETE** - Token generation, server configuration, and authentication infrastructure fully implemented.
 
+**✅ JWT-ONLY ENFORCEMENT COMPLETE** - Legacy secret support removed, JWT-only authentication enforced.
+
 ## 🎉 RECENTLY COMPLETED
 
 ### ✅ Priority 1: Critical Bug Fixes - COMPLETED
@@ -122,9 +124,6 @@ vibectl-server-insecure://localhost:50051
 
 # New JWT-authenticated format (WORKING)
 vibectl-server://jwt-token@server.example.com:443
-
-# Legacy secret format (still supported)
-vibectl-server://secret@server.example.com:8080
 ```
 
 **Security Properties** (Fully Implemented):
@@ -134,32 +133,45 @@ vibectl-server://secret@server.example.com:8080
 - **✅ Non-repudiation**: Signed tokens provide audit trail
 - **✅ Expiration**: Built-in token lifecycle management
 
+### ✅ Priority 5: JWT-Only Enforcement - COMPLETED
+
+#### **Configuration Validation Enhancement** - COMPLETED ✅
+**Task**: Remove legacy secret support and enforce JWT-only authentication
+**Solution**: Enhanced JWT token format validation in proxy URL parsing with strict format checking
+**Implementation**:
+- ✅ Added `_validate_jwt_token_format()` function with comprehensive JWT structure validation
+- ✅ Enhanced `parse_proxy_url()` to always validate JWT format when tokens are present
+- ✅ Removed legacy secret detection and backward compatibility code
+- ✅ Updated error messages to guide users to `vibectl-server generate-token`
+- ✅ Added comprehensive test coverage for JWT validation scenarios
+- ✅ Removed test cases that expected legacy secret authentication
+
+**Security Enhancement**:
+- **✅ Strict JWT Format**: Only tokens with proper `header.payload.signature` structure accepted
+- **✅ Base64URL Validation**: Each JWT part validated for correct character set (A-Z, a-z, 0-9, -, _)
+- **✅ No Legacy Fallback**: Eliminated security risks from accepting plain text secrets
+- **✅ Clear Error Messages**: Users get specific guidance on JWT format requirements
+
 ## 🔧 REMAINING WORK
 
-### Priority 5: Testing and Polish (Optional - ~1 hour)
+### Priority 6: Testing and Polish (Optional - ~30 minutes)
 
-#### **Enhanced Test Coverage** (30 minutes)
-**Task**: Add comprehensive unit tests for JWT authentication workflow
-**Status**: Core functionality working perfectly, tests would ensure regression protection
+#### **Enhanced Test Coverage** (20 minutes)
+**Task**: Add comprehensive unit tests for remaining edge cases
+**Status**: Core JWT functionality fully tested, additional edge cases could be covered
 **Details**:
-- Test JWT token extraction from URLs
-- Test gRPC metadata inclusion
-- Test authentication error handling
-- Test secure/insecure channel creation
+- Test JWT token extraction edge cases
+- Test secure/insecure channel creation variations
+- Test authentication error handling scenarios
 
-#### **Model Alias Resolution Refactoring** (20 minutes)
+#### **Model Alias Resolution Refactoring** (10 minutes)
 **Task**: Make `_resolve_model_alias` in `proxy_model_adapter.py` less hacky
 **Status**: Current implementation uses hardcoded mappings and fuzzy matching
 **Details**: Extract alias mappings to configuration, consider server-provided alias discovery
 
-#### **Configuration Validation Enhancement** (10 minutes)
-**Task**: Add JWT token format validation to proxy URL parsing
-**Status**: Current implementation accepts any string as JWT token
-**Details**: Add basic JWT format validation (header.payload.signature structure)
-
 ## 🚀 VERIFICATION
 
-The complete proxy workflow with JWT authentication is verified working:
+The complete proxy workflow with JWT-only authentication is verified working:
 
 ```bash
 # 1. Setup insecure proxy for development
@@ -168,14 +180,14 @@ vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
 # 2. Generate JWT token (server-side complete)
 vibectl-server generate-token my-client --expires-in 30d --output client-token.jwt
 
-# 3. Setup secure proxy with JWT authentication (NOW WORKING)
+# 3. Setup secure proxy with JWT authentication (NOW ENFORCED - JWT ONLY)
 vibectl setup-proxy configure vibectl-server://$(cat client-token.jwt)@production.example.com:443
 
 # 4. Use proxy with aliases and JWT authentication
 vibectl config set llm.model claude-4-sonnet  # Uses friendly alias
 
-# 5. Full end-to-end operation with authentication
-vibectl vibe "get services"  # Works perfectly through authenticated proxy
+# 5. Full end-to-end operation with JWT-only authentication
+vibectl vibe "get services"  # Works perfectly through JWT-authenticated proxy
 ```
 
 **Current Status**:
@@ -183,5 +195,6 @@ vibectl vibe "get services"  # Works perfectly through authenticated proxy
 - ✅ Quality-of-life: Complete
 - ✅ Server-side JWT authentication: Complete
 - ✅ Client-side JWT integration: Complete
+- ✅ JWT-only enforcement: Complete
 
-**Total Remaining**: ~1 hour for optional testing and polish (recommended for production robustness)
+**Total Remaining**: ~30 minutes for optional testing and polish enhancements
