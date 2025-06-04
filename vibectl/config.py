@@ -186,6 +186,12 @@ CONFIG_VALID_VALUES: dict[str, list[Any]] = {
     "show_metrics": ["none", "total", "sub", "all"],  # Only support enum string values
 }
 
+# Range constraints for numeric proxy settings
+PROXY_CONSTRAINTS = {
+    "timeout_seconds": {"min": 1, "max": 300},  # 1 second to 5 minutes
+    "retry_attempts": {"min": 0, "max": 10},  # 0 to 10 retries
+}
+
 # Environment variable mappings for API keys
 ENV_KEY_MAPPINGS = {
     "openai": {
@@ -408,6 +414,10 @@ class Config:
         # Extract the key name for validation lookup
         key_name = parts[-1]  # Last part is the actual key name
 
+        # Special validation for proxy configuration
+        if len(parts) >= 2 and parts[0] == "proxy":
+            self._validate_proxy_value(path, key_name, value)
+
         # Check against CONFIG_VALID_VALUES if it exists for this key
         if key_name in CONFIG_VALID_VALUES:
             valid_values = CONFIG_VALID_VALUES[key_name]
@@ -424,6 +434,35 @@ class Config:
                         f"Invalid value for {path}: {value}. "
                         f"Valid values are: {valid_values}"
                     )
+
+    def _validate_proxy_value(self, path: str, key_name: str, value: Any) -> None:
+        """Validate proxy-specific configuration values."""
+        if key_name == "server_url" and value is not None:
+            # Validate proxy URL format
+            try:
+                proxy_config = parse_proxy_url(str(value))
+                if proxy_config is None:
+                    raise ValueError("Invalid proxy URL format")
+            except ValueError as e:
+                raise ValueError(f"Invalid proxy URL for {path}: {e}") from e
+
+        elif key_name in PROXY_CONSTRAINTS:
+            # Validate numeric ranges for proxy settings
+            constraint = PROXY_CONSTRAINTS[key_name]
+            min_val = constraint["min"]
+            max_val = constraint["max"]
+
+            if not isinstance(value, int | float):
+                raise ValueError(
+                    f"Invalid type for {path}: expected number, "
+                    f"got {type(value).__name__}"
+                )
+
+            if value < min_val or value > max_val:
+                raise ValueError(
+                    f"Invalid value for {path}: {value}. "
+                    f"Must be between {min_val} and {max_val}"
+                )
 
     def _convert_hierarchical_value(self, path: str, value: Any) -> Any:
         """Convert string value to appropriate type for hierarchical path."""

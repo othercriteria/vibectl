@@ -839,3 +839,151 @@ def test_config_ollama_model_pattern_allowed(test_config: MockConfig) -> None:
         pytest.raises(ValueError, match="LLM says no"),
     ):
         test_config.set("llm.model", "ollama:invalid-model-for-test")
+
+
+# Proxy Configuration Validation Tests
+
+
+def test_proxy_server_url_validation_valid_urls(test_config: MockConfig) -> None:
+    """Test that valid proxy server URLs are accepted."""
+    valid_urls = [
+        "vibectl-server://localhost:50051",
+        "vibectl-server://secret123@example.com:443",
+        "vibectl-server-insecure://localhost:8080",
+        "vibectl-server-insecure://user:pass@server.local:9090",
+    ]
+
+    for url in valid_urls:
+        test_config.set("proxy.server_url", url)
+        assert test_config.get("proxy.server_url") == url
+
+
+def test_proxy_server_url_validation_invalid_urls(test_config: MockConfig) -> None:
+    """Test that invalid proxy server URLs are rejected."""
+    invalid_urls = [
+        "http://localhost:50051",  # Wrong scheme
+        "https://localhost:50051",  # Wrong scheme
+        "ftp://localhost:50051",  # Wrong scheme
+        "vibectl-server://",  # Missing host
+        "vibectl-server://:50051",  # Missing host
+        "invalid-url",  # Not a URL at all
+        "vibectl-server://host:abc",  # Invalid port
+    ]
+
+    for url in invalid_urls:
+        with pytest.raises(ValueError, match="Invalid proxy URL"):
+            test_config.set("proxy.server_url", url)
+
+
+def test_proxy_server_url_none_allowed(test_config: MockConfig) -> None:
+    """Test that proxy.server_url can be set to None."""
+    test_config.set("proxy.server_url", None)
+    assert test_config.get("proxy.server_url") is None
+
+    # Test string "none" also converts to None
+    test_config.set("proxy.server_url", "none")
+    assert test_config.get("proxy.server_url") is None
+
+
+def test_proxy_timeout_seconds_validation_valid_values(test_config: MockConfig) -> None:
+    """Test that valid timeout values are accepted."""
+    valid_timeouts = [1, 30, 60, 120, 300]  # 1 second to 5 minutes
+
+    for timeout in valid_timeouts:
+        test_config.set("proxy.timeout_seconds", timeout)
+        assert test_config.get("proxy.timeout_seconds") == timeout
+
+
+def test_proxy_timeout_seconds_validation_invalid_values(
+    test_config: MockConfig,
+) -> None:
+    """Test that invalid timeout values are rejected."""
+    invalid_timeouts = [0, -1, 301, 1000]  # Below min, above max
+
+    for timeout in invalid_timeouts:
+        with pytest.raises(ValueError, match="Must be between 1 and 300"):
+            test_config.set("proxy.timeout_seconds", timeout)
+
+
+def test_proxy_retry_attempts_validation_valid_values(
+    test_config: MockConfig,
+) -> None:
+    """Test that valid retry attempt values are accepted."""
+    valid_retries = [0, 1, 3, 5, 10]  # 0 to 10 retries
+
+    for retries in valid_retries:
+        test_config.set("proxy.retry_attempts", retries)
+        assert test_config.get("proxy.retry_attempts") == retries
+
+
+def test_proxy_retry_attempts_validation_invalid_values(
+    test_config: MockConfig,
+) -> None:
+    """Test that invalid retry attempt values are rejected."""
+    invalid_retries = [-1, 11, 20, 100]  # Below min, above max
+
+    for retries in invalid_retries:
+        with pytest.raises(ValueError, match="Must be between 0 and 10"):
+            test_config.set("proxy.retry_attempts", retries)
+
+
+def test_proxy_enabled_boolean_validation(test_config: MockConfig) -> None:
+    """Test that proxy.enabled only accepts boolean values."""
+    # Valid boolean values
+    test_config.set("proxy.enabled", True)
+    assert test_config.get("proxy.enabled") is True
+
+    test_config.set("proxy.enabled", False)
+    assert test_config.get("proxy.enabled") is False
+
+    # String boolean representations
+    test_config.set("proxy.enabled", "true")
+    assert test_config.get("proxy.enabled") is True
+
+    test_config.set("proxy.enabled", "false")
+    assert test_config.get("proxy.enabled") is False
+
+
+def test_proxy_type_validation(test_config: MockConfig) -> None:
+    """Test that proxy configuration values require correct types."""
+    # timeout_seconds must be numeric
+    with pytest.raises(ValueError, match="Invalid value for proxy.timeout_seconds"):
+        test_config.set("proxy.timeout_seconds", "not-a-number")
+
+    # retry_attempts must be numeric
+    with pytest.raises(ValueError, match="Invalid value for proxy.retry_attempts"):
+        test_config.set("proxy.retry_attempts", "not-a-number")
+
+
+def test_proxy_edge_cases(test_config: MockConfig) -> None:
+    """Test edge cases for proxy configuration validation."""
+    # Boundary values should work
+    test_config.set("proxy.timeout_seconds", 1)  # Minimum
+    assert test_config.get("proxy.timeout_seconds") == 1
+
+    test_config.set("proxy.timeout_seconds", 300)  # Maximum
+    assert test_config.get("proxy.timeout_seconds") == 300
+
+    test_config.set("proxy.retry_attempts", 0)  # Minimum (no retries)
+    assert test_config.get("proxy.retry_attempts") == 0
+
+    test_config.set("proxy.retry_attempts", 10)  # Maximum
+    assert test_config.get("proxy.retry_attempts") == 10
+
+
+def test_proxy_unset_behavior(test_config: MockConfig) -> None:
+    """Test that unsetting proxy configuration resets to defaults."""
+    # Set non-default values
+    test_config.set("proxy.enabled", True)
+    test_config.set("proxy.timeout_seconds", 60)
+    test_config.set("proxy.retry_attempts", 5)
+
+    # Unset should restore defaults
+    test_config.unset("proxy.enabled")
+    assert test_config.get("proxy.enabled") is False  # Default
+
+    test_config.unset("proxy.timeout_seconds")
+    assert test_config.get("proxy.timeout_seconds") == 30  # Default
+
+    test_config.unset("proxy.retry_attempts")
+    assert test_config.get("proxy.retry_attempts") == 3  # Default
