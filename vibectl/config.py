@@ -7,7 +7,17 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 from urllib.parse import urlparse
 
-import yaml
+# Import shared configuration utilities
+from .config_utils import (
+    convert_string_to_type,
+    ensure_config_dir,
+    get_nested_value,
+    load_yaml_config,
+    save_yaml_config,
+    set_nested_value,
+    validate_config_key_path,
+    validate_numeric_range,
+)
 
 # Import the adapter function to use for validation
 from .llm_interface import is_valid_llm_model_name
@@ -301,70 +311,26 @@ class Config:
         Args:
             base_dir: Optional base directory for configuration (used in testing)
         """
-        # Use provided base directory first (for testing), then
-        # environment variable, then default
-        if base_dir is not None:
-            self.config_dir = base_dir / ".config" / "vibectl" / "client"
-        else:
-            env_config_dir = os.environ.get("VIBECTL_CONFIG_DIR")
-            if env_config_dir:
-                self.config_dir = Path(env_config_dir)
-            else:
-                self.config_dir = Path.home() / ".config" / "vibectl" / "client"
-
+        # Use shared utility to get config directory
+        self.config_dir = ensure_config_dir("client", base_dir)
         self.config_file = self.config_dir / "config.yaml"
         self._config: dict[str, Any] = {}
 
-        # Create config directory if it doesn't exist
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load or create default config
-        if self.config_file.exists():
-            self._load_config()
-        else:
-            self._config = copy.deepcopy(DEFAULT_CONFIG)
+        # Load or create default config using shared utilities
+        self._config = load_yaml_config(self.config_file, DEFAULT_CONFIG)
+        if not self.config_file.exists():
             self._save_config()
-
-    def _load_config(self) -> None:
-        """Load configuration from file."""
-        try:
-            # First check if the file is empty
-            if self.config_file.stat().st_size == 0:
-                # Handle empty file as an empty dictionary
-                loaded_config: dict[str, Any] = {}
-            else:
-                with open(self.config_file, encoding="utf-8") as f:
-                    loaded_config = yaml.safe_load(f) or {}
-
-            # Start with a copy of the default config
-            self._config = copy.deepcopy(DEFAULT_CONFIG)
-            # Deep merge the loaded config into defaults
-            self._deep_merge(self._config, loaded_config)
-        except (yaml.YAMLError, OSError) as e:
-            raise ValueError(f"Failed to load config: {e}") from e
-
-    def _deep_merge(self, base: dict[str, Any], updates: dict[str, Any]) -> None:
-        """Deep merge updates into base dictionary."""
-        for key, value in updates.items():
-            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-                self._deep_merge(base[key], value)
-            else:
-                base[key] = value
 
     def _save_config(self) -> None:
         """Save configuration to file."""
-        try:
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                yaml.dump(self._config, f, default_flow_style=False)
-        except (yaml.YAMLError, OSError) as e:
-            raise ValueError(f"Failed to save config: {e}") from e
+        save_yaml_config(self._config, self.config_file)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value using either flat key or dotted path."""
         if "." in key:
             # Hierarchical path like 'display.theme'
             try:
-                return _get_nested_value(self._config, key)
+                return get_nested_value(self._config, key)
             except KeyError:
                 return default
         else:
@@ -372,15 +338,27 @@ class Config:
             return self._config.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        """Set configuration value using either flat key or dotted path."""
+        """Set a configuration value."""
         if "." in key:
-            # Hierarchical path like 'display.theme'
-            _validate_hierarchical_key(key)
-            # Convert string values to appropriate types
-            converted_value = self._convert_hierarchical_value(key, value)
+            # Hierarchical key - validate it exists in schema
+            validate_config_key_path(key, CONFIG_SCHEMA)
+
+            # Convert value based on expected type
+            if isinstance(value, str):
+                # Get the expected type from schema
+                parts = key.split(".")
+                current_schema: Any = CONFIG_SCHEMA
+                for part in parts:
+                    current_schema = current_schema[part]
+                # current_schema should now be the type annotation
+                # (str, bool, tuple, etc.)
+                expected_type: type | tuple[type, ...] = current_schema
+                converted_value = convert_string_to_type(value, expected_type, key)
+            else:
+                converted_value = value
             # Validate the converted value
             self._validate_hierarchical_value(key, converted_value)
-            _set_nested_value(self._config, key, converted_value)
+            set_nested_value(self._config, key, converted_value)
         else:
             # Top-level key
             if key not in CONFIG_SCHEMA:
@@ -451,124 +429,17 @@ class Config:
             constraint = PROXY_CONSTRAINTS[key_name]
             min_val = constraint["min"]
             max_val = constraint["max"]
-
-            if not isinstance(value, int | float):
-                raise ValueError(
-                    f"Invalid type for {path}: expected number, "
-                    f"got {type(value).__name__}"
-                )
-
-            if value < min_val or value > max_val:
-                raise ValueError(
-                    f"Invalid value for {path}: {value}. "
-                    f"Must be between {min_val} and {max_val}"
-                )
-
-    def _convert_hierarchical_value(self, path: str, value: Any) -> Any:
-        """Convert string value to appropriate type for hierarchical path."""
-        try:
-            # Get the expected type from schema
-            parts = path.split(".")
-            current_schema = CONFIG_SCHEMA
-
-            for part in parts:
-                current_schema = current_schema[part]
-
-            expected_type = current_schema
-
-            # If value is already the right type, return it
-            if not isinstance(value, str):
-                return value
-
-            # Always convert string "none" to Python None first
-            if value.lower() == "none":
-                return None
-
-            # Convert string to appropriate type
-            if expected_type is bool:
-                return self._convert_to_bool(path, value)
-            elif expected_type is int:
-                return int(value)
-            elif expected_type is float:
-                return float(value)
-            elif expected_type is list:
-                return self._convert_to_list(path, value)
-            elif isinstance(expected_type, tuple):
-                # Convert to the first non-None type in the tuple
-                for t in expected_type:
-                    if t is not type(None):
-                        if t is bool:
-                            return self._convert_to_bool(path, value)
-                        elif t is int:
-                            return int(value)
-                        elif t is float:
-                            return float(value)
-                        elif t is str:
-                            return value
-                        elif t is list:
-                            return self._convert_to_list(path, value)
-                        else:
-                            # Handle custom class types in tuple
-                            return t(value)
-                        break
-            elif isinstance(expected_type, type):
-                # Handle custom class types - attempt to instantiate
-                return expected_type(value)
-
-            # Default to string
-            return value
-        except (ValueError, TypeError) as e:
-            # Re-raise with better error message that includes the path
-            if "Invalid value for" in str(e):
-                raise  # Don't double-wrap our custom errors
-            raise ValueError(f"Invalid value for {path}: {e}") from e
-
-    def _convert_to_bool(self, key: str, value: str) -> bool:
-        """Convert a string value to a boolean."""
-        if value.lower() in ("true", "yes", "1", "on"):
-            return True
-        if value.lower() in ("false", "no", "0", "off"):
-            return False
-        raise ValueError(
-            f"Invalid boolean value for {key}: {value}. "
-            f"Use true/false, yes/no, 1/0, or on/off"
-        )
-
-    def _convert_to_list(self, key: str, value: str) -> list[Any]:
-        """Convert a string value to a list."""
-        # Handle string representation of lists (e.g., "['item1', 'item2']")
-        value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            try:
-                import ast
-
-                parsed = ast.literal_eval(value)
-                if isinstance(parsed, list):
-                    return parsed
-            except (ValueError, SyntaxError):
-                pass  # Fall through to comma-separated parsing
-
-        # Handle comma-separated values
-        if "," in value:
-            items = [item.strip().strip("\"'") for item in value.split(",")]
-            return [item for item in items if item]  # Filter out empty strings
-
-        # Handle single value
-        if value:
-            return [value.strip().strip("\"'")]
-
-        # Empty string means empty list
-        return []
+            validate_numeric_range(value, min_val, max_val, path)
 
     def unset(self, key: str) -> None:
         """Unset a configuration key, resetting it to default."""
         if "." in key:
             # Hierarchical path - validate first, then reset to default
             # value from DEFAULT_CONFIG
-            _validate_hierarchical_key(key)
+            validate_config_key_path(key, CONFIG_SCHEMA)
             try:
-                default_value = _get_nested_value(DEFAULT_CONFIG, key)
-                _set_nested_value(self._config, key, default_value)
+                default_value = get_nested_value(DEFAULT_CONFIG, key)
+                set_nested_value(self._config, key, default_value)
             except KeyError as err:
                 raise ValueError(f"Config path not found: {key}") from err
         else:

@@ -7,14 +7,17 @@ of the main vibectl CLI, reducing complexity and enabling dedicated
 server deployment scenarios.
 """
 
-import argparse
 import logging
-import os
 import sys
-from pathlib import Path
 
-import yaml
+import click
 
+from vibectl.config_utils import (
+    ensure_config_dir,
+    get_config_dir,
+    load_yaml_config,
+    save_yaml_config,
+)
 from vibectl.logutil import logger
 
 from .grpc_server import create_server
@@ -38,30 +41,6 @@ def setup_logging(log_level: str = "INFO") -> None:
     )
 
 
-def get_server_config_dir() -> Path:
-    """Get the server configuration directory path.
-
-    Returns:
-        Path to the server configuration directory
-    """
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    if config_home:
-        return Path(config_home) / "vibectl" / "server"
-    else:
-        return Path.home() / ".config" / "vibectl" / "server"
-
-
-def ensure_server_config_dir() -> Path:
-    """Ensure the server configuration directory exists.
-
-    Returns:
-        Path to the server configuration directory
-    """
-    config_dir = get_server_config_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir
-
-
 def load_server_config() -> dict:
     """Load server configuration.
 
@@ -79,34 +58,26 @@ def load_server_config() -> dict:
     }
 
     # Try to load from config file
-    config_dir = get_server_config_dir()
+    config_dir = get_config_dir("server")
     config_file = config_dir / "config.yaml"
 
-    if config_file.exists():
-        try:
-            with open(config_file) as f:
-                file_config = yaml.safe_load(f) or {}
-
-            # Merge with defaults
-            config = {**default_config, **file_config}
-            logger.debug(f"Loaded configuration from {config_file}")
-            return config
-
-        except Exception as e:
-            logger.warning(f"Failed to load config from {config_file}: {e}")
-            logger.info("Using default configuration")
-
-    return default_config
+    try:
+        config = load_yaml_config(config_file, defaults=default_config)
+        logger.debug(f"Loaded configuration from {config_file}")
+        return config
+    except ValueError as e:
+        logger.warning(f"Failed to load config from {config_file}: {e}")
+        logger.info("Using default configuration")
+        return default_config
 
 
 def create_default_config() -> None:
     """Create a default configuration file if it doesn't exist."""
-    config_dir = ensure_server_config_dir()
+    config_dir = ensure_config_dir("server")
     config_file = config_dir / "config.yaml"
 
     if not config_file.exists():
         default_config = {
-            "# vibectl server configuration": None,
             "host": "localhost",
             "port": 50051,
             "default_model": None,
@@ -115,163 +86,15 @@ def create_default_config() -> None:
             "enable_auth": False,
         }
 
-        # Remove the comment key before writing
-        config_to_write = {
-            k: v for k, v in default_config.items() if not k.startswith("#")
-        }
-
         try:
-            with open(config_file, "w") as f:
-                f.write("# vibectl server configuration\n")
-                f.write(
-                    "# See https://github.com/your-repo/vibectl for documentation\n\n"
-                )
-                yaml.dump(config_to_write, f, default_flow_style=False)
-
+            comment = (
+                "vibectl server configuration\n"
+                "See https://github.com/othercriteria/vibectl for documentation"
+            )
+            save_yaml_config(default_config, config_file, comment=comment)
             logger.info(f"Created default configuration file: {config_file}")
-
-        except Exception as e:
+        except ValueError as e:
             logger.warning(f"Failed to create default config file: {e}")
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments.
-
-    Returns:
-        argparse.Namespace: Parsed arguments
-    """
-    # Check if user is asking for help on the main command
-    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ["-h", "--help"]):
-        # Show main help with all subcommands
-        parser = argparse.ArgumentParser(
-            description="vibectl gRPC LLM proxy server",
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        )
-        subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-        # Add subparsers just for help display
-        subparsers.add_parser("serve", help="Start the gRPC server (default command)")
-        subparsers.add_parser(
-            "generate-token", help="Generate a JWT token for client authentication"
-        )
-        subparsers.add_parser(
-            "init-config", help="Initialize server configuration directory and files"
-        )
-
-        parser.parse_args()
-        return argparse.Namespace()  # This won't be reached due to parse_args() exit
-
-    # Check if first argument is a known subcommand
-    known_subcommands = ["serve", "generate-token", "init-config"]
-    if len(sys.argv) > 1 and sys.argv[1] in known_subcommands:
-        # Standard subcommand parsing
-        parser = argparse.ArgumentParser(
-            description="vibectl gRPC LLM proxy server",
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        )
-        subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    else:
-        # No subcommand provided, or first arg looks like a flag - default to serve
-        # Insert "serve" as the first argument
-        sys.argv.insert(1, "serve")
-        parser = argparse.ArgumentParser(
-            description="vibectl gRPC LLM proxy server",
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        )
-        subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    # Server command (default)
-    server_parser = subparsers.add_parser(
-        "serve",
-        help="Start the gRPC server (default command)",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    server_parser.add_argument(
-        "--host", default=None, help="Host to bind the gRPC server to"
-    )
-
-    server_parser.add_argument(
-        "--port", type=int, default=None, help="Port to bind the gRPC server to"
-    )
-
-    server_parser.add_argument(
-        "--model",
-        default=None,
-        help=(
-            "Default LLM model to use (if not specified, server will require "
-            "clients to specify model)"
-        ),
-    )
-
-    server_parser.add_argument(
-        "--max-workers", type=int, default=None, help="Maximum number of worker threads"
-    )
-
-    server_parser.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default=None,
-        help="Logging level",
-    )
-
-    server_parser.add_argument(
-        "--enable-auth",
-        action="store_true",
-        help="Enable JWT authentication for the server",
-    )
-
-    server_parser.add_argument(
-        "--config", help="Path to server configuration file (not yet implemented)"
-    )
-
-    # Token generation command
-    token_parser = subparsers.add_parser(
-        "generate-token",
-        help="Generate a JWT token for client authentication",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    token_parser.add_argument(
-        "subject",
-        help="Subject identifier for the token (e.g., username or client identifier)",
-    )
-
-    token_parser.add_argument(
-        "--expires-in",
-        default="1y",
-        help="Token expiration time (e.g., '30d', '1y', '6m')",
-    )
-
-    token_parser.add_argument(
-        "--output", help="Output file for the token (prints to stdout if not specified)"
-    )
-
-    token_parser.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Logging level",
-    )
-
-    # Config initialization command
-    config_parser = subparsers.add_parser(
-        "init-config",
-        help="Initialize server configuration directory and files",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    config_parser.add_argument(
-        "--force", action="store_true", help="Overwrite existing configuration files"
-    )
-
-    args = parser.parse_args()
-
-    # If no command provided, default to serve (but only if we're not just showing help)
-    if args.command is None:
-        args.command = "serve"
-
-    return args
 
 
 def parse_duration(duration_str: str) -> int:
@@ -323,52 +146,6 @@ def parse_duration(duration_str: str) -> int:
         ) from None
 
 
-def cmd_generate_token(args: argparse.Namespace) -> int:
-    """Handle the generate-token command.
-
-    Args:
-        args: Parsed command line arguments
-
-    Returns:
-        Exit code (0 for success, non-zero for error)
-    """
-    try:
-        # Setup logging
-        setup_logging(args.log_level)
-
-        # Parse the expiration duration
-        expiration_days = parse_duration(args.expires_in)
-
-        # Load JWT configuration
-        config = load_jwt_config_from_env()
-        jwt_manager = JWTAuthManager(config)
-
-        # Generate the token
-        token = jwt_manager.generate_token(
-            subject=args.subject, expiration_days=expiration_days
-        )
-
-        # Output the token
-        if args.output:
-            with open(args.output, "w") as f:
-                f.write(token)
-            logger.info(f"Token written to {args.output}")
-            print(f"Token generated and saved to {args.output}")
-        else:
-            print(token)
-
-        logger.info(
-            f"Successfully generated token for subject '{args.subject}' "
-            f"(expires in {expiration_days} days)"
-        )
-        return 0
-
-    except Exception as e:
-        logger.error(f"Token generation failed: {e}")
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-
 def validate_config(host: str, port: int, max_workers: int) -> None:
     """Validate server configuration parameters.
 
@@ -390,91 +167,100 @@ def validate_config(host: str, port: int, max_workers: int) -> None:
         raise ValueError(f"Max workers must be at least 1, got {max_workers}")
 
 
-def cmd_init_config(args: argparse.Namespace) -> int:
-    """Handle the init-config command.
-
-    Args:
-        args: Parsed command line arguments
-
-    Returns:
-        Exit code (0 for success, non-zero for error)
-    """
-    try:
-        config_dir = ensure_server_config_dir()
-        config_file = config_dir / "config.yaml"
-
-        if config_file.exists() and not args.force:
-            print(f"Configuration file already exists: {config_file}")
-            print("Use --force to overwrite")
-            return 1
-
-        create_default_config()
-
-        print(f"Server configuration initialized at: {config_dir}")
-        print(f"Configuration file: {config_file}")
-        print("\nEdit the configuration file to customize server settings.")
-
-        return 0
-
-    except Exception as e:
-        logger.error(f"Config initialization failed: {e}")
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+# Click CLI Group and Commands
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """vibectl gRPC LLM proxy server"""
+    # If no subcommand is provided, default to serve
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(serve)
 
 
-def cmd_serve(args: argparse.Namespace) -> int:
-    """Handle the serve command.
-
-    Args:
-        args: Parsed command line arguments
-
-    Returns:
-        Exit code (0 for success, non-zero for error)
-    """
+@cli.command()
+@click.option("--host", default=None, help="Host to bind the gRPC server to")
+@click.option("--port", type=int, default=None, help="Port to bind the gRPC server to")
+@click.option(
+    "--model",
+    default=None,
+    help="Default LLM model to use (if not specified, server will require "
+    "clients to specify model)",
+)
+@click.option(
+    "--max-workers", type=int, default=None, help="Maximum number of worker threads"
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    default=None,
+    help="Logging level",
+)
+@click.option(
+    "--enable-auth",
+    is_flag=True,
+    default=False,
+    help="Enable JWT authentication for the server",
+)
+@click.option(
+    "--config", help="Path to server configuration file (not yet implemented)"
+)
+def serve(
+    host: str | None,
+    port: int | None,
+    model: str | None,
+    max_workers: int | None,
+    log_level: str | None,
+    enable_auth: bool,
+    config: str | None,
+) -> None:
+    """Start the gRPC server (default command)"""
     try:
         # Load configuration from file first
-        config = load_server_config()
+        server_config = load_server_config()
 
         # Override with command line arguments (only if they were explicitly provided)
-        if args.host is not None:
-            config["host"] = args.host
-        if args.port is not None:
-            config["port"] = args.port
-        if args.model is not None:
-            config["default_model"] = args.model
-        if args.max_workers is not None:
-            config["max_workers"] = args.max_workers
-        if args.log_level is not None:
-            config["log_level"] = args.log_level
-        if args.enable_auth:
-            config["enable_auth"] = True
+        if host is not None:
+            server_config["host"] = host
+        if port is not None:
+            server_config["port"] = port
+        if model is not None:
+            server_config["default_model"] = model
+        if max_workers is not None:
+            server_config["max_workers"] = max_workers
+        if log_level is not None:
+            server_config["log_level"] = log_level
+        if enable_auth:
+            server_config["enable_auth"] = True
 
         # Setup logging
-        setup_logging(config["log_level"])
+        setup_logging(server_config["log_level"])
 
         # Validate configuration
-        validate_config(config["host"], config["port"], config["max_workers"])
-
-        logger.info("Starting vibectl LLM proxy server")
-        logger.info(f"Host: {config['host']}")
-        logger.info(f"Port: {config['port']}")
-        logger.info(f"Max workers: {config['max_workers']}")
-        logger.info(
-            f"Authentication: {'enabled' if config['enable_auth'] else 'disabled'}"
+        validate_config(
+            server_config["host"], server_config["port"], server_config["max_workers"]
         )
 
-        if config["default_model"]:
-            logger.info(f"Default model: {config['default_model']}")
+        logger.info("Starting vibectl LLM proxy server")
+        logger.info(f"Host: {server_config['host']}")
+        logger.info(f"Port: {server_config['port']}")
+        logger.info(f"Max workers: {server_config['max_workers']}")
+        auth_status = "enabled" if server_config["enable_auth"] else "disabled"
+        logger.info(f"Authentication: {auth_status}")
+
+        if server_config["default_model"]:
+            logger.info(f"Default model: {server_config['default_model']}")
         else:
             logger.info("No default model configured - clients must specify model")
 
         # Create and start the server
         server = create_server(
-            host=config["host"],
-            port=config["port"],
-            default_model=config["default_model"],
-            max_workers=config["max_workers"],
-            enable_auth=config["enable_auth"],
+            host=server_config["host"],
+            port=server_config["port"],
+            default_model=server_config["default_model"],
+            max_workers=server_config["max_workers"],
+            enable_auth=server_config["enable_auth"],
         )
 
         logger.info("Server created successfully")
@@ -483,15 +269,97 @@ def cmd_serve(args: argparse.Namespace) -> int:
         server.serve_forever()
 
         logger.info("Server stopped")
-        return 0
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, shutting down...")
-        return 0
 
     except Exception as e:
         logger.error(f"Server startup failed: {e}", exc_info=True)
-        return 1
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("subject")
+@click.option(
+    "--expires-in", default="1y", help="Token expiration time (e.g., '30d', '1y', '6m')"
+)
+@click.option(
+    "--output", help="Output file for the token (prints to stdout if not specified)"
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    default="INFO",
+    help="Logging level",
+)
+def generate_token(
+    subject: str,
+    expires_in: str,
+    output: str | None,
+    log_level: str,
+) -> None:
+    """Generate a JWT token for client authentication"""
+    try:
+        # Setup logging
+        setup_logging(log_level)
+
+        # Parse the expiration duration
+        expiration_days = parse_duration(expires_in)
+
+        # Load JWT configuration
+        config = load_jwt_config_from_env()
+        jwt_manager = JWTAuthManager(config)
+
+        # Generate the token
+        token = jwt_manager.generate_token(
+            subject=subject, expiration_days=expiration_days
+        )
+
+        # Output the token
+        if output:
+            with open(output, "w") as f:
+                f.write(token)
+            logger.info(f"Token written to {output}")
+            click.echo(f"Token generated and saved to {output}")
+        else:
+            click.echo(token)
+
+        logger.info(
+            f"Successfully generated token for subject '{subject}' "
+            f"(expires in {expiration_days} days)"
+        )
+
+    except Exception as e:
+        logger.error(f"Token generation failed: {e}")
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--force", is_flag=True, help="Overwrite existing configuration files")
+def init_config(force: bool) -> None:
+    """Initialize server configuration directory and files"""
+    try:
+        config_dir = ensure_config_dir("server")
+        config_file = config_dir / "config.yaml"
+
+        if config_file.exists() and not force:
+            click.echo(f"Configuration file already exists: {config_file}")
+            click.echo("Use --force to overwrite")
+            sys.exit(1)
+
+        create_default_config()
+
+        click.echo(f"Server configuration initialized at: {config_dir}")
+        click.echo(f"Configuration file: {config_file}")
+        click.echo("\nEdit the configuration file to customize server settings.")
+
+    except Exception as e:
+        logger.error(f"Config initialization failed: {e}")
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 def main() -> int:
@@ -501,16 +369,9 @@ def main() -> int:
         int: Exit code (0 for success, non-zero for error)
     """
     try:
-        # Parse command line arguments
-        args = parse_args()
-
-        # Route to the appropriate command handler
-        if args.command == "generate-token":
-            return cmd_generate_token(args)
-        elif args.command == "init-config":
-            return cmd_init_config(args)
-        else:  # Default to serve
-            return cmd_serve(args)
+        # Run the CLI
+        cli()
+        return 0
 
     except Exception as e:
         logger.error(f"Command failed: {e}", exc_info=True)

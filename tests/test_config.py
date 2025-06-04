@@ -18,6 +18,7 @@ from vibectl.config import (
     DEFAULT_CONFIG,
     Config,
 )
+from vibectl.config_utils import ensure_config_dir
 
 
 class MockConfig(Config):
@@ -26,7 +27,7 @@ class MockConfig(Config):
     def __init__(self, base_dir: Path | None = None) -> None:
         """Initialize with default config in memory only."""
         # Use environment variable, provided base directory, or default to user's home
-        self.config_dir = (base_dir or Path.home()) / ".config" / "vibectl" / "client"
+        self.config_dir = ensure_config_dir("client", base_dir)
         self.config_file = self.config_dir / "config.yaml"
 
         # Initialize with defaults - use deep copy to avoid modifying the original
@@ -34,24 +35,26 @@ class MockConfig(Config):
 
         self._config = copy.deepcopy(DEFAULT_CONFIG)
 
-    def _load_config(self) -> None:
-        """Load configuration for mock - now preserves unsupported keys."""
+        # If a config file exists, load it
         if self.config_file.exists() and self.config_file.is_file():
-            # Load actual config file if it exists (for tests that create real files)
-            try:
-                if self.config_file.stat().st_size == 0:
-                    # Handle empty file as an empty dictionary
-                    loaded_config: dict[str, Any] = {}
-                else:
-                    with open(self.config_file, encoding="utf-8") as f:
-                        loaded_config = yaml.safe_load(f) or {}
+            self._load_config_from_file()
 
-                # Update our default config with loaded values
-                # This preserves unsupported keys
-                self._config.update(loaded_config)
+    def _load_config_from_file(self) -> None:
+        """Load configuration from file for mock - preserves unsupported keys."""
+        try:
+            if self.config_file.stat().st_size == 0:
+                # Handle empty file as an empty dictionary
+                loaded_config: dict[str, Any] = {}
+            else:
+                with open(self.config_file, encoding="utf-8") as f:
+                    loaded_config = yaml.safe_load(f) or {}
 
-            except (yaml.YAMLError, OSError) as e:
-                raise ValueError(f"Failed to load config: {e}") from e
+            # Update our default config with loaded values
+            # This preserves unsupported keys
+            self._config.update(loaded_config)
+
+        except (yaml.YAMLError, OSError) as e:
+            raise ValueError(f"Failed to load config: {e}") from e
 
     def _save_config(self) -> None:
         """No-op for mock class."""
@@ -140,7 +143,7 @@ def test_config_set_warn_no_proxy(test_config: MockConfig) -> None:
 
 def test_config_set_invalid_boolean(test_config: MockConfig) -> None:
     """Test setting invalid boolean value."""
-    with pytest.raises(ValueError, match="Invalid boolean value"):
+    with pytest.raises(ValueError, match="Invalid value for display.show_raw_output"):
         test_config.set("display.show_raw_output", "invalid")
 
 
@@ -213,16 +216,12 @@ def test_config_invalid_key(test_config: MockConfig) -> None:
 def test_config_invalid_type_conversion(test_config: MockConfig) -> None:
     """Test invalid type conversion."""
     # Test invalid boolean
-    with pytest.raises(ValueError, match="Invalid boolean value"):
+    with pytest.raises(ValueError, match="Invalid value for display.show_raw_output"):
         test_config.set("display.show_raw_output", "not_a_bool")
 
-    # Test invalid string for None-allowed field
-    with pytest.raises(ValueError, match="None is not a valid value"):
-        test_config.set("display.theme", "none")
-
-    # Test invalid type for string field
-    with pytest.raises(ValueError, match="Invalid value for"):
-        test_config.set("display.theme", "123")  # Theme must be a valid theme name
+    # Test invalid integer conversion
+    with pytest.raises(ValueError, match="Invalid value for proxy.timeout_seconds"):
+        test_config.set("proxy.timeout_seconds", "not_a_number")
 
 
 def test_config_invalid_allowed_values(test_config: MockConfig) -> None:
@@ -621,11 +620,9 @@ def test_config_convert_type_fallback_full(test_config: MockConfig) -> None:
         # We need to use a new Config instance to ensure it gets our patched schema
         with TemporaryDirectory() as temp_dir:
             test_cfg = Config(Path(temp_dir))
-            # Use internal method directly since it's not expected to be called normally
-            # when all types in a tuple are None
-            result = test_cfg._convert_hierarchical_value(
-                "test_bad_schema", "test_value"
-            )
+            # Test through the public API - the type conversion is now internal
+            test_cfg.set("test_bad_schema", "test_value")
+            result = test_cfg.get("test_bad_schema")
             assert result == "test_value"
     finally:
         # Restore the original schema
@@ -650,16 +647,17 @@ def test_config_convert_type_exception_handling_full(test_config: MockConfig) ->
         }
 
         # Add our test key to valid values
-        if "failing_type" not in vibectl.config.CONFIG_VALID_VALUES:
-            vibectl.config.CONFIG_VALID_VALUES["failing_type"] = ["any_value"]
+        if "system.failing_type" not in vibectl.config.CONFIG_VALID_VALUES:
+            vibectl.config.CONFIG_VALID_VALUES["system.failing_type"] = ["any_value"]
 
         # Attempt to convert a value that will trigger the exception
         with TemporaryDirectory() as temp_dir:
             test_cfg = Config(Path(temp_dir))
+            # Test through the public API - should get a proper error message
             with pytest.raises(
                 ValueError, match="Invalid value for system.failing_type"
             ):
-                test_cfg._convert_hierarchical_value("system.failing_type", "any_value")
+                test_cfg.set("system.failing_type", "any_value")
     finally:
         # Restore the original schema
         vibectl.config.CONFIG_SCHEMA = original_schema
@@ -778,18 +776,17 @@ def test_config_debug_initialization() -> None:
 
 
 def test_config_direct_patch() -> None:
-    """Test by directly patching the Config._load_config method."""
+    """Test default configuration behavior when no config file exists."""
     with TemporaryDirectory() as temp_dir:
         # Setup
         temp_path = Path(temp_dir)
         config_dir = temp_path / ".config" / "vibectl" / "client"
         config_dir.mkdir(parents=True, exist_ok=True)
 
-        # Mock the _load_config method to do nothing
-        with patch.object(Config, "_load_config", return_value=None):
-            config = Config(temp_path)
-            # Should use default config since _load_config does nothing
-            assert config.get("display.theme") == "default"
+        # Create config without any existing file
+        config = Config(temp_path)
+        # Should use default config since no file exists
+        assert config.get("display.theme") == "default"
 
 
 def test_load_file_in_temp() -> None:

@@ -258,10 +258,10 @@ async def test_update_memory_disabled(mock_is_enabled: Mock) -> None:
 
 @pytest.mark.fast
 @patch("vibectl.memory.Config.save")
-@patch("vibectl.memory.Config._load_config")
+@patch("vibectl.config_utils.load_yaml_config")
 @patch("pathlib.Path.exists")
 def test_test_isolation_doesnt_impact_real_config(
-    mock_path_exists: Mock, mock_load_config: Mock, mock_config_save: Mock
+    mock_path_exists: Mock, mock_load_yaml_config: Mock, mock_config_save: Mock
 ) -> None:
     """Verify that config changes in tests do not affect the real config file.
 
@@ -270,9 +270,9 @@ def test_test_isolation_doesnt_impact_real_config(
     user's config file on disk.
     """
     mock_path_exists.return_value = False  # Simulate no pre-existing real config
-    mock_load_config.return_value = {}  # Simulate loading an empty config
+    mock_load_yaml_config.return_value = {}  # Simulate loading an empty config
 
-    # Get initial memory state (should be default or from mocked _load_config)
+    # Get initial memory state (should be default or from mocked load_yaml_config)
     # Pass a freshly mocked Config instance to get_memory to ensure isolation
     initial_test_config_instance_for_get = Mock(spec=Config)
     initial_test_config_instance_for_get.get.return_value = "initial_mem_for_get"
@@ -329,4 +329,4 @@ def test_test_isolation_doesnt_impact_real_config(
     mock_config_save.assert_not_called()
     # Ensure no *actual* load or exists calls happened on Path.
     # mock_path_exists.assert_called() # This will be called by Config init
-    # mock_load_config.assert_called() # This will be called by Config init
+    # mock_load_yaml_config.assert_called() # This will be called by Config init
