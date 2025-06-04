@@ -11,8 +11,8 @@ from concurrent import futures
 
 import grpc  # type: ignore
 
-from vibectl.proto.llm_proxy_pb2_grpc import (
-    add_VibectlLLMProxyServicer_to_server,  # type: ignore
+from vibectl.proto.llm_proxy_pb2_grpc import (  # type: ignore[import-not-found]
+    add_VibectlLLMProxyServicer_to_server,
 )
 
 from .jwt_auth import JWTAuthManager, load_jwt_config_from_env

@@ -19,8 +19,7 @@ from pydantic import BaseModel
 from .config import Config
 from .logutil import logger
 from .model_adapter import ModelAdapter, StreamingMetricsCollector
-from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc  # type: ignore[attr-defined]
-from .proto.llm_proxy_pb2 import GetServerInfoRequest  # type: ignore[attr-defined]
+from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc  # type: ignore[import-not-found]
 from .types import LLMMetrics, SystemFragments, UserFragments
 
 
@@ -67,7 +66,12 @@ class ProxyModelAdapter(ModelAdapter):
     """Model adapter that proxies requests to a remote vibectl LLM proxy server."""
 
     def __init__(
-        self, config: Config | None = None, host: str = "localhost", port: int = 50051
+        self,
+        config: Config | None = None,
+        host: str = "localhost",
+        port: int = 50051,
+        jwt_token: str | None = None,
+        use_tls: bool = True,
     ):
         """Initialize the proxy model adapter.
 
@@ -75,23 +79,41 @@ class ProxyModelAdapter(ModelAdapter):
             config: Optional Config instance for client configuration
             host: Proxy server host (default: localhost)
             port: Proxy server port (default: 50051)
+            jwt_token: Optional JWT token for authentication
+            use_tls: Whether to use TLS encryption (default: True)
         """
         self.config = config or Config()
         self.host = host
         self.port = port
+        self.jwt_token = jwt_token
+        self.use_tls = use_tls
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
         self._model_cache: dict[str, ProxyModelWrapper] = {}
 
-        logger.debug("ProxyModelAdapter initialized for %s:%d", self.host, self.port)
+        logger.debug(
+            "ProxyModelAdapter initialized for %s:%d (TLS: %s, Auth: %s)",
+            self.host,
+            self.port,
+            self.use_tls,
+            "enabled" if self.jwt_token else "disabled",
+        )
 
     def _get_channel(self) -> grpc.Channel:
         """Get or create the gRPC channel."""
         if self.channel is None:
             target = f"{self.host}:{self.port}"
-            self.channel = grpc.insecure_channel(target)
+
+            if self.use_tls:
+                self.channel = grpc.secure_channel(
+                    target, grpc.ssl_channel_credentials()
+                )
+                logger.debug("Created secure gRPC channel to %s", target)
+            else:
+                self.channel = grpc.insecure_channel(target)
+                logger.debug("Created insecure gRPC channel to %s", target)
+
             self.stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(self.channel)
-            logger.debug("Created gRPC channel to %s", target)
         return self.channel
 
     def _get_stub(self) -> llm_proxy_pb2_grpc.VibectlLLMProxyStub:
@@ -100,6 +122,13 @@ class ProxyModelAdapter(ModelAdapter):
         if self.stub is None:
             raise RuntimeError("Failed to create gRPC stub")
         return self.stub
+
+    def _get_metadata(self) -> list[tuple[str, str]]:
+        """Get gRPC metadata including JWT authentication if available."""
+        metadata = []
+        if self.jwt_token:
+            metadata.append(("authorization", f"Bearer {self.jwt_token}"))
+        return metadata
 
     def get_model(self, model_name: str) -> Any:
         """Get a proxy model wrapper by name.
@@ -121,8 +150,10 @@ class ProxyModelAdapter(ModelAdapter):
         # Check if model is available on proxy server
         try:
             stub = self._get_stub()
-            request = GetServerInfoRequest()  # type: ignore[attr-defined]
-            response = stub.GetServerInfo(request, timeout=10.0)
+            # Use getattr to avoid mypy issues with generated protobuf classes
+            request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
+            metadata = self._get_metadata()
+            response = stub.GetServerInfo(request, timeout=10.0, metadata=metadata)
 
             # Get available models from server
             available_models = [model.model_id for model in response.available_models]
@@ -305,9 +336,10 @@ class ProxyModelAdapter(ModelAdapter):
                 request.model_name,
             )
 
-            # Execute the request
+            # Execute the request with authentication metadata
+            metadata = self._get_metadata()
             response = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: stub.Execute(request, timeout=60.0)
+                None, lambda: stub.Execute(request, timeout=60.0, metadata=metadata)
             )
 
             # Handle response
@@ -390,7 +422,9 @@ class ProxyModelAdapter(ModelAdapter):
 
             # Create async wrapper for the streaming call
             def _stream_call() -> Any:
-                return stub.StreamExecute(request, timeout=120.0)
+                return stub.StreamExecute(
+                    request, timeout=60.0, metadata=self._get_metadata()
+                )
 
             stream = await asyncio.get_event_loop().run_in_executor(None, _stream_call)
 
@@ -463,7 +497,9 @@ class ProxyModelAdapter(ModelAdapter):
             # Create the streaming iterator with metrics handling
             async def _streaming_iterator() -> AsyncIterator[str]:
                 def _stream_call() -> Any:
-                    return stub.StreamExecute(request, timeout=120.0)
+                    return stub.StreamExecute(
+                        request, timeout=60.0, metadata=self._get_metadata()
+                    )
 
                 stream = await asyncio.get_event_loop().run_in_executor(
                     None, _stream_call

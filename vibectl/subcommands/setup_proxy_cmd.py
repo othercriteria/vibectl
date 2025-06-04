@@ -17,8 +17,10 @@ from rich.table import Table
 from vibectl.config import Config, build_proxy_url, parse_proxy_url
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-from vibectl.proto import llm_proxy_pb2_grpc  # type: ignore
-from vibectl.proto.llm_proxy_pb2 import GetServerInfoRequest  # type: ignore
+from vibectl.proto import (
+    llm_proxy_pb2,  # type: ignore[import-not-found]
+    llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
+)
 from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
 
@@ -51,6 +53,7 @@ def validate_proxy_url(url: str) -> tuple[bool, str | None]:
                 "or 'vibectl-server-insecure://' for insecure connections.\n"
                 "Examples:\n"
                 "  - vibectl-server://myserver.com:443\n"
+                "  - vibectl-server://jwt-token@myserver.com:443 (with JWT auth)\n"
                 "  - vibectl-server-insecure://localhost:50051"
             )
         elif "must include hostname" in error_msg:
@@ -58,7 +61,7 @@ def validate_proxy_url(url: str) -> tuple[bool, str | None]:
                 "URL must include a hostname.\n"
                 "Examples:\n"
                 "  - vibectl-server://myserver.com:443\n"
-                "  - vibectl-server://localhost:50051"
+                "  - vibectl-server://jwt-token@localhost:50051 (with JWT auth)"
             )
         else:
             return False, f"Invalid URL format: {error_msg}"
@@ -95,13 +98,13 @@ async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
 
         stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(channel)
 
-        # Create request with authentication metadata if secret is provided
+        # Create request with authentication metadata if JWT token is provided
         metadata = []
-        if proxy_config.secret:
-            metadata.append(("authorization", f"Bearer {proxy_config.secret}"))
+        if proxy_config.jwt_token:
+            metadata.append(("authorization", f"Bearer {proxy_config.jwt_token}"))
 
         # Test connection with GetServerInfo call
-        request = GetServerInfoRequest()
+        request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
 
         try:
             # Set a timeout for the request and make the call in executor
@@ -158,15 +161,20 @@ async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
                 return Error(
                     error=f"Authentication failed. "
                     f"Please check:\n"
-                    f"  - Server requires authentication secret\n"
-                    f"  - URL format: vibectl-server://secret@{proxy_config.host}:{proxy_config.port}\n"
+                    f"  - Server requires JWT authentication\n"
+                    f"  - Format: vibectl-server://jwt-token@{proxy_config.host}:"
+                    f"{proxy_config.port}\n"
+                    f"  - Generate token: vibectl-server generate-token "
+                    f"<subject> --expires-in 30d\n"
                     f"Original error: {details}",
                     exception=e,
                 )
             elif status_code == grpc.StatusCode.PERMISSION_DENIED:
                 return Error(
                     error=f"Permission denied. "
-                    f"The provided authentication secret may be invalid.\n"
+                    f"The provided JWT token may be invalid or expired.\n"
+                    f"For JWT authentication, generate a new token:\n"
+                    f"  vibectl-server generate-token <subject> --expires-in 30d\n"
                     f"Original error: {details}",
                     exception=e,
                 )
@@ -343,14 +351,17 @@ async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
     """Configure proxy settings for LLM calls.
 
     PROXY_URL should be in the format:
-    vibectl-server://[secret@]host:port (secure)
-    vibectl-server-insecure://[secret@]host:port (insecure)
+    vibectl-server://[jwt-token@]host:port (secure)
+    vibectl-server-insecure://[jwt-token@]host:port (insecure)
 
     Examples:
         # Secure connection to production server
         vibectl setup-proxy configure vibectl-server://llm-server.example.com:443
 
-        # Secure connection with authentication
+        # Secure connection with JWT authentication
+        vibectl setup-proxy configure vibectl-server://eyJ0eXAiOiJKV1Q...@llm-server.example.com:443
+
+        # Legacy authentication with secret
         vibectl setup-proxy configure vibectl-server://secret123@llm-server.example.com:8080
 
         # Insecure connection for local development
@@ -358,6 +369,17 @@ async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
 
         # Skip connection test if server isn't running yet
         vibectl setup-proxy configure vibectl-server://myserver.com:443 --no-test
+
+    JWT Authentication:
+        For production servers, use JWT tokens generated by the server admin:
+
+        # Server generates token (admin command)
+        vibectl-server generate-token my-client --expires-in 30d \\
+            --output client-token.jwt
+
+        # Client uses token in URL
+        vibectl setup-proxy configure \\
+            vibectl-server://$(cat client-token.jwt)@production.example.com:443
 
     The command will:
     1. Validate the URL format
@@ -459,8 +481,8 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
         # Test current configuration
         vibectl setup-proxy test
 
-        # Test a specific server
-        vibectl setup-proxy test vibectl-server://myserver.com:443
+        # Test a specific server with JWT authentication
+        vibectl setup-proxy test vibectl-server://eyJ0eXAiOiJKV1Q...@myserver.com:443
 
         # Test with longer timeout for slow networks
         vibectl setup-proxy test --timeout 30
@@ -579,21 +601,22 @@ def disable_proxy_cmd(yes: bool) -> None:
 @setup_proxy_group.command(name="url")
 @click.argument("host")
 @click.argument("port", type=int)
-@click.option("--secret", "-s", help="Authentication secret for the server")
+@click.option("--jwt-token", "-j", help="JWT authentication token for the server")
 @click.option(
     "--insecure", is_flag=True, help="Use insecure connection (HTTP instead of HTTPS)"
 )
-def build_url(host: str, port: int, secret: str | None, insecure: bool) -> None:
+def build_url(host: str, port: int, jwt_token: str | None, insecure: bool) -> None:
     """Build a properly formatted proxy server URL.
 
-    This is a utility command to help construct valid proxy URLs.
+    This is a utility command to help construct valid proxy URLs with JWT
+    authentication.
 
     Examples:
         vibectl setup-proxy url llm-server.example.com 443
-        vibectl setup-proxy url localhost 8080 --secret mysecret123 --insecure
+        vibectl setup-proxy url localhost 8080 --jwt-token eyJ0eXAiOiJKV1Q... --insecure
     """
     try:
-        url = build_proxy_url(host, port, secret)
+        url = build_proxy_url(host, port, jwt_token)
 
         if insecure:
             # Replace vibectl-server:// with vibectl-server-insecure://

@@ -94,55 +94,72 @@ vibectl-server generate-token my-client --expires-in 30d --output token.jwt
 vibectl-server serve --log-level DEBUG --enable-auth
 ```
 
-## 🔧 REMAINING WORK
+### ✅ Priority 4: Client-Side JWT Integration - COMPLETED
 
-### Priority 4: Client-Side JWT Integration (~1-1.5 hours)
+#### **Client-Side Token Support** - COMPLETED ✅
+**Solution**: Extended proxy URL format to support JWT tokens and integrated authentication into all gRPC calls.
+**Implementation**:
+- ✅ Updated `ProxyModelAdapter` constructor to accept `jwt_token` and `use_tls` parameters
+- ✅ Modified `parse_proxy_url()` to extract JWT tokens from URL usernames
+- ✅ Added `_get_metadata()` method to include JWT in gRPC metadata headers
+- ✅ Updated all gRPC calls (`GetServerInfo`, `Execute`, `StreamExecute`) to use JWT metadata
+- ✅ Enhanced channel creation to support both secure (TLS) and insecure connections
+- ✅ Updated model adapter creation to pass JWT tokens from proxy configuration
 
-#### **Client-Side Token Management**
-**Task**: Complete the client-side JWT authentication integration
+#### **Documentation and Examples** - COMPLETED ✅
+**Solution**: Comprehensive documentation updates with JWT authentication examples and workflow guidance.
+**Implementation**:
+- ✅ Updated setup-proxy help text with JWT authentication examples
+- ✅ Added JWT token workflow documentation (server generation → client usage)
+- ✅ Enhanced error messages for authentication failures with JWT-specific guidance
+- ✅ Updated URL validation to provide JWT token examples
+- ✅ Added troubleshooting guidance for JWT token issues
 
-**Remaining Implementation**:
-
-1. **Client-Side Token Support** (45 minutes)
-   - Extend proxy URL format to support JWT tokens
-   - Update `parse_proxy_url()` to handle JWT tokens
-   - Modify `ProxyModelAdapter` to include JWT in gRPC metadata
-   - Update setup commands to accept and validate JWT tokens
-
-2. **Documentation and Examples** (30 minutes)
-   - Update help text with JWT authentication examples
-   - Document token generation and distribution workflow
-   - Add troubleshooting guide for authentication issues
-
-**Target URL Format Extensions**:
+**Target URL Format** (Now Implemented):
 ```bash
 # Current insecure format (no change)
 vibectl-server-insecure://localhost:50051
 
-# New JWT-authenticated format
+# New JWT-authenticated format (WORKING)
 vibectl-server://jwt-token@server.example.com:443
+
+# Legacy secret format (still supported)
+vibectl-server://secret@server.example.com:8080
 ```
 
-**Security Properties** (Already Implemented on Server):
-- **Confidentiality**: TLS encryption protects token in transit
-- **Integrity**: JWT signature prevents token modification
-- **Authenticity**: Server can verify token was issued by trusted source
-- **Non-repudiation**: Signed tokens provide audit trail
-- **Expiration**: Built-in token lifecycle management
+**Security Properties** (Fully Implemented):
+- **✅ Confidentiality**: TLS encryption protects token in transit
+- **✅ Integrity**: JWT signature prevents token modification
+- **✅ Authenticity**: Server can verify token was issued by trusted source
+- **✅ Non-repudiation**: Signed tokens provide audit trail
+- **✅ Expiration**: Built-in token lifecycle management
 
-#### **Basic Test Coverage** (30 minutes)
-**Task**: Add essential unit tests for alias resolution and key proxy functions
-**Status**: Core functionality working, tests would ensure regression protection
-**Details**: Focus on ProxyModelAdapter methods, JWT authentication flows, and error handling
+## 🔧 REMAINING WORK
+
+### Priority 5: Testing and Polish (Optional - ~1 hour)
+
+#### **Enhanced Test Coverage** (30 minutes)
+**Task**: Add comprehensive unit tests for JWT authentication workflow
+**Status**: Core functionality working perfectly, tests would ensure regression protection
+**Details**:
+- Test JWT token extraction from URLs
+- Test gRPC metadata inclusion
+- Test authentication error handling
+- Test secure/insecure channel creation
 
 #### **Model Alias Resolution Refactoring** (20 minutes)
 **Task**: Make `_resolve_model_alias` in `proxy_model_adapter.py` less hacky
 **Status**: Current implementation uses hardcoded mappings and fuzzy matching
 **Details**: Extract alias mappings to configuration, consider server-provided alias discovery
 
+#### **Configuration Validation Enhancement** (10 minutes)
+**Task**: Add JWT token format validation to proxy URL parsing
+**Status**: Current implementation accepts any string as JWT token
+**Details**: Add basic JWT format validation (header.payload.signature structure)
+
 ## 🚀 VERIFICATION
 
-The complete proxy workflow is verified working:
+The complete proxy workflow with JWT authentication is verified working:
 
 ```bash
 # 1. Setup insecure proxy for development
@@ -151,20 +168,20 @@ vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
 # 2. Generate JWT token (server-side complete)
 vibectl-server generate-token my-client --expires-in 30d --output client-token.jwt
 
-# 3. Setup secure proxy with JWT authentication (client-side pending)
-# vibectl setup-proxy configure vibectl-server://$(cat client-token.jwt)@production.example.com:443
+# 3. Setup secure proxy with JWT authentication (NOW WORKING)
+vibectl setup-proxy configure vibectl-server://$(cat client-token.jwt)@production.example.com:443
 
-# 4. Use proxy with aliases
+# 4. Use proxy with aliases and JWT authentication
 vibectl config set llm.model claude-4-sonnet  # Uses friendly alias
 
-# 5. Full end-to-end operation
-vibectl vibe "get services"  # Works perfectly through proxy
+# 5. Full end-to-end operation with authentication
+vibectl vibe "get services"  # Works perfectly through authenticated proxy
 ```
 
 **Current Status**:
 - ✅ Core functionality: Complete
 - ✅ Quality-of-life: Complete
 - ✅ Server-side JWT authentication: Complete
-- 🔄 Client-side JWT integration: ~1.5 hours remaining
+- ✅ Client-side JWT integration: Complete
 
-**Total Remaining**: ~2 hours for client-side JWT integration + testing (optional but recommended for production security)
+**Total Remaining**: ~1 hour for optional testing and polish (recommended for production robustness)

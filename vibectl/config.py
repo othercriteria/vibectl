@@ -690,7 +690,7 @@ class ProxyConfig:
 
     host: str
     port: int
-    secret: str | None = None
+    jwt_token: str | None = None
     use_tls: bool = True
 
 
@@ -698,9 +698,9 @@ def parse_proxy_url(url: str | None) -> ProxyConfig | None:
     """Parse a proxy URL into connection details.
 
     Expected formats:
-    - vibectl-server://secret@host:port (secure, TLS enabled)
+    - vibectl-server://jwt-token@host:port (secure, TLS enabled)
     - vibectl-server://host:port (secure, no auth)
-    - vibectl-server-insecure://secret@host:port (insecure, TLS disabled)
+    - vibectl-server-insecure://jwt-token@host:port (insecure, TLS disabled)
     - vibectl-server-insecure://host:port (insecure, no auth)
 
     Args:
@@ -736,26 +736,26 @@ def parse_proxy_url(url: str | None) -> ProxyConfig | None:
         host = parsed.hostname
         port = parsed.port or 50051  # Default gRPC port
 
-        # Extract secret from username part
-        secret = parsed.username if parsed.username else None
+        # Extract JWT token from username part
+        jwt_token = parsed.username if parsed.username else None
 
-        return ProxyConfig(host=host, port=port, secret=secret, use_tls=use_tls)
+        return ProxyConfig(host=host, port=port, jwt_token=jwt_token, use_tls=use_tls)
     except Exception as e:
         raise ValueError(f"Invalid proxy URL format: {e}") from e
 
 
-def build_proxy_url(host: str, port: int, secret: str | None = None) -> str:
+def build_proxy_url(host: str, port: int, jwt_token: str | None = None) -> str:
     """Build a proxy URL from components.
 
     Args:
         host: Server hostname
         port: Server port
-        secret: Optional authentication secret
+        jwt_token: Optional JWT authentication token
 
     Returns:
         Formatted proxy URL
     """
-    if secret:
-        return f"vibectl-server://{secret}@{host}:{port}"
+    if jwt_token:
+        return f"vibectl-server://{jwt_token}@{host}:{port}"
     else:
         return f"vibectl-server://{host}:{port}"

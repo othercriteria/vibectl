@@ -1506,6 +1506,7 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
                     "\nExample server URLs:\n"
                     "  - vibectl-server://myserver.com:443\n"
+                    "  - vibectl-server://jwt-token@myserver.com:443 (with JWT auth)\n"
                     "  - vibectl-server-insecure://localhost:50051"
                 )
 
@@ -1524,12 +1525,18 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
                     "\nValid server URL formats:\n"
                     "  - vibectl-server://myserver.com:443 (secure)\n"
+                    "  - vibectl-server://jwt-token@myserver.com:443 "
+                    "(secure with JWT auth)\n"
                     "  - vibectl-server-insecure://localhost:50051 (insecure)\n"
                     "  - vibectl-server://secret@myserver.com:8080 (with auth)"
                 ) from e
 
             _default_adapter = ProxyModelAdapter(
-                config=config, host=proxy_config.host, port=proxy_config.port
+                config=config,
+                host=proxy_config.host,
+                port=proxy_config.port,
+                jwt_token=proxy_config.jwt_token,
+                use_tls=proxy_config.use_tls,
             )
         else:
             # Use direct LLM adapter
