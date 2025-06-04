@@ -214,16 +214,50 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
 
             prompt_text = "\n\n".join(prompt_parts)
 
-            # For now, simulate streaming by chunking the response
-            # TODO: Implement actual streaming when LLM library supports it
-            response = model.prompt(prompt_text)
-            response_text = response.text()
+            # Use actual streaming from LLM library instead of simulation
+            try:
+                response = model.prompt(prompt_text)
 
-            # Split response into chunks
-            chunk_size = 100
-            for i in range(0, len(response_text), chunk_size):
-                chunk_text = response_text[i : i + chunk_size]
-                yield StreamChunk(request_id=request_id, text_chunk=chunk_text)
+                # Check if this response object supports streaming (is iterable)
+                # If so, stream the chunks as they arrive
+                response_text_for_metrics = ""
+
+                try:
+                    for chunk in response:  # type: ignore[attr-defined]
+                        response_text_for_metrics += chunk
+                        yield StreamChunk(request_id=request_id, text_chunk=chunk)
+                except TypeError as te:
+                    # Response object is not iterable (doesn't support streaming)
+                    # Fall back to the complete response
+                    logger.info(
+                        f"Model {model_name} doesn't support streaming, "
+                        f"falling back to simulated streaming: {te}"
+                    )
+                    response_text_for_metrics = response.text()
+
+                    # Simulate streaming by chunking the complete response
+                    chunk_size = 100
+                    for i in range(0, len(response_text_for_metrics), chunk_size):
+                        chunk_text = response_text_for_metrics[i : i + chunk_size]
+                        yield StreamChunk(request_id=request_id, text_chunk=chunk_text)
+
+                # Use the accumulated text for metrics calculation
+                response_text = response_text_for_metrics
+
+            except Exception as stream_error:
+                logger.warning(
+                    f"Streaming failed for request {request_id}, "
+                    f"falling back to non-streaming: {stream_error}"
+                )
+
+                # Complete fallback: get full response and simulate streaming
+                response = model.prompt(prompt_text)
+                response_text = response.text()
+
+                chunk_size = 100
+                for i in range(0, len(response_text), chunk_size):
+                    chunk_text = response_text[i : i + chunk_size]
+                    yield StreamChunk(request_id=request_id, text_chunk=chunk_text)
 
             # Calculate metrics and extract token usage
             duration_ms = int((time.time() - start_time) * 1000)
