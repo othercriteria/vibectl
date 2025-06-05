@@ -21,7 +21,7 @@ from vibectl.config_utils import (
 from vibectl.logutil import logger
 
 from .grpc_server import create_server
-from .jwt_auth import JWTAuthManager, load_jwt_config_from_env
+from .jwt_auth import JWTAuthManager, load_config_with_generation
 
 # Graceful shutdown handling
 shutdown_event = False
@@ -59,7 +59,7 @@ def get_default_server_config() -> dict:
             "default_model": "anthropic/claude-3-7-sonnet-latest",
             "max_workers": 10,
             "log_level": "INFO",
-            "enable_auth": False,
+            "require_auth": False,
         },
         "jwt": {
             "secret_key": None,  # Will use environment or generate if None
@@ -234,10 +234,10 @@ def cli(ctx: click.Context) -> None:
     help="Logging level",
 )
 @click.option(
-    "--enable-auth",
+    "--require-auth",
     is_flag=True,
     default=False,
-    help="Enable JWT authentication for the server",
+    help="Require JWT authentication for all server requests",
 )
 @click.option(
     "--config", help="Path to server configuration file (not yet implemented)"
@@ -248,7 +248,7 @@ def serve(
     model: str | None,
     max_workers: int | None,
     log_level: str | None,
-    enable_auth: bool,
+    require_auth: bool,
     config: str | None,
 ) -> None:
     """Start the gRPC server (default command)"""
@@ -267,8 +267,8 @@ def serve(
             server_config["server"]["max_workers"] = max_workers
         if log_level is not None:
             server_config["server"]["log_level"] = log_level
-        if enable_auth:
-            server_config["server"]["enable_auth"] = True
+        if require_auth:
+            server_config["server"]["require_auth"] = True
 
         # Setup logging
         setup_logging(server_config["server"]["log_level"])
@@ -285,7 +285,7 @@ def serve(
         logger.info(f"Port: {server_config['server']['port']}")
         logger.info(f"Max workers: {server_config['server']['max_workers']}")
         auth_status = (
-            "enabled" if server_config["server"]["enable_auth"] else "disabled"
+            "enabled" if server_config["server"]["require_auth"] else "disabled"
         )
         logger.info(f"Authentication: {auth_status}")
 
@@ -300,7 +300,7 @@ def serve(
             port=server_config["server"]["port"],
             default_model=server_config["server"]["default_model"],
             max_workers=server_config["server"]["max_workers"],
-            enable_auth=server_config["server"]["enable_auth"],
+            require_auth=server_config["server"]["require_auth"],
         )
 
         logger.info("Server created successfully")
@@ -349,7 +349,7 @@ def generate_token(
         expiration_days = parse_duration(expires_in)
 
         # Load JWT configuration
-        config = load_jwt_config_from_env()
+        config = load_config_with_generation(persist_generated_key=True)
         jwt_manager = JWTAuthManager(config)
 
         # Generate the token

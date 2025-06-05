@@ -18,7 +18,9 @@ from vibectl.server.jwt_auth import (
     JWTConfig,
     create_jwt_manager,
     generate_secret_key,
-    load_jwt_config_from_env,
+    load_config_from_env,
+    load_config_from_server,
+    load_config_with_generation,
 )
 
 
@@ -74,8 +76,8 @@ class TestSecretKeyGeneration:
         assert all(c in allowed_chars for c in key)
 
 
-class TestLoadJWTConfigFromEnv:
-    """Test the load_jwt_config_from_env function."""
+class TestLoadConfigFromEnv:
+    """Test the load_config_from_env function."""
 
     def test_load_config_with_all_env_vars(self) -> None:
         """Test loading config when all environment variables are set."""
@@ -87,7 +89,7 @@ class TestLoadJWTConfigFromEnv:
         }
 
         with patch.dict(os.environ, env_vars, clear=False):
-            config = load_jwt_config_from_env()
+            config = load_config_from_env()
 
         assert config.secret_key == "test-secret"
         assert config.algorithm == "HS512"
@@ -117,7 +119,7 @@ class TestLoadJWTConfigFromEnv:
                 patch("vibectl.server.jwt_auth.logger") as _mock_logger,
             ):
                 mock_gen.return_value = "generated-secret"
-                config = load_jwt_config_from_env()
+                config = load_config_from_env()
 
             assert config.secret_key == "generated-secret"
             assert config.algorithm == "HS256"  # Default
@@ -142,7 +144,7 @@ class TestLoadJWTConfigFromEnv:
                 patch("vibectl.server.jwt_auth.logger") as _mock_logger,
             ):
                 mock_gen.return_value = "generated-secret"
-                load_jwt_config_from_env()
+                load_config_from_env()
 
                 _mock_logger.warning.assert_called_once()
                 warning_call = _mock_logger.warning.call_args[0][0]
@@ -161,7 +163,497 @@ class TestLoadJWTConfigFromEnv:
             patch.dict(os.environ, env_vars, clear=False),
             pytest.raises(ValueError),
         ):
-            load_jwt_config_from_env()
+            load_config_from_env()
+
+
+class TestLoadConfigFromServer:
+    """Test the load_config_from_server function."""
+
+    def test_load_config_from_env_variable_highest_precedence(self) -> None:
+        """Test that environment variable takes highest precedence."""
+
+        env_vars = {
+            "VIBECTL_JWT_SECRET": "env-secret",
+            "VIBECTL_JWT_ALGORITHM": "HS512",
+            "VIBECTL_JWT_ISSUER": "env-issuer",
+            "VIBECTL_JWT_EXPIRATION_DAYS": "7",
+        }
+
+        # Create a server config with different values
+        server_config = {
+            "server": {"host": "localhost", "port": 8080},
+            "jwt": {
+                "secret_key": "config-secret",
+                "algorithm": "HS384",
+                "issuer": "config-issuer",
+                "expiration_days": 14,
+            },
+        }
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            config = load_config_from_server(server_config)
+
+        assert config.secret_key == "env-secret"  # Env wins
+        assert config.algorithm == "HS512"  # Env wins
+        assert config.issuer == "env-issuer"  # Env wins
+        assert config.expiration_days == 7  # Env wins
+
+    def test_load_config_from_env_key_file_second_precedence(self) -> None:
+        """Test that environment key file takes second precedence."""
+        import tempfile
+
+        # Create secret key file
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as secret_file:
+            secret_file.write("file-secret")
+            secret_file.flush()
+
+            env_vars = {
+                "VIBECTL_JWT_SECRET_FILE": secret_file.name,
+                "VIBECTL_JWT_ALGORITHM": "HS512",
+            }
+
+            # Create server config with different values
+            server_config = {
+                "jwt": {"secret_key": "config-secret", "algorithm": "HS384"}
+            }
+
+            with patch.dict(os.environ, env_vars, clear=False):
+                config = load_config_from_server(server_config)
+
+            assert config.secret_key == "file-secret"  # Env file wins over config
+            assert config.algorithm == "HS512"  # Env wins
+
+        os.unlink(secret_file.name)
+
+    def test_load_config_from_server_config_third_precedence(self) -> None:
+        """Test that server config values take third precedence."""
+
+        # Clear any JWT env vars
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            server_config = {
+                "server": {"host": "localhost", "port": 8080},
+                "jwt": {
+                    "secret_key": "config-secret",
+                    "algorithm": "HS384",
+                    "issuer": "config-issuer",
+                    "expiration_days": 14,
+                },
+            }
+
+            config = load_config_from_server(server_config)
+
+            assert config.secret_key == "config-secret"
+            assert config.algorithm == "HS384"
+            assert config.issuer == "config-issuer"
+            assert config.expiration_days == 14
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
+
+    def test_load_config_from_config_key_file_fourth_precedence(self) -> None:
+        """Test that config key file takes fourth precedence."""
+        import tempfile
+
+        # Clear JWT env vars
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            # Create secret key file
+            with tempfile.NamedTemporaryFile(mode="w", delete=False) as secret_file:
+                secret_file.write("config-file-secret")
+                secret_file.flush()
+
+                server_config = {
+                    "jwt": {
+                        "secret_key_file": secret_file.name,
+                        "algorithm": "HS384",
+                        "issuer": "config-issuer",
+                    }
+                }
+
+                config = load_config_from_server(server_config)
+
+                assert config.secret_key == "config-file-secret"
+                assert config.algorithm == "HS384"
+                assert config.issuer == "config-issuer"
+
+            os.unlink(secret_file.name)
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
+
+    def test_load_config_generates_key_as_fallback(self) -> None:
+        """Test that a new key is generated as final fallback."""
+
+        # Clear JWT env vars
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            # Create minimal config without JWT section
+            server_config = {"server": {"host": "localhost", "port": 8080}}
+
+            with (
+                patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+                patch("vibectl.server.jwt_auth.logger") as _mock_logger,
+            ):
+                mock_gen.return_value = "generated-secret"
+                config = load_config_from_server(server_config)
+
+                assert config.secret_key == "generated-secret"
+                assert config.algorithm == "HS256"  # Default
+                assert config.issuer == "vibectl-server"  # Default
+                assert config.expiration_days == 30  # Default
+
+                mock_gen.assert_called_once()
+                _mock_logger.warning.assert_called_once()
+
+                warning_call = _mock_logger.warning.call_args[0][0]
+                assert "No JWT secret key found" in warning_call
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
+
+    def test_load_config_nonexistent_config_file(self) -> None:
+        """Test loading config when server config is None (uses load_server_config)."""
+        with (
+            patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+            patch("vibectl.server.jwt_auth.logger") as _mock_logger,
+            patch("vibectl.server.main.load_server_config") as mock_load_config,
+        ):
+            mock_gen.return_value = "generated-secret"
+            mock_load_config.return_value = {"server": {"host": "localhost"}}
+
+            config = load_config_from_server(None)
+
+            assert config.secret_key == "generated-secret"
+            mock_gen.assert_called_once()
+            _mock_logger.warning.assert_called_once()
+            mock_load_config.assert_called_once()
+
+    def test_load_config_invalid_config_file(self) -> None:
+        """Test loading config with invalid/empty config."""
+
+        with (
+            patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+            patch("vibectl.server.jwt_auth.logger") as _mock_logger,
+        ):
+            mock_gen.return_value = "generated-secret"
+            # Pass empty config
+            config = load_config_from_server({})
+
+            assert config.secret_key == "generated-secret"
+            mock_gen.assert_called_once()
+            _mock_logger.warning.assert_called()
+
+    def test_load_config_missing_secret_key_file(self) -> None:
+        """Test when config references a missing secret key file."""
+
+        server_config = {
+            "jwt": {"secret_key_file": "/nonexistent/secret.key", "algorithm": "HS256"}
+        }
+
+        with (
+            patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+            patch("vibectl.server.jwt_auth.logger") as _mock_logger,
+        ):
+            mock_gen.return_value = "generated-secret"
+            config = load_config_from_server(server_config)
+
+            assert config.secret_key == "generated-secret"
+            mock_gen.assert_called_once()
+            _mock_logger.warning.assert_called()
+
+
+class TestLoadConfigWithGeneration:
+    """Test the load_config_with_generation function."""
+
+    def test_load_config_without_persistence_behaves_like_normal(self) -> None:
+        """Test that with persist_generated_key=False, behaves like normal function."""
+
+        env_vars = {"VIBECTL_JWT_SECRET": "env-secret"}
+        server_config = {"server": {"host": "localhost"}}
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            config = load_config_with_generation(
+                server_config, persist_generated_key=False
+            )
+
+            assert config.secret_key == "env-secret"
+
+    def test_load_config_persists_generated_key_to_config_file(self) -> None:
+        """Test that generated key is persisted to config file when enabled."""
+        import tempfile
+
+        import yaml
+
+        # Clear JWT env vars to force generation
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            # Create initial config without JWT section
+            initial_config = {
+                "server": {"host": "localhost", "port": 8080},
+                "model": {"provider": "openai"},
+            }
+
+            with (
+                tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".yaml", delete=False
+                ) as config_file,
+            ):
+                yaml.dump(initial_config, config_file)
+                config_file.flush()
+
+                with (
+                    patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+                    patch("vibectl.server.jwt_auth.logger") as mock_logger,
+                    patch("vibectl.server.main.load_server_config") as mock_load_config,
+                    patch("vibectl.server.main.get_server_config_path") as mock_path,
+                ):
+                    mock_gen.return_value = "generated-secret-key"
+                    mock_load_config.return_value = initial_config.copy()
+                    mock_path.return_value = config_file.name
+
+                    config = load_config_with_generation(
+                        None, persist_generated_key=True
+                    )
+
+                    # Verify returned config
+                    assert config.secret_key == "generated-secret-key"
+                    assert config.algorithm == "HS256"  # Default
+                    assert config.issuer == "vibectl-server"  # Default
+                    assert config.expiration_days == 30  # Default
+
+                    mock_gen.assert_called_once()
+                    mock_logger.info.assert_called_once()
+
+                    info_call = mock_logger.info.call_args[0][0]
+                    assert "Generated and saved new JWT secret key" in info_call
+
+                # Verify config file was updated
+                with open(config_file.name) as f:
+                    updated_config = yaml.safe_load(f)
+
+                assert "jwt" in updated_config
+                assert updated_config["jwt"]["secret_key"] == "generated-secret-key"
+                # Verify original config preserved
+                assert updated_config["server"]["host"] == "localhost"
+                assert updated_config["model"]["provider"] == "openai"
+
+            os.unlink(config_file.name)
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
+
+    def test_load_config_persists_to_nonexistent_config_file(self) -> None:
+        """Test that config file is created when it doesn't exist."""
+        import yaml
+
+        # Clear JWT env vars to force generation
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            nonexistent_file = "/tmp/nonexistent_config.yaml"
+
+            # Ensure file doesn't exist
+            if os.path.exists(nonexistent_file):
+                os.unlink(nonexistent_file)
+
+            with (
+                patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+                patch("vibectl.server.jwt_auth.logger") as mock_logger,
+                patch("vibectl.server.main.load_server_config") as mock_load_config,
+                patch("vibectl.server.main.get_server_config_path") as mock_get_path,
+            ):
+                mock_gen.return_value = "generated-secret-key"
+                mock_load_config.return_value = {}
+                mock_get_path.return_value = nonexistent_file
+
+                config = load_config_with_generation(None, persist_generated_key=True)
+
+                # Verify returned config
+                assert config.secret_key == "generated-secret-key"
+
+                mock_gen.assert_called_once()
+                mock_logger.info.assert_called_once()
+
+                info_call = mock_logger.info.call_args[0][0]
+                assert "Generated and saved new JWT secret key" in info_call
+
+            # Verify config file was created
+            assert os.path.exists(nonexistent_file)
+
+            with open(nonexistent_file) as f:
+                created_config = yaml.safe_load(f)
+
+            assert "jwt" in created_config
+            assert created_config["jwt"]["secret_key"] == "generated-secret-key"
+
+            # Clean up
+            os.unlink(nonexistent_file)
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
+
+    def test_load_config_uses_existing_key_when_available(self) -> None:
+        """Test that existing keys are reused, not overwritten."""
+
+        # Create config with existing JWT key
+        server_config = {
+            "jwt": {"secret_key": "existing-secret-key", "algorithm": "HS384"}
+        }
+
+        with (
+            patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+            patch("vibectl.server.jwt_auth.logger") as mock_logger,
+        ):
+            config = load_config_with_generation(
+                server_config, persist_generated_key=True
+            )
+
+            # Should use existing key, not generate new one
+            assert config.secret_key == "existing-secret-key"
+            assert config.algorithm == "HS384"
+
+            # Should not generate new key
+            mock_gen.assert_not_called()
+
+            # Should log reuse message
+            mock_logger.info.assert_called_once()
+            info_call = mock_logger.info.call_args[0][0]
+            assert "Using JWT secret from server configuration" in info_call
+
+    def test_load_config_handles_config_file_write_errors(self) -> None:
+        """Test handling of config file write errors during persistence."""
+        import tempfile
+
+        # Clear JWT env vars to force generation
+        env_keys_to_remove = [
+            "VIBECTL_JWT_SECRET",
+            "VIBECTL_JWT_SECRET_FILE",
+            "VIBECTL_JWT_ALGORITHM",
+            "VIBECTL_JWT_ISSUER",
+            "VIBECTL_JWT_EXPIRATION_DAYS",
+        ]
+
+        removed_values = {}
+        for key in env_keys_to_remove:
+            if key in os.environ:
+                removed_values[key] = os.environ[key]
+                del os.environ[key]
+
+        try:
+            with (
+                tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".yaml", delete=False
+                ) as config_file,
+            ):
+                config_file.write("server:\n  host: localhost")
+                config_file.flush()
+
+                # Make file read-only to simulate write error
+                os.chmod(config_file.name, 0o444)
+
+                with (
+                    patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+                    patch("vibectl.server.jwt_auth.logger") as mock_logger,
+                    patch("vibectl.server.main.load_server_config") as mock_load_config,
+                    patch("vibectl.server.main.get_server_config_path") as mock_path,
+                ):
+                    mock_gen.return_value = "generated-secret-key"
+                    mock_load_config.return_value = {"server": {"host": "localhost"}}
+                    mock_path.return_value = config_file.name
+
+                    config = load_config_with_generation(
+                        None, persist_generated_key=True
+                    )
+
+                    # Should still return valid config
+                    assert config.secret_key == "generated-secret-key"
+
+                    # Should log error about write failure
+                    mock_logger.error.assert_called_once()
+                    error_call = mock_logger.error.call_args[0][0]
+                    assert (
+                        "Failed to save generated JWT secret to config file"
+                        in error_call
+                    )
+
+                # Restore permissions for cleanup
+                os.chmod(config_file.name, 0o644)
+
+            os.unlink(config_file.name)
+        finally:
+            # Restore removed env vars
+            for key, value in removed_values.items():
+                os.environ[key] = value
 
 
 class TestJWTAuthManager:

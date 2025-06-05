@@ -25,7 +25,7 @@ class TestGRPCServerInitialization:
         assert server.port == 50051
         assert server.default_model is None
         assert server.max_workers == 10
-        assert server.enable_auth is False
+        assert server.require_auth is False
         assert server.server is None
         assert server.jwt_manager is None
         assert server.jwt_interceptor is None
@@ -38,18 +38,18 @@ class TestGRPCServerInitialization:
             port=8080,
             default_model="gpt-4",
             max_workers=20,
-            enable_auth=False,
+            require_auth=False,
         )
 
         assert server.host == "0.0.0.0"
         assert server.port == 8080
         assert server.default_model == "gpt-4"
         assert server.max_workers == 20
-        assert server.enable_auth is False
+        assert server.require_auth is False
         assert server.jwt_manager is None
         assert server.jwt_interceptor is None
 
-    @patch("vibectl.server.grpc_server.load_jwt_config_from_env")
+    @patch("vibectl.server.grpc_server.load_config_from_env")
     @patch("vibectl.server.grpc_server.create_jwt_interceptor")
     def test_init_with_auth_enabled_no_manager(
         self, mock_create_interceptor: Mock, mock_load_config: Mock
@@ -65,9 +65,9 @@ class TestGRPCServerInitialization:
         mock_interceptor = Mock()
         mock_create_interceptor.return_value = mock_interceptor
 
-        server = GRPCServer(enable_auth=True)
+        server = GRPCServer(require_auth=True)
 
-        assert server.enable_auth is True
+        assert server.require_auth is True
         assert server.jwt_manager is not None
         assert server.jwt_interceptor == mock_interceptor
         mock_load_config.assert_called_once()
@@ -83,9 +83,9 @@ class TestGRPCServerInitialization:
         mock_interceptor = Mock()
         mock_create_interceptor.return_value = mock_interceptor
 
-        server = GRPCServer(enable_auth=True, jwt_manager=mock_jwt_manager)
+        server = GRPCServer(require_auth=True, jwt_manager=mock_jwt_manager)
 
-        assert server.enable_auth is True
+        assert server.require_auth is True
         assert server.jwt_manager == mock_jwt_manager
         assert server.jwt_interceptor == mock_interceptor
         mock_create_interceptor.assert_called_once_with(mock_jwt_manager, enabled=True)
@@ -139,7 +139,7 @@ class TestGRPCServerLifecycle:
         mock_create_interceptor.return_value = mock_interceptor
         mock_jwt_manager = Mock(spec=JWTAuthManager)
 
-        server = GRPCServer(enable_auth=True, jwt_manager=mock_jwt_manager)
+        server = GRPCServer(require_auth=True, jwt_manager=mock_jwt_manager)
         server.start()
 
         # Verify server creation with interceptors
@@ -290,7 +290,7 @@ class TestGRPCServerTokenGeneration:
 
     def test_generate_token_auth_disabled(self) -> None:
         """Test token generation when authentication is disabled."""
-        server = GRPCServer(enable_auth=False)
+        server = GRPCServer(require_auth=False)
 
         with pytest.raises(RuntimeError, match="JWT authentication is not enabled"):
             server.generate_token("test-user")
@@ -303,7 +303,7 @@ class TestGRPCServerTokenGeneration:
         mock_jwt_manager.generate_token.return_value = "mock-jwt-token"
         mock_create_interceptor.return_value = Mock()
 
-        server = GRPCServer(enable_auth=True, jwt_manager=mock_jwt_manager)
+        server = GRPCServer(require_auth=True, jwt_manager=mock_jwt_manager)
 
         result = server.generate_token("test-user", expiration_days=30)
 
@@ -320,7 +320,7 @@ class TestGRPCServerTokenGeneration:
         mock_jwt_manager.generate_token.return_value = "mock-jwt-token"
         mock_create_interceptor.return_value = Mock()
 
-        server = GRPCServer(enable_auth=True, jwt_manager=mock_jwt_manager)
+        server = GRPCServer(require_auth=True, jwt_manager=mock_jwt_manager)
 
         result = server.generate_token("test-user")
 
@@ -340,7 +340,7 @@ class TestCreateServerFactory:
         assert server.port == 50051
         assert server.default_model is None
         assert server.max_workers == 10
-        assert server.enable_auth is False
+        assert server.require_auth is False
 
     def test_create_server_custom_parameters(self) -> None:
         """Test create_server with custom parameters."""
@@ -351,7 +351,7 @@ class TestCreateServerFactory:
             port=8080,
             default_model="claude-3",
             max_workers=50,
-            enable_auth=True,
+            require_auth=True,
             jwt_manager=mock_jwt_manager,
         )
 
@@ -360,7 +360,7 @@ class TestCreateServerFactory:
         assert server.port == 8080
         assert server.default_model == "claude-3"
         assert server.max_workers == 50
-        assert server.enable_auth is True
+        assert server.require_auth is True
         assert server.jwt_manager == mock_jwt_manager
 
 
@@ -417,7 +417,7 @@ class TestGRPCServerIntegration:
         mock_server_instance.stop.assert_called_with(1.0)
         assert server.server is None
 
-    @patch("vibectl.server.grpc_server.load_jwt_config_from_env")
+    @patch("vibectl.server.grpc_server.load_config_from_env")
     @patch("vibectl.server.grpc_server.create_jwt_interceptor")
     @patch("grpc.server")
     @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
@@ -440,7 +440,7 @@ class TestGRPCServerIntegration:
         mock_load_config.return_value = mock_config
 
         # Create server with auth
-        server = GRPCServer(enable_auth=True)
+        server = GRPCServer(require_auth=True)
 
         # Test token generation
         with patch.object(

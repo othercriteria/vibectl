@@ -63,7 +63,7 @@ class TestConfigurationManagement:
         assert server_config["default_model"] == "anthropic/claude-3-7-sonnet-latest"
         assert server_config["max_workers"] == 10
         assert server_config["log_level"] == "INFO"
-        assert server_config["enable_auth"] is False
+        assert server_config["require_auth"] is False
 
         # Check JWT section
         jwt_config = config["jwt"]
@@ -90,7 +90,7 @@ class TestConfigurationManagement:
                 "default_model": "anthropic/claude-3-7-sonnet-latest",
                 "max_workers": 10,
                 "log_level": "INFO",
-                "enable_auth": True,
+                "require_auth": True,
             },
             "jwt": {
                 "secret_key": None,
@@ -110,7 +110,7 @@ class TestConfigurationManagement:
         # Verify the config structure and deep merge
         assert config["server"]["host"] == "custom.host"
         assert config["server"]["port"] == 8080
-        assert config["server"]["enable_auth"] is True
+        assert config["server"]["require_auth"] is True
         # Defaults preserved where not overridden
         assert config["server"]["max_workers"] == 10
         assert config["server"]["log_level"] == "INFO"
@@ -378,7 +378,7 @@ class TestCLICommands:
                 "default_model": "test-model",
                 "max_workers": 10,
                 "log_level": "INFO",
-                "enable_auth": False,
+                "require_auth": False,
             },
             "jwt": {
                 "secret_key": None,
@@ -404,7 +404,7 @@ class TestCLICommands:
             port=50051,
             default_model="test-model",
             max_workers=10,
-            enable_auth=False,
+            require_auth=False,
         )
         mock_server.serve_forever.assert_called_once()
 
@@ -427,7 +427,7 @@ class TestCLICommands:
                 "default_model": "test-model",
                 "max_workers": 10,
                 "log_level": "INFO",
-                "enable_auth": False,
+                "require_auth": False,
             },
             "jwt": {
                 "secret_key": None,
@@ -455,7 +455,7 @@ class TestCLICommands:
                 "5",
                 "--log-level",
                 "DEBUG",
-                "--enable-auth",
+                "--require-auth",
             ],
         )
 
@@ -467,7 +467,7 @@ class TestCLICommands:
             port=8080,
             default_model="custom-model",
             max_workers=5,
-            enable_auth=True,
+            require_auth=True,
         )
 
     @patch("vibectl.server.main.load_server_config")
@@ -512,7 +512,7 @@ class TestCLICommands:
 
     @patch("vibectl.server.main.setup_logging")
     @patch("vibectl.server.main.parse_duration")
-    @patch("vibectl.server.main.load_jwt_config_from_env")
+    @patch("vibectl.server.main.load_config_with_generation")
     @patch("vibectl.server.main.JWTAuthManager")
     def test_generate_token_command(
         self,
@@ -521,28 +521,33 @@ class TestCLICommands:
         mock_parse_duration: Mock,
         mock_setup_logging: Mock,
     ) -> None:
-        """Test generate token command."""
-        mock_parse_duration.return_value = 365
-        mock_config = {"secret": "test-secret"}
+        """Test generate-token command with default options."""
+        # Setup mocks
+        mock_parse_duration.return_value = 30
+        mock_config = Mock()
         mock_load_config.return_value = mock_config
-
         mock_jwt_manager = Mock()
-        mock_jwt_manager.generate_token.return_value = "test-token"
         mock_jwt_manager_class.return_value = mock_jwt_manager
+        mock_jwt_manager.generate_token.return_value = "mock-jwt-token"
 
+        # Run command
         result = self.runner.invoke(generate_token, ["test-subject"])
 
+        # Verify output
         assert result.exit_code == 0
-        assert "test-token" in result.output
-        mock_setup_logging.assert_called_once_with("INFO")
+        assert "mock-jwt-token" in result.output
+
+        # Verify function calls
         mock_parse_duration.assert_called_once_with("1y")
+        mock_load_config.assert_called_once_with(persist_generated_key=True)
+        mock_jwt_manager_class.assert_called_once_with(mock_config)
         mock_jwt_manager.generate_token.assert_called_once_with(
-            subject="test-subject", expiration_days=365
+            subject="test-subject", expiration_days=30
         )
 
     @patch("vibectl.server.main.setup_logging")
     @patch("vibectl.server.main.parse_duration")
-    @patch("vibectl.server.main.load_jwt_config_from_env")
+    @patch("vibectl.server.main.load_config_with_generation")
     @patch("vibectl.server.main.JWTAuthManager")
     def test_generate_token_with_output_file(
         self,
@@ -551,41 +556,46 @@ class TestCLICommands:
         mock_parse_duration: Mock,
         mock_setup_logging: Mock,
     ) -> None:
-        """Test generate token command with output file."""
-        mock_parse_duration.return_value = 30
-        mock_config = {"secret": "test-secret"}
+        """Test generate-token command with output file."""
+        # Setup mocks
+        mock_parse_duration.return_value = 90
+        mock_config = Mock()
         mock_load_config.return_value = mock_config
-
         mock_jwt_manager = Mock()
-        mock_jwt_manager.generate_token.return_value = "test-token"
         mock_jwt_manager_class.return_value = mock_jwt_manager
+        mock_jwt_manager.generate_token.return_value = "mock-jwt-token"
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp_file:
-            output_path = tmp_file.name
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_file:
+            temp_path = temp_file.name
 
         try:
+            # Run command with output file
             result = self.runner.invoke(
                 generate_token,
-                [
-                    "test-subject",
-                    "--expires-in",
-                    "30d",
-                    "--output",
-                    output_path,
-                    "--log-level",
-                    "DEBUG",
-                ],
+                ["prod-client", "--expires-in", "3m", "--output", temp_path],
             )
 
+            # Verify exit code
             assert result.exit_code == 0
-            mock_setup_logging.assert_called_once_with("DEBUG")
-            mock_parse_duration.assert_called_once_with("30d")
 
-            # Check file was written
-            with open(output_path) as f:
-                assert f.read() == "test-token"
+            # Verify token was written to file
+            with open(temp_path) as f:
+                assert f.read() == "mock-jwt-token"
+
+            # Verify output message
+            assert f"Token generated and saved to {temp_path}" in result.output
+
+            # Verify function calls
+            mock_parse_duration.assert_called_once_with("3m")
+            mock_load_config.assert_called_once_with(persist_generated_key=True)
+            mock_jwt_manager_class.assert_called_once_with(mock_config)
+            mock_jwt_manager.generate_token.assert_called_once_with(
+                subject="prod-client", expiration_days=90
+            )
+
         finally:
-            os.unlink(output_path)
+            # Cleanup
+            os.unlink(temp_path)
 
     @patch("vibectl.server.main.setup_logging")
     @patch("vibectl.server.main.parse_duration")

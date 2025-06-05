@@ -15,7 +15,7 @@ from vibectl.proto.llm_proxy_pb2_grpc import (
     add_VibectlLLMProxyServicer_to_server,
 )
 
-from .jwt_auth import JWTAuthManager, load_jwt_config_from_env
+from .jwt_auth import JWTAuthManager, load_config_from_env
 from .jwt_interceptor import JWTAuthInterceptor, create_jwt_interceptor
 from .llm_proxy import LLMProxyServicer
 
@@ -31,7 +31,7 @@ class GRPCServer:
         port: int = 50051,
         default_model: str | None = None,
         max_workers: int = 10,
-        enable_auth: bool = False,
+        require_auth: bool = False,
         jwt_manager: JWTAuthManager | None = None,
     ):
         """Initialize the gRPC server.
@@ -41,14 +41,14 @@ class GRPCServer:
             port: Port to bind the server to
             default_model: Default LLM model to use
             max_workers: Maximum number of worker threads
-            enable_auth: Whether to enable JWT authentication
+            require_auth: Whether to require JWT authentication
             jwt_manager: JWT manager instance (creates default if None and auth enabled)
         """
         self.host = host
         self.port = port
         self.default_model = default_model
         self.max_workers = max_workers
-        self.enable_auth = enable_auth
+        self.require_auth = require_auth
         self.server: grpc.Server | None = None
         self._servicer = LLMProxyServicer(default_model=default_model)
 
@@ -56,9 +56,9 @@ class GRPCServer:
         self.jwt_manager: JWTAuthManager | None
         self.jwt_interceptor: JWTAuthInterceptor | None
 
-        if enable_auth:
+        if require_auth:
             if jwt_manager is None:
-                config = load_jwt_config_from_env()
+                config = load_config_from_env()
                 jwt_manager = JWTAuthManager(config)
             self.jwt_manager = jwt_manager
             self.jwt_interceptor = create_jwt_interceptor(jwt_manager, enabled=True)
@@ -92,7 +92,7 @@ class GRPCServer:
 
         # Start the server
         self.server.start()
-        auth_status = "with JWT auth" if self.enable_auth else "without auth"
+        auth_status = "with JWT auth" if self.require_auth else "without auth"
         logger.info(f"gRPC server started on {listen_addr} ({auth_status})")
 
     def stop(self, grace_period: float = 5.0) -> None:
@@ -153,7 +153,7 @@ class GRPCServer:
             RuntimeError: If authentication is not enabled
             ValueError: If token generation fails
         """
-        if not self.enable_auth or not self.jwt_manager:
+        if not self.require_auth or not self.jwt_manager:
             raise RuntimeError(
                 "Cannot generate token: JWT authentication is not enabled"
             )
@@ -166,7 +166,7 @@ def create_server(
     port: int = 50051,
     default_model: str | None = None,
     max_workers: int = 10,
-    enable_auth: bool = False,
+    require_auth: bool = False,
     jwt_manager: JWTAuthManager | None = None,
 ) -> GRPCServer:
     """Create a new gRPC server instance.
@@ -176,7 +176,7 @@ def create_server(
         port: Port to bind the server to
         default_model: Default LLM model to use
         max_workers: Maximum number of worker threads
-        enable_auth: Whether to enable JWT authentication
+        require_auth: Whether to require JWT authentication
         jwt_manager: JWT manager instance (creates default if None and auth enabled)
 
     Returns:
@@ -187,7 +187,7 @@ def create_server(
         port=port,
         default_model=default_model,
         max_workers=max_workers,
-        enable_auth=enable_auth,
+        require_auth=require_auth,
         jwt_manager=jwt_manager,
     )
 

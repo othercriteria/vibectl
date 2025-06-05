@@ -107,7 +107,7 @@ response_text = response.text()  # Get complete response
    - ✅ Token signature and expiration validation
    - ✅ Proper gRPC status codes for auth failures
    - ✅ Authentication events logged for audit
-   - ✅ Configurable auth enable/disable via `--enable-auth` or config file
+   - ✅ Configurable auth enable/disable via `--require-auth` or config file
 
 3. **✅ Server Configuration System**
    - ✅ Configuration directory: `~/.config/vibectl/server/`
@@ -128,13 +128,13 @@ response_text = response.text()  # Get complete response
 vibectl-server init-config
 
 # Start server with config file + overrides
-vibectl-server --port 50052 --enable-auth
+vibectl-server --port 50052 --require-auth
 
 # Generate JWT token for client
 vibectl-server generate-token my-client --expires-in 30d --output token.jwt
 
 # Start server with explicit serve command and debug logging
-vibectl-server serve --log-level DEBUG --enable-auth
+vibectl-server serve --log-level DEBUG --require-auth
 ```
 
 ### ✅ Priority 4: Client-Side JWT Integration - COMPLETED
@@ -238,7 +238,7 @@ The streaming implementation now supports **actual live token delivery** when th
 
 ```bash
 # Start the server with authentication
-vibectl-server serve --enable-auth --log-level INFO
+vibectl-server serve --require-auth --log-level INFO
 
 # In another terminal, setup streaming-capable proxy
 vibectl setup-proxy configure vibectl-server://$(cat token.jwt)@localhost:50051
