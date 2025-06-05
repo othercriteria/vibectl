@@ -18,7 +18,6 @@ from vibectl.server.jwt_auth import (
     JWTConfig,
     create_jwt_manager,
     generate_secret_key,
-    load_config_from_env,
     load_config_from_server,
     load_config_with_generation,
 )
@@ -74,96 +73,6 @@ class TestSecretKeyGeneration:
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         )
         assert all(c in allowed_chars for c in key)
-
-
-class TestLoadConfigFromEnv:
-    """Test the load_config_from_env function."""
-
-    def test_load_config_with_all_env_vars(self) -> None:
-        """Test loading config when all environment variables are set."""
-        env_vars = {
-            "VIBECTL_JWT_SECRET": "test-secret",
-            "VIBECTL_JWT_ALGORITHM": "HS512",
-            "VIBECTL_JWT_ISSUER": "test-issuer",
-            "VIBECTL_JWT_EXPIRATION_DAYS": "7",
-        }
-
-        with patch.dict(os.environ, env_vars, clear=False):
-            config = load_config_from_env()
-
-        assert config.secret_key == "test-secret"
-        assert config.algorithm == "HS512"
-        assert config.issuer == "test-issuer"
-        assert config.expiration_days == 7
-
-    def test_load_config_with_defaults(self) -> None:
-        """Test loading config with default values when env vars are missing."""
-        # Clear any existing JWT env vars by deleting them from the environment
-        env_keys_to_remove = [
-            "VIBECTL_JWT_SECRET",
-            "VIBECTL_JWT_ALGORITHM",
-            "VIBECTL_JWT_ISSUER",
-            "VIBECTL_JWT_EXPIRATION_DAYS",
-        ]
-
-        # Use a custom context manager to temporarily remove env vars
-        removed_values = {}
-        for key in env_keys_to_remove:
-            if key in os.environ:
-                removed_values[key] = os.environ[key]
-                del os.environ[key]
-
-        try:
-            with (
-                patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
-                patch("vibectl.server.jwt_auth.logger") as _mock_logger,
-            ):
-                mock_gen.return_value = "generated-secret"
-                config = load_config_from_env()
-
-            assert config.secret_key == "generated-secret"
-            assert config.algorithm == "HS256"  # Default
-            assert config.issuer == "vibectl-server"  # Default
-            assert config.expiration_days == 30  # Default
-        finally:
-            # Restore any removed environment variables
-            for key, value in removed_values.items():
-                os.environ[key] = value
-
-    def test_load_config_logs_warning_for_missing_secret(self) -> None:
-        """Test that a warning is logged when JWT secret is not in environment."""
-        # Remove the secret key temporarily
-        removed_secret = None
-        if "VIBECTL_JWT_SECRET" in os.environ:
-            removed_secret = os.environ["VIBECTL_JWT_SECRET"]
-            del os.environ["VIBECTL_JWT_SECRET"]
-
-        try:
-            with (
-                patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
-                patch("vibectl.server.jwt_auth.logger") as _mock_logger,
-            ):
-                mock_gen.return_value = "generated-secret"
-                load_config_from_env()
-
-                _mock_logger.warning.assert_called_once()
-                warning_call = _mock_logger.warning.call_args[0][0]
-                assert "No JWT secret key found" in warning_call
-                assert "VIBECTL_JWT_SECRET" in warning_call
-        finally:
-            # Restore the secret key if it existed
-            if removed_secret is not None:
-                os.environ["VIBECTL_JWT_SECRET"] = removed_secret
-
-    def test_load_config_with_invalid_expiration_days(self) -> None:
-        """Test that invalid expiration days value raises appropriate error."""
-        env_vars = {"VIBECTL_JWT_EXPIRATION_DAYS": "invalid"}
-
-        with (
-            patch.dict(os.environ, env_vars, clear=False),
-            pytest.raises(ValueError),
-        ):
-            load_config_from_env()
 
 
 class TestLoadConfigFromServer:

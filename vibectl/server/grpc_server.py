@@ -15,7 +15,7 @@ from vibectl.proto.llm_proxy_pb2_grpc import (
     add_VibectlLLMProxyServicer_to_server,
 )
 
-from .jwt_auth import JWTAuthManager, load_config_from_env
+from .jwt_auth import JWTAuthManager, load_config_from_server
 from .jwt_interceptor import JWTAuthInterceptor, create_jwt_interceptor
 from .llm_proxy import LLMProxyServicer
 
@@ -58,7 +58,7 @@ class GRPCServer:
 
         if require_auth:
             if jwt_manager is None:
-                config = load_config_from_env()
+                config = load_config_from_server()
                 jwt_manager = JWTAuthManager(config)
             self.jwt_manager = jwt_manager
             self.jwt_interceptor = create_jwt_interceptor(jwt_manager, enabled=True)

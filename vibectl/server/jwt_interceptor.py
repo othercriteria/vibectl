@@ -12,7 +12,7 @@ import jwt
 
 from vibectl.logutil import logger
 
-from .jwt_auth import JWTAuthManager, load_config_from_env
+from .jwt_auth import JWTAuthManager, load_config_from_server
 
 
 class JWTAuthInterceptor(grpc.ServerInterceptor):  # type: ignore
@@ -139,7 +139,7 @@ def create_jwt_interceptor(
         Configured JWT authentication interceptor
     """
     if jwt_manager is None:
-        config = load_config_from_env()
+        config = load_config_from_server()
         jwt_manager = JWTAuthManager(config)
 
     return JWTAuthInterceptor(jwt_manager, enabled)

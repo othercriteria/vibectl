@@ -36,35 +36,6 @@ def generate_secret_key() -> str:
     return secrets.token_urlsafe(32)
 
 
-def load_config_from_env() -> JWTConfig:
-    """Load JWT configuration from environment variables.
-
-    Returns:
-        JWTConfig: Configuration object with values from environment
-    """
-    secret_key = os.environ.get("VIBECTL_JWT_SECRET")
-
-    if not secret_key:
-        # Generate a new key for this session
-        secret_key = generate_secret_key()
-        logger.warning(
-            "No JWT secret key found in environment (VIBECTL_JWT_SECRET). "
-            "Generated a new key for this session. For production, "
-            "set a persistent key."
-        )
-
-    algorithm = os.environ.get("VIBECTL_JWT_ALGORITHM", "HS256")
-    issuer = os.environ.get("VIBECTL_JWT_ISSUER", "vibectl-server")
-    expiration_days = int(os.environ.get("VIBECTL_JWT_EXPIRATION_DAYS", "30"))
-
-    return JWTConfig(
-        secret_key=secret_key,
-        algorithm=algorithm,
-        issuer=issuer,
-        expiration_days=expiration_days,
-    )
-
-
 def load_config_from_server(
     server_config: dict[str, Any] | None = None,
 ) -> JWTConfig:
@@ -436,10 +407,10 @@ class JWTAuthManager:
 
 
 def create_jwt_manager() -> JWTAuthManager:
-    """Create a JWT manager with configuration from environment.
+    """Create a JWT manager with configuration from server config.
 
     Returns:
         JWTAuthManager: Configured JWT manager
     """
-    config = load_config_from_env()
+    config = load_config_from_server()
     return JWTAuthManager(config)

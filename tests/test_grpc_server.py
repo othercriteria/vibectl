@@ -49,7 +49,7 @@ class TestGRPCServerInitialization:
         assert server.jwt_manager is None
         assert server.jwt_interceptor is None
 
-    @patch("vibectl.server.grpc_server.load_config_from_env")
+    @patch("vibectl.server.grpc_server.load_config_from_server")
     @patch("vibectl.server.grpc_server.create_jwt_interceptor")
     def test_init_with_auth_enabled_no_manager(
         self, mock_create_interceptor: Mock, mock_load_config: Mock
@@ -417,7 +417,7 @@ class TestGRPCServerIntegration:
         mock_server_instance.stop.assert_called_with(1.0)
         assert server.server is None
 
-    @patch("vibectl.server.grpc_server.load_config_from_env")
+    @patch("vibectl.server.grpc_server.load_config_from_server")
     @patch("vibectl.server.grpc_server.create_jwt_interceptor")
     @patch("grpc.server")
     @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
