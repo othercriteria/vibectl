@@ -16,6 +16,7 @@ Managing Kubernetes shouldn't feel like editing an INI file through a periscope.
 | **Semi‑Autonomous Loops**   | `vibectl semiauto` iteratively proposes & executes safe changes.             |
 | **Full Autonomy**           | `vibectl vibe` plans, confirms, executes, summarises, updates memory.        |
 | **Plugin System**           | `vibectl install plugin` → customize prompts for security, docs, workflows.  |
+| **LLM Proxy Server**        | Optional centralized LLM management with `vibectl setup-proxy`.              |
 | **Rich TUI**                | Live *watch*, *logs ‑f*, *port‑forward* with pause/filter/save key‑bindings. |
 | **Traffic Proxy**           | Optional middle‑proxy shows per‑session throughput & errors.                 |
 | **Chaos / Demo Tooling**    | Drop‑in sandbox demos for CTFs, Kafka tuning, Chaos‑Monkey battles.          |
@@ -48,7 +49,7 @@ flake develop        # drops you into a fully wired shell
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...        # quickest
-vibectl config set model claude-3.7-sonnet
+vibectl config set llm.model claude-4-sonnet
 ```
 
 More options?  See [docs/MODEL_KEYS.md](docs/MODEL_KEYS.md).
@@ -59,7 +60,7 @@ More options?  See [docs/MODEL_KEYS.md](docs/MODEL_KEYS.md).
 
 ```bash
 ❯ vibectl get vibe pods
-🔄 Consulting claude-3.7-sonnet for a plan…
+🔄 Consulting claude-4-sonnet for a plan…
 🔄 Running: kubectl get pods -n sandbox
 ✨ Vibe check:
 🚀 3 nginx‑demo pods in deployment 🌟
@@ -161,14 +162,16 @@ Every `port-forward` thereafter shows bytes ⇅, connection duration, errors, an
 
 ## ⚙️ Key Configuration Knobs (`vibectl config`)
 
-| Key                      | Default             | Why you'd change it                              |
-| ------------------------ | ------------------- | ------------------------------------------------ |
-| `model`                  | `claude-3.7-sonnet` | Switch to `gpt-4o`, `ollama:llama3:latest`, etc. |
-| `intelligent_edit`       | `true`              | Disable to use standard `kubectl edit` behavior. |
-| `show_metrics`           | `false`             | View LLM tokens & latency.                       |
-| `show_raw_output`        | `false`             | Always print raw kubectl output.                 |
-| `theme`                  | `dark`              | `light` / `system` / custom.                     |
-| `live_display_max_lines` | `20`                | Default visible buffer for watch/logs.           |
+| Key                             | Default             | Why you'd change it                              |
+| ------------------------------- | ------------------- | ------------------------------------------------ |
+| `llm.model`                     | `claude-4-sonnet` | Switch to `gpt-4o`, `ollama:llama3:latest`, etc. |
+| `features.intelligent_edit`     | `true`              | Disable to use standard `kubectl edit` behavior. |
+| `display.show_metrics`          | `none`              | View LLM tokens & latency (`total`, `sub`, `all`). |
+| `display.show_raw_output`       | `false`             | Always print raw kubectl output.                 |
+| `display.theme`                 | `default`           | `dark` / `light` / `accessible` / custom.        |
+| `live_display.max_lines`        | `20`                | Default visible buffer for watch/logs.           |
+| `proxy.enabled`                 | `false`             | Enable LLM proxy server delegation.              |
+| `networking.intermediate_port_range` | `null`         | Port range for traffic monitoring proxy.         |
 
 Full schema in [docs/CONFIG.md](docs/CONFIG.md).
 

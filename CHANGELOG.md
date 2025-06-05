@@ -7,17 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.10.0] - 2025-06-05
+
 ### Added
-- Planned: LLM Proxy Server Architecture - Client/server delegation for centralized LLM management (WIP)
+- **LLM Proxy Server Architecture**: Complete client/server delegation system for centralized LLM management
   - **Centralized LLM Management**: Allow vibectl CLI instances to delegate LLM calls to a centralized server
   - **Simplified Client Setup**: Users no longer need to manage API keys, model selection, or provider authentication
   - **gRPC Protocol**: Modern, type-safe communication protocol suitable for Kubernetes ecosystem
   - **Flexible Configuration**: Hierarchical config structure supporting both client and server configurations
   - **ProxyModelAdapter**: New adapter implementing existing ModelAdapter interface for transparent LLM proxying
-  - **Authentication System**: Secure shared secrets with expiration times and JWT token support
+  - **JWT Authentication System**: Secure shared secrets with expiration times and JWT token support
   - **Server Features**: Model management, rate limiting, usage controls, and multi-client support
   - **Setup Tooling**: `vibectl setup-proxy` command for easy client configuration and connection validation
   - **Backward Compatibility**: Coexists with direct LLM usage without requiring migration
+  - **Comprehensive Documentation**: Complete docs in `docs/llm-proxy-server.md` with setup and usage guides
+  - **Full Test Coverage**: Extensive test suite with 100% coverage for all proxy components
+- **Configuration System Restructuring**: Major reorganization of configuration settings for improved maintainability and clarity
+  - **Hierarchical Configuration**: Restructured config using dotted notation (e.g., `display.theme`, `llm.model`, `features.intelligent_edit`)
+  - **Logical Grouping**: Organized settings into logical categories: `core`, `display`, `llm`, `providers`, `memory`, `warnings`, `live_display`, `features`, `networking`, `plugins`, `proxy`, `system`
+  - **Backward Compatibility**: Legacy flat keys continue to work alongside new hierarchical structure
+  - **Enhanced Type Safety**: Improved validation and type conversion for nested configuration operations
+  - **Server Configuration**: Separate server-specific configuration section for vibectl-server settings
+  - **Documentation**: Complete configuration reference in `docs/CONFIG.md` with all available options
 
 ## [0.9.1] - 2025-06-02
 
