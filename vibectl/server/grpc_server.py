@@ -15,6 +15,12 @@ from vibectl.proto.llm_proxy_pb2_grpc import (
     add_VibectlLLMProxyServicer_to_server,
 )
 
+from .cert_utils import (
+    CertificateError,
+    load_certificate_credentials,
+    ensure_certificate_exists,
+    get_default_cert_paths,
+)
 from .jwt_auth import JWTAuthManager, load_config_from_server
 from .jwt_interceptor import JWTAuthInterceptor, create_jwt_interceptor
 from .llm_proxy import LLMProxyServicer
@@ -33,6 +39,9 @@ class GRPCServer:
         max_workers: int = 10,
         require_auth: bool = False,
         jwt_manager: JWTAuthManager | None = None,
+        use_tls: bool = False,
+        cert_file: str | None = None,
+        key_file: str | None = None,
     ):
         """Initialize the gRPC server.
 
@@ -43,12 +52,18 @@ class GRPCServer:
             max_workers: Maximum number of worker threads
             require_auth: Whether to require JWT authentication
             jwt_manager: JWT manager instance (creates default if None and auth enabled)
+            use_tls: Whether to use TLS encryption
+            cert_file: Path to TLS certificate file (auto-generated if None and TLS enabled)
+            key_file: Path to TLS private key file (auto-generated if None and TLS enabled)
         """
         self.host = host
         self.port = port
         self.default_model = default_model
         self.max_workers = max_workers
         self.require_auth = require_auth
+        self.use_tls = use_tls
+        self.cert_file = cert_file
+        self.key_file = key_file
         self.server: grpc.Server | None = None
         self._servicer = LLMProxyServicer(default_model=default_model)
 
@@ -68,7 +83,8 @@ class GRPCServer:
             self.jwt_interceptor = None
             logger.info("JWT authentication disabled for gRPC server")
 
-        logger.info(f"Initialized gRPC server for {host}:{port}")
+        tls_status = "with TLS" if self.use_tls else "without TLS"
+        logger.info(f"Initialized gRPC server for {host}:{port} ({tls_status})")
 
     def start(self) -> None:
         """Start the gRPC server."""
@@ -86,14 +102,61 @@ class GRPCServer:
         # Add the servicer to the server
         add_VibectlLLMProxyServicer_to_server(self._servicer, self.server)
 
-        # Bind to the port
+        # Bind to the port with or without TLS
         listen_addr = f"{self.host}:{self.port}"
-        self.server.add_insecure_port(listen_addr)
+        
+        if self.use_tls:
+            # Handle TLS configuration
+            try:
+                # Ensure certificate files exist (auto-generate if needed)
+                if self.cert_file is None or self.key_file is None:
+                    from vibectl.config_utils import get_config_dir
+                    config_dir = get_config_dir("server")
+                    default_cert_file, default_key_file = get_default_cert_paths(config_dir)
+                    self.cert_file = self.cert_file or default_cert_file
+                    self.key_file = self.key_file or default_key_file
+                    
+                    logger.info("Using default certificate paths: cert=%s, key=%s", 
+                               self.cert_file, self.key_file)
+                
+                # Ensure certificates exist (generate if missing)
+                ensure_certificate_exists(
+                    self.cert_file,
+                    self.key_file,
+                    hostname=self.host if self.host not in ("0.0.0.0", "::") else "localhost"
+                )
+                
+                # Load certificate and private key
+                cert_data, key_data = load_certificate_credentials(self.cert_file, self.key_file)
+                
+                # Create SSL server credentials
+                server_credentials = grpc.ssl_server_credentials(
+                    [(key_data, cert_data)],
+                    root_certificates=None,
+                    require_client_auth=False
+                )
+                
+                # Add secure port
+                self.server.add_secure_port(listen_addr, server_credentials)
+                logger.info("TLS certificates loaded: cert=%s, key=%s", self.cert_file, self.key_file)
+                
+            except CertificateError as e:
+                logger.error("Failed to configure TLS: %s", e)
+                raise RuntimeError(f"TLS configuration failed: {e}") from e
+            except Exception as e:
+                logger.error("Unexpected error configuring TLS: %s", e)
+                raise RuntimeError(f"TLS configuration failed: {e}") from e
+        else:
+            # Use insecure port
+            self.server.add_insecure_port(listen_addr)
 
         # Start the server
         self.server.start()
+        
+        # Log server status
         auth_status = "with JWT auth" if self.require_auth else "without auth"
-        logger.info(f"gRPC server started on {listen_addr} ({auth_status})")
+        tls_status = "with TLS" if self.use_tls else "without TLS"
+        logger.info(f"gRPC server started on {listen_addr} ({tls_status}, {auth_status})")
 
     def stop(self, grace_period: float = 5.0) -> None:
         """Stop the gRPC server.
@@ -168,6 +231,9 @@ def create_server(
     max_workers: int = 10,
     require_auth: bool = False,
     jwt_manager: JWTAuthManager | None = None,
+    use_tls: bool = False,
+    cert_file: str | None = None,
+    key_file: str | None = None,
 ) -> GRPCServer:
     """Create a new gRPC server instance.
 
@@ -178,6 +244,9 @@ def create_server(
         max_workers: Maximum number of worker threads
         require_auth: Whether to require JWT authentication
         jwt_manager: JWT manager instance (creates default if None and auth enabled)
+        use_tls: Whether to use TLS encryption
+        cert_file: Path to TLS certificate file (auto-generated if None and TLS enabled)
+        key_file: Path to TLS private key file (auto-generated if None and TLS enabled)
 
     Returns:
         Configured GRPCServer instance
@@ -189,6 +258,9 @@ def create_server(
         max_workers=max_workers,
         require_auth=require_auth,
         jwt_manager=jwt_manager,
+        use_tls=use_tls,
+        cert_file=cert_file,
+        key_file=key_file,
     )
 
 

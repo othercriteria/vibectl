@@ -139,6 +139,117 @@ jwt:
   expiration_days: 90
 ```
 
+### TLS Configuration
+
+The proxy server supports TLS encryption for secure communication between clients and servers. TLS is especially important for production deployments where sensitive data is transmitted.
+
+#### TLS Configuration Precedence
+
+Similar to JWT configuration, TLS settings follow a consistent precedence pattern:
+
+1. **Command Line Options** (highest precedence): `--tls`, `--cert-file`, `--key-file`
+2. **Environment Variables**: `VIBECTL_TLS_ENABLED`, `VIBECTL_TLS_CERT_FILE`, `VIBECTL_TLS_KEY_FILE`
+3. **Config File Settings** (lowest precedence): `server.use_tls`, `server.cert_file`, `server.key_file`
+
+#### TLS Configuration Examples
+
+**Command Line** (recommended for development):
+
+```bash
+# Enable TLS with auto-generated self-signed certificates
+vibectl-server serve --tls
+
+# Enable TLS with specific certificate files
+vibectl-server serve --tls --cert-file /path/to/server.crt --key-file /path/to/server.key
+
+# Force regeneration of certificates (for development)
+vibectl-server serve --tls --generate-certs
+
+# Explicitly disable TLS (useful to override config file)
+vibectl-server serve --no-tls
+```
+
+**Environment Variables**:
+
+```bash
+export VIBECTL_TLS_ENABLED="true"
+export VIBECTL_TLS_CERT_FILE="/etc/ssl/certs/vibectl-server.crt"
+export VIBECTL_TLS_KEY_FILE="/etc/ssl/private/vibectl-server.key"
+```
+
+**Server Configuration File** (recommended for persistent setups):
+
+```yaml
+# ~/.config/vibectl/server/config.yaml
+server:
+  host: "0.0.0.0"
+  port: 50051
+  require_auth: true
+  use_tls: true
+  cert_file: "/path/to/server.crt"
+  key_file: "/path/to/server.key"
+
+jwt:
+  secret_key_file: "~/.config/vibectl/server/jwt-secret"
+  algorithm: "HS256"
+  issuer: "my-company-proxy"
+  expiration_days: 90
+```
+
+**Automatic Certificate Generation** (development mode):
+
+```yaml
+# ~/.config/vibectl/server/config.yaml
+server:
+  use_tls: true
+  # cert_file and key_file left null for auto-generation
+  cert_file: null
+  key_file: null
+```
+
+#### Certificate Management
+
+**Self-Signed Certificates for Development**:
+
+The server can automatically generate self-signed certificates for development use. These certificates are:
+
+- Valid for 365 days by default
+- Include localhost and 127.0.0.1 in Subject Alternative Names
+- Generated with 2048-bit RSA keys
+- Stored in `~/.config/vibectl/server/certs/` by default
+
+**Certificate Generation**:
+
+```bash
+# Auto-generate certificates on first TLS startup
+vibectl-server serve --tls
+
+# Force regenerate certificates
+vibectl-server serve --tls --generate-certs
+
+# Generate certificates without starting server
+vibectl-server generate-certs --hostname myserver.local
+```
+
+**Production Certificates**:
+
+For production deployments, use certificates from a trusted Certificate Authority:
+
+```yaml
+# Production TLS configuration
+server:
+  use_tls: true
+  cert_file: "/etc/ssl/certs/vibectl-server.crt"
+  key_file: "/etc/ssl/private/vibectl-server.key"
+```
+
+#### TLS Security Properties
+
+- **Encryption**: All data between client and server is encrypted using TLS 1.2+
+- **Certificate Validation**: Clients verify server certificates (configurable)
+- **Perfect Forward Secrecy**: Modern cipher suites with ephemeral key exchange
+- **ALPN Support**: HTTP/2 application layer protocol negotiation for gRPC
+
 #### Token Generation
 
 ```bash
@@ -206,9 +317,25 @@ jwt:
 #### Client Configuration
 
 ```bash
-# Configure proxy connection
+# Configure secure proxy connection (automatically uses TLS)
 vibectl setup-proxy configure vibectl-server://jwt-token@server.example.com:443
+
+# Configure insecure proxy for local development (no TLS)
+vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
+
+# Test connection to secure server
+vibectl setup-proxy test vibectl-server://myserver.com:443
+
+# Test with explicit JWT authentication  
+vibectl setup-proxy test vibectl-server://eyJ0eXAiOiJKV1Q...@myserver.com:443
 ```
+
+**TLS and Security Considerations for Clients**:
+
+- `vibectl-server://` URLs automatically use TLS encryption
+- `vibectl-server-insecure://` URLs disable TLS for local development
+- Self-signed certificates may trigger warnings - this is expected for development
+- Production deployments should use certificates from trusted CAs
 
 ## Streaming Implementation
 

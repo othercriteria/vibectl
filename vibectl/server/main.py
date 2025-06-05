@@ -60,6 +60,9 @@ def get_default_server_config() -> dict:
             "max_workers": 10,
             "log_level": "INFO",
             "require_auth": False,
+            "use_tls": False,
+            "cert_file": None,
+            "key_file": None,
         },
         "jwt": {
             "secret_key": None,  # Will use environment or generate if None
@@ -240,6 +243,29 @@ def cli(ctx: click.Context) -> None:
     help="Require JWT authentication for all server requests",
 )
 @click.option(
+    "--tls/--no-tls",
+    default=None,
+    help="Enable or disable TLS encryption (default: disabled for development)",
+)
+@click.option(
+    "--cert-file",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to TLS certificate file (auto-generated if not specified)",
+)
+@click.option(
+    "--key-file",
+    type=click.Path(exists=False),
+    default=None,
+    help="Path to TLS private key file (auto-generated if not specified)",
+)
+@click.option(
+    "--generate-certs",
+    is_flag=True,
+    default=False,
+    help="Force regeneration of TLS certificates (for development)",
+)
+@click.option(
     "--config", help="Path to server configuration file (not yet implemented)"
 )
 def serve(
@@ -249,6 +275,10 @@ def serve(
     max_workers: int | None,
     log_level: str | None,
     require_auth: bool,
+    tls: bool | None,
+    cert_file: str | None,
+    key_file: str | None,
+    generate_certs: bool,
     config: str | None,
 ) -> None:
     """Start the gRPC server (default command)"""
@@ -269,6 +299,12 @@ def serve(
             server_config["server"]["log_level"] = log_level
         if require_auth:
             server_config["server"]["require_auth"] = True
+        if tls is not None:
+            server_config["server"]["use_tls"] = tls
+        if cert_file is not None:
+            server_config["server"]["cert_file"] = cert_file
+        if key_file is not None:
+            server_config["server"]["key_file"] = key_file
 
         # Setup logging
         setup_logging(server_config["server"]["log_level"])
@@ -288,11 +324,42 @@ def serve(
             "enabled" if server_config["server"]["require_auth"] else "disabled"
         )
         logger.info(f"Authentication: {auth_status}")
+        tls_status = (
+            "enabled" if server_config["server"]["use_tls"] else "disabled"
+        )
+        logger.info(f"TLS: {tls_status}")
 
         if server_config["server"]["default_model"]:
             logger.info(f"Default model: {server_config['server']['default_model']}")
         else:
             logger.info("No default model configured - clients must specify model")
+
+        # Handle certificate generation if requested
+        if generate_certs and server_config["server"]["use_tls"]:
+            from .cert_utils import ensure_certificate_exists, get_default_cert_paths
+            
+            cert_file = server_config["server"]["cert_file"]
+            key_file = server_config["server"]["key_file"]
+            
+            # Use default paths if not specified
+            if cert_file is None or key_file is None:
+                config_dir = get_config_dir("server")
+                default_cert_file, default_key_file = get_default_cert_paths(config_dir)
+                cert_file = cert_file or default_cert_file
+                key_file = key_file or default_key_file
+            
+            hostname = server_config['server']['host']
+            if hostname in ("0.0.0.0", "::"):
+                hostname = "localhost"
+            
+            logger.info("Regenerating TLS certificates...")
+            ensure_certificate_exists(
+                cert_file,
+                key_file,
+                hostname=hostname,
+                regenerate=True
+            )
+            logger.info("TLS certificates regenerated successfully")
 
         # Create and start the server
         server = create_server(
@@ -301,6 +368,9 @@ def serve(
             default_model=server_config["server"]["default_model"],
             max_workers=server_config["server"]["max_workers"],
             require_auth=server_config["server"]["require_auth"],
+            use_tls=server_config["server"]["use_tls"],
+            cert_file=server_config["server"]["cert_file"],
+            key_file=server_config["server"]["key_file"],
         )
 
         logger.info("Server created successfully")
@@ -398,6 +468,89 @@ def init_config(force: bool) -> None:
 
     except Exception as e:
         logger.error(f"Config initialization failed: {e}")
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command(name="generate-certs")
+@click.option(
+    "--hostname",
+    default="localhost",
+    help="Hostname to include in certificate (default: localhost)",
+)
+@click.option(
+    "--cert-file",
+    type=click.Path(),
+    default=None,
+    help="Output path for certificate file (default: ~/.config/vibectl/server/certs/server.crt)",
+)
+@click.option(
+    "--key-file",
+    type=click.Path(),
+    default=None,
+    help="Output path for private key file (default: ~/.config/vibectl/server/certs/server.key)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite existing certificate files",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    default="INFO",
+    help="Logging level",
+)
+def generate_certs(
+    hostname: str,
+    cert_file: str | None,
+    key_file: str | None,
+    force: bool,
+    log_level: str,
+) -> None:
+    """Generate TLS certificates for the server"""
+    try:
+        # Setup logging
+        setup_logging(log_level)
+
+        from .cert_utils import ensure_certificate_exists, get_default_cert_paths
+
+        # Use default paths if not specified
+        if cert_file is None or key_file is None:
+            config_dir = get_config_dir("server")
+            default_cert_file, default_key_file = get_default_cert_paths(config_dir)
+            cert_file = cert_file or default_cert_file
+            key_file = key_file or default_key_file
+
+        logger.info("Generating TLS certificates...")
+        logger.info(f"Hostname: {hostname}")
+        logger.info(f"Certificate file: {cert_file}")
+        logger.info(f"Private key file: {key_file}")
+
+        # Generate certificates
+        ensure_certificate_exists(
+            cert_file,
+            key_file,
+            hostname=hostname,
+            regenerate=force,
+        )
+
+        click.echo(f"✓ TLS certificates generated successfully!")
+        click.echo(f"Certificate: {cert_file}")
+        click.echo(f"Private key: {key_file}")
+        
+        click.echo("\nTo use these certificates with the server:")
+        click.echo(f"  vibectl-server serve --tls --cert-file {cert_file} --key-file {key_file}")
+        click.echo("\nOr configure in ~/.config/vibectl/server/config.yaml:")
+        click.echo("  server:")
+        click.echo("    use_tls: true")
+        click.echo(f"    cert_file: {cert_file}")
+        click.echo(f"    key_file: {key_file}")
+
+    except Exception as e:
+        logger.error(f"Certificate generation failed: {e}")
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
