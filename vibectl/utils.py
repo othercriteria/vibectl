@@ -9,12 +9,28 @@ import logging
 import os
 import subprocess
 import traceback
+from importlib import metadata
 
 from rich.console import Console
 
 from .console import console_manager
 
 error_console = Console(stderr=True)
+
+
+def get_package_version() -> str:
+    """Get the package version from metadata.
+
+    Returns:
+        str: Package version string, or "unknown" if unable to determine
+    """
+    try:
+        return metadata.version("vibectl")
+    except Exception:  # pragma: no cover - fallback for edge cases
+        logging.getLogger(__name__).warning(
+            "Unable to determine package version, using 'unknown'"
+        )
+        return "unknown"
 
 
 def handle_exception(e: Exception, exit_on_error: bool = False) -> None:

@@ -79,7 +79,7 @@ def validate_proxy_url(url: str) -> tuple[bool, str | None]:
         return False, f"URL validation failed: {e}"
 
 
-async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
+async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
     """Test connection to a proxy server.
 
     Args:
@@ -140,7 +140,7 @@ async def test_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
             channel.close()
 
             server_info: dict[str, Any] = {
-                "server_name": getattr(response, "server_version", "Unknown"),
+                "server_name": response.server_name,
                 "version": response.server_version,
                 "supported_models": [
                     model.model_id for model in response.available_models
@@ -412,7 +412,7 @@ async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
         if not no_test:
             console_manager.print("Testing connection to proxy server...")
 
-            test_result = await test_proxy_connection(proxy_url, timeout_seconds=30)
+            test_result = await check_proxy_connection(proxy_url, timeout_seconds=30)
 
             if isinstance(test_result, Error):
                 console_manager.print_error(
@@ -526,7 +526,7 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
             console_manager.print(f"Testing proxy: {server_url}")
 
         # Test connection
-        result = await test_proxy_connection(server_url, timeout_seconds=timeout)
+        result = await check_proxy_connection(server_url, timeout_seconds=timeout)
 
         if isinstance(result, Error):
             console_manager.print_error(f"Connection failed: {result.error}")

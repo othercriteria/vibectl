@@ -186,7 +186,7 @@ When updating the package on PyPI:
    ```zsh
    bump-version patch|minor|major  # Or use make bump-patch|bump-minor|bump-major
    ```
-   This will automatically update both `pyproject.toml` and `vibectl/__init__.py` to keep them in sync.
+   This will update the version in `pyproject.toml`. The `vibectl/__init__.py` file automatically gets the version from package metadata via `get_package_version()`.
 
 3. Commit the changes:
    ```zsh
@@ -195,28 +195,24 @@ When updating the package on PyPI:
 
 4. Use one of the workflows above to publish
 
-> **Note**: Always use the `bump-version` command to update versions, as it will
-> automatically update both `pyproject.toml` and `vibectl/__init__.py` to keep them
-> in sync. The make targets (e.g., `make bump-patch`) will prompt you to update the
-> CHANGELOG.md before running the version bump.
+> **Note**: With the dynamic versioning approach, only `pyproject.toml` needs to be updated.
+> The `vibectl/__init__.py` automatically gets the correct version via `get_package_version()`.
 
 ## Troubleshooting
 
 ### Version Inconsistency
 
-If you encounter errors about version inconsistency, it means the version in
-`pyproject.toml` doesn't match the `__version__` in `vibectl/__init__.py`. To fix this:
+The package now uses dynamic version resolution, so version inconsistencies between
+`pyproject.toml` and `__init__.py` should not occur. The version is always read from
+the package metadata. If you encounter version-related issues:
 
 ```zsh
-# Check the inconsistency
-pypi-dist verify
+# Check the current version
+python -c "from vibectl import __version__; print(__version__)"
 
-# Fix by using bump-version to set both files to the same version
-# or manually edit vibectl/__init__.py to match pyproject.toml
+# Verify it matches pyproject.toml
+grep -Po '^version = "\K[^"]+' pyproject.toml
 ```
-
-The `pypi-dist all` command automatically checks for version consistency before
-proceeding with the release process.
 
 ### Installation Conflicts
 

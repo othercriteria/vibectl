@@ -47,23 +47,26 @@
 
           # Verify version consistency between files
           function verify_version_consistency() {
-            TOML_VERSION=$(get_version)
-            INIT_VERSION=$(get_init_version)
-
             echo "Checking version consistency..."
-            echo "pyproject.toml: $TOML_VERSION"
-            echo "vibectl/__init__.py: $INIT_VERSION"
 
-            if [ "$TOML_VERSION" != "$INIT_VERSION" ]; then
+            # Get version from pyproject.toml
+            TOML_VERSION=$(grep -Po '^version = "\K[^"]+' pyproject.toml)
+
+            # Get version from Python package metadata (dynamic version)
+            PYTHON_VERSION=$(python -c "from vibectl import __version__; print(__version__)")
+
+            echo "pyproject.toml: $TOML_VERSION"
+            echo "vibectl.__version__ (dynamic): $PYTHON_VERSION"
+
+            if [ "$TOML_VERSION" != "$PYTHON_VERSION" ]; then
               echo "ERROR: Version mismatch detected!"
               echo "The version in pyproject.toml ($TOML_VERSION) does not match"
-              echo "the __version__ in vibectl/__init__.py ($INIT_VERSION)"
+              echo "the dynamic __version__ in vibectl.__init__.py ($PYTHON_VERSION)"
               echo ""
-              echo "Please update both files to have the same version."
-              echo "You can use ./bump_version.py to update both files at once."
+              echo "This should not happen with dynamic versioning. Check get_package_version() function."
               return 1
             else
-              echo "✅ Versions are consistent."
+              echo "✅ Dynamic versioning working correctly."
               return 0
             fi
           }

@@ -11,7 +11,7 @@ import secrets
 import uuid
 from typing import Any
 
-import jwt  # type: ignore
+import jwt
 from pydantic import BaseModel
 
 from vibectl.logutil import logger

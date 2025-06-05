@@ -684,10 +684,7 @@ def in_memory_config() -> Generator[Config, None, None]:
     from vibectl.config import Config
 
     # Create a config in memory with patched file operations
-    with (
-        patch.object(Config, "_save_config", return_value=None),
-        patch.object(Config, "_load_config", return_value=None) as _,
-    ):
+    with patch.object(Config, "_save_config", return_value=None):
         # Create config with initialization but no file operations
         config = Config()
         yield config

@@ -16,10 +16,13 @@ from typing import Any
 import grpc
 from pydantic import BaseModel
 
+from vibectl import __version__
+from vibectl.version_compat import check_version_compatibility
+
 from .config import Config
 from .logutil import logger
 from .model_adapter import ModelAdapter, StreamingMetricsCollector
-from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc  # type: ignore[import-not-found]
+from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc
 from .types import LLMMetrics, SystemFragments, UserFragments
 
 
@@ -127,11 +130,61 @@ class ProxyModelAdapter(ModelAdapter):
         return self.stub
 
     def _get_metadata(self) -> list[tuple[str, str]]:
-        """Get gRPC metadata including JWT authentication if available."""
+        """Get gRPC metadata including JWT token if available."""
         metadata = []
         if self.jwt_token:
             metadata.append(("authorization", f"Bearer {self.jwt_token}"))
         return metadata
+
+    def _check_version_compatibility(self, server_version: str) -> None:
+        """Check for version skew between client and server and warn if needed.
+
+        Args:
+            server_version: Version string from the server
+        """
+        client_version = __version__
+
+        # In 0.x.x versions, any version difference should be reported
+        # as it could indicate potential compatibility issues
+        if client_version != server_version:
+            try:
+                # Check if we're in 0.x.x versions (pre-1.0.0)
+                client_major = int(client_version.split(".")[0])
+                server_major = (
+                    int(server_version.split(".")[0]) if "." in server_version else 0
+                )
+
+                if client_major == 0 or server_major == 0:
+                    # Both are pre-1.0.0, warn about any version skew
+                    logger.warning(
+                        "Version skew detected: client v%s, server v%s. "
+                        "Pre-1.0.0 versions may have compatibility issues. "
+                        "Consider updating client and server to the same version.",
+                        client_version,
+                        server_version,
+                    )
+                else:
+                    # Use semantic versioning compatibility check for 1.0.0+
+                    # For now, just warn about differences until we have a formal policy
+                    is_compatible, error_msg = check_version_compatibility(
+                        client_version, f"=={server_version}"
+                    )
+                    if not is_compatible:
+                        logger.warning(
+                            "Version difference detected: client v%s, server v%s. %s",
+                            client_version,
+                            server_version,
+                            error_msg,
+                        )
+            except (ValueError, IndexError) as e:
+                # If we can't parse versions, just log the difference without
+                # detailed analysis
+                logger.warning(
+                    "Version format issue: client v%s, server v%s. Error: %s",
+                    client_version,
+                    server_version,
+                    str(e),
+                )
 
     def _get_server_info(self, force_refresh: bool = False) -> Any:
         """Get server information with alias mappings, using cache when possible.
@@ -168,6 +221,9 @@ class ProxyModelAdapter(ModelAdapter):
             self._server_info_cache = response
             self._server_info_cache_time = current_time
             logger.debug("Fetched and cached fresh server info")
+
+            # Check version compatibility and warn about skew
+            self._check_version_compatibility(response.server_version)
 
             return response
 
@@ -514,7 +570,7 @@ class ProxyModelAdapter(ModelAdapter):
 
             # Process streaming chunks
             async for chunk_pb in self._async_stream_wrapper(stream):
-                if chunk_pb.HasField("text_chunk"):
+                if chunk_pb.HasField("text_chunk") and chunk_pb.text_chunk:
                     yield chunk_pb.text_chunk
                 elif chunk_pb.HasField("error"):
                     error = chunk_pb.error
@@ -590,12 +646,14 @@ class ProxyModelAdapter(ModelAdapter):
                 )
 
                 async for chunk_pb in self._async_stream_wrapper(stream):
-                    if chunk_pb.HasField("text_chunk"):
+                    if chunk_pb.HasField("text_chunk") and chunk_pb.text_chunk:
                         yield chunk_pb.text_chunk
                     elif chunk_pb.HasField("final_metrics"):
                         metrics = self._convert_metrics(chunk_pb.final_metrics)
                         if metrics:
                             metrics_collector.set_final_metrics(metrics)
+                        # After receiving final metrics, we can break
+                        break
                     elif chunk_pb.HasField("error"):
                         error = chunk_pb.error
                         error_msg = (
@@ -616,7 +674,7 @@ class ProxyModelAdapter(ModelAdapter):
                             chunk_pb.request_id,
                             chunk_pb.complete.actual_model_used,
                         )
-                        break
+                        # Don't break here - continue to wait for final_metrics chunk
 
             return _streaming_iterator(), metrics_collector
 

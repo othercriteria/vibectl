@@ -373,7 +373,7 @@ async def test_run_apply_command_vibe_success(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.NONE,
-        show_streaming=True,  # Passed here
+        show_streaming=True,
     )
 
     assert result == mock_vibe_success_result
@@ -392,7 +392,7 @@ async def test_run_apply_command_vibe_success(
         model="test-model-vibe",
         show_kubectl=False,
         show_metrics=MetricsDisplayMode.NONE,
-        show_streaming=True,  # Added show_streaming
+        show_streaming=True,
     )
     mock_config_cls.assert_called_once()
     mock_config_instance.get_typed.assert_called_once_with("intelligent_apply", True)

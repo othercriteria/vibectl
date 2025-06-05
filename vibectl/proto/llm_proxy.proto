@@ -138,6 +138,9 @@ message GetServerInfoResponse {
 
   // Model alias mappings (alias -> actual_model_name)
   map<string, string> model_aliases = 5;
+
+  // Server name/identifier
+  string server_name = 6;
 }
 
 // Information about an available model

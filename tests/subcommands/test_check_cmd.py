@@ -1,12 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asyncclick.testing import CliRunner
 
-# For CliRunner tests
-# from click.testing import CliRunner # Old import
-from asyncclick.testing import CliRunner  # Use CliRunner from asyncclick
-
-from vibectl.cli import cli  # Assuming main cli object is here
+from vibectl.cli import cli
 from vibectl.subcommands.check_cmd import run_check_command
 from vibectl.types import (
     Error,
@@ -148,17 +145,6 @@ async def test_run_check_command_empty_predicate() -> None:
     )
     assert result.error == expected_error_message
     assert result.original_exit_code == PredicateCheckExitCode.POORLY_POSED.value
-
-
-# To make this file runnable, we might need PLAN_CHECK_PROMPT definition if
-# not mocked out
-# For now, assuming the lambda in check_cmd.py for plan_prompt_func is sufficient
-# for it to be callable.
-# If PLAN_CHECK_PROMPT is imported and used by the lambda in a way that requires
-# its value during test collection or execution (outside the mocked
-# handle_vibe_request), it might need to be mocked or defined.
-# However, handle_vibe_request is fully mocked, so its internal use of the lambda's
-# return value (PLAN_CHECK_PROMPT) shouldn't be an issue.
 
 
 @pytest.mark.parametrize(

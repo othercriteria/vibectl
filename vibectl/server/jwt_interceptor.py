@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 import grpc
-import jwt  # type: ignore
+import jwt
 
 from vibectl.logutil import logger
 
@@ -35,7 +35,7 @@ class JWTAuthInterceptor(grpc.ServerInterceptor):  # type: ignore
     def intercept_service(
         self,
         continuation: Callable[..., Any],
-        handler_call_details: grpc.HandlerCallDetails,  # type: ignore
+        handler_call_details: grpc.HandlerCallDetails,
     ) -> Any:
         """Intercept gRPC service calls for authentication.
 
@@ -84,12 +84,7 @@ class JWTAuthInterceptor(grpc.ServerInterceptor):  # type: ignore
             claims = self.jwt_manager.validate_token(token)
             logger.debug(f"Authenticated request for subject: {claims.get('sub')}")
 
-            # Add claims to context for use by service handlers if needed
-            # This creates a new context with the user claims
-            context = grpc.ServicerContext()  # type: ignore
-            if hasattr(context, "set_details"):
-                context.set_details(f"user:{claims.get('sub')}")
-
+            # Authentication successful, proceed to the next handler
             return continuation(handler_call_details)
 
         except jwt.InvalidTokenError as e:

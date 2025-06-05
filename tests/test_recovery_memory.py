@@ -104,6 +104,9 @@ def get_test_summary_fragments(
 
 
 @pytest.mark.asyncio
+@patch("vibectl.plugins.PluginStore")
+@patch("vibectl.plugins.PromptResolver")
+@patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.execution.vibe._execute_command")
@@ -113,8 +116,24 @@ async def test_recovery_suggestions_should_update_memory(
     mock_execute: Mock,
     mock_ch_update_memory: Mock,
     mock_ch_get_model_adapter: MagicMock,  # For recovery path in handle_command_output
+    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_prompt_resolver: MagicMock,
+    mock_plugin_store: MagicMock,
 ) -> None:
     """Test that memory should be updated with recovery suggestions."""
+    # Mock the plugin system to avoid file I/O
+    mock_plugin_instance = MagicMock()
+    mock_plugin_store.return_value = mock_plugin_instance
+    mock_resolver_instance = MagicMock()
+    mock_prompt_resolver.return_value = mock_resolver_instance
+    mock_resolver_instance.get_prompt_mapping.return_value = None  # No custom prompt
+
+    # Mock the memory adapter to avoid LLM calls
+    memory_adapter = MagicMock(spec=LLMModelAdapter)
+    memory_adapter.get_model.return_value = MagicMock()
+    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    mock_memory_get_model_adapter.return_value = memory_adapter
+
     # Setup: Define the plan object that _get_llm_plan (mock_get_llm_plan) should return
     command_action_plan = CommandAction(
         action_type=ActionType.COMMAND, commands=["get", "pods"]
@@ -158,6 +177,9 @@ async def test_recovery_suggestions_should_update_memory(
 
 
 @pytest.mark.asyncio
+@patch("vibectl.plugins.PluginStore")
+@patch("vibectl.plugins.PromptResolver")
+@patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.execution.vibe._execute_command")
@@ -167,8 +189,24 @@ async def test_recovery_suggestions_in_auto_mode(
     mock_execute: Mock,
     mock_ch_update_memory: Mock,
     mock_ch_get_model_adapter: MagicMock,
+    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_prompt_resolver: MagicMock,
+    mock_plugin_store: MagicMock,
 ) -> None:
     """Test recovery suggestions in auto mode should update memory."""
+    # Mock the plugin system to avoid file I/O
+    mock_plugin_instance = MagicMock()
+    mock_plugin_store.return_value = mock_plugin_instance
+    mock_resolver_instance = MagicMock()
+    mock_prompt_resolver.return_value = mock_resolver_instance
+    mock_resolver_instance.get_prompt_mapping.return_value = None  # No custom prompt
+
+    # Mock the memory adapter to avoid LLM calls
+    memory_adapter = MagicMock(spec=LLMModelAdapter)
+    memory_adapter.get_model.return_value = MagicMock()
+    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    mock_memory_get_model_adapter.return_value = memory_adapter
+
     # Setup: Define the plan object that _get_llm_plan (mock_get_llm_plan) should return
     initial_command_action = CommandAction(
         action_type=ActionType.COMMAND, commands=["get", "pods"]
@@ -214,6 +252,9 @@ async def test_recovery_suggestions_in_auto_mode(
 
 
 @pytest.mark.asyncio
+@patch("vibectl.plugins.PluginStore")
+@patch("vibectl.plugins.PromptResolver")
+@patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.execution.vibe.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
@@ -228,10 +269,26 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
     mock_ch_update_memory: Mock,
     mock_get_adapter: MagicMock,
     mock_exec_vibe_get_model_adapter: MagicMock,
+    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_prompt_resolver: MagicMock,
+    mock_plugin_store: MagicMock,
     mock_console: MagicMock,
     output_flags: OutputFlags,
 ) -> None:
     """Test recovery returns an annotated Error when LLM suggests a new command plan."""
+    # Mock the plugin system to avoid file I/O
+    mock_plugin_instance = MagicMock()
+    mock_plugin_store.return_value = mock_plugin_instance
+    mock_resolver_instance = MagicMock()
+    mock_prompt_resolver.return_value = mock_resolver_instance
+    mock_resolver_instance.get_prompt_mapping.return_value = None  # No custom prompt
+
+    # Mock the memory adapter to avoid LLM calls
+    memory_adapter = MagicMock(spec=LLMModelAdapter)
+    memory_adapter.get_model.return_value = MagicMock()
+    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    mock_memory_get_model_adapter.return_value = memory_adapter
+
     # Setup initial plan to be executed by handle_vibe_request
     initial_plan_action = CommandAction(
         action_type=ActionType.COMMAND, commands=["get", "pods"]

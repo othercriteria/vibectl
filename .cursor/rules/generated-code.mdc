@@ -3,7 +3,7 @@ description: Generated code is managed according to best practices
 globs: ["**/*"]
 alwaysApply: true
 ---
-# No Bazel
+# Code generation should be performed consistently to prevent spurious diffs
 
 Manage generated code through Makefile targets with proper exclusions and source control practices.
 
@@ -20,15 +20,26 @@ filters:
   # Match build system files
   - type: file_pattern
     pattern: "^(Makefile|pyproject\\.toml)$"
-  # Match direct code generation attempts
+  # Match direct code generation attempts in commands
   - type: content
     pattern: "(?i)\\b(protoc|grpc_tools\\.protoc)\\b"
+  # Match tool calls that might use protoc
+  - type: content
+    pattern: "run_terminal_cmd.*protoc"
 
 actions:
   - type: reject
     conditions:
-      # Direct use of code generation tools outside Makefile
-      - pattern: "(?i)\\bpython\\s+-m\\s+grpc_tools\\.protoc\\b(?!.*Makefile)"
+      # Direct use of protoc command (removed overly permissive negative lookahead)
+      - pattern: "(?i)\\bpython\\s+-m\\s+grpc_tools\\.protoc\\b"
+        message: "Use 'make grpc-gen' instead of running protoc directly for consistency"
+
+      # Direct protoc usage in terminal commands
+      - pattern: "(?i)\\bprotoc\\s+--"
+        message: "Use 'make grpc-gen' instead of running protoc directly for consistency"
+
+      # Tool calls with protoc (catch direct usage in tool calls)
+      - pattern: "run_terminal_cmd.*grpc_tools\\.protoc"
         message: "Use 'make grpc-gen' instead of running protoc directly for consistency"
 
       # Generated files without proper linter exclusions
@@ -132,5 +143,5 @@ examples:
 
 metadata:
   priority: high
-  version: 1.0
+  version: 1.1
 </rule>

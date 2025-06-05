@@ -4,6 +4,10 @@ Version bumping script for vibectl.
 
 This script helps with incrementing the version number in pyproject.toml
 using semantic versioning (major.minor.patch).
+
+Note: Since vibectl now uses dynamic version resolution via get_package_version(),
+only pyproject.toml needs to be updated. The __init__.py file automatically
+gets the version from package metadata.
 """
 
 import argparse
@@ -71,31 +75,6 @@ def update_pyproject(pyproject_path: Path, new_version: tuple[int, int, int]) ->
     return True
 
 
-def update_init_file(init_path: Path, new_version: tuple[int, int, int]) -> bool:
-    """Update the __version__ variable in __init__.py."""
-    if not init_path.exists():
-        print(f"Warning: {init_path} not found. Skipping __version__ update.")
-        return False
-
-    content = init_path.read_text()
-    major, minor, patch = new_version
-    new_version_str = f"{major}.{minor}.{patch}"
-
-    updated_content = re.sub(
-        r'__version__\s*=\s*"\d+\.\d+\.\d+"',
-        f'__version__ = "{new_version_str}"',
-        content,
-    )
-
-    # Check if a replacement was made
-    if updated_content == content:
-        print(f"Warning: Could not find __version__ pattern in {init_path}.")
-        return False
-
-    init_path.write_text(updated_content)
-    return True
-
-
 def main() -> int:
     """Run the version bumping process."""
     parser = argparse.ArgumentParser(description="Bump vibectl version")
@@ -134,18 +113,15 @@ def main() -> int:
         print("Dry run - no changes made.")
         return 0
 
-    # Path to __init__.py relative to pyproject.toml
-    init_path = args.file.parent / "vibectl" / "__init__.py"
-
-    # Update both files
+    # Update pyproject.toml (vibectl/__init__.py gets version dynamically)
     pyproject_updated = update_pyproject(args.file, new_version)
-    init_updated = update_init_file(init_path, new_version)
 
-    if pyproject_updated and init_updated:
-        print(f"Successfully bumped version to {new_version_str} in both files")
-    elif pyproject_updated:
-        print(f"Updated version in pyproject.toml to {new_version_str}")
-        print("Warning: Failed to update __init__.py")
+    if pyproject_updated:
+        print(f"Successfully bumped version to {new_version_str} in pyproject.toml")
+        print(
+            "Note: __init__.py will automatically use the new version via "
+            "get_package_version()"
+        )
     else:
         print("Failed to update version.")
         return 1

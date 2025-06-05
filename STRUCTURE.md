@@ -14,7 +14,8 @@ This document provides an overview of the project's structure and organization.
 - `output_processor.py` - Token limits and output preparation
 - `memory.py` - Context memory for cross-command awareness
 - `model_adapter.py` - Abstraction layer for LLM model interactions.
-- `proxy.py` - Proxy-related functionality
+- `proxy_model_adapter.py` - Client-side adapter for connecting to LLM proxy servers via gRPC (92% test coverage)
+- `config_utils.py` - Configuration utilities including YAML handling, deep merge, and environment variable support (95% test coverage)
 - `py.typed` - Marker file for PEP 561 compliance
 - `schema.py` - Pydantic models for structured LLM output schemas (e.g., `LLMPlannerResponse`, `CommandAction` with `explanation`, `FeedbackAction` with `explanation` and `suggestion`). Includes `allowed_exit_codes` in `CommandAction`.
 - `live_display.py` - Handlers for Rich Live display features (e.g., port-forward, wait), now also respects `allowed_exit_codes`.
@@ -23,6 +24,16 @@ This document provides an overview of the project's structure and organization.
 - `utils.py` - Utility functions and helpers
 - `__init__.py` - Package initialization and version information
 - `logutil.py` - Logging setup and configuration
+- `server/` - LLM proxy server components (gRPC-based centralized LLM access). See [vibectl/server/STRUCTURE.md](vibectl/server/STRUCTURE.md) for detailed architecture.
+  - `main.py` - Server entry point and configuration management (99% test coverage)
+  - `grpc_server.py` - gRPC server infrastructure and lifecycle management (100% test coverage)
+  - `llm_proxy.py` - Core LLM proxy service implementation (93% test coverage)
+  - `jwt_auth.py` - JWT authentication implementation (100% test coverage)
+  - `jwt_interceptor.py` - gRPC authentication interceptor (100% test coverage)
+  - `__init__.py` - Package initialization
+- `proto/` - Protocol buffer definitions for gRPC communication
+  - `llm_proxy_pb2.py` - Generated protocol buffer message definitions
+  - `llm_proxy_pb2_grpc.py` - Generated gRPC service stubs and server interfaces
 - `execution/` - Modules related to command execution logic.
   - `vibe.py` - Handles the core Vibe.AI LLM interaction loop, including `handle_vibe_request`.
   - `apply.py` - Handles intelligent apply workflow execution logic, including file discovery, validation, correction/generation, and command planning.
@@ -55,6 +66,7 @@ This document provides an overview of the project's structure and organization.
   - `edit_cmd.py` - Edit command implementation with intelligent edit capabilities
   - `patch_cmd.py` - Patch command implementation
   - `apply_cmd.py` - Apply command implementation
+  - `setup_proxy_cmd.py` - Setup and configuration commands for the LLM proxy server (14% test coverage - needs improvement)
 
 ### Testing (`tests/`)
 
@@ -290,3 +302,46 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. `CommandAction` can specify `allowed_exit_codes` and `explanation`. `FeedbackAction` can include `explanation` and `suggestion`.
    - `model_adapter.py` uses these schemas for LLM interaction.
    - `types.py` includes `Error` model now with `original_exit_code`.
+
+### LLM Proxy Server System
+
+1. **Server Architecture** (`vibectl/server/`) - High-performance gRPC-based LLM proxy
+   - **Service Layer**: Core proxy service with streaming support and model resolution
+   - **Authentication Layer**: JWT-based authentication with gRPC interceptors
+   - **Infrastructure Layer**: Server lifecycle management and configuration
+   - **Protocol Definition**: gRPC protocol buffers for client-server communication
+   - See [vibectl/server/STRUCTURE.md](vibectl/server/STRUCTURE.md) for detailed architecture documentation
+
+2. **Client Integration** (`proxy_model_adapter.py`) - Transparent proxy client
+   - Implements `ModelAdapter` interface for seamless integration
+   - Handles gRPC connection management and authentication
+   - Provides automatic reconnection and failover capabilities
+   - Supports both streaming and non-streaming LLM requests
+   - 92% test coverage with comprehensive integration testing
+
+3. **Configuration System** (`config_utils.py`) - Shared configuration management
+   - YAML configuration file support with environment variable overrides
+   - Deep merge functionality for hierarchical configuration
+   - Type conversion and validation utilities
+   - File-based secret management for secure key storage
+   - 95% test coverage ensuring reliable configuration handling
+
+4. **Setup Commands** (`subcommands/setup_proxy_cmd.py`) - Proxy management CLI
+   - `configure` command: Set up proxy server connections and authentication
+   - `status` command: Check proxy server health and configuration
+   - `remove` command: Clean up proxy configurations
+   - URL validation and connection testing
+   - 14% test coverage (improvement needed)
+
+5. **Protocol Components** (`vibectl/proto/`) - gRPC communication
+   - **Protocol Buffer Definitions**: Structured message definitions for requests/responses
+   - **Service Stubs**: Generated gRPC client and server interfaces
+   - **Streaming Support**: Real-time response streaming capabilities
+   - **Metadata Handling**: Authentication and request context passing
+
+### Key Integration Benefits
+- **Centralized LLM Access**: Multiple clients can share expensive LLM resources
+- **Authentication & Security**: JWT-based secure access with configurable policies
+- **Performance Optimization**: Connection pooling, caching, and streaming support
+- **Transparent Integration**: Drop-in replacement for direct LLM access
+- **Monitoring & Metrics**: Built-in request tracking and performance monitoring

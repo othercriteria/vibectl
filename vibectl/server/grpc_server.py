@@ -9,9 +9,9 @@ import logging
 import signal
 from concurrent import futures
 
-import grpc  # type: ignore
+import grpc
 
-from vibectl.proto.llm_proxy_pb2_grpc import (  # type: ignore[import-not-found]
+from vibectl.proto.llm_proxy_pb2_grpc import (
     add_VibectlLLMProxyServicer_to_server,
 )
 
@@ -73,9 +73,9 @@ class GRPCServer:
     def start(self) -> None:
         """Start the gRPC server."""
         # Create interceptors list
-        interceptors: list[grpc.ServerInterceptor] = []  # type: ignore
+        interceptors: list[grpc.ServerInterceptor] = []
         if self.jwt_interceptor:
-            interceptors.append(self.jwt_interceptor)  # type: ignore
+            interceptors.append(self.jwt_interceptor)
 
         # Create server with interceptors
         self.server = grpc.server(

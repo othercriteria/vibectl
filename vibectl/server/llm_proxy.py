@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Iterator
 
-import grpc  # type: ignore
+import grpc
 import llm
 
 from vibectl.proto.llm_proxy_pb2 import (  # type: ignore
@@ -26,7 +26,8 @@ from vibectl.proto.llm_proxy_pb2 import (  # type: ignore
     StreamChunk,
     StreamComplete,
 )
-from vibectl.proto.llm_proxy_pb2_grpc import VibectlLLMProxyServicer  # type: ignore
+from vibectl.proto.llm_proxy_pb2_grpc import VibectlLLMProxyServicer
+from vibectl.utils import get_package_version
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +125,7 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                         input_tokens = int(getattr(usage_data, "input", 0))
                         output_tokens = int(getattr(usage_data, "output", 0))
 
-                # If no token usage available or extraction failed,
-                # estimate based on text length
+                # If no token usage available, estimate based on text length
                 if input_tokens == 0 or output_tokens == 0:
 
                     def estimate_tokens(text: str) -> int:
@@ -137,9 +137,9 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                     if output_tokens == 0:
                         output_tokens = estimate_tokens(response_text)
 
-            except Exception as e:
-                logger.warning(f"Error extracting token usage: {e}")
-
+            except (
+                Exception
+            ):  # pragma: no cover - fallback for any token extraction failure
                 # Fall back to estimation
                 def estimate_tokens(text: str) -> int:
                     return max(1, len(text) // 4)
@@ -221,6 +221,7 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
             # Use actual streaming from LLM library instead of simulation
             try:
                 response = model.prompt(prompt_text)
+                logger.debug(f"Got response from model.prompt, type: {type(response)}")
 
                 # Check if this response object supports streaming (is iterable)
                 # If so, stream the chunks as they arrive
@@ -230,6 +231,10 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                     for chunk in response:  # type: ignore[attr-defined]
                         response_text_for_metrics += chunk
                         yield StreamChunk(request_id=request_id, text_chunk=chunk)
+                    logger.debug(
+                        "Completed streaming, accumulated text length: "
+                        f"{len(response_text_for_metrics)}"
+                    )
                 except TypeError as te:
                     # Response object is not iterable (doesn't support streaming)
                     # Fall back to the complete response
@@ -294,8 +299,7 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                         input_tokens = int(getattr(usage_data, "input", 0))
                         output_tokens = int(getattr(usage_data, "output", 0))
 
-                # If no token usage available or extraction failed,
-                # estimate based on text length
+                # If no token usage available, estimate based on text length
                 if input_tokens == 0 or output_tokens == 0:
 
                     def estimate_tokens(text: str) -> int:
@@ -307,9 +311,9 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                     if output_tokens == 0:
                         output_tokens = estimate_tokens(response_text)
 
-            except Exception as e:
-                logger.warning(f"Error extracting token usage: {e}")
-
+            except (
+                Exception
+            ):  # pragma: no cover - fallback for any token extraction failure
                 # Fall back to estimation
                 def estimate_tokens(text: str) -> int:
                     return max(1, len(text) // 4)
@@ -326,10 +330,18 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                 output_tokens=output_tokens,
             )
 
-            # Send completion with metrics
+            # Send completion with metrics as two separate chunks
+            # (oneof only allows one field to be set at a time)
+
+            # First, send the completion chunk
             yield StreamChunk(
                 request_id=request_id,
                 complete=StreamComplete(actual_model_used=model_name),
+            )
+
+            # Then, send the metrics chunk
+            yield StreamChunk(
+                request_id=request_id,
                 final_metrics=metrics,
             )
 
@@ -347,8 +359,6 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
         Returns:
             dict: Mapping of aliases to model IDs
         """
-        import llm
-
         alias_map = {}
         try:
             models_with_aliases = llm.get_models_with_aliases()  # type: ignore[attr-defined]
@@ -390,18 +400,20 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                     alias for alias, target in all_aliases.items() if target == model_id
                 ]
 
-                models.append(
-                    ModelInfo(
-                        model_id=model_id,
-                        display_name=getattr(model, "display_name", model_id),
-                        provider=getattr(model, "provider", "unknown"),
-                        supports_streaming=False,  # TODO: Check streaming support
-                        aliases=aliases,
-                    )
+                model_info = ModelInfo(
+                    model_id=model_id,
+                    display_name=getattr(model, "display_name", model_id),
+                    provider=getattr(model, "provider", "unknown"),
+                    supports_streaming=False,  # TODO: Check streaming support
                 )
+                # aliases is a RepeatedScalarContainer, so we need to extend it
+                model_info.aliases.extend(aliases)
+
+                models.append(model_info)
 
             return GetServerInfoResponse(
-                server_version="0.1.0",  # TODO: Get from package version
+                server_version=get_package_version(),
+                server_name="vibectl-llm-proxy",
                 available_models=models,
                 default_model=self.default_model or "",
                 limits=ServerLimits(),
