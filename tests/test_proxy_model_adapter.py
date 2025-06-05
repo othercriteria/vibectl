@@ -440,13 +440,28 @@ class TestProxyModelAdapterAliasResolution:
         self, proxy_adapter: ProxyModelAdapter
     ) -> None:
         """Test server info handling when gRPC error occurs but cache exists."""
-        # Set up cached data
+        # Set up cached data with stale cache time
         mock_cached_response = Mock()
         proxy_adapter._server_info_cache = mock_cached_response
+        # Set cache time to old value so cache is considered stale/expired
+        import time
+
+        proxy_adapter._server_info_cache_time = (
+            time.monotonic() - proxy_adapter._server_info_cache_ttl - 1
+        )
 
         with patch.object(proxy_adapter, "_get_stub") as mock_get_stub:
             mock_stub = Mock()
-            mock_stub.GetServerInfo.side_effect = grpc.RpcError("Connection failed")
+
+            # Create a real gRPC error that can be raised
+            class TestRpcError(grpc.RpcError):
+                def code(self) -> grpc.StatusCode:
+                    return grpc.StatusCode.UNAVAILABLE
+
+                def details(self) -> str:
+                    return "Connection failed"
+
+            mock_stub.GetServerInfo.side_effect = TestRpcError()
             mock_get_stub.return_value = mock_stub
 
             with patch("vibectl.proxy_model_adapter.logger") as mock_logger:
@@ -463,7 +478,16 @@ class TestProxyModelAdapterAliasResolution:
         """Test server info handling when gRPC error occurs and no cache exists."""
         with patch.object(proxy_adapter, "_get_stub") as mock_get_stub:
             mock_stub = Mock()
-            mock_stub.GetServerInfo.side_effect = grpc.RpcError("Connection failed")
+
+            # Create a real gRPC error that can be raised
+            class TestRpcError(grpc.RpcError):
+                def code(self) -> grpc.StatusCode:
+                    return grpc.StatusCode.UNAVAILABLE
+
+                def details(self) -> str:
+                    return "Connection failed"
+
+            mock_stub.GetServerInfo.side_effect = TestRpcError()
             mock_get_stub.return_value = mock_stub
 
             with pytest.raises(grpc.RpcError):

@@ -48,89 +48,115 @@ class TestConfigurationManagement:
         assert result == mock_config_dir / "config.yaml"
 
     def test_get_default_server_config(self) -> None:
-        """Test getting default server configuration."""
+        """Test get_default_server_config returns correct structure."""
         config = get_default_server_config()
 
-        expected_keys = {
-            "host",
-            "port",
-            "default_model",
-            "max_workers",
-            "log_level",
-            "enable_auth",
-        }
-        assert set(config.keys()) == expected_keys
-        assert config["host"] == "0.0.0.0"
-        assert config["port"] == 50051
-        assert config["default_model"] == "anthropic/claude-3-7-sonnet-latest"
-        assert config["max_workers"] == 10
-        assert config["log_level"] == "INFO"
-        assert config["enable_auth"] is False
+        # Check structure and required keys
+        assert isinstance(config, dict)
+        assert "server" in config
+        assert "jwt" in config
+
+        # Check server section
+        server_config = config["server"]
+        assert server_config["host"] == "0.0.0.0"
+        assert server_config["port"] == 50051
+        assert server_config["default_model"] == "anthropic/claude-3-7-sonnet-latest"
+        assert server_config["max_workers"] == 10
+        assert server_config["log_level"] == "INFO"
+        assert server_config["enable_auth"] is False
+
+        # Check JWT section
+        jwt_config = config["jwt"]
+        assert jwt_config["secret_key"] is None
+        assert jwt_config["secret_key_file"] is None
+        assert jwt_config["algorithm"] == "HS256"
+        assert jwt_config["issuer"] == "vibectl-server"
+        assert jwt_config["expiration_days"] == 30
 
     @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.open")
+    @patch("vibectl.server.main.load_yaml_config")
     def test_load_server_config_file_exists(
-        self, mock_path_open: Mock, mock_exists: Mock, mock_get_path: Mock
+        self, mock_load_yaml: Mock, mock_get_path: Mock
     ) -> None:
-        """Test loading server config when file exists."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-        mock_exists.return_value = True
+        """Test loading server config from existing file."""
+        mock_path = Mock()
+        mock_get_path.return_value = mock_path
 
-        # Mock file content
-        config_content = {"host": "custom.host", "port": 8080}
+        # Set up the expected merged configuration
+        expected_config = {
+            "server": {
+                "host": "custom.host",
+                "port": 8080,
+                "default_model": "anthropic/claude-3-7-sonnet-latest",
+                "max_workers": 10,
+                "log_level": "INFO",
+                "enable_auth": True,
+            },
+            "jwt": {
+                "secret_key": None,
+                "secret_key_file": None,
+                "algorithm": "HS512",
+                "issuer": "custom-issuer",
+                "expiration_days": 30,
+            },
+        }
+        mock_load_yaml.return_value = expected_config
 
-        # Set up the mock to return our file content
-        mock_file = mock_open(read_data=yaml.dump(config_content))
-        mock_path_open.return_value = mock_file.return_value
+        config = load_server_config()
 
-        result = load_server_config()
+        # Verify load_yaml_config was called with correct parameters
+        mock_load_yaml.assert_called_once_with(mock_path, get_default_server_config())
 
-        # Should merge with defaults
-        assert result["host"] == "custom.host"
-        assert result["port"] == 8080
-        assert (
-            result["default_model"] == "anthropic/claude-3-7-sonnet-latest"
-        )  # From defaults
-        assert result["max_workers"] == 10  # From defaults
-        assert result["log_level"] == "INFO"  # From defaults
+        # Verify the config structure and deep merge
+        assert config["server"]["host"] == "custom.host"
+        assert config["server"]["port"] == 8080
+        assert config["server"]["enable_auth"] is True
+        # Defaults preserved where not overridden
+        assert config["server"]["max_workers"] == 10
+        assert config["server"]["log_level"] == "INFO"
+
+        # JWT section properly merged
+        assert config["jwt"]["algorithm"] == "HS512"
+        assert config["jwt"]["issuer"] == "custom-issuer"
+        # Defaults preserved where not overridden
+        assert config["jwt"]["expiration_days"] == 30
+        assert config["jwt"]["secret_key"] is None
 
     @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.exists")
+    @patch("vibectl.server.main.load_yaml_config")
     def test_load_server_config_file_not_exists(
-        self, mock_exists: Mock, mock_get_path: Mock
+        self, mock_load_yaml: Mock, mock_get_path: Mock
     ) -> None:
         """Test loading server config when file doesn't exist."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-        mock_exists.return_value = False
+        mock_path = Mock()
+        mock_get_path.return_value = mock_path
 
-        result = load_server_config()
+        # When file doesn't exist, load_yaml_config should return defaults
+        expected_config = get_default_server_config()
+        mock_load_yaml.return_value = expected_config
 
-        # Should return defaults
-        expected = get_default_server_config()
-        assert result == expected
+        config = load_server_config()
 
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.open")
-    def test_load_server_config_with_explicit_path(
-        self, mock_path_open: Mock, mock_exists: Mock
-    ) -> None:
+        mock_load_yaml.assert_called_once_with(mock_path, get_default_server_config())
+        assert config["server"]["host"] == "0.0.0.0"
+        assert config["server"]["port"] == 50051
+
+    @patch("vibectl.server.main.load_yaml_config")
+    def test_load_server_config_with_explicit_path(self, mock_load_yaml: Mock) -> None:
         """Test loading server config with explicit path."""
         explicit_path = Path("/explicit/config.yaml")
-        mock_exists.return_value = True
 
-        # Mock file content
-        config_content = {"host": "explicit.host"}
-
-        # Set up the mock to return our file content
-        mock_file = mock_open(read_data=yaml.dump(config_content))
-        mock_path_open.return_value = mock_file.return_value
+        # Set up expected config with explicit host in structured format
+        expected_config = get_default_server_config()
+        expected_config["server"]["host"] = "explicit.host"
+        mock_load_yaml.return_value = expected_config
 
         result = load_server_config(explicit_path)
 
-        assert result["host"] == "explicit.host"
+        mock_load_yaml.assert_called_once_with(
+            explicit_path, get_default_server_config()
+        )
+        assert result["server"]["host"] == "explicit.host"
 
     @patch("vibectl.server.main.get_server_config_path")
     @patch("pathlib.Path.exists")
@@ -346,12 +372,21 @@ class TestCLICommands:
     ) -> None:
         """Test serve command with default configuration."""
         mock_config = {
-            "host": "0.0.0.0",
-            "port": 50051,
-            "default_model": "test-model",
-            "max_workers": 10,
-            "log_level": "INFO",
-            "enable_auth": False,
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "default_model": "test-model",
+                "max_workers": 10,
+                "log_level": "INFO",
+                "enable_auth": False,
+            },
+            "jwt": {
+                "secret_key": None,
+                "secret_key_file": None,
+                "algorithm": "HS256",
+                "issuer": "vibectl-server",
+                "expiration_days": 30,
+            },
         }
         mock_load_config.return_value = mock_config
 
@@ -386,12 +421,21 @@ class TestCLICommands:
     ) -> None:
         """Test serve command with CLI option overrides."""
         mock_config = {
-            "host": "0.0.0.0",
-            "port": 50051,
-            "default_model": "test-model",
-            "max_workers": 10,
-            "log_level": "INFO",
-            "enable_auth": False,
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "default_model": "test-model",
+                "max_workers": 10,
+                "log_level": "INFO",
+                "enable_auth": False,
+            },
+            "jwt": {
+                "secret_key": None,
+                "secret_key_file": None,
+                "algorithm": "HS256",
+                "issuer": "vibectl-server",
+                "expiration_days": 30,
+            },
         }
         mock_load_config.return_value = mock_config
 

@@ -73,7 +73,71 @@ vibectl setup-proxy test
 
 ### JWT Token-Based Authentication
 
-The proxy server uses JWT (JSON Web Tokens) for secure authentication:
+The proxy server uses JWT (JSON Web Tokens) for secure authentication with flexible configuration options:
+
+#### JWT Configuration Precedence
+
+The server follows a consistent precedence pattern for JWT secret key configuration (same pattern used for API keys in the client):
+
+1. **Environment Variable** (highest precedence): `VIBECTL_JWT_SECRET`
+2. **Environment Key File**: `VIBECTL_JWT_SECRET_FILE` pointing to a file containing the secret
+3. **Config Setting**: `jwt.secret_key` in server configuration file
+4. **Config Key File**: `jwt.secret_key_file` pointing to a file containing the secret
+5. **Generated Key** (lowest precedence): Automatically generated for the session
+
+Other JWT settings follow the same precedence pattern:
+
+- Algorithm: `VIBECTL_JWT_ALGORITHM` → `jwt.algorithm` → `"HS256"`
+- Issuer: `VIBECTL_JWT_ISSUER` → `jwt.issuer` → `"vibectl-server"`
+- Expiration: `VIBECTL_JWT_EXPIRATION_DAYS` → `jwt.expiration_days` → `30`
+
+#### JWT Configuration Examples
+
+**Environment Variables** (recommended for containers/CI):
+
+```bash
+export VIBECTL_JWT_SECRET="your-secret-key-here"
+export VIBECTL_JWT_ALGORITHM="HS256"
+export VIBECTL_JWT_ISSUER="my-company-proxy"
+export VIBECTL_JWT_EXPIRATION_DAYS="90"
+```
+
+**Environment Key File** (recommended for secure file-based secrets):
+
+```bash
+# Store secret in a file
+echo "your-secret-key-here" > ~/.vibectl-jwt-secret
+chmod 600 ~/.vibectl-jwt-secret
+export VIBECTL_JWT_SECRET_FILE="~/.vibectl-jwt-secret"
+```
+
+**Server Configuration File** (recommended for persistent setups):
+
+```yaml
+# ~/.config/vibectl/server/config.yaml
+server:
+  host: "0.0.0.0"
+  port: 50051
+  enable_auth: true
+  log_level: "INFO"
+
+jwt:
+  secret_key: "your-secret-key-here"
+  algorithm: "HS256"
+  issuer: "my-company-proxy"
+  expiration_days: 90
+```
+
+**Server Configuration with Key File**:
+
+```yaml
+# ~/.config/vibectl/server/config.yaml
+jwt:
+  secret_key_file: "~/.config/vibectl/server/jwt-secret"
+  algorithm: "HS256"
+  issuer: "my-company-proxy"
+  expiration_days: 90
+```
 
 #### Token Generation
 
@@ -103,6 +167,8 @@ vibectl-server generate-token production-client --expires-in 6m --output prod-to
 
 #### Server Configuration
 
+The server configuration supports JWT settings in the `jwt` section:
+
 ```yaml
 # ~/.config/vibectl/server/config.yaml
 server:
@@ -110,8 +176,22 @@ server:
   port: 50051
   enable_auth: true
   log_level: "INFO"
-  jwt_secret: "your-secret-key"
+
+jwt:
+  secret_key: null  # Use environment or file-based configuration
+  secret_key_file: null  # Path to file containing the secret key
+  algorithm: "HS256"
+  issuer: "vibectl-server"
+  expiration_days: 30
 ```
+
+**Configuration Options**:
+
+- `secret_key`: Direct secret key value (not recommended for production)
+- `secret_key_file`: Path to file containing the secret key (recommended)
+- `algorithm`: JWT signing algorithm (default: HS256)
+- `issuer`: JWT issuer claim (default: vibectl-server)
+- `expiration_days`: Default token expiration in days (default: 30)
 
 #### Client Configuration
 
@@ -216,27 +296,93 @@ The proxy server supports friendly model aliases:
 ### Basic Setup
 
 ```bash
-# 1. Start server with authentication
+# 1. Initialize server configuration
+vibectl-server init-config
+
+# 2. Configure JWT secret (choose one method)
+
+# Method A: Environment variable
+export VIBECTL_JWT_SECRET="your-production-secret-key"
+
+# Method B: Environment key file
+echo "your-production-secret-key" > ~/.vibectl-jwt-secret
+chmod 600 ~/.vibectl-jwt-secret
+export VIBECTL_JWT_SECRET_FILE="~/.vibectl-jwt-secret"
+
+# Method C: Config file
+# TODO: Implement `vibectl-server config set` command
+vibectl-server config set jwt.secret_key "your-production-secret-key"
+
+# Method D: Config key file
+echo "your-production-secret-key" > ~/.config/vibectl/server/jwt-secret
+chmod 600 ~/.config/vibectl/server/jwt-secret
+# TODO: Implement `vibectl-server config set` command
+vibectl-server config set jwt.secret_key_file "~/.config/vibectl/server/jwt-secret"
+
+# 3. Start server with authentication
 vibectl-server --enable-auth --port 50051
 
-# 2. Generate client token
+# 4. Generate client token
 vibectl-server generate-token my-client --expires-in 30d --output token.jwt
 
-# 3. Configure client proxy
+# 5. Configure client proxy
 vibectl setup-proxy configure vibectl-server://$(cat token.jwt)@localhost:50051
 
-# 4. Use proxy for LLM requests
+# 6. Use proxy for LLM requests
 vibectl vibe "explain kubernetes pods"
 ```
 
 ### Production Deployment
 
 ```bash
-# Server setup
+# Server setup with persistent configuration
+vibectl-server init-config
+
+# Store JWT secret securely
+echo "production-secret-key-$(openssl rand -hex 32)" > /etc/vibectl/jwt-secret
+chmod 600 /etc/vibectl/jwt-secret
+chown vibectl:vibectl /etc/vibectl/jwt-secret
+
+# Configure server to use the key file
+cat > ~/.config/vibectl/server/config.yaml << EOF
+server:
+  host: "0.0.0.0"
+  port: 443
+  enable_auth: true
+  log_level: "INFO"
+
+jwt:
+  secret_key_file: "/etc/vibectl/jwt-secret"
+  algorithm: "HS256"
+  issuer: "company-llm-proxy"
+  expiration_days: 90
+EOF
+
+# Start server
 vibectl-server --host 0.0.0.0 --port 443 --enable-auth --log-level INFO
 
 # Client setup with secure connection
 vibectl setup-proxy configure vibectl-server://production-token@llm-proxy.company.com:443
+```
+
+### Container/Docker Deployment
+
+```bash
+# Using environment variables for container deployment
+docker run -d \
+  -e VIBECTL_JWT_SECRET="container-secret-key" \
+  -e VIBECTL_JWT_ISSUER="docker-proxy" \
+  -e VIBECTL_JWT_EXPIRATION_DAYS="60" \
+  -p 50051:50051 \
+  vibectl-server --enable-auth
+
+# Using mounted secret file
+echo "docker-secret-key" > /host/secrets/jwt-secret
+docker run -d \
+  -e VIBECTL_JWT_SECRET_FILE="/secrets/jwt-secret" \
+  -v /host/secrets:/secrets:ro \
+  -p 50051:50051 \
+  vibectl-server --enable-auth
 ```
 
 ### Development Testing
@@ -245,6 +391,10 @@ vibectl setup-proxy configure vibectl-server://production-token@llm-proxy.compan
 # Quick insecure setup for development
 vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
 vibectl vibe "test the proxy connection"
+
+# Development with authentication but temporary secret
+# (secret will be auto-generated and logged)
+vibectl-server --enable-auth --log-level DEBUG
 ```
 
 ## Monitoring and Metrics
@@ -291,53 +441,45 @@ Error: JWT token validation failed
 Solution: Check token format and expiration
 ```
 
-#### Connection Issues
+#### Configuration Issues
 
 ```
-Error: Cannot connect to proxy server
-Solution: Verify server is running and URL is correct
+Warning: No JWT secret key found in environment, config, or files
+Solution: Configure secret using one of the supported methods:
+  1. export VIBECTL_JWT_SECRET="your-key"
+  2. export VIBECTL_JWT_SECRET_FILE="path/to/secret"
+  3. Set jwt.secret_key in server config
+  4. Set jwt.secret_key_file in server config
 ```
 
-#### Streaming Problems
+#### Permission Issues with Key Files
 
 ```
-Warning: Model doesn't support streaming, falling back to simulated
-Solution: This is expected behavior for non-streaming models
-```
-
-#### Version Compatibility Issues
-
-```
-Error: Client version X.Y.Z is incompatible with server version A.B.C
-Solution: Upgrade client or server to compatible versions
-```
-
-#### Server Information Display
-
-```
-Issue: Server Name and Version showing the same value
-Solution: Update to latest version where server_name field is properly implemented
-```
-
-Example of correct server information display:
-
-```bash
-vibectl setup-proxy test
-# ✓ Connection successful!
-# ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ Property         ┃ Value                                      ┃
-# ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-# │ Server Name      │ vibectl-llm-proxy                          │
-# │ Version          │ 0.9.1                                      │
-# │ Supported Models │ gpt-4o, claude-3-5-sonnet-latest, ...     │
-# └──────────────────┴────────────────────────────────────────────┘
+Error: Failed to read JWT secret from file
+Solution: Check file permissions and path:
+  chmod 600 /path/to/secret-file
+  chown your-user:your-group /path/to/secret-file
 ```
 
 ### Debug Mode
 
 ```bash
-# Enable debug logging
+# Enable debug logging to see configuration precedence
 vibectl-server --log-level DEBUG
+
+# Check which JWT configuration method is being used
+# Look for log messages like:
+# "Using JWT secret from environment variable"
+# "Loaded JWT secret from config key file: /path/to/file"
+# "Using JWT secret from server configuration"
+
+# TODO: Implement `vibectl-server config show` command
+# Check current server configuration
+vibectl-server config show
+
+# TODO: Implement `vibectl-server config validate` command
+# Validate server configuration
+vibectl-server config validate
 
 # Check client configuration
 vibectl setup-proxy status
@@ -370,3 +512,52 @@ For detailed technical architecture documentation, see:
 - Enhanced environment variable support
 - Configuration validation improvements
 - Multi-tenant support
+
+### Missing CLI Functionality (TODOs)
+
+The following CLI commands are referenced in this documentation but not yet implemented:
+
+#### Configuration Management Commands
+
+```bash
+# TODO: Implement these vibectl-server config subcommands:
+
+# Show current configuration (with resolved values and precedence info)
+vibectl-server config show [--section jwt|server] [--format yaml|json]
+
+# Set configuration values
+vibectl-server config set <key> <value>
+vibectl-server config set jwt.secret_key "secret"
+vibectl-server config set jwt.secret_key_file "/path/to/file"
+vibectl-server config set server.port 50051
+
+# Get configuration values
+vibectl-server config get <key>
+vibectl-server config get jwt.algorithm
+
+# Validate configuration file and settings
+vibectl-server config validate [--config-file path]
+
+# Generate secure random secret keys
+vibectl-server config generate-secret [--output-file path]
+
+# Reset configuration to defaults
+vibectl-server config reset [--section jwt|server]
+```
+
+#### Enhanced Debugging Commands
+
+```bash
+# TODO: Implement these debugging/status commands:
+
+# Show detailed server status and configuration sources
+vibectl-server status [--include-secrets]
+
+# Test JWT configuration without starting server
+vibectl-server test-jwt [--generate-token subject]
+
+# Show configuration precedence and sources
+vibectl-server config precedence
+```
+
+These commands would provide a complete CLI interface for server configuration management, making the server easier to deploy and maintain in production environments.

@@ -16,6 +16,7 @@ import click
 from vibectl.config_utils import (
     ensure_config_dir,
     get_config_dir,
+    load_yaml_config,
 )
 from vibectl.logutil import logger
 
@@ -52,14 +53,21 @@ def get_default_server_config() -> dict:
         dict: Default server configuration
     """
     return {
-        "host": "0.0.0.0",
-        "port": 50051,
-        "default_model": "anthropic/claude-3-7-sonnet-latest",
-        "max_workers": 10,
-        "log_level": "INFO",
-        "enable_auth": False,
-        # Note: model_aliases are now discovered dynamically from the llm library
-        # instead of being hardcoded here
+        "server": {
+            "host": "0.0.0.0",
+            "port": 50051,
+            "default_model": "anthropic/claude-3-7-sonnet-latest",
+            "max_workers": 10,
+            "log_level": "INFO",
+            "enable_auth": False,
+        },
+        "jwt": {
+            "secret_key": None,  # Will use environment or generate if None
+            "secret_key_file": None,  # Path to file containing secret key
+            "algorithm": "HS256",
+            "issuer": "vibectl-server",
+            "expiration_days": 30,
+        },
     }
 
 
@@ -72,28 +80,15 @@ def load_server_config(config_path: Path | None = None) -> dict:
     Returns:
         dict: Server configuration
     """
-    import yaml
-
     if config_path is None:
         config_path = get_server_config_path()
 
-    if config_path.exists():
-        logger.info("Loading server config from %s", config_path)
-        try:
-            with config_path.open() as f:
-                config = yaml.safe_load(f) or {}
-
-            # Merge with defaults to ensure all required keys exist
-            default_config = get_default_server_config()
-            default_config.update(config)
-            return default_config
-
-        except Exception as e:
-            logger.error("Failed to load config from %s: %s", config_path, e)
-            logger.info("Using default configuration")
-            return get_default_server_config()
-    else:
-        logger.info("Config file not found at %s, using defaults", config_path)
+    try:
+        # Use shared config loading utility with deep merge
+        return load_yaml_config(config_path, get_default_server_config())
+    except ValueError as e:
+        logger.error("Failed to load config from %s: %s", config_path, e)
+        logger.info("Using default configuration")
         return get_default_server_config()
 
 
@@ -263,45 +258,49 @@ def serve(
 
         # Override with command line arguments (only if they were explicitly provided)
         if host is not None:
-            server_config["host"] = host
+            server_config["server"]["host"] = host
         if port is not None:
-            server_config["port"] = port
+            server_config["server"]["port"] = port
         if model is not None:
-            server_config["default_model"] = model
+            server_config["server"]["default_model"] = model
         if max_workers is not None:
-            server_config["max_workers"] = max_workers
+            server_config["server"]["max_workers"] = max_workers
         if log_level is not None:
-            server_config["log_level"] = log_level
+            server_config["server"]["log_level"] = log_level
         if enable_auth:
-            server_config["enable_auth"] = True
+            server_config["server"]["enable_auth"] = True
 
         # Setup logging
-        setup_logging(server_config["log_level"])
+        setup_logging(server_config["server"]["log_level"])
 
         # Validate configuration
         validate_config(
-            server_config["host"], server_config["port"], server_config["max_workers"]
+            server_config["server"]["host"],
+            server_config["server"]["port"],
+            server_config["server"]["max_workers"],
         )
 
         logger.info("Starting vibectl LLM proxy server")
-        logger.info(f"Host: {server_config['host']}")
-        logger.info(f"Port: {server_config['port']}")
-        logger.info(f"Max workers: {server_config['max_workers']}")
-        auth_status = "enabled" if server_config["enable_auth"] else "disabled"
+        logger.info(f"Host: {server_config['server']['host']}")
+        logger.info(f"Port: {server_config['server']['port']}")
+        logger.info(f"Max workers: {server_config['server']['max_workers']}")
+        auth_status = (
+            "enabled" if server_config["server"]["enable_auth"] else "disabled"
+        )
         logger.info(f"Authentication: {auth_status}")
 
-        if server_config["default_model"]:
-            logger.info(f"Default model: {server_config['default_model']}")
+        if server_config["server"]["default_model"]:
+            logger.info(f"Default model: {server_config['server']['default_model']}")
         else:
             logger.info("No default model configured - clients must specify model")
 
         # Create and start the server
         server = create_server(
-            host=server_config["host"],
-            port=server_config["port"],
-            default_model=server_config["default_model"],
-            max_workers=server_config["max_workers"],
-            enable_auth=server_config["enable_auth"],
+            host=server_config["server"]["host"],
+            port=server_config["server"]["port"],
+            default_model=server_config["server"]["default_model"],
+            max_workers=server_config["server"]["max_workers"],
+            enable_auth=server_config["server"]["enable_auth"],
         )
 
         logger.info("Server created successfully")
