@@ -1,0 +1,136 @@
+---
+description: Generated code is managed according to best practices
+globs: ["**/*"]
+alwaysApply: true
+---
+# No Bazel
+
+Manage generated code through Makefile targets with proper exclusions and source control practices.
+
+<rule>
+name: generated_code_management
+description: Enforces consistent management of generated code through build system integration
+filters:
+  # Match generated code discussions
+  - type: content
+    pattern: "(?i)\\b(generate|generated|protobuf|grpc|codegen|stub)\\b"
+  # Match potential generated files
+  - type: file_pattern
+    pattern: ".*_(pb2|pb2_grpc)\\.py$"
+  # Match build system files
+  - type: file_pattern
+    pattern: "^(Makefile|pyproject\\.toml)$"
+  # Match direct code generation attempts
+  - type: content
+    pattern: "(?i)\\b(protoc|grpc_tools\\.protoc)\\b"
+
+actions:
+  - type: reject
+    conditions:
+      # Direct use of code generation tools outside Makefile
+      - pattern: "(?i)\\bpython\\s+-m\\s+grpc_tools\\.protoc\\b(?!.*Makefile)"
+        message: "Use 'make grpc-gen' instead of running protoc directly for consistency"
+
+      # Generated files without proper linter exclusions
+      - pattern: "\\b[a-zA-Z_][a-zA-Z0-9_]*_pb2(_grpc)?\\.py\\b(?!.*exclude|ignore)"
+        message: "Generated files must be excluded from linting in pyproject.toml"
+
+  - type: suggest
+    message: |
+      For generated code management:
+
+      1. **Use Makefile targets for code generation**:
+         - `make grpc-gen`: Generate gRPC stubs
+         - `make grpc-clean`: Clean generated files
+         - `make grpc-check`: Verify dependencies
+         - `make dev-install`: Full development setup with generation
+
+      2. **Keep generated code in source control**:
+         - Commit generated files for consistent builds
+         - Update .gitignore comment to document this practice
+         - Regenerate when source definitions change
+
+      3. **Exclude from quality tools**:
+         - Add to `tool.ruff.exclude` in pyproject.toml
+         - Add to `tool.mypy.exclude` in pyproject.toml
+         - Add `ignore_errors = true` override for generated modules
+
+      4. **Mark generated files clearly**:
+         - Generated files should have "DO NOT EDIT" comments
+         - Include source definition references in headers
+         - Use consistent naming patterns (_pb2.py, _pb2_grpc.py)
+
+  - type: guide
+    message: |
+      Generated code workflow:
+      ```bash
+      # Check dependencies and generate code
+      make grpc-check grpc-gen
+
+      # Clean and regenerate
+      make grpc-clean grpc-gen
+
+      # Full development setup
+      make dev-install
+      ```
+
+      Configuration pattern in pyproject.toml:
+      ```toml
+      [tool.ruff]
+      exclude = ["path/to/generated_pb2.py"]
+
+      [tool.mypy]
+      exclude = ["path/to/generated_pb2.py"]
+
+      [[tool.mypy.overrides]]
+      module = ["your.generated.module"]
+      ignore_errors = true
+      ```
+
+criteria:
+  required:
+    - All code generation managed through Makefile targets
+    - Generated files committed to source control
+    - Generated files excluded from linting (ruff, mypy)
+    - Generated files have clear "DO NOT EDIT" markers
+    - Dependencies checked before generation
+    - Clean targets available for regeneration
+    - Development setup includes code generation
+
+examples:
+  - input: "I need to regenerate the gRPC stubs"
+    output: "Use 'make grpc-gen' to regenerate gRPC stubs consistently"
+
+  - input: "python -m grpc_tools.protoc --python_out=. *.proto"
+    output: "Use 'make grpc-gen' instead of running protoc directly for consistency with the build system"
+
+  - input: "The linter is complaining about generated files"
+    output: |
+      Add the generated files to exclusions in pyproject.toml:
+
+      ```toml
+      [tool.ruff]
+      exclude = ["path/to/your_pb2.py", "path/to/your_pb2_grpc.py"]
+
+      [tool.mypy]
+      exclude = ["path/to/your_pb2.py", "path/to/your_pb2_grpc.py"]
+
+      [[tool.mypy.overrides]]
+      module = ["your.module.pb2", "your.module.pb2_grpc"]
+      ignore_errors = true
+      ```
+
+  - input: "Should I add generated files to .gitignore?"
+    output: |
+      No, keep generated files in source control for consistent builds.
+      Document this decision in .gitignore with a comment:
+
+      ```
+      # Generated gRPC files are committed to ensure consistent builds
+      # They are excluded from linting in pyproject.toml
+      ```
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

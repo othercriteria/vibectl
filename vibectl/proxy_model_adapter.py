@@ -90,6 +90,9 @@ class ProxyModelAdapter(ModelAdapter):
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
         self._model_cache: dict[str, ProxyModelWrapper] = {}
+        self._server_info_cache: Any | None = None  # Cache for server info
+        self._server_info_cache_time: float = 0.0
+        self._server_info_cache_ttl: float = 300.0  # 5 minutes TTL
 
         logger.debug(
             "ProxyModelAdapter initialized for %s:%d (TLS: %s, Auth: %s)",
@@ -130,6 +133,54 @@ class ProxyModelAdapter(ModelAdapter):
             metadata.append(("authorization", f"Bearer {self.jwt_token}"))
         return metadata
 
+    def _get_server_info(self, force_refresh: bool = False) -> Any:
+        """Get server information with alias mappings, using cache when possible.
+
+        Args:
+            force_refresh: If True, bypass cache and fetch fresh server info
+
+        Returns:
+            GetServerInfoResponse from the server
+
+        Raises:
+            grpc.RpcError: If server communication fails
+        """
+        current_time = time.monotonic()
+
+        # Check if we have valid cached server info
+        if (
+            not force_refresh
+            and self._server_info_cache is not None
+            and (current_time - self._server_info_cache_time)
+            < self._server_info_cache_ttl
+        ):
+            logger.debug("Using cached server info")
+            return self._server_info_cache
+
+        # Fetch fresh server info
+        try:
+            stub = self._get_stub()
+            request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
+            metadata = self._get_metadata()
+            response = stub.GetServerInfo(request, timeout=10.0, metadata=metadata)
+
+            # Cache the response
+            self._server_info_cache = response
+            self._server_info_cache_time = current_time
+            logger.debug("Fetched and cached fresh server info")
+
+            return response
+
+        except grpc.RpcError as e:
+            logger.error("gRPC error fetching server info: %s", e)
+            # If we have stale cached data, use it as fallback
+            if self._server_info_cache is not None:
+                logger.warning(
+                    "Using stale cached server info due to communication error"
+                )
+                return self._server_info_cache
+            raise
+
     def get_model(self, model_name: str) -> Any:
         """Get a proxy model wrapper by name.
 
@@ -147,22 +198,22 @@ class ProxyModelAdapter(ModelAdapter):
             logger.debug("Model '%s' found in cache", model_name)
             return self._model_cache[model_name]
 
-        # Check if model is available on proxy server
+        # Get server info with alias mappings
         try:
-            stub = self._get_stub()
-            # Use getattr to avoid mypy issues with generated protobuf classes
-            request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
-            metadata = self._get_metadata()
-            response = stub.GetServerInfo(request, timeout=10.0, metadata=metadata)
+            server_info = self._get_server_info()
 
             # Get available models from server
-            available_models = [model.model_id for model in response.available_models]
+            available_models = [
+                model.model_id for model in server_info.available_models
+            ]
 
             # Try direct match first
             resolved_model_name = model_name
             if model_name not in available_models:
-                # Try alias resolution
-                alias_result = self._resolve_model_alias(model_name, available_models)
+                # Try alias resolution using server-provided mappings
+                alias_result = self._resolve_model_alias_from_server(
+                    model_name, server_info
+                )
                 if alias_result is None:
                     raise ValueError(
                         f"Model '{model_name}' not available on proxy server. "
@@ -190,68 +241,101 @@ class ProxyModelAdapter(ModelAdapter):
             logger.error("Error getting model '%s': %s", model_name, e)
             raise ValueError(f"Failed to get model '{model_name}': {e}") from e
 
-    def _resolve_model_alias(
-        self, alias: str, available_models: list[str]
+    def _resolve_model_alias_from_server(
+        self,
+        alias: str,
+        server_info: "llm_proxy_pb2.GetServerInfoResponse",  # type: ignore[name-defined]
     ) -> str | None:
-        """Resolve a model alias to the actual model name available on the server.
+        """Resolve a model alias using server-provided alias mappings.
 
         Args:
             alias: The alias to resolve (e.g., 'claude-4-sonnet')
+            server_info: GetServerInfoResponse containing alias mappings
+
+        Returns:
+            The resolved model name, or None if no match found
+        """
+        # Get available models for validation
+        available_models = [model.model_id for model in server_info.available_models]
+
+        # First, try the global server alias mappings
+        if hasattr(server_info, "model_aliases"):
+            server_aliases = dict(server_info.model_aliases)
+            if alias in server_aliases:
+                mapped_name = server_aliases[alias]
+                if mapped_name in available_models:
+                    logger.debug(
+                        "Resolved alias '%s' to '%s' using server mappings",
+                        alias,
+                        mapped_name,
+                    )
+                    return str(mapped_name)  # Explicitly cast to str
+
+        # Second, check per-model aliases from ModelInfo
+        for model_info in server_info.available_models:
+            if (
+                hasattr(model_info, "aliases")
+                and model_info.aliases
+                and alias in model_info.aliases
+            ):
+                logger.debug(
+                    "Resolved alias '%s' to '%s' using model-specific aliases",
+                    alias,
+                    model_info.model_id,
+                )
+                return str(model_info.model_id)  # Explicitly cast to str
+
+        # Third, try legacy fallback for backward compatibility
+        # This ensures existing clients continue to work if server doesn't
+        # have aliases configured yet
+        legacy_result = self._resolve_model_alias_legacy_fallback(
+            alias, available_models
+        )
+        if legacy_result is not None:
+            logger.debug(
+                "Resolved alias '%s' to '%s' using legacy fallback",
+                alias,
+                legacy_result,
+            )
+            return legacy_result
+
+        logger.debug("No alias resolution found for '%s'", alias)
+        return None
+
+    def _resolve_model_alias_legacy_fallback(
+        self, alias: str, available_models: list[str]
+    ) -> str | None:
+        """Legacy fallback alias resolution for backward compatibility.
+
+        This method provides basic alias resolution when the server
+        doesn't have aliases configured yet. Should be removed once
+        all servers are updated with proper alias configuration.
+
+        Args:
+            alias: The alias to resolve
             available_models: List of model names available on the server
 
         Returns:
             The resolved model name, or None if no match found
         """
-        # Common alias mappings based on llm CLI patterns
-        alias_mappings = {
-            # Claude models
+        # Minimal fallback mappings for common aliases
+        fallback_mappings = {
+            # Claude models - most common aliases only
             "claude-4-sonnet": "anthropic/claude-sonnet-4-0",
-            "claude-4-opus": "anthropic/claude-opus-4-0",
-            "claude-3.7-sonnet": "anthropic/claude-3-7-sonnet-latest",
-            "claude-3.7-sonnet-latest": "anthropic/claude-3-7-sonnet-latest",
             "claude-3.5-sonnet": "anthropic/claude-3-5-sonnet-latest",
-            "claude-3.5-sonnet-latest": "anthropic/claude-3-5-sonnet-latest",
-            "claude-3.5-haiku": "anthropic/claude-3-5-haiku-latest",
             "claude-3-opus": "anthropic/claude-3-opus-latest",
-            "claude-3-sonnet": "anthropic/claude-3-sonnet-20240229",
-            "claude-3-haiku": "anthropic/claude-3-haiku-20240307",
-            # GPT models (usually don't need aliases since names match)
-            "gpt-4": "gpt-4",
-            "gpt-4o": "gpt-4o",
-            "gpt-3.5-turbo": "gpt-3.5-turbo",
-            # O1 models
-            "o1": "o1",
-            "o1-mini": "o1-mini",
-            "o1-preview": "o1-preview",
         }
 
-        # First try direct alias mapping
-        if alias in alias_mappings:
-            mapped_name = alias_mappings[alias]
+        if alias in fallback_mappings:
+            mapped_name = fallback_mappings[alias]
             if mapped_name in available_models:
-                logger.debug("Resolved alias '%s' to '%s'", alias, mapped_name)
+                logger.debug(
+                    "Resolved alias '%s' to '%s' using legacy fallback",
+                    alias,
+                    mapped_name,
+                )
                 return mapped_name
 
-        # If no direct mapping, try fuzzy matching for similar patterns
-        alias_lower = alias.lower()
-        for model_name in available_models:
-            model_lower = model_name.lower()
-
-            # Try to find partial matches (e.g., "claude-4-sonnet" matches
-            # "anthropic/claude-sonnet-4-0")
-            if (
-                "claude" in alias_lower
-                and "claude" in model_lower
-                and (
-                    ("4-sonnet" in alias_lower and "sonnet-4-0" in model_lower)
-                    or ("3.7-sonnet" in alias_lower and "3-7-sonnet" in model_lower)
-                    or ("3.5-sonnet" in alias_lower and "3-5-sonnet" in model_lower)
-                )
-            ):
-                logger.debug("Fuzzy matched alias '%s' to '%s'", alias, model_name)
-                return model_name
-
-        logger.debug("No alias resolution found for '%s'", alias)
         return None
 
     def _convert_metrics(self, pb_metrics: Any) -> LLMMetrics | None:
@@ -597,13 +681,34 @@ class ProxyModelAdapter(ModelAdapter):
             )
             return f"Validation error: {e}"
 
+    def refresh_server_info(self) -> None:
+        """Refresh server info cache and clear model cache.
+
+        This method forces a fresh fetch of server information and clears
+        the model cache to ensure alias mappings are up to date.
+        """
+        logger.debug("Refreshing server info cache")
+        try:
+            self._get_server_info(force_refresh=True)
+            # Clear model cache since aliases might have changed
+            self._model_cache.clear()
+            logger.info("Server info cache refreshed and model cache cleared")
+        except Exception as e:
+            logger.error("Failed to refresh server info: %s", e)
+            raise
+
     def close(self) -> None:
-        """Close the gRPC channel."""
-        if self.channel is not None:
+        """Close the gRPC channel and clean up resources."""
+        if self.channel:
             self.channel.close()
             self.channel = None
             self.stub = None
-            logger.debug("Closed gRPC channel")
+            logger.debug("gRPC channel closed")
+
+        # Clear caches
+        self._model_cache.clear()
+        self._server_info_cache = None
+        self._server_info_cache_time = 0.0
 
     def __enter__(self) -> "ProxyModelAdapter":
         """Context manager entry."""

@@ -9,19 +9,116 @@ server deployment scenarios.
 
 import logging
 import sys
+from pathlib import Path
 
 import click
 
 from vibectl.config_utils import (
     ensure_config_dir,
     get_config_dir,
-    load_yaml_config,
-    save_yaml_config,
 )
 from vibectl.logutil import logger
 
 from .grpc_server import create_server
 from .jwt_auth import JWTAuthManager, load_jwt_config_from_env
+
+# Graceful shutdown handling
+shutdown_event = False
+
+
+def signal_handler(signum: int, frame: object) -> None:
+    """Handle shutdown signals gracefully."""
+    global shutdown_event
+    logger.info("Received shutdown signal %s, shutting down gracefully...", signum)
+    shutdown_event = True
+
+
+def get_server_config_path() -> Path:
+    """Get the path to the server configuration file.
+
+    Returns:
+        Path to the server configuration file
+    """
+    return get_config_dir("server") / "config.yaml"
+
+
+def get_default_server_config() -> dict:
+    """Get the default server configuration.
+
+    This function provides the default configuration values used by both
+    load_server_config() and create_default_config() to avoid duplication.
+
+    Returns:
+        dict: Default server configuration
+    """
+    return {
+        "host": "0.0.0.0",
+        "port": 50051,
+        "default_model": "anthropic/claude-3-7-sonnet-latest",
+        "max_workers": 10,
+        "log_level": "INFO",
+        "enable_auth": False,
+        # Note: model_aliases are now discovered dynamically from the llm library
+        # instead of being hardcoded here
+    }
+
+
+def load_server_config(config_path: Path | None = None) -> dict:
+    """Load server configuration from file or create defaults.
+
+    Args:
+        config_path: Optional path to configuration file
+
+    Returns:
+        dict: Server configuration
+    """
+    import yaml
+
+    if config_path is None:
+        config_path = get_server_config_path()
+
+    if config_path.exists():
+        logger.info("Loading server config from %s", config_path)
+        try:
+            with config_path.open() as f:
+                config = yaml.safe_load(f) or {}
+
+            # Merge with defaults to ensure all required keys exist
+            default_config = get_default_server_config()
+            default_config.update(config)
+            return default_config
+
+        except Exception as e:
+            logger.error("Failed to load config from %s: %s", config_path, e)
+            logger.info("Using default configuration")
+            return get_default_server_config()
+    else:
+        logger.info("Config file not found at %s, using defaults", config_path)
+        return get_default_server_config()
+
+
+def create_default_config(config_path: Path | None = None) -> None:
+    """Create a default configuration file.
+
+    Args:
+        config_path: Optional path for the configuration file
+    """
+    import yaml
+
+    if config_path is None:
+        config_path = get_server_config_path()
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    default_config = get_default_server_config()
+
+    try:
+        with config_path.open("w") as f:
+            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+        logger.info("Created default config at %s", config_path)
+    except Exception as e:
+        logger.error("Failed to create config file at %s: %s", config_path, e)
+        raise
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -39,62 +136,6 @@ def setup_logging(log_level: str = "INFO") -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
-
-def load_server_config() -> dict:
-    """Load server configuration.
-
-    Returns:
-        dict: Server configuration dictionary
-    """
-    # Default configuration
-    default_config = {
-        "host": "localhost",
-        "port": 50051,
-        "default_model": None,
-        "max_workers": 10,
-        "log_level": "INFO",
-        "enable_auth": False,
-    }
-
-    # Try to load from config file
-    config_dir = get_config_dir("server")
-    config_file = config_dir / "config.yaml"
-
-    try:
-        config = load_yaml_config(config_file, defaults=default_config)
-        logger.debug(f"Loaded configuration from {config_file}")
-        return config
-    except ValueError as e:
-        logger.warning(f"Failed to load config from {config_file}: {e}")
-        logger.info("Using default configuration")
-        return default_config
-
-
-def create_default_config() -> None:
-    """Create a default configuration file if it doesn't exist."""
-    config_dir = ensure_config_dir("server")
-    config_file = config_dir / "config.yaml"
-
-    if not config_file.exists():
-        default_config = {
-            "host": "localhost",
-            "port": 50051,
-            "default_model": None,
-            "max_workers": 10,
-            "log_level": "INFO",
-            "enable_auth": False,
-        }
-
-        try:
-            comment = (
-                "vibectl server configuration\n"
-                "See https://github.com/othercriteria/vibectl for documentation"
-            )
-            save_yaml_config(default_config, config_file, comment=comment)
-            logger.info(f"Created default configuration file: {config_file}")
-        except ValueError as e:
-            logger.warning(f"Failed to create default config file: {e}")
 
 
 def parse_duration(duration_str: str) -> int:

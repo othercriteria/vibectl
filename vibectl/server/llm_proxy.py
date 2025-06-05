@@ -34,14 +34,18 @@ logger = logging.getLogger(__name__)
 class LLMProxyServicer(VibectlLLMProxyServicer):
     """Main LLM proxy service implementation."""
 
-    def __init__(self, default_model: str | None = None):
+    def __init__(self, default_model: str | None = None, config: dict | None = None):
         """Initialize the LLM proxy servicer.
 
         Args:
-            default_model: Default model to use if none specified in requests
+            default_model: Optional default model to use when none specified
+            config: Server configuration dictionary
         """
         self.default_model = default_model
-        logger.info(f"Initialized LLMProxyServicer with default_model={default_model}")
+        self.config = config or {}
+        logger.info(
+            f"LLM proxy servicer initialized with default model: {default_model}"
+        )
 
     def Execute(  # noqa: N802
         self, request: ExecuteRequest, context: grpc.ServicerContext
@@ -337,6 +341,29 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                 error=ExecuteError(error_code="EXECUTION_FAILED", error_message=str(e)),
             )
 
+    def _get_dynamic_model_aliases(self) -> dict[str, str]:
+        """Get model aliases dynamically from the llm library.
+
+        Returns:
+            dict: Mapping of aliases to model IDs
+        """
+        import llm
+
+        alias_map = {}
+        try:
+            models_with_aliases = llm.get_models_with_aliases()  # type: ignore[attr-defined]
+            for model_with_aliases in models_with_aliases:
+                model_id = model_with_aliases.model.model_id
+                for alias in model_with_aliases.aliases:
+                    alias_map[alias] = model_id
+
+            logger.debug(f"Discovered {len(alias_map)} model aliases from llm library")
+            return alias_map
+
+        except Exception as e:
+            logger.error(f"Failed to discover model aliases from llm library: {e}")
+            return {}
+
     def GetServerInfo(  # noqa: N802
         self, request: GetServerInfoRequest, context: grpc.ServicerContext
     ) -> GetServerInfoResponse:
@@ -346,13 +373,30 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
         try:
             # Get available models
             models = []
+
+            # Get dynamic aliases from llm library
+            dynamic_aliases = self._get_dynamic_model_aliases()
+
+            # Also allow for any configured aliases (for overrides)
+            configured_aliases = self.config.get("model_aliases", {})
+
+            # Merge configured aliases with dynamic ones (configured take precedence)
+            all_aliases = {**dynamic_aliases, **configured_aliases}
+
             for model in llm.get_models():  # type: ignore
+                # Find aliases for this model
+                model_id = model.model_id
+                aliases = [
+                    alias for alias, target in all_aliases.items() if target == model_id
+                ]
+
                 models.append(
                     ModelInfo(
-                        model_id=model.model_id,
-                        display_name=getattr(model, "display_name", model.model_id),
+                        model_id=model_id,
+                        display_name=getattr(model, "display_name", model_id),
                         provider=getattr(model, "provider", "unknown"),
                         supports_streaming=False,  # TODO: Check streaming support
+                        aliases=aliases,
                     )
                 )
 
@@ -361,6 +405,7 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
                 available_models=models,
                 default_model=self.default_model or "",
                 limits=ServerLimits(),
+                model_aliases=all_aliases,
             )
 
         except Exception as e:

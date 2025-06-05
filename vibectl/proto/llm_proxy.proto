@@ -135,6 +135,9 @@ message GetServerInfoResponse {
 
   // Server version information
   string server_version = 4;
+
+  // Model alias mappings (alias -> actual_model_name)
+  map<string, string> model_aliases = 5;
 }
 
 // Information about an available model
@@ -153,6 +156,9 @@ message ModelInfo {
 
   // Maximum context length for this model
   optional int32 max_context_length = 5;
+
+  // List of aliases for this model (e.g., "claude-4-sonnet" -> "anthropic/claude-sonnet-4-0")
+  repeated string aliases = 6;
 }
 
 // Server limits and configuration
