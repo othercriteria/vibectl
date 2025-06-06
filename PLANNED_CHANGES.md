@@ -136,3 +136,8 @@ After testing completion:
 - Proper mocking for cryptography dependencies
 - Error scenario testing
 - Integration workflow testing
+
+### Additional TODOs
+- [ ] Add environment variable support for TLS configuration (`VIBECTL_TLS_ENABLED`, `VIBECTL_TLS_CERT_FILE`, `VIBECTL_TLS_KEY_FILE`).
+- [ ] Implement `vibectl-server config` subcommands for showing, setting and validating server configuration as referenced in docs.
+- [ ] Align documentation and code on JWT secret environment variable naming (`VIBECTL_JWT_SECRET` vs `VIBECTL_JWT_SECRET_KEY`).
