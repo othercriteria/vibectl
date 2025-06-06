@@ -142,3 +142,8 @@ Implement TLS support for the vibectl LLM proxy server to enable secure connecti
 - **`test_server_main.py`**: CLI integration testing for TLS commands
 
 All TLS functionality is now fully implemented, tested, and documented. Feature is ready for production use in development environments.
+
+### Additional TODOs
+- [ ] Add environment variable support for TLS configuration (`VIBECTL_TLS_ENABLED`, `VIBECTL_TLS_CERT_FILE`, `VIBECTL_TLS_KEY_FILE`).
+- [ ] Implement `vibectl-server config` subcommands for showing, setting and validating server configuration as referenced in docs.
+- [ ] Align documentation and code on JWT secret environment variable naming (`VIBECTL_JWT_SECRET` vs `VIBECTL_JWT_SECRET_KEY`).
