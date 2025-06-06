@@ -134,6 +134,33 @@ class TestLoadConfigFromServer:
 
         os.unlink(secret_file.name)
 
+    def test_load_config_env_key_file_read_error_fallback(self) -> None:
+        """Env key file read errors fall back to server config key."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as secret_file:
+            secret_file.write("file-secret")
+            secret_file.flush()
+
+            env_vars = {"VIBECTL_JWT_SECRET_FILE": secret_file.name}
+            server_config = {"jwt": {"secret_key": "config-secret"}}
+
+            with (
+                patch.dict(os.environ, env_vars, clear=False),
+                patch("pathlib.Path.read_text", side_effect=OSError("boom")),
+                patch("vibectl.server.jwt_auth.logger") as mock_logger,
+            ):
+                config = load_config_from_server(server_config)
+
+                assert config.secret_key == "config-secret"
+                warnings = [c.args[0] for c in mock_logger.warning.call_args_list]
+                assert any(
+                    "Failed to read JWT secret from environment key file" in msg
+                    for msg in warnings
+                )
+
+        os.unlink(secret_file.name)
+
     def test_load_config_from_server_config_third_precedence(self) -> None:
         """Test that server config values take third precedence."""
 
@@ -218,6 +245,34 @@ class TestLoadConfigFromServer:
             # Restore removed env vars
             for key, value in removed_values.items():
                 os.environ[key] = value
+
+    def test_load_config_config_key_file_read_error(self) -> None:
+        """Read errors on config key file trigger generation."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as secret_file:
+            secret_file.write("config-file-secret")
+            secret_file.flush()
+
+            server_config = {"jwt": {"secret_key_file": secret_file.name}}
+
+            with (
+                patch("pathlib.Path.read_text", side_effect=OSError("boom")),
+                patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
+                patch("vibectl.server.jwt_auth.logger") as mock_logger,
+            ):
+                mock_gen.return_value = "generated-secret"
+                config = load_config_from_server(server_config)
+
+                assert config.secret_key == "generated-secret"
+                mock_gen.assert_called_once()
+                warnings = [c.args[0] for c in mock_logger.warning.call_args_list]
+                assert any(
+                    "Failed to read JWT secret from config key file" in msg
+                    for msg in warnings
+                )
+
+        os.unlink(secret_file.name)
 
     def test_load_config_generates_key_as_fallback(self) -> None:
         """Test that a new key is generated as final fallback."""
@@ -499,6 +554,7 @@ class TestLoadConfigWithGeneration:
             info_call = mock_logger.info.call_args[0][0]
             assert "Using JWT secret from server configuration" in info_call
 
+    @pytest.mark.skipif(os.geteuid() == 0, reason="Root can write read-only files")
     def test_load_config_handles_config_file_write_errors(self) -> None:
         """Test handling of config file write errors during persistence."""
         import tempfile

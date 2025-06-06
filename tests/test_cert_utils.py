@@ -5,6 +5,7 @@ Tests cover certificate generation, validation, loading, and error handling
 for the TLS support in the vibectl LLM proxy server.
 """
 
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -115,6 +116,7 @@ class TestCertificateValidation:
             ):
                 validate_certificate_files(str(cert_file), str(key_dir))
 
+    @pytest.mark.skipif(os.geteuid() == 0, reason="Root can read unreadable files")
     def test_validate_certificate_files_permission_error_cert(self) -> None:
         """Test validation fails when certificate file is not readable."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -136,6 +138,7 @@ class TestCertificateValidation:
                 # Restore permissions for cleanup
                 cert_file.chmod(0o644)
 
+    @pytest.mark.skipif(os.geteuid() == 0, reason="Root can read unreadable files")
     def test_validate_certificate_files_permission_error_key(self) -> None:
         """Test validation fails when key file is not readable."""
         with tempfile.TemporaryDirectory() as temp_dir:
