@@ -2,14 +2,17 @@
 Tests for the gRPC server module.
 
 Tests cover server initialization, lifecycle management, authentication setup,
-and all public methods of the GRPCServer class.
+TLS configuration, and all public methods of the GRPCServer class.
 """
 
 import signal
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+from vibectl.server.cert_utils import is_cryptography_available
 from vibectl.server.grpc_server import GRPCServer, create_server
 from vibectl.server.jwt_auth import JWTAuthManager, JWTConfig
 
@@ -459,3 +462,440 @@ class TestGRPCServerIntegration:
         assert mock_interceptor in kwargs["interceptors"]
 
         server.stop()
+
+
+class TestGRPCServerTLSInitialization:
+    """Test GRPCServer TLS initialization with various configurations."""
+
+    def test_init_with_tls_disabled(self) -> None:
+        """Test GRPCServer initialization with TLS disabled."""
+        server = GRPCServer(use_tls=False)
+
+        assert server.use_tls is False
+        assert server.cert_file is None
+        assert server.key_file is None
+
+    def test_init_with_tls_enabled_no_files(self) -> None:
+        """Test GRPCServer initialization with TLS enabled but no certificate files."""
+        server = GRPCServer(use_tls=True)
+
+        assert server.use_tls is True
+        assert server.cert_file is None
+        assert server.key_file is None
+
+    def test_init_with_tls_enabled_with_files(self) -> None:
+        """Test GRPCServer initialization with TLS enabled and certificate files."""
+        server = GRPCServer(
+            use_tls=True, cert_file="/path/to/cert.pem", key_file="/path/to/key.pem"
+        )
+
+        assert server.use_tls is True
+        assert server.cert_file == "/path/to/cert.pem"
+        assert server.key_file == "/path/to/key.pem"
+
+    def test_init_with_tls_and_auth(self) -> None:
+        """Test GRPCServer initialization with both TLS and authentication enabled."""
+        mock_jwt_manager = Mock(spec=JWTAuthManager)
+
+        with (
+            patch(
+                "vibectl.server.grpc_server.create_jwt_interceptor"
+            ) as mock_create_interceptor,
+            patch(
+                "vibectl.server.grpc_server.load_config_from_server"
+            ) as mock_load_config,
+        ):
+            mock_interceptor = Mock()
+            mock_create_interceptor.return_value = mock_interceptor
+            mock_load_config.return_value = JWTConfig(
+                secret_key="test-secret", algorithm="HS256", default_expiration_days=7
+            )
+            server = GRPCServer(
+                use_tls=True,
+                require_auth=True,
+                jwt_manager=mock_jwt_manager,
+                cert_file="/path/to/cert.pem",
+                key_file="/path/to/key.pem",
+            )
+
+            assert server.use_tls is True
+            assert server.require_auth is True
+            assert server.cert_file == "/path/to/cert.pem"
+            assert server.key_file == "/path/to/key.pem"
+            assert server.jwt_manager == mock_jwt_manager
+            assert server.jwt_interceptor == mock_interceptor
+
+
+class TestGRPCServerTLSLifecycle:
+    """Test GRPCServer TLS lifecycle management."""
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    @patch("vibectl.server.grpc_server.load_certificate_credentials")
+    @patch("grpc.ssl_server_credentials")
+    @patch("vibectl.config_utils.get_config_dir")
+    @patch("vibectl.server.grpc_server.get_default_cert_paths")
+    def test_start_with_tls_auto_cert_generation(
+        self,
+        mock_get_default_paths: Mock,
+        mock_get_config_dir: Mock,
+        mock_ssl_credentials: Mock,
+        mock_load_credentials: Mock,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test starting server with TLS and automatic certificate generation."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_get_config_dir.return_value = Path("/test/config")
+        mock_get_default_paths.return_value = ("/test/cert.pem", "/test/key.pem")
+        mock_load_credentials.return_value = (b"cert_data", b"key_data")
+        mock_server_credentials = Mock()
+        mock_ssl_credentials.return_value = mock_server_credentials
+
+        server = GRPCServer(use_tls=True, host="127.0.0.1", port=9000)
+        server.start()
+
+        # Verify certificate generation and loading
+        mock_ensure_certs.assert_called_once_with(
+            "/test/cert.pem", "/test/key.pem", hostname="127.0.0.1"
+        )
+        mock_load_credentials.assert_called_once_with("/test/cert.pem", "/test/key.pem")
+
+        # Verify SSL credentials creation
+        mock_ssl_credentials.assert_called_once_with(
+            [(b"key_data", b"cert_data")],
+            root_certificates=None,
+            require_client_auth=False,
+        )
+
+        # Verify secure port binding
+        mock_server_instance.add_secure_port.assert_called_once_with(
+            "127.0.0.1:9000", mock_server_credentials
+        )
+        mock_server_instance.add_insecure_port.assert_not_called()
+        mock_server_instance.start.assert_called_once()
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    @patch("vibectl.server.grpc_server.load_certificate_credentials")
+    @patch("grpc.ssl_server_credentials")
+    def test_start_with_tls_explicit_cert_files(
+        self,
+        mock_ssl_credentials: Mock,
+        mock_load_credentials: Mock,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test starting server with TLS and explicit certificate files."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_load_credentials.return_value = (b"cert_data", b"key_data")
+        mock_server_credentials = Mock()
+        mock_ssl_credentials.return_value = mock_server_credentials
+
+        server = GRPCServer(
+            use_tls=True,
+            cert_file="/custom/cert.pem",
+            key_file="/custom/key.pem",
+            host="localhost",
+            port=8443,
+        )
+        server.start()
+
+        # Verify certificate handling with explicit files
+        mock_ensure_certs.assert_called_once_with(
+            "/custom/cert.pem", "/custom/key.pem", hostname="localhost"
+        )
+        mock_load_credentials.assert_called_once_with(
+            "/custom/cert.pem", "/custom/key.pem"
+        )
+
+        # Verify secure port binding
+        mock_server_instance.add_secure_port.assert_called_once_with(
+            "localhost:8443", mock_server_credentials
+        )
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    @patch("vibectl.server.grpc_server.load_certificate_credentials")
+    @patch("grpc.ssl_server_credentials")
+    def test_start_with_tls_wildcard_host(
+        self,
+        mock_ssl_credentials: Mock,
+        mock_load_credentials: Mock,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test starting server with TLS and wildcard host binding."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_load_credentials.return_value = (b"cert_data", b"key_data")
+        mock_server_credentials = Mock()
+        mock_ssl_credentials.return_value = mock_server_credentials
+
+        server = GRPCServer(
+            use_tls=True,
+            cert_file="/test/cert.pem",
+            key_file="/test/key.pem",
+            host="0.0.0.0",
+            port=9000,
+        )
+        server.start()
+
+        # Verify hostname defaults to localhost for wildcard binding
+        mock_ensure_certs.assert_called_once_with(
+            "/test/cert.pem", "/test/key.pem", hostname="localhost"
+        )
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    def test_start_with_tls_certificate_error(
+        self,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test starting server with TLS when certificate operations fail."""
+        from vibectl.server.cert_utils import CertificateError
+
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_ensure_certs.side_effect = CertificateError(
+            "Certificate generation failed"
+        )
+
+        server = GRPCServer(
+            use_tls=True, cert_file="/test/cert.pem", key_file="/test/key.pem"
+        )
+
+        with pytest.raises(RuntimeError, match="TLS configuration failed"):
+            server.start()
+
+        # Verify server was not started
+        mock_server_instance.start.assert_not_called()
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    @patch("vibectl.server.grpc_server.load_certificate_credentials")
+    def test_start_with_tls_unexpected_error(
+        self,
+        mock_load_credentials: Mock,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test starting server with TLS when unexpected errors occur."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_load_credentials.side_effect = Exception("Unexpected error")
+
+        server = GRPCServer(
+            use_tls=True, cert_file="/test/cert.pem", key_file="/test/key.pem"
+        )
+
+        with pytest.raises(RuntimeError, match="TLS configuration failed"):
+            server.start()
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    def test_start_without_tls(
+        self, mock_add_servicer: Mock, mock_grpc_server: Mock
+    ) -> None:
+        """Test starting server without TLS uses insecure port."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+
+        server = GRPCServer(use_tls=False, host="127.0.0.1", port=9000)
+        server.start()
+
+        # Verify insecure port binding
+        mock_server_instance.add_insecure_port.assert_called_once_with("127.0.0.1:9000")
+        mock_server_instance.add_secure_port.assert_not_called()
+        mock_server_instance.start.assert_called_once()
+
+
+class TestCreateServerFactoryTLS:
+    """Test create_server factory function with TLS options."""
+
+    def test_create_server_with_tls_parameters(self) -> None:
+        """Test create_server factory with TLS parameters."""
+        server = create_server(
+            host="localhost",
+            port=8443,
+            use_tls=True,
+            cert_file="/test/cert.pem",
+            key_file="/test/key.pem",
+        )
+
+        assert isinstance(server, GRPCServer)
+        assert server.host == "localhost"
+        assert server.port == 8443
+        assert server.use_tls is True
+        assert server.cert_file == "/test/cert.pem"
+        assert server.key_file == "/test/key.pem"
+
+    def test_create_server_tls_disabled(self) -> None:
+        """Test create_server factory with TLS disabled."""
+        server = create_server(use_tls=False)
+
+        assert isinstance(server, GRPCServer)
+        assert server.use_tls is False
+        assert server.cert_file is None
+        assert server.key_file is None
+
+    def test_create_server_tls_with_auth(self) -> None:
+        """Test create_server factory with both TLS and authentication."""
+        mock_jwt_manager = Mock(spec=JWTAuthManager)
+
+        with patch("vibectl.server.grpc_server.create_jwt_interceptor"):
+            server = create_server(
+                use_tls=True,
+                require_auth=True,
+                jwt_manager=mock_jwt_manager,
+                cert_file="/test/cert.pem",
+                key_file="/test/key.pem",
+            )
+
+            assert server.use_tls is True
+            assert server.require_auth is True
+            assert server.jwt_manager == mock_jwt_manager
+
+
+class TestGRPCServerTLSIntegration:
+    """Integration tests for TLS functionality."""
+
+    @pytest.mark.skipif(
+        not is_cryptography_available(),
+        reason="cryptography not available",
+    )
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("grpc.ssl_server_credentials")
+    def test_full_tls_server_lifecycle_with_real_certs(
+        self,
+        mock_ssl_credentials: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test full server lifecycle with real certificate generation."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cert_file = Path(temp_dir) / "server.crt"
+            key_file = Path(temp_dir) / "server.key"
+
+            # Setup mocks
+            mock_server_instance = Mock()
+            mock_grpc_server.return_value = mock_server_instance
+            mock_server_credentials = Mock()
+            mock_ssl_credentials.return_value = mock_server_credentials
+
+            server = GRPCServer(
+                use_tls=True,
+                cert_file=str(cert_file),
+                key_file=str(key_file),
+                host="localhost",
+                port=9443,
+            )
+
+            # Start server (should generate certificates)
+            server.start()
+
+            # Verify certificates were created
+            assert cert_file.exists()
+            assert key_file.exists()
+            assert b"BEGIN CERTIFICATE" in cert_file.read_bytes()
+            assert b"BEGIN PRIVATE KEY" in key_file.read_bytes()
+
+            # Verify SSL setup
+            mock_ssl_credentials.assert_called_once()
+            mock_server_instance.add_secure_port.assert_called_once_with(
+                "localhost:9443", mock_server_credentials
+            )
+
+            # Test server stop
+            server.stop()
+            mock_server_instance.stop.assert_called_once()
+
+    @patch("grpc.server")
+    @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
+    @patch("vibectl.server.grpc_server.ensure_certificate_exists")
+    @patch("vibectl.server.grpc_server.load_certificate_credentials")
+    @patch("grpc.ssl_server_credentials")
+    @patch("vibectl.server.grpc_server.create_jwt_interceptor")
+    def test_tls_with_authentication_integration(
+        self,
+        mock_create_interceptor: Mock,
+        mock_ssl_credentials: Mock,
+        mock_load_credentials: Mock,
+        mock_ensure_certs: Mock,
+        mock_add_servicer: Mock,
+        mock_grpc_server: Mock,
+    ) -> None:
+        """Test TLS server with JWT authentication integration."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_load_credentials.return_value = (b"cert_data", b"key_data")
+        mock_server_credentials = Mock()
+        mock_ssl_credentials.return_value = mock_server_credentials
+        mock_interceptor = Mock()
+        mock_create_interceptor.return_value = mock_interceptor
+        mock_jwt_manager = Mock(spec=JWTAuthManager)
+
+        server = GRPCServer(
+            use_tls=True,
+            require_auth=True,
+            jwt_manager=mock_jwt_manager,
+            cert_file="/test/cert.pem",
+            key_file="/test/key.pem",
+            host="localhost",
+            port=9443,
+        )
+
+        server.start()
+
+        # Verify both TLS and auth are configured
+        mock_create_interceptor.assert_called_once_with(mock_jwt_manager, enabled=True)
+        mock_ssl_credentials.assert_called_once()
+        mock_server_instance.add_secure_port.assert_called_once()
+
+        # Verify server creation includes interceptors
+        args, kwargs = mock_grpc_server.call_args
+        assert "interceptors" in kwargs
+        assert mock_interceptor in kwargs["interceptors"]
+
+    def test_tls_configuration_logging(self) -> None:
+        """Test that TLS configuration is properly logged."""
+        with patch("vibectl.server.grpc_server.logger") as mock_logger:
+            GRPCServer(
+                use_tls=True, cert_file="/test/cert.pem", key_file="/test/key.pem"
+            )
+
+            # Check initialization logging
+            mock_logger.info.assert_called_with(
+                "Initialized gRPC server for localhost:50051 (with TLS)"
+            )
+
+    def test_non_tls_configuration_logging(self) -> None:
+        """Test that non-TLS configuration is properly logged."""
+        with patch("vibectl.server.grpc_server.logger") as mock_logger:
+            GRPCServer(use_tls=False)
+
+            # Check initialization logging
+            mock_logger.info.assert_called_with(
+                "Initialized gRPC server for localhost:50051 (without TLS)"
+            )

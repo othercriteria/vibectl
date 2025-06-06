@@ -324,9 +324,7 @@ def serve(
             "enabled" if server_config["server"]["require_auth"] else "disabled"
         )
         logger.info(f"Authentication: {auth_status}")
-        tls_status = (
-            "enabled" if server_config["server"]["use_tls"] else "disabled"
-        )
+        tls_status = "enabled" if server_config["server"]["use_tls"] else "disabled"
         logger.info(f"TLS: {tls_status}")
 
         if server_config["server"]["default_model"]:
@@ -337,27 +335,24 @@ def serve(
         # Handle certificate generation if requested
         if generate_certs and server_config["server"]["use_tls"]:
             from .cert_utils import ensure_certificate_exists, get_default_cert_paths
-            
+
             cert_file = server_config["server"]["cert_file"]
             key_file = server_config["server"]["key_file"]
-            
+
             # Use default paths if not specified
             if cert_file is None or key_file is None:
                 config_dir = get_config_dir("server")
                 default_cert_file, default_key_file = get_default_cert_paths(config_dir)
                 cert_file = cert_file or default_cert_file
                 key_file = key_file or default_key_file
-            
-            hostname = server_config['server']['host']
+
+            hostname = server_config["server"]["host"]
             if hostname in ("0.0.0.0", "::"):
                 hostname = "localhost"
-            
+
             logger.info("Regenerating TLS certificates...")
             ensure_certificate_exists(
-                cert_file,
-                key_file,
-                hostname=hostname,
-                regenerate=True
+                cert_file, key_file, hostname=hostname, regenerate=True
             )
             logger.info("TLS certificates regenerated successfully")
 
@@ -482,13 +477,15 @@ def init_config(force: bool) -> None:
     "--cert-file",
     type=click.Path(),
     default=None,
-    help="Output path for certificate file (default: ~/.config/vibectl/server/certs/server.crt)",
+    help="Output path for certificate file "
+    "(default: ~/.config/vibectl/server/certs/server.crt)",
 )
 @click.option(
     "--key-file",
     type=click.Path(),
     default=None,
-    help="Output path for private key file (default: ~/.config/vibectl/server/certs/server.key)",
+    help="Output path for private key file "
+    "(default: ~/.config/vibectl/server/certs/server.key)",
 )
 @click.option(
     "--force",
@@ -537,12 +534,15 @@ def generate_certs(
             regenerate=force,
         )
 
-        click.echo(f"✓ TLS certificates generated successfully!")
+        click.echo("✓ TLS certificates generated successfully!")
         click.echo(f"Certificate: {cert_file}")
         click.echo(f"Private key: {key_file}")
-        
+
         click.echo("\nTo use these certificates with the server:")
-        click.echo(f"  vibectl-server serve --tls --cert-file {cert_file} --key-file {key_file}")
+        click.echo(
+            f"  vibectl-server serve --tls --cert-file {cert_file} "
+            f"--key-file {key_file}"
+        )
         click.echo("\nOr configure in ~/.config/vibectl/server/config.yaml:")
         click.echo("  server:")
         click.echo("    use_tls: true")

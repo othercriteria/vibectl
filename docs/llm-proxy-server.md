@@ -326,7 +326,7 @@ vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
 # Test connection to secure server
 vibectl setup-proxy test vibectl-server://myserver.com:443
 
-# Test with explicit JWT authentication  
+# Test with explicit JWT authentication
 vibectl setup-proxy test vibectl-server://eyJ0eXAiOiJKV1Q...@myserver.com:443
 ```
 

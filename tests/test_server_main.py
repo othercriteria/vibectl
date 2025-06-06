@@ -379,6 +379,9 @@ class TestCLICommands:
                 "max_workers": 10,
                 "log_level": "INFO",
                 "require_auth": False,
+                "use_tls": False,
+                "cert_file": None,
+                "key_file": None,
             },
             "jwt": {
                 "secret_key": None,
@@ -405,6 +408,9 @@ class TestCLICommands:
             default_model="test-model",
             max_workers=10,
             require_auth=False,
+            use_tls=False,
+            cert_file=None,
+            key_file=None,
         )
         mock_server.serve_forever.assert_called_once()
 
@@ -428,6 +434,9 @@ class TestCLICommands:
                 "max_workers": 10,
                 "log_level": "INFO",
                 "require_auth": False,
+                "use_tls": False,
+                "cert_file": None,
+                "key_file": None,
             },
             "jwt": {
                 "secret_key": None,
@@ -468,6 +477,9 @@ class TestCLICommands:
             default_model="custom-model",
             max_workers=5,
             require_auth=True,
+            use_tls=False,
+            cert_file=None,
+            key_file=None,
         )
 
     @patch("vibectl.server.main.load_server_config")
