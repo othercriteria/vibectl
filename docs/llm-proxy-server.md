@@ -76,6 +76,77 @@ Client URLs determine whether TLS is used:
 - `vibectl-server://host:port` → TLS
 - `vibectl-server-insecure://host:port` → plain text
 
+## Let's Encrypt Integration (Planned)
+
+For production deployments with public hostnames, vibectl-server will support automatic certificate provisioning via Let's Encrypt and other ACME-compatible certificate authorities.
+
+### Why Let's Encrypt?
+
+**Eliminates Certificate Management Overhead:**
+- No manual certificate purchasing, renewal, or deployment
+- Automatic 90-day renewal cycle prevents expiration outages
+- Trusted by all major browsers and clients by default
+
+**Production-Grade Security:**
+- Industry-standard certificates with full browser trust
+- Modern TLS protocols (TLS 1.2+) with strong cipher suites
+- Certificate Transparency logging for enhanced security monitoring
+
+**Cost-Effective:**
+- Free certificates for public domains
+- Reduces operational complexity compared to traditional CAs
+- Integrates seamlessly with Kubernetes cert-manager
+
+### Planned Workflow
+
+Once implemented, automatic certificate provisioning will work like this:
+
+```bash
+# 1. Configure server for ACME with domain validation
+vibectl-server init-config --acme-domain vibectl.company.com \
+  --acme-email admin@company.com
+
+# 2. Start server with automatic certificate provisioning
+vibectl-server serve --acme
+
+# 3. Server automatically:
+#    - Requests certificates from Let's Encrypt
+#    - Handles domain validation (HTTP-01 or DNS-01)
+#    - Renews certificates before expiration
+#    - Serves traffic with valid public certificates
+```
+
+**Kubernetes Integration:**
+```yaml
+# Automatic certificate management via cert-manager
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vibectl-server-tls
+spec:
+  secretName: vibectl-server-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - vibectl.company.com
+```
+
+**Client Configuration:**
+```bash
+# No custom CA bundle needed - uses system trust store
+vibectl setup-proxy configure \
+  vibectl-server://TOKEN@vibectl.company.com:443
+```
+
+**Certificate Lifecycle:**
+- Initial provisioning: ~30 seconds for HTTP-01 validation
+- Automatic renewal: 30 days before expiration
+- Zero-downtime certificate updates via graceful reload
+- Fallback to self-signed certificates if ACME fails
+
+This approach provides the **security of private CAs** (from Phase 1) for internal deployments and the **convenience of public CAs** for internet-facing services.
+
 ## Kubernetes example
 
 For a minimal single-replica deployment see the manifests under
