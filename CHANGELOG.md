@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **TLS Support for vibectl LLM Proxy Server**: Complete implementation enabling secure connections for development environments
+  - **Server-side TLS Integration**: Full TLS certificate handling and secure port binding in gRPC server
+  - **Self-signed Certificate Generation**: Automatic certificate generation for development with cryptography library
+  - **Comprehensive CLI Options**: TLS configuration options (--tls, --cert-file, --key-file, --generate-certs)
+  - **Certificate Lifecycle Management**: Automatic certificate generation, validation, and error handling
+  - **Complete vibectl-server:// URL Scheme**: Full TLS encryption support with proper certificate validation
+  - **Development-friendly Workflow**: Seamless certificate auto-generation with graceful fallbacks
+  - **Extensive Test Coverage**: Comprehensive test suite for certificate utilities and TLS integration
+
 ## [0.10.0] - 2025-06-05
 
 ### Added

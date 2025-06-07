@@ -15,7 +15,7 @@ from vibectl.logutil import logger
 from .jwt_auth import JWTAuthManager, load_config_from_server
 
 
-class JWTAuthInterceptor(grpc.ServerInterceptor):  # type: ignore
+class JWTAuthInterceptor(grpc.ServerInterceptor):
     """gRPC server interceptor for JWT authentication."""
 
     def __init__(self, jwt_manager: JWTAuthManager, enabled: bool = True):

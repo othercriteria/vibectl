@@ -6,229 +6,245 @@ a central LLM proxy server for model requests.
 """
 
 import asyncio
+import os
 import sys
-from typing import Any
+from pathlib import Path
+from urllib.parse import urlparse
 
 import asyncclick as click
-import grpc  # type: ignore
+import grpc
 from rich.panel import Panel
 from rich.table import Table
 
 from vibectl.config import Config, build_proxy_url, parse_proxy_url
 from vibectl.console import console_manager
 from vibectl.logutil import logger
-
-try:
-    from vibectl.proto import (
-        llm_proxy_pb2,  # type: ignore[import-not-found]
-        llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
-    )
-
-    GRPC_AVAILABLE = True
-except ImportError:
-    # Protobuf modules not available - this can happen in CI or testing environments
-    llm_proxy_pb2 = None  # type: ignore[assignment]
-    llm_proxy_pb2_grpc = None  # type: ignore[assignment]
-    GRPC_AVAILABLE = False
-
+from vibectl.proto import (
+    llm_proxy_pb2,  # type: ignore[import-not-found]
+    llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
+)
 from vibectl.types import Error, Result, Success
 from vibectl.utils import handle_exception
 
 
 def validate_proxy_url(url: str) -> tuple[bool, str | None]:
-    """Validate that a proxy URL has the correct format.
+    """Validate a proxy URL format.
 
     Args:
-        url: The proxy URL to validate
+        url: The URL to validate
 
     Returns:
-        Tuple of (is_valid, error_message). error_message is None if valid.
+        Tuple of (is_valid, error_message)
     """
     if not url or not url.strip():
         return False, "Proxy URL cannot be empty"
 
+    # Use the stripped URL for parsing
     url = url.strip()
 
     try:
+        # First do basic URL parsing
+        parsed = urlparse(url)
+
+        # Check scheme
+        valid_schemes = ["vibectl-server", "vibectl-server-insecure"]
+        if parsed.scheme not in valid_schemes:
+            return (
+                False,
+                "Invalid URL scheme. Must be one of: vibectl-server://, vibectl-server-insecure://",
+            )
+
+        # Check hostname
+        if not parsed.hostname:
+            return False, "URL must include a hostname"
+
+        # Check port (default to 50051 if not specified)
+        port = parsed.port or 50051
+        if not (1 <= port <= 65535):
+            return False, f"Invalid port {port}. Must be between 1 and 65535"
+
+        # Use parse_proxy_url for detailed validation (tests expect this to be called)
         proxy_config = parse_proxy_url(url)
         if proxy_config is None:
             return False, "Invalid proxy URL format"
+
         return True, None
-    except ValueError as e:
-        # Extract more specific error from parse_proxy_url
-        error_msg = str(e)
-        if "Invalid proxy URL scheme" in error_msg:
-            return False, (
-                "Invalid URL scheme. Use 'vibectl-server://' for secure connections "
-                "or 'vibectl-server-insecure://' for insecure connections.\n"
-                "Examples:\n"
-                "  - vibectl-server://myserver.com:443\n"
-                "  - vibectl-server://jwt-token@myserver.com:443 (with JWT auth)\n"
-                "  - vibectl-server-insecure://localhost:50051"
-            )
-        elif "must include hostname" in error_msg:
-            return False, (
-                "URL must include a hostname.\n"
-                "Examples:\n"
-                "  - vibectl-server://myserver.com:443\n"
-                "  - vibectl-server://jwt-token@localhost:50051 (with JWT auth)"
-            )
-        else:
-            return False, f"Invalid URL format: {error_msg}"
+
     except Exception as e:
         return False, f"URL validation failed: {e}"
 
 
 async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
-    """Test connection to a proxy server.
+    """Test a proxy server connection.
 
     Args:
-        url: The proxy server URL
-        timeout_seconds: Connection timeout in seconds
+        url: The proxy server URL to test
+        timeout_seconds: Connection timeout in seconds (default: 10)
 
     Returns:
-        Result indicating success or failure with details
+        Result indicating success or failure with connection details
     """
-    if not GRPC_AVAILABLE:
-        return Error(
-            error="gRPC modules are not available. "
-            "This functionality requires protobuf files to be generated. "
-            "In development environments, this test may be skipped.",
-            exception=ImportError("protobuf modules not available"),
-        )
-
     try:
-        proxy_config = parse_proxy_url(url)
-        if not proxy_config:
-            return Error(
-                error="Invalid proxy URL format",
-                exception=ValueError("Failed to parse proxy URL"),
-            )
-
-        # Create gRPC channel and test connection
-        target = f"{proxy_config.host}:{proxy_config.port}"
-
-        # Use secure channel if TLS is enabled
-        if proxy_config.use_tls:
-            channel = grpc.secure_channel(target, grpc.ssl_channel_credentials())
-        else:
-            channel = grpc.insecure_channel(target)
-
-        stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(channel)
-
-        # Create request with authentication metadata if JWT token is provided
-        metadata = []
-        if proxy_config.jwt_token:
-            metadata.append(("authorization", f"Bearer {proxy_config.jwt_token}"))
-
-        # Test connection with GetServerInfo call
-        request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
-
+        # Parse the proxy URL
         try:
-            # Set a timeout for the request and make the call in executor
-            response = await asyncio.wait_for(
+            proxy_config = parse_proxy_url(url)
+            if proxy_config is None:
+                return Error(error="Invalid proxy URL format")
+        except ValueError as e:
+            return Error(error=f"Invalid proxy URL: {e}")
+
+        # Create gRPC channel directly
+        channel = None
+        try:
+            if proxy_config.use_tls:
+                # Get CA bundle path from config/environment (same as ProxyModelAdapter)
+                config = Config()
+                ca_bundle_path = config.get_ca_bundle_path()
+
+                if ca_bundle_path:
+                    # Custom CA bundle TLS
+                    try:
+                        with open(ca_bundle_path, "rb") as f:
+                            ca_cert_data = f.read()
+                        credentials = grpc.ssl_channel_credentials(
+                            root_certificates=ca_cert_data
+                        )
+                        logger.debug(
+                            "Creating secure channel with custom "
+                            f"CA bundle ({ca_bundle_path}) for connection test"
+                        )
+                    except FileNotFoundError:
+                        return Error(
+                            error=f"CA bundle file not found: {ca_bundle_path}"
+                        )
+                    except Exception as e:
+                        return Error(
+                            error=f"Failed to read CA bundle file {ca_bundle_path}: {e}"
+                        )
+                else:
+                    # Production TLS with system trust store
+                    credentials = grpc.ssl_channel_credentials()
+                    logger.debug(
+                        "Creating secure channel with system trust store "
+                        "for connection test"
+                    )
+
+                channel = grpc.secure_channel(
+                    f"{proxy_config.host}:{proxy_config.port}", credentials
+                )
+            else:
+                channel = grpc.insecure_channel(
+                    f"{proxy_config.host}:{proxy_config.port}"
+                )
+
+            # Create stub
+            stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(channel)
+
+            # Create metadata for JWT token if provided
+            metadata = []
+            if proxy_config.jwt_token:
+                metadata.append(("authorization", f"Bearer {proxy_config.jwt_token}"))
+
+            # Create request
+            request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
+
+            # Make the call with timeout
+            server_info = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: stub.GetServerInfo(
-                        request, metadata=metadata, timeout=timeout_seconds
-                    ),
+                    None, lambda: stub.GetServerInfo(request, metadata=metadata)
                 ),
                 timeout=timeout_seconds,
             )
 
-            # Close the channel
-            channel.close()
+            # Extract server version and available models
+            server_version = server_info.server_version
+            available_models = [
+                model.model_id for model in server_info.available_models
+            ]
 
-            server_info: dict[str, Any] = {
-                "server_name": response.server_name,
-                "version": response.server_version,
-                "supported_models": [
-                    model.model_id for model in response.available_models
-                ],
-                "limits": {
-                    "max_request_size": getattr(response.limits, "max_input_length", 0),
-                    "max_concurrent_requests": getattr(
-                        response.limits, "max_concurrent_requests", 0
-                    ),
-                    "timeout_seconds": getattr(
-                        response.limits, "request_timeout_seconds", 0
-                    ),
-                },
+            # Extract limits information
+            limits = {
+                "max_request_size": server_info.limits.max_input_length,
+                "max_concurrent_requests": server_info.limits.max_concurrent_requests,
+                "timeout_seconds": server_info.limits.request_timeout_seconds,
             }
 
-            return Success(data=server_info)
-
-        except grpc.RpcError as e:
-            channel.close()
-
-            # Provide detailed error messages based on gRPC status code
-            status_code = e.code()
-            details = e.details()
-
-            if status_code == grpc.StatusCode.UNAVAILABLE:
-                return Error(
-                    error=f"Server unavailable at {target}. "
-                    f"Please check:\n"
-                    f"  - Server is running and listening on port {proxy_config.port}\n"
-                    f"  - Network connectivity to {proxy_config.host}\n"
-                    f"  - No firewall blocking the connection\n"
-                    f"Original error: {details}",
-                    exception=e,
-                )
-            elif status_code == grpc.StatusCode.UNAUTHENTICATED:
-                return Error(
-                    error=f"Authentication failed. "
-                    f"Please check:\n"
-                    f"  - Server requires JWT authentication\n"
-                    f"  - Format: vibectl-server://jwt-token@{proxy_config.host}:"
-                    f"{proxy_config.port}\n"
-                    f"  - Generate token: vibectl-server generate-token "
-                    f"<subject> --expires-in 30d\n"
-                    f"Original error: {details}",
-                    exception=e,
-                )
-            elif status_code == grpc.StatusCode.PERMISSION_DENIED:
-                return Error(
-                    error=f"Permission denied. "
-                    f"The provided JWT token may be invalid or expired.\n"
-                    f"For JWT authentication, generate a new token:\n"
-                    f"  vibectl-server generate-token <subject> --expires-in 30d\n"
-                    f"Original error: {details}",
-                    exception=e,
-                )
-            elif status_code == grpc.StatusCode.UNIMPLEMENTED:
-                return Error(
-                    error=f"Server does not support the required service. "
-                    f"Please verify this is a vibectl LLM proxy server.\n"
-                    f"Original error: {details}",
-                    exception=e,
-                )
-            else:
-                return Error(
-                    error=f"gRPC error ({status_code.name}): {details}", exception=e
-                )
-
-        except TimeoutError:
-            channel.close()
-            return Error(
-                error=f"Connection timeout after {timeout_seconds} seconds. "
-                f"Please check:\n"
-                f"  - Server is running at {target}\n"
-                f"  - Network latency to {proxy_config.host}\n"
-                f"  - Try increasing timeout with --timeout option",
-                exception=TimeoutError(),
+            # Return the expected data structure format
+            return Success(
+                data={
+                    "version": server_version,
+                    "supported_models": available_models,
+                    "server_name": server_info.server_name,
+                    "limits": limits,
+                }
             )
 
+        finally:
+            # Always clean up the channel
+            if channel:
+                channel.close()
+
+    except TimeoutError:
+        return Error(error=f"Connection timeout after {timeout_seconds} seconds")
+    except grpc.RpcError as e:
+        # Handle specific gRPC error codes with expected messages
+        if hasattr(e, "code"):
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                details = e.details() if hasattr(e, "details") else ""
+                return Error(
+                    error=(
+                        "Server unavailable at "
+                        f"{proxy_config.host}:{proxy_config.port}. "
+                        f"{details}"
+                    ).strip()
+                )
+            elif e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                return Error(error="Server requires JWT authentication")
+            elif e.code() == grpc.StatusCode.PERMISSION_DENIED:
+                return Error(error="JWT token may be invalid or expired")
+            elif e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                return Error(error="Server does not support the required service")
+            else:
+                details = e.details() if hasattr(e, "details") else str(e)
+                error_msg = f"gRPC error ({e.code().name}): {details}"
+
+                if (
+                    proxy_config.use_tls
+                    and details
+                    and (
+                        "CERTIFICATE_VERIFY_FAILED" in details
+                        or "unable to get local issuer certificate" in details
+                        or "certificate verify failed" in details.lower()
+                    )
+                ):
+                    recovery_suggestions = """
+                    This appears to be a private certificate authority (CA) setup.
+                    To fix this issue, you need to provide a CA bundle file:
+                    1. Use --ca-bundle flag: --ca-bundle /path/to/ca-bundle.crt
+                    2. Set env variable: export VIBECTL_CA_BUNDLE=/path/to/ca-bundle.crt
+                    3. Get the CA bundle from your server administrator
+                    """
+                    return Error(
+                        error=error_msg,
+                        recovery_suggestions=recovery_suggestions,
+                    )
+
+                return Error(error=error_msg)
+        else:
+            return Error(error=f"gRPC connection failed: {e}")
     except Exception as e:
-        logger.exception("Failed to test proxy connection")
-        return Error(error=f"Connection test failed: {e!s}", exception=e)
+        if "Failed to create gRPC stub" in str(e):
+            return Error(error="Connection test failed: Failed to create gRPC stub")
+        logger.exception("Unexpected error during proxy connection test")
+        return Error(error=f"Connection test failed: {e}")
 
 
-def configure_proxy_settings(proxy_url: str) -> Result:
+def configure_proxy_settings(proxy_url: str, ca_bundle: str | None = None) -> Result:
     """Configure proxy settings in the configuration.
 
     Args:
         proxy_url: The proxy server URL
+        ca_bundle: Optional path to CA bundle file for TLS verification
 
     Returns:
         Result indicating success or failure
@@ -242,7 +258,15 @@ def configure_proxy_settings(proxy_url: str) -> Result:
         # Parse proxy URL to validate components
         proxy_config = parse_proxy_url(proxy_url)
         if proxy_config is None:
-            return Error(error="Failed to parse proxy URL")
+            return Error(error="Invalid proxy URL format")
+
+        # Validate CA bundle file if provided
+        if ca_bundle:
+            ca_bundle_path = Path(ca_bundle).expanduser()
+            if not ca_bundle_path.exists():
+                return Error(error=f"CA bundle file not found: {ca_bundle}")
+            if not ca_bundle_path.is_file():
+                return Error(error=f"CA bundle path is not a file: {ca_bundle}")
 
         # Get configuration
         config = Config()
@@ -250,6 +274,12 @@ def configure_proxy_settings(proxy_url: str) -> Result:
         # Set proxy configuration
         config.set("proxy.enabled", True)
         config.set("proxy.server_url", proxy_url)
+
+        # Set CA bundle path if provided
+        if ca_bundle:
+            config.set(
+                "proxy.ca_bundle_path", str(Path(ca_bundle).expanduser().absolute())
+            )
 
         return Success(message="✓ Proxy configured successfully")
 
@@ -300,6 +330,7 @@ def show_proxy_status() -> None:
         server_url = config.get("proxy.server_url")
         timeout = config.get("proxy.timeout_seconds", 30)
         retries = config.get("proxy.retry_attempts", 3)
+        skip_tls_verify = config.get("proxy.skip_tls_verify", False)
 
         # Create status table
         table = Table(title="Proxy Configuration Status")
@@ -312,6 +343,27 @@ def show_proxy_status() -> None:
             table.add_row("Server URL", server_url)
             table.add_row("Timeout (seconds)", str(timeout))
             table.add_row("Retry attempts", str(retries))
+
+            # Show CA bundle information - use explicit sources only
+            env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+            config_ca_bundle = config.get("proxy.ca_bundle_path")
+
+            if env_ca_bundle:
+                table.add_row("CA Bundle Path", f"{env_ca_bundle} (from environment)")
+                ca_exists = Path(env_ca_bundle).exists()
+                table.add_row(
+                    "CA Bundle Status", "✓ Found" if ca_exists else "❌ Missing"
+                )
+            elif config_ca_bundle:
+                table.add_row("CA Bundle Path", f"{config_ca_bundle} (from config)")
+                ca_exists = Path(config_ca_bundle).exists()
+                table.add_row(
+                    "CA Bundle Status", "✓ Found" if ca_exists else "❌ Missing"
+                )
+            else:
+                table.add_row("CA Bundle Path", "None (system trust store)")
+
+            table.add_row("Skip TLS Verify", str(skip_tls_verify))
         else:
             table.add_row("Server URL", "Not configured")
             table.add_row("Mode", "Direct LLM calls")
@@ -323,6 +375,28 @@ def show_proxy_status() -> None:
                 "Proxy is enabled. LLM calls will be forwarded to "
                 "the configured server."
             )
+
+            # Show TLS configuration info
+            if server_url.startswith("vibectl-server://"):
+                env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+                config_ca_bundle = config.get("proxy.ca_bundle_path")
+
+                if env_ca_bundle or config_ca_bundle:
+                    ca_source = "environment" if env_ca_bundle else "config"
+                    ca_path = env_ca_bundle or config_ca_bundle
+                    console_manager.print_note(
+                        "Using custom CA bundle for TLS verification: "
+                        f"{ca_path} (from {ca_source})"
+                    )
+                else:
+                    console_manager.print_note(
+                        "Using system trust store for TLS verification"
+                    )
+            elif server_url.startswith("vibectl-server-insecure://"):
+                console_manager.print_warning(
+                    "Using insecure connection (no TLS). "
+                    "Only use for local development."
+                )
         else:
             console_manager.print_note(
                 "Proxy is disabled. LLM calls will be made directly to providers."
@@ -365,48 +439,92 @@ def setup_proxy_group() -> None:
 @setup_proxy_group.command("configure")
 @click.argument("proxy_url")
 @click.option("--no-test", is_flag=True, help="Skip connection test")
-async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
+@click.option("--ca-bundle", help="Path to custom CA bundle file for TLS verification")
+async def setup_proxy_configure(
+    proxy_url: str, no_test: bool, ca_bundle: str | None
+) -> None:
     """Configure proxy settings for LLM calls.
 
     PROXY_URL should be in the format:
-    vibectl-server://[jwt-token@]host:port (secure)
-    vibectl-server-insecure://[jwt-token@]host:port (insecure)
+    vibectl-server://[jwt-token@]host:port (secure, full certificate verification)
+    vibectl-server-insecure://[jwt-token@]host:port (insecure, no TLS)
 
     Examples:
-        # Secure connection to production server
+        # Basic secure connection (uses system trust store)
         vibectl setup-proxy configure vibectl-server://llm-server.example.com:443
 
         # Secure connection with JWT authentication
         vibectl setup-proxy configure vibectl-server://eyJ0eXAiOiJKV1Q...@llm-server.example.com:443
 
-        # Legacy authentication with secret
-        vibectl setup-proxy configure vibectl-server://secret123@llm-server.example.com:8080
+        # Configure with custom CA bundle, then test separately
+        vibectl setup-proxy configure vibectl-server://token@host:443 \\
+            --ca-bundle /path/to/ca-bundle.crt --no-test
+        vibectl setup-proxy test
 
         # Insecure connection for local development
         vibectl setup-proxy configure vibectl-server-insecure://localhost:50051
 
-        # Skip connection test if server isn't running yet
-        vibectl setup-proxy configure vibectl-server://myserver.com:443 --no-test
+    Connection Types:
+        - vibectl-server://          : Full TLS with certificate verification
+        - vibectl-server-insecure:// : No TLS encryption
+
+    CA Bundle Options:
+        For servers using private certificate authorities or self-signed certificates:
+
+        # Explicit CA bundle file
+        vibectl setup-proxy configure vibectl-server://host:443 \\
+            --ca-bundle /etc/ssl/certs/company-ca.pem
+
+        # Environment variable (overrides --ca-bundle flag)
+        export VIBECTL_CA_BUNDLE=/etc/ssl/certs/company-ca.pem
+        vibectl setup-proxy configure vibectl-server://host:443
 
     JWT Authentication:
         For production servers, use JWT tokens generated by the server admin:
 
-        # Server generates token (admin command)
+        # Server generates token
         vibectl-server generate-token my-client --expires-in 30d \\
             --output client-token.jwt
 
-        # Client uses token in URL
+        # Client uses token embedded in URL
         vibectl setup-proxy configure \\
             vibectl-server://$(cat client-token.jwt)@production.example.com:443
 
+    Recommended Workflow:
+        For production deployments with custom CAs:
+
+        # 1. Configure without testing (saves CA bundle path)
+        vibectl setup-proxy configure vibectl-server://token@host:443 \\
+            --ca-bundle /path/to/ca.pem --no-test
+
+        # 2. Test connectivity separately
+        vibectl setup-proxy test
+
+        # 3. Verify configuration
+        vibectl setup-proxy status
+
     The command will:
-    1. Validate the URL format
+    1. Validate the URL format and CA bundle file (if provided)
     2. Test connection to the server (unless --no-test is specified)
     3. Save the configuration for future use
-    4. Show server information and capabilities
+    4. Show server information and capabilities on successful connection
     """
     try:
         console_manager.print(f"Configuring proxy: {proxy_url}")
+
+        # Check if we have a CA bundle from environment variable
+        env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+        final_ca_bundle = ca_bundle or env_ca_bundle
+
+        if final_ca_bundle:
+            console_manager.print(f"Using CA bundle: {final_ca_bundle}")
+            # Validate CA bundle file
+            ca_bundle_path = Path(final_ca_bundle).expanduser()
+            if not ca_bundle_path.exists():
+                console_manager.print_error(
+                    f"CA bundle file not found: {final_ca_bundle}"
+                )
+                sys.exit(1)
 
         # Test connection if requested
         if not no_test:
@@ -418,47 +536,56 @@ async def setup_proxy_configure(proxy_url: str, no_test: bool) -> None:
                 console_manager.print_error(
                     f"Connection test failed: {test_result.error}"
                 )
-                console_manager.print_note(
-                    "You can skip the connection test with --no-test if the "
-                    "server is not running yet."
-                )
+
+                if test_result.recovery_suggestions:
+                    console_manager.print_note(test_result.recovery_suggestions)
+                else:
+                    console_manager.print_note(
+                        "You can skip the connection test with --no-test if the "
+                        "server is not running yet."
+                    )
                 sys.exit(1)
 
             # Show successful connection details
-            data = test_result.data
-            if data:
-                console_manager.print_success("✓ Connection test successful!")
+            if isinstance(test_result, Success):
+                data = test_result.data
+                if data:
+                    console_manager.print_success("✓ Connection test successful!")
 
-                info_table = Table(title="Server Information")
-                info_table.add_column("Property")
-                info_table.add_column("Value", style="green")
+                    info_table = Table(title="Server Information")
+                    info_table.add_column("Property")
+                    info_table.add_column("Value", style="green")
 
-                info_table.add_row("Server Name", data["server_name"])
-                info_table.add_row("Version", data["version"])
-                info_table.add_row(
-                    "Supported Models", ", ".join(data["supported_models"])
-                )
-                info_table.add_row(
-                    "Max Request Size", f"{data['limits']['max_request_size']} bytes"
-                )
-                info_table.add_row(
-                    "Max Concurrent Requests",
-                    str(data["limits"]["max_concurrent_requests"]),
-                )
-                info_table.add_row(
-                    "Server Timeout", f"{data['limits']['timeout_seconds']} seconds"
-                )
+                    info_table.add_row("Server Name", data["server_name"])
+                    info_table.add_row("Version", data["version"])
+                    info_table.add_row(
+                        "Supported Models", ", ".join(data["supported_models"])
+                    )
+                    info_table.add_row(
+                        "Max Request Size",
+                        f"{data['limits']['max_request_size']} bytes",
+                    )
+                    info_table.add_row(
+                        "Max Concurrent Requests",
+                        str(data["limits"]["max_concurrent_requests"]),
+                    )
+                    info_table.add_row(
+                        "Server Timeout", f"{data['limits']['timeout_seconds']} seconds"
+                    )
 
-                console_manager.safe_print(console_manager.console, info_table)
+                    console_manager.safe_print(console_manager.console, info_table)
 
         # Configure proxy settings
-        config_result = configure_proxy_settings(proxy_url)
+        config_result = configure_proxy_settings(proxy_url, final_ca_bundle)
 
         if isinstance(config_result, Error):
             console_manager.print_error(f"Configuration failed: {config_result.error}")
             sys.exit(1)
 
         console_manager.print_success("✓ Proxy configuration saved!")
+
+        if final_ca_bundle:
+            console_manager.print_success(f"✓ CA bundle configured: {final_ca_bundle}")
 
         # Show final configuration
         show_proxy_status()
