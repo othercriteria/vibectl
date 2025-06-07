@@ -79,7 +79,7 @@ Client URLs determine whether TLS is used:
 ## Kubernetes example
 
 For a minimal single-replica deployment see the manifests under
-`examples/manifests/vibect-server/`.  They install a `Deployment`,
+`examples/manifests/vibectl-server/`.  They install a `Deployment`,
 `Service`, `ConfigMap` and `Secret` suitable for local demos.  After
 applying them you can generate a token from the running pod and point
 `vibectl` at the exposed NodePort service.

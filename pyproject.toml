@@ -10,6 +10,7 @@ dependencies = [
     "anyio>=4.3.0,<5.0.0",
     "click>=8.1.7,<9.0.0",
     "asyncclick>=8.0.1.2",
+    "cryptography>=41.0.0",
     "distro>=1.9.0,<2.0.0",
     "grpcio>=1.60.0,<2.0.0",
     "grpcio-tools>=1.60.0,<2.0.0",
@@ -57,7 +58,6 @@ dev = [
     "asyncmock>=0.4.2",
     "grpc-stubs>=1.53.0",
     "types-protobuf>=4.24.0",
-    "cryptography>=41.0.0",
 ]
 
 [project.scripts]

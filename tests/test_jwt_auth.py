@@ -21,6 +21,7 @@ from vibectl.server.jwt_auth import (
     load_config_from_server,
     load_config_with_generation,
 )
+from vibectl.types import Success
 
 
 class TestJWTConfig:
@@ -326,7 +327,9 @@ class TestLoadConfigFromServer:
             patch("vibectl.server.main.load_server_config") as mock_load_config,
         ):
             mock_gen.return_value = "generated-secret"
-            mock_load_config.return_value = {"server": {"host": "localhost"}}
+            mock_load_config.return_value = Success(
+                data={"server": {"host": "localhost"}}
+            )
 
             config = load_config_from_server(None)
 
@@ -428,7 +431,7 @@ class TestLoadConfigWithGeneration:
                     patch("vibectl.server.main.get_server_config_path") as mock_path,
                 ):
                     mock_gen.return_value = "generated-secret-key"
-                    mock_load_config.return_value = initial_config.copy()
+                    mock_load_config.return_value = Success(data=initial_config.copy())
                     mock_path.return_value = config_file.name
 
                     config = load_config_with_generation(
@@ -496,7 +499,7 @@ class TestLoadConfigWithGeneration:
                 patch("vibectl.server.main.get_server_config_path") as mock_get_path,
             ):
                 mock_gen.return_value = "generated-secret-key"
-                mock_load_config.return_value = {}
+                mock_load_config.return_value = Success(data={})
                 mock_get_path.return_value = nonexistent_file
 
                 config = load_config_with_generation(None, persist_generated_key=True)
@@ -593,7 +596,9 @@ class TestLoadConfigWithGeneration:
                     patch("vibectl.server.main.get_server_config_path") as mock_path,
                 ):
                     mock_gen.return_value = "generated-secret-key"
-                    mock_load_config.return_value = {"server": {"host": "localhost"}}
+                    mock_load_config.return_value = Success(
+                        data={"server": {"host": "localhost"}}
+                    )
                     mock_path.return_value = config_file.name
 
                     config = load_config_with_generation(

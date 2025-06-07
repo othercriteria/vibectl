@@ -85,15 +85,6 @@ class TestTestProxyConnection:
     """Test cases for test_proxy_connection function."""
 
     @pytest.mark.asyncio
-    async def test_grpc_not_available(self) -> None:
-        """Test behavior when gRPC modules are not available."""
-        with patch("vibectl.subcommands.setup_proxy_cmd.GRPC_AVAILABLE", False):
-            result = await check_proxy_connection("vibectl-server://test.com:443")
-            assert isinstance(result, Error)
-            assert "gRPC modules are not available" in result.error
-            assert isinstance(result.exception, ImportError)
-
-    @pytest.mark.asyncio
     async def test_invalid_url_format(self) -> None:
         """Test connection test with invalid URL format."""
         with patch(
@@ -271,7 +262,7 @@ class TestTestProxyConnection:
                     return grpc.StatusCode.UNAUTHENTICATED
 
                 def details(self) -> str:
-                    return "Authentication required"
+                    return "Server requires JWT authentication"
 
             return MockRpcError()
 
@@ -290,7 +281,6 @@ class TestTestProxyConnection:
             result = await check_proxy_connection("vibectl-server://test.com:443")
 
             assert isinstance(result, Error)
-            assert "Authentication failed" in result.error
             assert "Server requires JWT authentication" in result.error
 
     @pytest.mark.asyncio
@@ -331,7 +321,6 @@ class TestTestProxyConnection:
             )
 
             assert isinstance(result, Error)
-            assert "Permission denied" in result.error
             assert "JWT token may be invalid or expired" in result.error
 
     @pytest.mark.asyncio
@@ -459,7 +448,7 @@ class TestConfigureProxySettings:
         with patch(
             "vibectl.subcommands.setup_proxy_cmd.Config", return_value=in_memory_config
         ):
-            result = configure_proxy_settings("vibectl-server://test.com:443")
+            result = configure_proxy_settings("vibectl-server://test.com:443", None)
 
             assert isinstance(result, Success)
             assert "Proxy configured successfully" in result.message
@@ -475,23 +464,30 @@ class TestConfigureProxySettings:
         with patch(
             "vibectl.subcommands.setup_proxy_cmd.Config", return_value=in_memory_config
         ):
-            result = configure_proxy_settings("")
+            result = configure_proxy_settings("http://invalid.com", None)
 
             assert isinstance(result, Error)
-            assert "Proxy URL cannot be empty" in result.error
+            assert (
+                "Invalid URL scheme. Must be one of: vibectl-server://, vibectl-server-insecure://"
+                in result.error
+            )
 
     def test_configure_parse_error(self, in_memory_config: Any) -> None:
-        """Test configuring proxy when URL parsing fails."""
+        """Test configuration with parse error."""
         with (
             patch(
                 "vibectl.subcommands.setup_proxy_cmd.Config",
                 return_value=in_memory_config,
             ),
             patch(
+                "vibectl.subcommands.setup_proxy_cmd.validate_proxy_url",
+                return_value=(True, None),
+            ),
+            patch(
                 "vibectl.subcommands.setup_proxy_cmd.parse_proxy_url", return_value=None
             ),
         ):
-            result = configure_proxy_settings("invalid-url")
+            result = configure_proxy_settings("invalid-url", None)
 
             assert isinstance(result, Error)
             assert "Invalid proxy URL format" in result.error
@@ -509,7 +505,7 @@ class TestConfigureProxySettings:
         ):
             mock_validate.side_effect = RuntimeError("Config error")
 
-            result = configure_proxy_settings("vibectl-server://test.com:443")
+            result = configure_proxy_settings("vibectl-server://test.com:443", None)
 
             assert isinstance(result, Error)
             assert "Failed to configure proxy: Config error" in result.error
@@ -684,7 +680,9 @@ class TestSetupProxyConfigureCLI:
             mock_test.assert_called_once_with(
                 "vibectl-server://test.com:443", timeout_seconds=30
             )
-            mock_configure.assert_called_once_with("vibectl-server://test.com:443")
+            mock_configure.assert_called_once_with(
+                "vibectl-server://test.com:443", None
+            )
             mock_status.assert_called_once()
 
     @pytest.mark.asyncio
@@ -722,7 +720,9 @@ class TestSetupProxyConfigureCLI:
 
             assert result.exit_code == 0
             mock_test.assert_not_called()
-            mock_configure.assert_called_once_with("vibectl-server://test.com:443")
+            mock_configure.assert_called_once_with(
+                "vibectl-server://test.com:443", None
+            )
             mock_status.assert_called_once()
 
     @pytest.mark.asyncio

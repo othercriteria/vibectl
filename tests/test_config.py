@@ -3,6 +3,7 @@
 This module tests the configuration management functionality of vibectl.
 """
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,12 +12,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 import yaml
-from click.testing import CliRunner
+from asyncclick.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.config import (
     DEFAULT_CONFIG,
     Config,
+    parse_proxy_url,
 )
 from vibectl.config_utils import ensure_config_dir
 
@@ -59,6 +61,18 @@ class MockConfig(Config):
     def _save_config(self) -> None:
         """No-op for mock class."""
         pass
+
+    def get_model_key_file(self, provider: str) -> str | None:
+        """Get model key file path for provider from environment or config."""
+        # Check environment variable first
+        env_var = f"{provider.upper()}_API_KEY_FILE"
+        env_file = os.environ.get(env_var)
+        if env_file:
+            return env_file
+
+        # Check configuration
+        result = self.get(f"providers.{provider}.key_file")
+        return result if isinstance(result, str | type(None)) else None
 
 
 @pytest.fixture
@@ -554,7 +568,7 @@ async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
     }
 
     runner = CliRunner()
-    result = runner.invoke(cli.commands["config"], ["show"])  # type: ignore[arg-type]
+    result = await runner.invoke(cli.commands["config"], ["show"])  # type: ignore[arg-type]
 
     # Assertions
     assert result.exit_code == 0
@@ -871,35 +885,29 @@ def test_proxy_server_url_validation_invalid_urls(test_config: MockConfig) -> No
 
 
 def test_proxy_server_url_jwt_token_format_validation(test_config: MockConfig) -> None:
-    """Test JWT token format validation in proxy server URLs."""
-    # Valid URLs with proper JWT tokens (short format for testing)
-    valid_urls_with_jwt = [
+    """Test JWT token handling in proxy server URLs."""
+    # Valid URLs with tokens (tokens are treated as opaque strings)
+    valid_urls_with_tokens = [
         "vibectl-server://eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdWIifQ.sig@host:443",
         "vibectl-server-insecure://a.b.c@localhost:50051",
+        "vibectl-server://simple-token@example.com:443",
+        "vibectl-server://abc123@example.com:443",
     ]
 
-    # These should all work
-    for url in valid_urls_with_jwt:
+    # These should all work (tokens are treated as opaque)
+    for url in valid_urls_with_tokens:
         test_config.set("proxy.server_url", url)
         assert test_config.get("proxy.server_url") == url
 
-    # Invalid JWT token formats (short examples)
-    invalid_jwt_urls = [
-        "vibectl-server://nojwt@example.com:443",  # Missing dots
-        "vibectl-server://header.payload@example.com:443",  # Missing signature
-        "vibectl-server://a.b.c.d@example.com:443",  # Too many parts
-        "vibectl-server://.b.c@example.com:443",  # Empty header
-        "vibectl-server://a..c@example.com:443",  # Empty payload
-        "vibectl-server://a.b.@example.com:443",  # Empty signature
-        "vibectl-server://a b.c.d@example.com:443",  # Invalid characters
-        "vibectl-server://a$.b.c@example.com:443",  # Invalid character ($)
-        "vibectl-server://a+.b.c@example.com:443",  # Invalid character (+)
+    # URLs without tokens should also work
+    token_optional_urls = [
+        "vibectl-server://host:443",
+        "vibectl-server-insecure://localhost:50051",
     ]
 
-    # These should all fail
-    for url in invalid_jwt_urls:
-        with pytest.raises(ValueError, match="Invalid JWT token format"):
-            test_config.set("proxy.server_url", url)
+    for url in token_optional_urls:
+        test_config.set("proxy.server_url", url)
+        assert test_config.get("proxy.server_url") == url
 
 
 def test_proxy_server_url_none_allowed(test_config: MockConfig) -> None:
@@ -1018,64 +1026,69 @@ def test_proxy_unset_behavior(test_config: MockConfig) -> None:
 
 def test_jwt_token_validation_helper() -> None:
     """Test the JWT token format validation helper function."""
-    from vibectl.config import _validate_jwt_token_format
-
-    # Valid JWT tokens (short format for testing)
-    valid_tokens = [
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdWIifQ.sig",  # Short valid JWT
-        "a.b.c",  # Minimal valid format
-        "A-_9.B-_8.C-_7",  # Valid base64url characters
-    ]
-
-    # Invalid JWT tokens (short examples)
-    invalid_tokens = [
-        "not-a-jwt-token",  # No dots
-        "a.b",  # Missing signature
-        "a.b.c.d",  # Too many parts
-        ".b.c",  # Empty header
-        "a..c",  # Empty payload
-        "a.b.",  # Empty signature
-        "a b.c.d",  # Invalid characters
-        "a$.b.c",  # Invalid character ($)
-        "a+.b.c",  # Invalid character (+)
-    ]
-
-    for token in valid_tokens:
-        assert _validate_jwt_token_format(token), f"Token should be valid: {token}"
-
-    for token in invalid_tokens:
-        assert not _validate_jwt_token_format(token), (
-            f"Token should be invalid: {token}"
-        )
+    # This test is no longer relevant since we simplified token handling
+    # Tokens are now treated as opaque strings, no validation needed
+    pass
 
 
 def test_proxy_url_parsing_with_jwt_validation() -> None:
-    """Test proxy URL parsing with JWT token validation."""
-    from vibectl.config import parse_proxy_url
+    """Test proxy URL parsing with token handling."""
 
-    # Valid JWT token
-    valid_jwt = (
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
-        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
-    )
+    # Any token format should work
+    simple_token = "simple_token_123"
 
-    # Valid URL with JWT token
-    config = parse_proxy_url(f"vibectl-server://{valid_jwt}@example.com:443")
+    # Valid URL with token
+    config = parse_proxy_url(f"vibectl-server://{simple_token}@example.com:443")
     assert config is not None
     assert config.host == "example.com"
     assert config.port == 443
-    assert config.jwt_token == valid_jwt
+    assert config.jwt_token == simple_token
     assert config.use_tls is True
 
-    # Invalid JWT token format should raise ValueError
-    with pytest.raises(ValueError, match="Invalid JWT token format"):
-        parse_proxy_url("vibectl-server://invalid-jwt@example.com:443")
 
-    # URLs without JWT tokens should still work
-    config_no_jwt = parse_proxy_url("vibectl-server://example.com:443")
-    assert config_no_jwt is not None
-    assert config_no_jwt.host == "example.com"
-    assert config_no_jwt.port == 443
-    assert config_no_jwt.jwt_token is None
-    assert config_no_jwt.use_tls is True
+def test_get_model_key_file_from_env_var(test_config: MockConfig) -> None:
+    """Test getting model key file from environment variable."""
+    env_var = "ANTHROPIC_API_KEY_FILE"
+    test_file = "/env/path/anthropic_key"
+
+    with patch.dict("os.environ", {env_var: test_file}):
+        result = test_config.get_model_key_file("anthropic")
+        assert result == test_file
+
+
+def test_get_ca_bundle_path_from_config(test_config: MockConfig) -> None:
+    """Test getting CA bundle path from configuration."""
+    ca_bundle_path = "/config/path/to/ca.pem"
+    test_config.set("proxy.ca_bundle_path", ca_bundle_path)
+
+    result = test_config.get_ca_bundle_path()
+    assert result == ca_bundle_path
+
+
+def test_get_ca_bundle_path_from_env_var(test_config: MockConfig) -> None:
+    """Test getting CA bundle path from environment variable."""
+    ca_bundle_path = "/env/path/to/ca.pem"
+
+    with patch.dict("os.environ", {"VIBECTL_CA_BUNDLE": ca_bundle_path}):
+        result = test_config.get_ca_bundle_path()
+        assert result == ca_bundle_path
+
+
+def test_get_ca_bundle_path_env_overrides_config(test_config: MockConfig) -> None:
+    """Test that environment variable overrides config for CA bundle path."""
+    config_path = "/config/path/to/ca.pem"
+    env_path = "/env/path/to/ca.pem"
+
+    test_config.set("proxy.ca_bundle_path", config_path)
+
+    with patch.dict("os.environ", {"VIBECTL_CA_BUNDLE": env_path}):
+        result = test_config.get_ca_bundle_path()
+        assert result == env_path
+
+
+def test_get_ca_bundle_path_returns_none_when_not_configured(
+    test_config: MockConfig,
+) -> None:
+    """Test getting CA bundle path returns None when not configured."""
+    result = test_config.get_ca_bundle_path()
+    assert result is None

@@ -15,6 +15,7 @@ import jwt
 from pydantic import BaseModel
 
 from vibectl.logutil import logger
+from vibectl.types import Error
 
 
 class JWTConfig(BaseModel):
@@ -59,9 +60,26 @@ def load_config_from_server(
 
     # Load server config if not provided
     if server_config is None:
-        from .main import load_server_config
+        from .main import get_default_server_config, load_server_config
 
-        server_config = load_server_config()
+        config_result = load_server_config()
+        if isinstance(config_result, Error):
+            # Use default config if loading fails
+            server_config = get_default_server_config()
+            logger.warning(
+                f"Failed to load server config: {config_result.error}. Using defaults."
+            )
+        else:
+            # Cast to dict since we know load_server_config returns dict in Success.data
+            server_config = (
+                config_result.data
+                if isinstance(config_result.data, dict)
+                else get_default_server_config()
+            )
+
+    # Ensure server_config is not None
+    if server_config is None:
+        server_config = {}
 
     # Get JWT section from config
     jwt_config = server_config.get("jwt", {})
@@ -173,12 +191,34 @@ def load_config_with_generation(
 
     # Load server config if not provided
     if server_config is None:
-        from .main import get_server_config_path, load_server_config
+        from .main import (
+            get_default_server_config,
+            get_server_config_path,
+            load_server_config,
+        )
 
-        server_config = load_server_config()
+        config_result = load_server_config()
+        if isinstance(config_result, Error):
+            # Use default config if loading fails
+            server_config = get_default_server_config()
+            logger.warning(
+                f"Failed to load server config: {config_result.error}. Using defaults."
+            )
+        else:
+            # Cast to dict since we know load_server_config returns dict in Success.data
+            server_config = (
+                config_result.data
+                if isinstance(config_result.data, dict)
+                else get_default_server_config()
+            )
+
         config_path = get_server_config_path()
     else:
         config_path = None
+
+    # Ensure server_config is not None
+    if server_config is None:
+        server_config = {}
 
     # Get JWT section from config
     jwt_config = server_config.get("jwt", {})

@@ -111,15 +111,45 @@ class ProxyModelAdapter(ModelAdapter):
             target = f"{self.host}:{self.port}"
 
             if self.use_tls:
-                self.channel = grpc.secure_channel(
-                    target, grpc.ssl_channel_credentials()
-                )
-                logger.debug("Created secure gRPC channel to %s", target)
-            else:
-                self.channel = grpc.insecure_channel(target)
-                logger.debug("Created insecure gRPC channel to %s", target)
+                # Get CA bundle path from config/environment
+                ca_bundle_path = self.config.get_ca_bundle_path()
 
+                if ca_bundle_path:
+                    # Custom CA bundle TLS
+                    try:
+                        with open(ca_bundle_path, "rb") as f:
+                            ca_cert_data = f.read()
+                        credentials = grpc.ssl_channel_credentials(
+                            root_certificates=ca_cert_data
+                        )
+                        logger.debug(
+                            "Creating secure channel with custom CA bundle "
+                            f"({ca_bundle_path}) to {target}"
+                        )
+                    except FileNotFoundError as e:
+                        raise ValueError(
+                            f"CA bundle file not found: {ca_bundle_path}"
+                        ) from e
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to read CA bundle file {ca_bundle_path}: {e}"
+                        ) from e
+                else:
+                    # Production TLS with system trust store
+                    credentials = grpc.ssl_channel_credentials()
+                    logger.debug(
+                        f"Creating secure channel with system trust store to {target}"
+                    )
+
+                self.channel = grpc.secure_channel(target, credentials)
+            else:
+                # Insecure connection (development only)
+                logger.debug(f"Creating insecure channel to {target}")
+                self.channel = grpc.insecure_channel(target)
+
+            # Create the gRPC stub from the channel
             self.stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(self.channel)
+
         return self.channel
 
     def _get_stub(self) -> llm_proxy_pb2_grpc.VibectlLLMProxyStub:

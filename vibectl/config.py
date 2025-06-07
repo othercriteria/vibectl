@@ -90,6 +90,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "server_url": None,  # Server URL, e.g., vibectl-server://secret@llm-server.company.com:443
         "timeout_seconds": 30,  # Request timeout for proxy calls
         "retry_attempts": 3,  # Number of retry attempts for failed proxy calls
+        "ca_bundle_path": None,  # Path to custom CA bundle for TLS verification
     },
     "system": {
         "log_level": "WARNING",  # Default log level for logging
@@ -173,6 +174,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
         "server_url": (str, type(None)),
         "timeout_seconds": int,
         "retry_attempts": int,
+        "ca_bundle_path": (str, type(None)),
     },
     "system": {
         "log_level": str,
@@ -551,116 +553,98 @@ class Config:
         # Set the file path in the new provider structure
         self.set(f"providers.{provider}.key_file", str(path))
 
+    def get_ca_bundle_path(self) -> str | None:
+        """Get CA bundle path from environment variable or configuration.
+
+        Checks in order:
+        1. VIBECTL_CA_BUNDLE environment variable
+        2. proxy.ca_bundle_path configuration value
+
+        Returns:
+            Path to CA bundle file, or None if not configured
+        """
+        # 1. Check environment variable override
+        env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+        if env_ca_bundle:
+            return env_ca_bundle
+
+        # 2. Check configured CA bundle path
+        config_ca_bundle = self.get("proxy.ca_bundle_path")
+        if config_ca_bundle:
+            return str(config_ca_bundle)
+
+        return None
+
 
 # Proxy URL parsing utilities
 
 
 @dataclass
 class ProxyConfig:
-    """Parsed proxy configuration from URL."""
+    """Configuration for LLM proxy connection."""
 
     host: str
     port: int
     jwt_token: str | None = None
     use_tls: bool = True
+    ca_bundle_path: str | None = None
 
 
-def _validate_jwt_token_format(token: str) -> bool:
-    """Validate that a token has the basic JWT format.
+def parse_proxy_url(url: str) -> ProxyConfig:
+    """Parse a proxy URL into a ProxyConfig.
 
-    Checks for the standard JWT structure: header.payload.signature
-    Does not verify the signature or claims, just the format.
+    Supports these URL schemes:
+    - vibectl-server://jwt-token@host:port (TLS with certificate verification)
+    - vibectl-server://host:port (TLS with certificate verification, no auth)
+    - vibectl-server-insecure://jwt-token@host:port (no TLS)
+    - vibectl-server-insecure://host:port (no TLS, no auth)
 
-    Args:
-        token: The token string to validate
-
-    Returns:
-        bool: True if the token has valid JWT format, False otherwise
-    """
-    if not token or not isinstance(token, str):
-        return False
-
-    # Remove any whitespace
-    token = token.strip()
-
-    # JWT tokens should have exactly 2 dots separating 3 base64url-encoded parts
-    parts = token.split(".")
-    if len(parts) != 3:
-        return False
-
-    # Each part should be non-empty and contain only valid base64url characters
-    # Base64url uses: A-Z, a-z, 0-9, -, _
-    import re
-
-    base64url_pattern = re.compile(r"^[A-Za-z0-9_-]+$")
-
-    for part in parts:
-        if not part:  # Empty part
-            return False
-        if not base64url_pattern.match(part):
-            return False
-
-    return True
-
-
-def parse_proxy_url(url: str | None) -> ProxyConfig | None:
-    """Parse a proxy URL into connection details.
-
-    Expected formats:
-    - vibectl-server://jwt-token@host:port (secure, TLS enabled)
-    - vibectl-server://host:port (secure, no auth)
-    - vibectl-server-insecure://jwt-token@host:port (insecure, TLS disabled)
-    - vibectl-server-insecure://host:port (insecure, no auth)
+    CA bundle configuration is handled separately via:
+    - VIBECTL_CA_BUNDLE environment variable
+    - proxy.ca_bundle_path configuration value
 
     Args:
-        url: The proxy server URL
+        url: The proxy URL to parse
 
     Returns:
-        ProxyConfig object with parsed details, or None if url is None/empty
+        ProxyConfig: Parsed configuration
 
     Raises:
-        ValueError: If URL format is invalid or JWT token format is invalid
+        ValueError: If the URL is invalid or unsupported
     """
-    if not url:
-        return None
-
     try:
         parsed = urlparse(url)
-
-        # Validate scheme and determine TLS setting
-        if parsed.scheme == "vibectl-server":
-            use_tls = True
-        elif parsed.scheme == "vibectl-server-insecure":
-            use_tls = False
-        else:
-            raise ValueError(
-                f"Invalid proxy URL scheme: {parsed.scheme}. "
-                f"Expected 'vibectl-server' or 'vibectl-server-insecure'"
-            )
-
-        # Extract host and port
-        if not parsed.hostname:
-            raise ValueError("Proxy URL must include hostname")
-
-        host = parsed.hostname
-        port = parsed.port or 50051  # Default gRPC port
-
-        # Extract and validate JWT token from username part
-        jwt_token = parsed.username if parsed.username else None
-
-        if jwt_token and not _validate_jwt_token_format(jwt_token):
-            raise ValueError(
-                "Invalid JWT token format. JWT tokens must have the structure "
-                "'header.payload.signature' with base64url-encoded parts.\n"
-                "Examples:\n"
-                "  - eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature\n"
-                "  - Use 'vibectl-server generate-token <subject>' to create "
-                "valid tokens"
-            )
-
-        return ProxyConfig(host=host, port=port, jwt_token=jwt_token, use_tls=use_tls)
     except Exception as e:
-        raise ValueError(f"Invalid proxy URL format: {e}") from e
+        raise ValueError(f"Invalid URL format: {e}") from e
+
+    # Parse scheme and determine TLS settings
+    if parsed.scheme == "vibectl-server":
+        use_tls = True
+    elif parsed.scheme == "vibectl-server-insecure":
+        use_tls = False
+    else:
+        raise ValueError(
+            f"Unsupported scheme '{parsed.scheme}'. "
+            f"Expected 'vibectl-server' or 'vibectl-server-insecure'"
+        )
+
+    # Parse host and port
+    if not parsed.hostname:
+        raise ValueError(f"Host is required in URL: {url}")
+
+    host = parsed.hostname
+    port = parsed.port if parsed.port is not None else 50051
+
+    # Parse JWT token from username part
+    jwt_token = parsed.username if parsed.username else None
+
+    return ProxyConfig(
+        host=host,
+        port=port,
+        jwt_token=jwt_token,
+        use_tls=use_tls,
+        ca_bundle_path=None,  # CA bundle will be resolved separately
+    )
 
 
 def build_proxy_url(host: str, port: int, jwt_token: str | None = None) -> str:
