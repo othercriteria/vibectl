@@ -840,8 +840,13 @@ class TestCLICommands:
         )
 
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
-    def test_generate_certs_command_with_options(self, mock_ensure_certs: Mock) -> None:
+    @patch("vibectl.server.main.get_config_dir")
+    def test_generate_certs_command_with_options(
+        self, mock_get_config_dir: Mock, mock_ensure_certs: Mock
+    ) -> None:
         """Test generate-certs command with custom options."""
+        mock_get_config_dir.return_value = Path("/mock/config")
+
         result = self.runner.invoke(
             generate_certs,
             [
