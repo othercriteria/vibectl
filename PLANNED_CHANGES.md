@@ -72,3 +72,13 @@ The following foundational components are complete and working:
 - **CLI Management**: Full `vibectl-server ca` command suite for certificate operations
 - **Test Coverage**: Comprehensive test suite with 34 CA tests + full TLS coverage
 - **Demo Environment**: End-to-end working demo with proper TLS verification
+## Security Audit Findings
+- TLS and JWT-based authentication are implemented and generally follow best practices.
+- The server generates self-signed certificates and a JWT secret if none are provided. Persist these secrets to avoid accidental rotation and invalidating existing tokens.
+- Authentication uses HS256 tokens with no revocation mechanism. Consider supporting asymmetric signing (RS256/ES256) and token revocation/rotation policies.
+- Clients embed tokens in the proxy URL which may leak via shell history or logs. Document secure handling and encourage environment variables or files.
+- Insecure mode (`vibectl-server-insecure://`) should only be used for local testing. Add clear warnings in docs and CLI output.
+- Ensure CA bundles are distributed out‑of‑band through a trusted channel so clients can verify the server certificate.
+- Future hardening should enforce TLS 1.2+, strong cipher suites and optionally support mTLS for environments that require it.
+- Operators can build trust by publishing CA fingerprints and demonstrating certificate status via `vibectl-server ca status` or `openssl verify` against the distributed bundle.
+
