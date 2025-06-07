@@ -819,8 +819,12 @@ class TestCLICommands:
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     @patch("vibectl.server.cert_utils.get_default_cert_paths")
     @patch("vibectl.server.main.get_config_dir")
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.mkdir")
     def test_generate_certs_command_default(
         self,
+        mock_mkdir: Mock,
+        mock_exists: Mock,
         mock_get_config_dir: Mock,
         mock_get_default_paths: Mock,
         mock_ensure_certs: Mock,
@@ -828,8 +832,16 @@ class TestCLICommands:
         """Test generate-certs command with default options."""
         mock_get_config_dir.return_value = Path("/mock/config")
         mock_get_default_paths.return_value = ("/mock/cert.pem", "/mock/key.pem")
+        mock_exists.return_value = False  # Files don't exist
+        mock_mkdir.return_value = None
 
         result = self.runner.invoke(generate_certs)
+
+        # Debug output for CI failures
+        if result.exit_code != 0:
+            print(f"Exit code: {result.exit_code}")
+            print(f"Output: {result.output}")
+            print(f"Exception: {result.exception}")
 
         assert result.exit_code == 0
         mock_ensure_certs.assert_called_once_with(
@@ -841,11 +853,19 @@ class TestCLICommands:
 
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     @patch("vibectl.server.main.get_config_dir")
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.mkdir")
     def test_generate_certs_command_with_options(
-        self, mock_get_config_dir: Mock, mock_ensure_certs: Mock
+        self,
+        mock_mkdir: Mock,
+        mock_exists: Mock,
+        mock_get_config_dir: Mock,
+        mock_ensure_certs: Mock,
     ) -> None:
         """Test generate-certs command with custom options."""
         mock_get_config_dir.return_value = Path("/mock/config")
+        mock_exists.return_value = False  # Files don't exist
+        mock_mkdir.return_value = None
 
         result = self.runner.invoke(
             generate_certs,
@@ -859,6 +879,12 @@ class TestCLICommands:
                 "--force",
             ],
         )
+
+        # Debug output for CI failures
+        if result.exit_code != 0:
+            print(f"Exit code: {result.exit_code}")
+            print(f"Output: {result.output}")
+            print(f"Exception: {result.exception}")
 
         assert result.exit_code == 0
         mock_ensure_certs.assert_called_once_with(
