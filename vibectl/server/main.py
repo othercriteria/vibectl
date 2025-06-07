@@ -213,14 +213,32 @@ def handle_result(result: Result) -> None:
     Args:
         result: The result to handle
     """
+    exit_code: int = 0
     if isinstance(result, Success):
         if result.message:
             console_manager.print_success(result.message)
+        # Check for original_exit_code similar to main CLI
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 0  # Default for Success
+        logger.debug(f"Success result, final exit_code: {exit_code}")
     elif isinstance(result, Error):
         console_manager.print_error(result.error)
         if result.exception and result.exception is not None:
             handle_exception(result.exception)
-        sys.exit(1)
+        # Check for original_exit_code similar to main CLI
+        if hasattr(result, "original_exit_code") and isinstance(
+            result.original_exit_code, int
+        ):
+            exit_code = result.original_exit_code
+        else:
+            exit_code = 1  # Default for Error
+        logger.debug(f"Error result, final exit_code: {exit_code}")
+
+    sys.exit(exit_code)
 
 
 @click.group(invoke_without_command=True)
