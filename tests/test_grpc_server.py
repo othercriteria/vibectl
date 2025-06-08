@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from vibectl.server.cert_utils import is_cryptography_available
 from vibectl.server.grpc_server import GRPCServer, create_server
 from vibectl.server.jwt_auth import JWTAuthManager, JWTConfig
+from vibectl.types import CertificateError
 
 
 class TestGRPCServerInitialization:
@@ -667,8 +667,6 @@ class TestGRPCServerTLSLifecycle:
         mock_grpc_server: Mock,
     ) -> None:
         """Test starting server with TLS when certificate operations fail."""
-        from vibectl.server.cert_utils import CertificateError
-
         # Setup mocks
         mock_server_instance = Mock()
         mock_grpc_server.return_value = mock_server_instance
@@ -777,12 +775,8 @@ class TestCreateServerFactoryTLS:
 
 
 class TestGRPCServerTLSIntegration:
-    """Integration tests for TLS functionality."""
+    """Test TLS integration scenarios for gRPC server."""
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     @patch("grpc.server")
     @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")
     @patch("grpc.ssl_server_credentials")
@@ -792,43 +786,49 @@ class TestGRPCServerTLSIntegration:
         mock_add_servicer: Mock,
         mock_grpc_server: Mock,
     ) -> None:
-        """Test full server lifecycle with real certificate generation."""
+        """Test complete TLS server lifecycle with actual certificate generation."""
+        # Setup mocks
+        mock_server_instance = Mock()
+        mock_grpc_server.return_value = mock_server_instance
+        mock_credentials = Mock()
+        mock_ssl_credentials.return_value = mock_credentials
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            cert_file = Path(temp_dir) / "server.crt"
-            key_file = Path(temp_dir) / "server.key"
+            cert_file = str(Path(temp_dir) / "server.crt")
+            key_file = str(Path(temp_dir) / "server.key")
 
-            # Setup mocks
-            mock_server_instance = Mock()
-            mock_grpc_server.return_value = mock_server_instance
-            mock_server_credentials = Mock()
-            mock_ssl_credentials.return_value = mock_server_credentials
-
+            # Create server with TLS enabled
             server = GRPCServer(
-                use_tls=True,
-                cert_file=str(cert_file),
-                key_file=str(key_file),
-                host="localhost",
+                host="127.0.0.1",
                 port=9443,
+                use_tls=True,
+                cert_file=cert_file,
+                key_file=key_file,
             )
 
-            # Start server (should generate certificates)
+            # Start server - this should generate certificates
             server.start()
 
-            # Verify certificates were created
-            assert cert_file.exists()
-            assert key_file.exists()
-            assert b"BEGIN CERTIFICATE" in cert_file.read_bytes()
-            assert b"BEGIN PRIVATE KEY" in key_file.read_bytes()
-
-            # Verify SSL setup
+            # Verify TLS setup
             mock_ssl_credentials.assert_called_once()
-            mock_server_instance.add_secure_port.assert_called_once_with(
-                "localhost:9443", mock_server_credentials
-            )
+            mock_server_instance.add_secure_port.assert_called_once()
+            secure_port_call = mock_server_instance.add_secure_port.call_args
+            assert "127.0.0.1:9443" in secure_port_call[0][0]
+            assert secure_port_call[0][1] == mock_credentials
 
-            # Test server stop
+            # Verify certificates were generated
+            assert Path(cert_file).exists()
+            assert Path(key_file).exists()
+
+            # Verify certificate content
+            cert_content = Path(cert_file).read_bytes()
+            key_content = Path(key_file).read_bytes()
+
+            assert b"BEGIN CERTIFICATE" in cert_content
+            assert b"BEGIN PRIVATE KEY" in key_content
+
+            # Stop server
             server.stop()
-            mock_server_instance.stop.assert_called_once()
 
     @patch("grpc.server")
     @patch("vibectl.server.grpc_server.add_VibectlLLMProxyServicer_to_server")

@@ -1,56 +1,37 @@
 """
-Tests for the certificate utilities module.
+Tests for certificate utilities.
 
-Tests cover certificate generation, validation, loading, and error handling
-for the TLS support in the vibectl LLM proxy server.
+Tests cover certificate validation, loading, generation, and utility functions
+for TLS support in the vibectl LLM proxy server.
 """
 
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from vibectl.server.cert_utils import (
-    CertificateError,
-    CertificateGenerationError,
-    CertificateLoadError,
     ensure_certificate_exists,
     generate_self_signed_certificate,
     get_default_cert_paths,
-    is_cryptography_available,
+    handle_certificate_generation_for_server,
     load_certificate_credentials,
     validate_certificate_files,
 )
-
-
-class TestCryptographyAvailability:
-    """Test cryptography library availability detection."""
-
-    def test_is_cryptography_available_returns_bool(self) -> None:
-        """Test that is_cryptography_available returns a boolean."""
-        result = is_cryptography_available()
-        assert isinstance(result, bool)
-
-    @patch("vibectl.server.cert_utils.CRYPTOGRAPHY_AVAILABLE", True)
-    def test_is_cryptography_available_true(self) -> None:
-        """Test when cryptography is available."""
-        result = is_cryptography_available()
-        assert result is True
-
-    @patch("vibectl.server.cert_utils.CRYPTOGRAPHY_AVAILABLE", False)
-    def test_is_cryptography_available_false(self) -> None:
-        """Test when cryptography is not available."""
-        result = is_cryptography_available()
-        assert result is False
+from vibectl.types import (
+    CertificateError,
+    CertificateGenerationError,
+    CertificateLoadError,
+)
 
 
 class TestCertificateValidation:
-    """Test certificate file validation."""
+    """Test certificate file validation functions."""
 
     def test_validate_certificate_files_success(self) -> None:
-        """Test successful validation of existing certificate files."""
+        """Test successful validation of certificate files."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "test.crt"
             key_file = Path(temp_dir) / "test.key"
@@ -59,69 +40,75 @@ class TestCertificateValidation:
             cert_file.write_text("test certificate")
             key_file.write_text("test key")
 
-            # Should not raise any exception
+            # Should not raise an exception
             validate_certificate_files(str(cert_file), str(key_file))
 
     def test_validate_certificate_files_missing_cert(self) -> None:
-        """Test validation fails when certificate file is missing."""
+        """Test validation failure when certificate file is missing."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "missing.crt"
             key_file = Path(temp_dir) / "test.key"
+
+            # Create only key file
             key_file.write_text("test key")
 
             with pytest.raises(
-                CertificateLoadError,
-                match="Certificate file not found",
+                CertificateLoadError, match="Certificate file not found"
             ):
                 validate_certificate_files(str(cert_file), str(key_file))
 
     def test_validate_certificate_files_missing_key(self) -> None:
-        """Test validation fails when key file is missing."""
+        """Test validation failure when key file is missing."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "test.crt"
             key_file = Path(temp_dir) / "missing.key"
+
+            # Create only cert file
             cert_file.write_text("test certificate")
 
             with pytest.raises(
-                CertificateLoadError,
-                match="Private key file not found",
+                CertificateLoadError, match="Private key file not found"
             ):
                 validate_certificate_files(str(cert_file), str(key_file))
 
     def test_validate_certificate_files_cert_is_directory(self) -> None:
-        """Test validation fails when certificate path is a directory."""
+        """Test validation failure when certificate path is a directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            cert_dir = Path(temp_dir) / "cert_dir"
+            cert_file = Path(temp_dir) / "cert_dir"
             key_file = Path(temp_dir) / "test.key"
-            cert_dir.mkdir()
+
+            # Create directory instead of file
+            cert_file.mkdir()
             key_file.write_text("test key")
 
             with pytest.raises(
-                CertificateLoadError,
-                match="Certificate path is not a file",
+                CertificateLoadError, match="Certificate path is not a file"
             ):
-                validate_certificate_files(str(cert_dir), str(key_file))
+                validate_certificate_files(str(cert_file), str(key_file))
 
     def test_validate_certificate_files_key_is_directory(self) -> None:
-        """Test validation fails when key path is a directory."""
+        """Test validation failure when key path is a directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "test.crt"
-            key_dir = Path(temp_dir) / "key_dir"
+            key_file = Path(temp_dir) / "key_dir"
+
+            # Create directory instead of file
             cert_file.write_text("test certificate")
-            key_dir.mkdir()
+            key_file.mkdir()
 
             with pytest.raises(
-                CertificateLoadError,
-                match="Private key path is not a file",
+                CertificateLoadError, match="Private key path is not a file"
             ):
-                validate_certificate_files(str(cert_file), str(key_dir))
+                validate_certificate_files(str(cert_file), str(key_file))
 
     @pytest.mark.skipif(os.geteuid() == 0, reason="Root can read unreadable files")
     def test_validate_certificate_files_permission_error_cert(self) -> None:
-        """Test validation fails when certificate file is not readable."""
+        """Test validation failure when certificate file is not readable."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            cert_file = Path(temp_dir) / "test.crt"
+            cert_file = Path(temp_dir) / "unreadable.crt"
             key_file = Path(temp_dir) / "test.key"
+
+            # Create files
             cert_file.write_text("test certificate")
             key_file.write_text("test key")
 
@@ -130,8 +117,7 @@ class TestCertificateValidation:
 
             try:
                 with pytest.raises(
-                    CertificateLoadError,
-                    match="Cannot read certificate file",
+                    CertificateLoadError, match="Cannot read certificate file"
                 ):
                     validate_certificate_files(str(cert_file), str(key_file))
             finally:
@@ -140,10 +126,12 @@ class TestCertificateValidation:
 
     @pytest.mark.skipif(os.geteuid() == 0, reason="Root can read unreadable files")
     def test_validate_certificate_files_permission_error_key(self) -> None:
-        """Test validation fails when key file is not readable."""
+        """Test validation failure when key file is not readable."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "test.crt"
-            key_file = Path(temp_dir) / "test.key"
+            key_file = Path(temp_dir) / "unreadable.key"
+
+            # Create files
             cert_file.write_text("test certificate")
             key_file.write_text("test key")
 
@@ -152,8 +140,7 @@ class TestCertificateValidation:
 
             try:
                 with pytest.raises(
-                    CertificateLoadError,
-                    match="Cannot read private key file",
+                    CertificateLoadError, match="Cannot read private key file"
                 ):
                     validate_certificate_files(str(cert_file), str(key_file))
             finally:
@@ -162,7 +149,7 @@ class TestCertificateValidation:
 
 
 class TestCertificateLoading:
-    """Test certificate loading functionality."""
+    """Test certificate loading functions."""
 
     def test_load_certificate_credentials_success(self) -> None:
         """Test successful loading of certificate credentials."""
@@ -170,47 +157,45 @@ class TestCertificateLoading:
             cert_file = Path(temp_dir) / "test.crt"
             key_file = Path(temp_dir) / "test.key"
 
-            cert_content = b"test certificate content"
-            key_content = b"test key content"
-
+            # Create test files with known content
+            cert_content = b"test certificate data"
+            key_content = b"test key data"
             cert_file.write_bytes(cert_content)
             key_file.write_bytes(key_content)
 
-            cert_data, key_data = load_certificate_credentials(
-                str(cert_file),
-                str(key_file),
+            cert_bytes, key_bytes = load_certificate_credentials(
+                str(cert_file), str(key_file)
             )
 
-            assert cert_data == cert_content
-            assert key_data == key_content
+            assert cert_bytes == cert_content
+            assert key_bytes == key_content
 
     def test_load_certificate_credentials_missing_files(self) -> None:
-        """Test loading fails when files are missing."""
+        """Test loading failure when files are missing."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "missing.crt"
             key_file = Path(temp_dir) / "missing.key"
 
             with pytest.raises(
-                CertificateLoadError,
-                match="Certificate file not found",
+                CertificateLoadError, match="Certificate file not found"
             ):
                 load_certificate_credentials(str(cert_file), str(key_file))
 
     def test_load_certificate_credentials_read_error(self) -> None:
-        """Test loading handles file read errors."""
+        """Test loading failure when files cannot be read."""
         with tempfile.TemporaryDirectory() as temp_dir:
             cert_file = Path(temp_dir) / "test.crt"
             key_file = Path(temp_dir) / "test.key"
 
+            # Create files
             cert_file.write_text("test certificate")
             key_file.write_text("test key")
 
-            # Mock file reading to raise an exception
+            # Mock open to raise an exception
             with (
-                patch("builtins.open", side_effect=OSError("Read error")),
+                patch("builtins.open", side_effect=OSError("Mock read error")),
                 pytest.raises(
-                    CertificateLoadError,
-                    match="Failed to load certificate files",
+                    CertificateLoadError, match="Failed to load certificate files"
                 ),
             ):
                 load_certificate_credentials(str(cert_file), str(key_file))
@@ -219,10 +204,6 @@ class TestCertificateLoading:
 class TestSelfSignedCertificateGeneration:
     """Test self-signed certificate generation."""
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_generate_self_signed_certificate_success(self) -> None:
         """Test successful generation of self-signed certificate."""
         cert_bytes, key_bytes = generate_self_signed_certificate(hostname="test.local")
@@ -232,10 +213,6 @@ class TestSelfSignedCertificateGeneration:
         assert b"BEGIN CERTIFICATE" in cert_bytes
         assert b"BEGIN PRIVATE KEY" in key_bytes
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_generate_self_signed_certificate_with_files(self) -> None:
         """Test certificate generation with file output."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -261,10 +238,6 @@ class TestSelfSignedCertificateGeneration:
             assert cert_file.read_bytes() == cert_bytes
             assert key_file.read_bytes() == key_bytes
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_generate_self_signed_certificate_custom_validity(self) -> None:
         """Test certificate generation with custom validity period."""
         cert_bytes, key_bytes = generate_self_signed_certificate(
@@ -274,19 +247,6 @@ class TestSelfSignedCertificateGeneration:
         assert isinstance(cert_bytes, bytes)
         assert isinstance(key_bytes, bytes)
 
-    @patch("vibectl.server.cert_utils.CRYPTOGRAPHY_AVAILABLE", False)
-    def test_generate_self_signed_certificate_no_cryptography(self) -> None:
-        """Test certificate generation fails when cryptography is not available."""
-        with pytest.raises(
-            CertificateGenerationError,
-            match="requires the 'cryptography' package",
-        ):
-            generate_self_signed_certificate()
-
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_generate_self_signed_certificate_file_write_error(self) -> None:
         """Test certificate generation handles file write errors."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -333,10 +293,6 @@ class TestDefaultCertPaths:
 class TestEnsureCertificateExists:
     """Test certificate existence and auto-generation."""
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_ensure_certificate_exists_creates_new(self) -> None:
         """Test that ensure_certificate_exists creates new certificates when missing."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -354,10 +310,6 @@ class TestEnsureCertificateExists:
             assert b"BEGIN CERTIFICATE" in cert_file.read_bytes()
             assert b"BEGIN PRIVATE KEY" in key_file.read_bytes()
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_ensure_certificate_exists_preserves_existing(self) -> None:
         """Test that existing certificates are preserved."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -380,10 +332,6 @@ class TestEnsureCertificateExists:
             assert cert_file.read_bytes() == original_cert
             assert key_file.read_bytes() == original_key
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_ensure_certificate_exists_regenerate_flag(self) -> None:
         """Test that regenerate flag forces new certificate creation."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -409,16 +357,15 @@ class TestEnsureCertificateExists:
             assert b"BEGIN CERTIFICATE" in new_cert
             assert b"BEGIN PRIVATE KEY" in new_key
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_ensure_certificate_exists_creates_directory(self) -> None:
         """Test that ensure_certificate_exists creates parent directories."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            cert_dir = Path(temp_dir) / "certs" / "subdir"
+            cert_dir = Path(temp_dir) / "certs"
             cert_file = cert_dir / "test.crt"
             key_file = cert_dir / "test.key"
+
+            # Directory should not exist initially
+            assert not cert_dir.exists()
 
             ensure_certificate_exists(
                 str(cert_file),
@@ -426,14 +373,11 @@ class TestEnsureCertificateExists:
                 hostname="test.local",
             )
 
+            # Directory and files should be created
             assert cert_dir.exists()
             assert cert_file.exists()
             assert key_file.exists()
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_ensure_certificate_exists_custom_validity(self) -> None:
         """Test certificate generation with custom validity period."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -441,31 +385,21 @@ class TestEnsureCertificateExists:
             key_file = Path(temp_dir) / "test.key"
 
             ensure_certificate_exists(
-                str(cert_file), str(key_file), hostname="test.local", days_valid=180
+                str(cert_file),
+                str(key_file),
+                hostname="test.local",
+                days_valid=180,
             )
 
             assert cert_file.exists()
             assert key_file.exists()
 
-    @patch("vibectl.server.cert_utils.CRYPTOGRAPHY_AVAILABLE", False)
-    def test_ensure_certificate_exists_no_cryptography(self) -> None:
-        """Test ensure_certificate_exists fails gracefully without cryptography."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            cert_file = Path(temp_dir) / "test.crt"
-            key_file = Path(temp_dir) / "test.key"
-
-            with pytest.raises(
-                CertificateGenerationError,
-                match="requires the 'cryptography' package",
-            ):
-                ensure_certificate_exists(str(cert_file), str(key_file))
-
 
 class TestCertificateExceptions:
-    """Test certificate-related exceptions."""
+    """Test certificate-related exception classes."""
 
     def test_certificate_error_inheritance(self) -> None:
-        """Test that CertificateError is a proper exception."""
+        """Test that CertificateError inherits from Exception."""
         error = CertificateError("test error")
         assert isinstance(error, Exception)
         assert str(error) == "test error"
@@ -486,40 +420,86 @@ class TestCertificateExceptions:
 
 
 class TestIntegration:
-    """Integration tests for certificate utilities."""
+    """Test integration scenarios with certificate utilities."""
 
-    @pytest.mark.skipif(
-        not is_cryptography_available(),
-        reason="cryptography not available",
-    )
     def test_full_certificate_workflow(self) -> None:
-        """Test complete certificate generation and loading workflow."""
+        """Test complete workflow: generate, save, and load certificates."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            cert_file = Path(temp_dir) / "server.crt"
-            key_file = Path(temp_dir) / "server.key"
+            cert_file = Path(temp_dir) / "workflow.crt"
+            key_file = Path(temp_dir) / "workflow.key"
 
-            # Generate certificates
-            ensure_certificate_exists(
-                str(cert_file),
-                str(key_file),
-                hostname="localhost",
+            # Step 1: Generate and save certificate
+            original_cert, original_key = generate_self_signed_certificate(
+                hostname="workflow.local",
+                cert_file=str(cert_file),
+                key_file=str(key_file),
             )
 
-            # Validate they exist and are readable
-            validate_certificate_files(str(cert_file), str(key_file))
+            # Step 2: Verify files exist
+            assert cert_file.exists()
+            assert key_file.exists()
 
-            # Load the credentials
-            cert_data, key_data = load_certificate_credentials(
-                str(cert_file),
-                str(key_file),
+            # Step 3: Load certificates back
+            loaded_cert, loaded_key = load_certificate_credentials(
+                str(cert_file), str(key_file)
             )
 
-            # Verify content
-            assert isinstance(cert_data, bytes)
-            assert isinstance(key_data, bytes)
-            assert b"BEGIN CERTIFICATE" in cert_data
-            assert b"BEGIN PRIVATE KEY" in key_data
+            # Step 4: Verify loaded data matches generated data
+            assert loaded_cert == original_cert
+            assert loaded_key == original_key
 
-            # Verify files match loaded data
-            assert cert_file.read_bytes() == cert_data
-            assert key_file.read_bytes() == key_data
+            # Step 5: Verify certificate structure
+            assert b"BEGIN CERTIFICATE" in loaded_cert
+            assert b"BEGIN PRIVATE KEY" in loaded_key
+
+
+class TestHandleCertificateGenerationForServer:
+    """Test certificate generation handling for server configurations."""
+
+    def test_handle_certificate_generation_with_files(self) -> None:
+        """Test certificate generation when files are specified in config."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cert_file = str(Path(temp_dir) / "server.crt")
+            key_file = str(Path(temp_dir) / "server.key")
+
+            server_config: dict[str, dict[str, str]] = {
+                "tls": {
+                    "cert_file": cert_file,
+                    "key_file": key_file,
+                }
+            }
+
+            result_cert, result_key = handle_certificate_generation_for_server(
+                server_config, hostname_override="test.local"
+            )
+
+            assert result_cert == cert_file
+            assert result_key == key_file
+            assert Path(cert_file).exists()
+            assert Path(key_file).exists()
+
+    @patch("vibectl.server.cert_utils.get_default_cert_paths")
+    @patch("vibectl.config_utils.get_config_dir")
+    def test_handle_certificate_generation_default_paths(
+        self, mock_get_config_dir: Mock, mock_get_default_paths: Mock
+    ) -> None:
+        """Test certificate generation using default paths."""
+        # Mock dependencies
+        mock_config_dir = Path("/mock/config")
+        mock_get_config_dir.return_value = mock_config_dir
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cert_file = str(Path(temp_dir) / "default.crt")
+            key_file = str(Path(temp_dir) / "default.key")
+            mock_get_default_paths.return_value = (cert_file, key_file)
+
+            server_config: dict[str, str] = {}  # No cert/key files specified
+
+            result_cert, result_key = handle_certificate_generation_for_server(
+                server_config
+            )
+
+            assert result_cert == cert_file
+            assert result_key == key_file
+            mock_get_config_dir.assert_called_once()
+            mock_get_default_paths.assert_called_once_with(mock_config_dir)

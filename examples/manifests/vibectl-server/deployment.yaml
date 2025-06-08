@@ -33,24 +33,20 @@ spec:
           echo "🏭 CA Init Container: Setting up Certificate Authority..."
 
           # Check if CA already exists (from external secret or previous run)
-          if [[ -f /ca-data/ca-bundle.crt && -f /ca-data/server.crt && -f /ca-data/server.key ]]; then
-            echo "✅ Certificates already exist, skipping CA generation"
+          if [[ -f /ca-data/ca-bundle.crt && -f /ca-data/server_certs/localhost/localhost.crt ]]; then
+            echo "✅ CA already exists, skipping CA generation"
             exit 0
           fi
 
           echo "📋 Generating new CA and server certificates..."
 
-          # Create temporary CA directory
-          CA_DIR="/tmp/ca-init"
-          mkdir -p "$CA_DIR"
-
           # Get the node IP from the ConfigMap
           echo "🔍 Using node IP from ConfigMap..."
           echo "📍 Node IP: ${NODE_IP}"
 
-          # Initialize CA
+          # Initialize CA directly in the target directory
           vibectl-server ca init \
-            --ca-dir "$CA_DIR" \
+            --ca-dir "/ca-data" \
             --organization "vibectl Demo" \
             --country "US" \
             --root-cn "vibectl Demo Root CA" \
@@ -60,7 +56,7 @@ spec:
           # Create server certificate with the actual node IP in SAN list
           echo "🏗️  Creating server certificate with specific node IP: ${NODE_IP}"
           vibectl-server ca create-server-cert localhost \
-            --ca-dir "$CA_DIR" \
+            --ca-dir "/ca-data" \
             --san "localhost" \
             --san "127.0.0.1" \
             --san "vibectl-server.vibectl-server.svc.cluster.local" \
@@ -68,11 +64,6 @@ spec:
             --san "${NODE_IP}" \
             --validity-days 90 \
             --force
-
-          # Copy certificates to shared volume
-          cp "$CA_DIR/ca-bundle.crt" /ca-data/
-          cp "$CA_DIR/server_certs/localhost/localhost.crt" /ca-data/server.crt
-          cp "$CA_DIR/server_certs/localhost/localhost.key" /ca-data/server.key
 
           echo "✅ CA and server certificates generated successfully"
           echo "📋 Certificate includes SAN: localhost, 127.0.0.1, service DNS, and ${NODE_IP}"
@@ -127,6 +118,11 @@ spec:
           value: "INFO"
         - name: VIBECTL_JWT_SECRET_FILE
           value: /etc/vibectl/secret/jwt-secret
+        - name: NODE_IP
+          valueFrom:
+            configMapKeyRef:
+              name: vibectl-server-node-info
+              key: node-ip
         command:
         - vibectl-server
         - serve
@@ -138,7 +134,7 @@ spec:
         - name: jwt-secret
           mountPath: /etc/vibectl/secret
         - name: ca-data
-          mountPath: /etc/vibectl/certs
+          mountPath: /root/.config/vibectl/server/ca
         - name: ca-data
           mountPath: /ca-data
         - name: jwt-data

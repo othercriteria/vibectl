@@ -11,47 +11,14 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+
+from vibectl.types import CertificateGenerationError, CertificateLoadError
+
 logger = logging.getLogger(__name__)
-
-try:
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
-
-    CRYPTOGRAPHY_AVAILABLE = True
-except ImportError:
-    logger.warning(
-        "cryptography package not available. TLS certificate generation will not work."
-    )
-    CRYPTOGRAPHY_AVAILABLE = False
-
-
-class CertificateError(Exception):
-    """Base exception for certificate-related errors."""
-
-    pass
-
-
-class CertificateGenerationError(CertificateError):
-    """Exception raised when certificate generation fails."""
-
-    pass
-
-
-class CertificateLoadError(CertificateError):
-    """Exception raised when certificate loading fails."""
-
-    pass
-
-
-def is_cryptography_available() -> bool:
-    """Check if the cryptography library is available for certificate generation.
-
-    Returns:
-        bool: True if cryptography is available, False otherwise
-    """
-    return CRYPTOGRAPHY_AVAILABLE
 
 
 def validate_certificate_files(cert_file: str, key_file: str) -> None:
@@ -141,12 +108,6 @@ def generate_self_signed_certificate(
     Raises:
         CertificateGenerationError: If certificate generation fails
     """
-    if not CRYPTOGRAPHY_AVAILABLE:
-        raise CertificateGenerationError(
-            "Certificate generation requires the 'cryptography' package. "
-            "Install it with: pip install cryptography"
-        )
-
     try:
         # Generate private key
         private_key = rsa.generate_private_key(
@@ -293,3 +254,60 @@ def ensure_certificate_exists(
         )
     else:
         logger.debug("Using existing certificate files: %s, %s", cert_file, key_file)
+
+
+def handle_certificate_generation_for_server(
+    server_config: dict,
+    hostname_override: str | None = None,
+    regenerate: bool = False,
+) -> tuple[str, str]:
+    """Handle certificate generation for a server configuration.
+
+    This function encapsulates the logic for determining certificate paths,
+    handling hostname resolution, and generating certificates if needed.
+
+    Args:
+        server_config: Server configuration dictionary
+        hostname_override: Optional hostname override
+        regenerate: Whether to force regeneration of certificates
+
+    Returns:
+        Tuple of (cert_file_path, key_file_path)
+
+    Raises:
+        CertificateGenerationError: If certificate generation fails
+    """
+    try:
+        from vibectl.config_utils import get_config_dir
+
+        # Get certificate paths from config or use defaults
+        cert_file = server_config.get("tls", {}).get("cert_file")
+        key_file = server_config.get("tls", {}).get("key_file")
+
+        # Use default paths if not specified
+        if cert_file is None or key_file is None:
+            config_dir = get_config_dir("server")
+            default_cert_file, default_key_file = get_default_cert_paths(config_dir)
+            cert_file = cert_file or default_cert_file
+            key_file = key_file or default_key_file
+
+        # Determine hostname
+        if hostname_override:
+            hostname = hostname_override
+        else:
+            hostname = server_config.get("server", {}).get("host", "localhost")
+            # Convert bind-all addresses to localhost for certificate generation
+            if hostname in ("0.0.0.0", "::"):
+                hostname = "localhost"
+
+        # Generate certificates if needed
+        ensure_certificate_exists(
+            str(cert_file), str(key_file), hostname=hostname, regenerate=regenerate
+        )
+
+        return str(cert_file), str(key_file)
+
+    except Exception as e:
+        raise CertificateGenerationError(
+            f"Certificate generation for server failed: {e}"
+        ) from e

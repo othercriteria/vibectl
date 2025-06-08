@@ -108,6 +108,23 @@ class MetricsDisplayMode(str, Enum):
         return self in (self.TOTAL, self.ALL)
 
 
+class ServeMode(str, Enum):
+    """Enumeration for different server deployment modes."""
+
+    INSECURE = "serve-insecure"  # HTTP only, no TLS
+    CA = "serve-ca"  # TLS with private CA certificates
+    ACME = "serve-acme"  # TLS with Let's Encrypt/ACME certificates
+    CUSTOM = "serve-custom"  # TLS with custom certificate files
+
+    def is_tls_enabled(self) -> bool:
+        """Whether this mode uses TLS encryption."""
+        return self != self.INSECURE
+
+    def uses_automatic_certs(self) -> bool:
+        """Whether this mode automatically generates certificates."""
+        return self in (self.CA, self.ACME)
+
+
 @dataclass
 class OutputFlags:
     """Flags that control command output behavior."""
@@ -420,4 +437,46 @@ class ModelResponse(Protocol):
 
 class ErrorSeverity(str, Enum):
     # Add any necessary error severity definitions here
+    pass
+
+
+class CertificateError(Exception):
+    """Base exception for certificate-related errors."""
+
+    pass
+
+
+class CertificateGenerationError(CertificateError):
+    """Exception raised when certificate generation fails."""
+
+    pass
+
+
+class CertificateLoadError(CertificateError):
+    """Exception raised when certificate loading fails."""
+
+    pass
+
+
+class CAManagerError(CertificateError):
+    """Exception raised by CA Manager operations."""
+
+    pass
+
+
+class ACMEError(CertificateError):
+    """Base exception for ACME-related errors."""
+
+    pass
+
+
+class ACMECertificateError(ACMEError):
+    """Exception raised when ACME certificate operations fail."""
+
+    pass
+
+
+class ACMEValidationError(ACMEError):
+    """Exception raised when ACME validation fails."""
+
     pass

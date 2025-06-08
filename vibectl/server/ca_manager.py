@@ -23,13 +23,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from vibectl.types import CAManagerError
+
 logger = logging.getLogger(__name__)
-
-
-class CAManagerError(Exception):
-    """Exception raised by CA Manager operations."""
-
-    pass
 
 
 class CertificateInfo:

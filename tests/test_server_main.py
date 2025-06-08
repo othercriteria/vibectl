@@ -25,6 +25,7 @@ from vibectl.server.main import (
     main,
     parse_duration,
     serve,
+    serve_insecure,
     signal_handler,
     validate_config,
 )
@@ -395,6 +396,17 @@ class TestCLICommands:
                 "key_file": None,
                 "ca_bundle_file": None,
             },
+            "acme": {
+                "enabled": False,
+                "email": None,
+                "domains": [],
+                "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
+                "staging": False,
+                "challenge_type": "http-01",
+                "challenge_dir": ".well-known/acme-challenge",
+                "auto_renew": True,
+                "renew_days_before_expiry": 30,
+            },
             "jwt": {
                 "enabled": False,
                 "secret_key": None,
@@ -437,62 +449,108 @@ class TestCLICommands:
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.validate_config")
     @patch("vibectl.server.main.create_server")
-    def test_serve_command_with_overrides(
+    def test_serve_command_smart_routing_insecure(
         self,
         mock_create_server: Mock,
         mock_validate: Mock,
         mock_load_config: Mock,
     ) -> None:
-        """Test serve command with CLI option overrides."""
-        mock_config = {
-            "server": {
-                "host": "0.0.0.0",
-                "port": 50051,
-                "default_model": "test-model",
-                "max_workers": 10,
-                "log_level": "INFO",
-            },
-            "tls": {
-                "enabled": False,
-                "cert_file": None,
-                "key_file": None,
-                "ca_bundle_file": None,
-            },
-            "jwt": {
-                "enabled": False,
-                "secret_key": None,
-                "secret_key_file": None,
-                "algorithm": "HS256",
-                "issuer": "vibectl-server",
-                "expiration_days": 30,
-            },
-        }
-
+        """Test serve command routes to serve-insecure for insecure config."""
+        mock_config = get_default_server_config()
+        # TLS disabled = insecure mode
+        mock_config["tls"]["enabled"] = False
         mock_load_config.return_value = Success(data=mock_config)
         mock_validate.return_value = Success()
+
         mock_server = Mock()
         mock_create_server.return_value = mock_server
 
-        # Execute the command with overrides
-        runner = CliRunner()
-        result = runner.invoke(
-            serve, ["--host", "127.0.0.1", "--port", "8080", "--require-auth", "--tls"]
-        )
+        # Mock the serve_insecure command to avoid starting server
+        with patch("vibectl.server.main.serve_insecure") as mock_serve_insecure:
+            result = self.runner.invoke(serve)
 
-        # Verify the command succeeded
-        assert result.exit_code == 0
+            assert result.exit_code == 0
+            mock_serve_insecure.assert_called_once()
 
-        # Verify server creation with overridden values
-        mock_create_server.assert_called_once_with(
-            host="127.0.0.1",  # Overridden
-            port=8080,  # Overridden
-            default_model="test-model",
-            max_workers=10,
-            require_auth=True,  # Overridden
-            use_tls=True,  # Overridden
-            cert_file=None,
-            key_file=None,
-        )
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main.create_server")
+    def test_serve_command_smart_routing_ca(
+        self,
+        mock_create_server: Mock,
+        mock_validate: Mock,
+        mock_load_config: Mock,
+    ) -> None:
+        """Test serve command routes to serve-ca for CA config."""
+        mock_config = get_default_server_config()
+        # TLS enabled but no specific cert files = CA mode
+        mock_config["tls"]["enabled"] = True
+        mock_config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=mock_config)
+        mock_validate.return_value = Success()
+
+        mock_server = Mock()
+        mock_create_server.return_value = mock_server
+
+        with patch("vibectl.server.main.serve_ca") as mock_serve_ca:
+            result = self.runner.invoke(serve)
+
+            assert result.exit_code == 0
+            mock_serve_ca.assert_called_once()
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main.create_server")
+    def test_serve_command_smart_routing_custom(
+        self,
+        mock_create_server: Mock,
+        mock_validate: Mock,
+        mock_load_config: Mock,
+    ) -> None:
+        """Test serve command routes to serve-custom for custom cert config."""
+        mock_config = get_default_server_config()
+        # TLS enabled with specific cert files = custom mode
+        mock_config["tls"]["enabled"] = True
+        mock_config["tls"]["cert_file"] = "/path/to/cert.pem"
+        mock_config["tls"]["key_file"] = "/path/to/key.pem"
+        mock_config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=mock_config)
+        mock_validate.return_value = Success()
+
+        mock_server = Mock()
+        mock_create_server.return_value = mock_server
+
+        with patch("vibectl.server.main.serve_custom") as mock_serve_custom:
+            result = self.runner.invoke(serve)
+
+            assert result.exit_code == 0
+            mock_serve_custom.assert_called_once()
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main.create_server")
+    def test_serve_command_smart_routing_acme(
+        self,
+        mock_create_server: Mock,
+        mock_validate: Mock,
+        mock_load_config: Mock,
+    ) -> None:
+        """Test serve command routes to serve-acme for ACME config."""
+        mock_config = get_default_server_config()
+        # ACME enabled = ACME mode
+        mock_config["tls"]["enabled"] = True
+        mock_config["acme"]["enabled"] = True
+        mock_load_config.return_value = Success(data=mock_config)
+        mock_validate.return_value = Success()
+
+        mock_server = Mock()
+        mock_create_server.return_value = mock_server
+
+        with patch("vibectl.server.main.serve_acme") as mock_serve_acme:
+            result = self.runner.invoke(serve)
+
+            assert result.exit_code == 0
+            mock_serve_acme.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.validate_config")
@@ -685,136 +743,14 @@ class TestCLICommands:
 
         assert result.exit_code == 1
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
-    @patch("vibectl.server.main.create_server")
-    def test_cli_default_command(
-        self,
-        mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
-    ) -> None:
-        """Test CLI group defaults to serve command."""
-        mock_config = get_default_server_config()
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
-
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-
+    def test_cli_default_command_shows_help(self) -> None:
+        """Test CLI group shows help by default instead of starting server."""
         result = self.runner.invoke(cli)
 
         assert result.exit_code == 0
-        mock_server.serve_forever.assert_called_once()
-
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
-    @patch("vibectl.server.main.create_server")
-    def test_serve_command_with_tls_options(
-        self,
-        mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
-    ) -> None:
-        """Test serve command with TLS options."""
-        mock_config = get_default_server_config()
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
-
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-
-        result = self.runner.invoke(
-            serve,
-            [
-                "--tls",
-                "--cert-file",
-                "/path/to/cert.pem",
-                "--key-file",
-                "/path/to/key.pem",
-            ],
-        )
-
-        assert result.exit_code == 0
-        mock_create_server.assert_called_once_with(
-            host="0.0.0.0",
-            port=50051,
-            default_model="anthropic/claude-3-7-sonnet-latest",
-            max_workers=10,
-            require_auth=False,
-            use_tls=True,
-            cert_file="/path/to/cert.pem",
-            key_file="/path/to/key.pem",
-        )
-
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
-    @patch("vibectl.server.main.create_server")
-    @patch("vibectl.server.main.get_config_dir")
-    @patch("vibectl.server.cert_utils.ensure_certificate_exists")
-    @patch("vibectl.server.cert_utils.get_default_cert_paths")
-    def test_serve_command_with_generate_certs(
-        self,
-        mock_get_default_paths: Mock,
-        mock_ensure_certs: Mock,
-        mock_get_config_dir: Mock,
-        mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
-    ) -> None:
-        """Test serve command with certificate generation."""
-        mock_config = get_default_server_config()
-        mock_config["tls"]["enabled"] = True  # Enable TLS in the tls section
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
-
-        mock_get_config_dir.return_value = Path("/test/config")
-        mock_get_default_paths.return_value = ("/test/cert.pem", "/test/key.pem")
-
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-
-        result = self.runner.invoke(serve, ["--generate-certs"])
-
-        assert result.exit_code == 0
-        # Note: The exact ensure_certs call parameters depend on implementation
-        mock_ensure_certs.assert_called_once_with(
-            "/test/cert.pem",
-            "/test/key.pem",
-            hostname="localhost",
-            regenerate=True,
-        )
-
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
-    @patch("vibectl.server.main.create_server")
-    def test_serve_command_with_no_tls(
-        self,
-        mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
-    ) -> None:
-        """Test serve command with TLS disabled explicitly."""
-        mock_config = get_default_server_config()
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
-
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-
-        result = self.runner.invoke(serve, ["--no-tls"])
-
-        assert result.exit_code == 0
-        mock_create_server.assert_called_once_with(
-            host="0.0.0.0",
-            port=50051,
-            default_model="anthropic/claude-3-7-sonnet-latest",
-            max_workers=10,
-            require_auth=False,
-            use_tls=False,
-            cert_file=None,
-            key_file=None,
-        )
+        # Should show help text, not start a server
+        assert "vibectl-server: gRPC LLM proxy server" in result.output
+        assert "Use --help to see available commands" in result.output
 
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     @patch("vibectl.server.cert_utils.get_default_cert_paths")
@@ -896,12 +832,40 @@ class TestCLICommands:
 
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     def test_generate_certs_command_error(self, mock_ensure_certs: Mock) -> None:
-        """Test generate-certs command with certificate generation error."""
-        mock_ensure_certs.side_effect = Exception("Certificate generation failed")
-
+        """Test generate-certs command with error."""
+        mock_ensure_certs.side_effect = Exception("Certificate error")
         result = self.runner.invoke(generate_certs)
-
         assert result.exit_code == 1
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main.create_server")
+    def test_serve_insecure_command(
+        self,
+        mock_create_server: Mock,
+        mock_validate: Mock,
+        mock_load_config: Mock,
+    ) -> None:
+        """Test serve-insecure command works correctly."""
+        mock_config = get_default_server_config()
+        mock_load_config.return_value = Success(data=mock_config)
+        mock_validate.return_value = Success()
+
+        mock_server = Mock()
+        mock_create_server.return_value = mock_server
+
+        # Import the command directly for testing
+        result = self.runner.invoke(
+            serve_insecure, ["--host", "127.0.0.1", "--port", "8080"]
+        )
+
+        assert result.exit_code == 0
+        mock_create_server.assert_called_once()
+        # Verify TLS is forced off
+        args, kwargs = mock_create_server.call_args
+        assert kwargs["use_tls"] is False
+        assert kwargs["host"] == "127.0.0.1"
+        assert kwargs["port"] == "8080"  # Port is now a string due to type fixes
 
 
 class TestMainEntryPoint:

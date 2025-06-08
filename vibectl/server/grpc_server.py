@@ -14,9 +14,9 @@ import grpc
 from vibectl.proto.llm_proxy_pb2_grpc import (
     add_VibectlLLMProxyServicer_to_server,
 )
+from vibectl.types import CertificateError
 
 from .cert_utils import (
-    CertificateError,
     ensure_certificate_exists,
     get_default_cert_paths,
     load_certificate_credentials,

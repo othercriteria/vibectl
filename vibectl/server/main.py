@@ -21,7 +21,7 @@ from vibectl.config_utils import (
 )
 from vibectl.console import console_manager
 from vibectl.logutil import init_logging, logger
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, Result, ServeMode, Success
 from vibectl.utils import handle_exception
 
 from .ca_manager import CAManager, CAManagerError, setup_private_ca
@@ -70,6 +70,17 @@ def get_default_server_config() -> dict:
             "cert_file": None,
             "key_file": None,
             "ca_bundle_file": None,
+        },
+        "acme": {
+            "enabled": False,
+            "email": None,
+            "domains": [],
+            "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
+            "staging": False,
+            "challenge_type": "http-01",
+            "challenge_dir": ".well-known/acme-challenge",
+            "auto_renew": True,
+            "renew_days_before_expiry": 30,
         },
         "jwt": {
             "enabled": False,
@@ -244,220 +255,10 @@ def handle_result(result: Result) -> None:
 @click.group(invoke_without_command=True)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
-    """vibectl gRPC LLM proxy server"""
+    """Main CLI group for vibectl-server commands."""
     if ctx.invoked_subcommand is None:
-        # Default to serve command
-        ctx.invoke(serve)
-
-
-@cli.command()
-@click.option("--host", default=None, help="Host to bind the gRPC server to")
-@click.option("--port", type=int, default=None, help="Port to bind the gRPC server to")
-@click.option(
-    "--model",
-    default=None,
-    help="Default LLM model to use (if not specified, server will require "
-    "clients to specify model)",
-)
-@click.option(
-    "--max-workers", type=int, default=None, help="Maximum number of worker threads"
-)
-@click.option(
-    "--log-level",
-    type=click.Choice(
-        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
-    ),
-    default=None,
-    help="Logging level",
-)
-@click.option(
-    "--require-auth/--no-require-auth",
-    default=None,
-    help="Require JWT authentication for all server requests",
-)
-@click.option(
-    "--tls/--no-tls",
-    default=None,
-    help="Enable or disable TLS encryption (default: disabled for development)",
-)
-@click.option(
-    "--cert-file",
-    type=click.Path(exists=False),
-    default=None,
-    help="Path to TLS certificate file (auto-generated if not specified)",
-)
-@click.option(
-    "--key-file",
-    type=click.Path(exists=False),
-    default=None,
-    help="Path to TLS private key file (auto-generated if not specified)",
-)
-@click.option(
-    "--generate-certs",
-    is_flag=True,
-    default=False,
-    help="Force regeneration of TLS certificates (for development)",
-)
-@click.option(
-    "--config", help="Path to server configuration file (not yet implemented)"
-)
-def serve(
-    host: str | None,
-    port: int | None,
-    model: str | None,
-    max_workers: int | None,
-    log_level: str | None,
-    require_auth: bool | None,
-    tls: bool | None,
-    cert_file: str | None,
-    key_file: str | None,
-    generate_certs: bool,
-    config: str | None,
-) -> None:
-    """Start the gRPC server (default command)"""
-    # Load configuration from file first
-    config_path = Path(config) if config else None
-    config_result = load_server_config(config_path)
-    if isinstance(config_result, Error):
-        handle_result(config_result)
-        return
-
-    # Cast from Any to dict since we know load_server_config returns dict on success
-    server_config = config_result.data if config_result.data is not None else {}
-
-    # Apply CLI overrides to server configuration
-    if host is not None:
-        server_config["server"]["host"] = host
-    if port is not None:
-        server_config["server"]["port"] = port
-    if model is not None:
-        server_config["server"]["default_model"] = model
-    if max_workers is not None:
-        server_config["server"]["max_workers"] = max_workers
-    if log_level is not None:
-        server_config["server"]["log_level"] = log_level
-    if require_auth is not None:
-        server_config["jwt"]["enabled"] = require_auth
-    if tls is not None:
-        server_config["tls"]["enabled"] = tls
-    if cert_file is not None:
-        server_config["tls"]["cert_file"] = cert_file
-    if key_file is not None:
-        server_config["tls"]["key_file"] = key_file
-
-    # Debug: Log loaded configuration
-    logger.info(f"Config loaded from: {config_path or 'default path'}")
-    logger.info(f"Config use_tls: {server_config['tls']['enabled']}")
-    logger.info(f"Config require_auth: {server_config['jwt']['enabled']}")
-
-    # Validate configuration
-    validation_result = validate_config(
-        server_config["server"]["host"],
-        server_config["server"]["port"],
-        server_config["server"]["max_workers"],
-    )
-    if isinstance(validation_result, Error):
-        handle_result(validation_result)
-        return
-
-    logger.info("Starting vibectl LLM proxy server")
-    logger.info(f"Host: {server_config['server']['host']}")
-    logger.info(f"Port: {server_config['server']['port']}")
-    logger.info(f"Max workers: {server_config['server']['max_workers']}")
-    auth_status = "enabled" if server_config["jwt"]["enabled"] else "disabled"
-    logger.info(f"Authentication: {auth_status}")
-    tls_status = "enabled" if server_config["tls"]["enabled"] else "disabled"
-    logger.info(f"TLS: {tls_status}")
-
-    if server_config["server"]["default_model"]:
-        logger.info(f"Default model: {server_config['server']['default_model']}")
-    else:
-        logger.info("No default model configured - clients must specify model")
-
-    # Handle certificate generation if requested
-    if generate_certs and server_config["tls"]["enabled"]:
-        cert_result = _handle_certificate_generation(server_config)
-        if isinstance(cert_result, Error):
-            handle_result(cert_result)
-            return
-
-    # Create and start the server
-    server_result = _create_and_start_server(server_config)
-    if isinstance(server_result, Error):
-        handle_result(server_result)
-        return
-
-    logger.info("Server stopped")
-
-
-def _handle_certificate_generation(server_config: dict) -> Result:
-    """Handle certificate generation for TLS.
-
-    Args:
-        server_config: Server configuration dictionary
-
-    Returns:
-        Success or Error
-    """
-    try:
-        from .cert_utils import ensure_certificate_exists, get_default_cert_paths
-
-        cert_file = server_config["tls"]["cert_file"]
-        key_file = server_config["tls"]["key_file"]
-
-        # Use default paths if not specified
-        if cert_file is None or key_file is None:
-            config_dir = get_config_dir("server")
-            default_cert_file, default_key_file = get_default_cert_paths(config_dir)
-            cert_file = cert_file or default_cert_file
-            key_file = key_file or default_key_file
-
-        hostname = server_config["server"]["host"]
-        if hostname in ("0.0.0.0", "::"):
-            hostname = "localhost"
-
-        logger.info("Regenerating TLS certificates...")
-        ensure_certificate_exists(
-            str(cert_file), str(key_file), hostname=hostname, regenerate=True
-        )
-        return Success(message="TLS certificates regenerated successfully")
-    except Exception as e:
-        return Error(error=f"Certificate generation failed: {e}", exception=e)
-
-
-def _create_and_start_server(server_config: dict) -> Result:
-    """Create and start the gRPC server.
-
-    Args:
-        server_config: Server configuration dictionary
-
-    Returns:
-        Success or Error
-    """
-    try:
-        # Create the server
-        server = create_server(
-            host=server_config["server"]["host"],
-            port=server_config["server"]["port"],
-            default_model=server_config["server"]["default_model"],
-            max_workers=server_config["server"]["max_workers"],
-            require_auth=server_config["jwt"]["enabled"],
-            use_tls=server_config["tls"]["enabled"],
-            cert_file=server_config["tls"]["cert_file"],
-            key_file=server_config["tls"]["key_file"],
-        )
-
-        logger.info("Server created successfully")
-
-        # Start serving (this will block until interrupted)
-        server.serve_forever()
-
-        return Success()
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt, shutting down...")
-        return Success()
-    except Exception as e:
-        return Error(error=f"Server startup failed: {e}", exception=e)
+        console_manager.print("vibectl-server: gRPC LLM proxy server")
+        console_manager.print("Use --help to see available commands")
 
 
 @cli.command()
@@ -1202,6 +1003,583 @@ def _check_certificate_expiry(ca_dir: str | None, days: int) -> Result:
         message += " with warnings"
 
     return Success(message=message)
+
+
+def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Result:
+    """Load configuration with CLI overrides and validation.
+
+    Args:
+        config_path: Optional path to configuration file
+        overrides: Dictionary of configuration overrides from CLI
+
+    Returns:
+        Success with configuration dict or Error
+    """
+    # Load base configuration
+    config_result = load_server_config(config_path)
+    if isinstance(config_result, Error):
+        return config_result
+
+    server_config = config_result.data if config_result.data is not None else {}
+
+    # Apply overrides using deep merge
+    def deep_merge(base: dict, updates: dict) -> dict:
+        """Recursively merge dictionaries."""
+        result = base.copy()
+        for key, value in updates.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                result[key] = deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    server_config = deep_merge(server_config, overrides)
+
+    # Validate configuration
+    validation_result = validate_config(
+        server_config["server"]["host"],
+        server_config["server"]["port"],
+        server_config["server"]["max_workers"],
+    )
+    if isinstance(validation_result, Error):
+        return validation_result
+
+    return Success(data=server_config)
+
+
+def _create_and_start_server_common(server_config: dict) -> Result:
+    """Common server creation and startup logic for all serve commands.
+
+    Args:
+        server_config: Complete server configuration dictionary
+
+    Returns:
+        Success or Error
+    """
+    try:
+        # Log server configuration
+        logger.info("Starting vibectl LLM proxy server")
+        logger.info(f"Host: {server_config['server']['host']}")
+        logger.info(f"Port: {server_config['server']['port']}")
+        logger.info(f"Max workers: {server_config['server']['max_workers']}")
+
+        auth_status = "enabled" if server_config["jwt"]["enabled"] else "disabled"
+        logger.info(f"Authentication: {auth_status}")
+
+        tls_status = "enabled" if server_config["tls"]["enabled"] else "disabled"
+        logger.info(f"TLS: {tls_status}")
+
+        # Log ACME status
+        if server_config["acme"]["enabled"]:
+            acme_status = "enabled"
+            if server_config["acme"]["staging"]:
+                acme_status += " (staging)"
+            logger.info(f"ACME: {acme_status}")
+            if server_config["acme"]["email"]:
+                logger.info(f"ACME email: {server_config['acme']['email']}")
+            if server_config["acme"]["domains"]:
+                logger.info(
+                    f"ACME domains: {', '.join(server_config['acme']['domains'])}"
+                )
+
+            # Validate ACME configuration
+            if not server_config["acme"]["email"]:
+                return Error(
+                    error="ACME enabled but no email provided. "
+                    "Use --acme-email or set acme.email in config."
+                )
+            if not server_config["acme"]["domains"]:
+                return Error(
+                    error="ACME enabled but no domains provided. "
+                    "Use --acme-domain or set acme.domains in config."
+                )
+        else:
+            logger.info("ACME: disabled")
+
+        if server_config["server"]["default_model"]:
+            logger.info(f"Default model: {server_config['server']['default_model']}")
+        else:
+            logger.info("No default model configured - clients must specify model")
+
+        # Create the server
+        server = create_server(
+            host=server_config["server"]["host"],
+            port=server_config["server"]["port"],
+            default_model=server_config["server"]["default_model"],
+            max_workers=server_config["server"]["max_workers"],
+            require_auth=server_config["jwt"]["enabled"],
+            use_tls=server_config["tls"]["enabled"],
+            cert_file=server_config["tls"]["cert_file"],
+            key_file=server_config["tls"]["key_file"],
+        )
+
+        logger.info("Server created successfully")
+
+        # Start serving (this will block until interrupted)
+        server.serve_forever()
+
+        return Success()
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, shutting down...")
+        return Success()
+    except Exception as e:
+        return Error(error=f"Server startup failed: {e}", exception=e)
+
+
+def determine_serve_mode(config: dict) -> ServeMode:
+    """Determine which specialized serve command to use based on configuration.
+
+    Args:
+        config: Server configuration dictionary
+
+    Returns:
+        ServeMode indicating the appropriate deployment mode
+    """
+    tls_enabled = config.get("tls", {}).get("enabled", False)
+    acme_enabled = config.get("acme", {}).get("enabled", False)
+
+    if not tls_enabled:
+        return ServeMode.INSECURE
+    elif acme_enabled:
+        return ServeMode.ACME
+    elif config.get("tls", {}).get("cert_file") and config.get("tls", {}).get(
+        "key_file"
+    ):
+        return ServeMode.CUSTOM
+    else:
+        # Default to CA mode for TLS without explicit cert files
+        return ServeMode.CA
+
+
+@cli.command(name="serve-insecure")
+@click.option("--host", default=None, help="Host to bind to")
+@click.option("--port", type=int, default=None, help="Port to bind to")
+@click.option("--model", default=None, help="Default LLM model")
+@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="Logging level",
+)
+@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@click.option("--config", type=click.Path(), help="Configuration file path")
+def serve_insecure(
+    host: str | None,
+    port: int | None,
+    model: str | None,
+    max_workers: int | None,
+    log_level: str | None,
+    require_auth: bool,
+    config: str | None,
+) -> None:
+    """Start insecure HTTP server (development only)."""
+
+    # Build configuration overrides
+    overrides: dict = {
+        "tls": {"enabled": False},  # Force TLS off
+        "acme": {"enabled": False},  # Force ACME off
+    }
+
+    # Build server section if needed
+    if host or port or model or max_workers or log_level:
+        server_overrides = {}
+        if host:
+            server_overrides["host"] = host
+        if port:
+            server_overrides["port"] = str(port)  # Convert int to str
+        if model:
+            server_overrides["default_model"] = model
+        if max_workers:
+            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+        if log_level:
+            server_overrides["log_level"] = log_level
+        overrides["server"] = server_overrides
+
+    # Build JWT section if needed
+    if require_auth:
+        overrides["jwt"] = {"enabled": require_auth}
+
+    config_path = Path(config) if config else None
+    config_result = _load_and_validate_config(config_path, overrides)
+    if isinstance(config_result, Error):
+        handle_result(config_result)
+        return
+
+    server_config = config_result.data
+    if server_config is None:
+        handle_result(Error(error="Failed to load server configuration"))
+        return
+
+    # Ensure server_config is a dict type for mypy
+    assert isinstance(server_config, dict), "server_config must be a dict"
+
+    # Security warning for insecure mode
+    console_manager.print_warning("⚠️  Running in INSECURE mode - no TLS encryption!")
+    console_manager.print_note(
+        "This mode should only be used for development or internal networks"
+    )
+
+    result = _create_and_start_server_common(server_config)
+    handle_result(result)
+
+
+@cli.command(name="serve-ca")
+@click.option("--host", default=None, help="Host to bind to")
+@click.option("--port", type=int, default=None, help="Port to bind to")
+@click.option("--model", default=None, help="Default LLM model")
+@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="Logging level",
+)
+@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@click.option("--ca-dir", type=click.Path(), help="CA directory path")
+@click.option("--hostname", default="localhost", help="Certificate hostname")
+@click.option("--san", multiple=True, help="Subject Alternative Names")
+@click.option(
+    "--validity-days", type=int, default=90, help="Certificate validity in days"
+)
+@click.option("--config", type=click.Path(), help="Configuration file path")
+def serve_ca(
+    host: str | None,
+    port: int | None,
+    model: str | None,
+    max_workers: int | None,
+    log_level: str | None,
+    require_auth: bool,
+    ca_dir: str | None,
+    hostname: str,
+    san: tuple[str, ...],
+    validity_days: int,
+    config: str | None,
+) -> None:
+    """Start server with private CA certificates."""
+
+    # Determine CA directory
+    if ca_dir is None:
+        config_dir = ensure_config_dir("server")
+        ca_dir_path = config_dir / "ca"
+    else:
+        ca_dir_path = Path(ca_dir)
+
+    if not ca_dir_path.exists():
+        handle_result(
+            Error(
+                error=f"CA directory not found: {ca_dir_path}",
+                recovery_suggestions="Initialize CA first with: vibectl-server ca init",
+            )
+        )
+        return
+
+    # Auto-create server certificate for the specified hostname
+    try:
+        ca_manager = CAManager(ca_dir_path)
+        cert_path, key_path = ca_manager.create_server_certificate(
+            hostname=hostname, san_list=list(san), validity_days=validity_days
+        )
+
+        console_manager.print_success(f"✅ Using CA certificate for {hostname}")
+
+    except Exception as e:
+        handle_result(Error(error=f"Failed to create server certificate: {e}"))
+        return
+
+    # Build configuration overrides
+    overrides: dict = {
+        "tls": {
+            "enabled": True,
+            "cert_file": str(cert_path),
+            "key_file": str(key_path),
+        },
+        "acme": {"enabled": False},
+    }
+
+    if host:
+        if "server" not in overrides:
+            overrides["server"] = {}
+        overrides["server"]["host"] = host
+    if port:
+        if "server" not in overrides:
+            overrides["server"] = {}
+        overrides["server"]["port"] = str(port)
+    if model:
+        if "server" not in overrides:
+            overrides["server"] = {}
+        overrides["server"]["default_model"] = model
+    if max_workers:
+        if "server" not in overrides:
+            overrides["server"] = {}
+        overrides["server"]["max_workers"] = str(max_workers)
+    if log_level:
+        if "server" not in overrides:
+            overrides["server"] = {}
+        overrides["server"]["log_level"] = log_level
+    if require_auth:
+        if "jwt" not in overrides:
+            overrides["jwt"] = {}
+        overrides["jwt"]["enabled"] = require_auth
+
+    config_path = Path(config) if config else None
+    config_result = _load_and_validate_config(config_path, overrides)
+    if isinstance(config_result, Error):
+        handle_result(config_result)
+        return
+
+    server_config = config_result.data
+    if server_config is None:
+        handle_result(Error(error="Failed to load server configuration"))
+        return
+
+    # Ensure server_config is a dict type for mypy
+    assert isinstance(server_config, dict), "server_config must be a dict"
+
+    result = _create_and_start_server_common(server_config)
+    handle_result(result)
+
+
+@cli.command(name="serve-acme")
+@click.option("--host", default=None, help="Host to bind to")
+@click.option("--port", type=int, default=None, help="Port to bind to")
+@click.option("--model", default=None, help="Default LLM model")
+@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="Logging level",
+)
+@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@click.option("--email", required=True, help="ACME account email")
+@click.option(
+    "--domain",
+    multiple=True,
+    required=True,
+    help="Certificate domain (multiple allowed)",
+)
+@click.option("--staging", is_flag=True, help="Use Let's Encrypt staging environment")
+@click.option(
+    "--challenge-type",
+    type=click.Choice(["http-01", "dns-01"]),
+    default="http-01",
+    help="Challenge type",
+)
+@click.option("--config", type=click.Path(), help="Configuration file path")
+def serve_acme(
+    host: str | None,
+    port: int | None,
+    model: str | None,
+    max_workers: int | None,
+    log_level: str | None,
+    require_auth: bool,
+    email: str,
+    domain: tuple[str, ...],
+    staging: bool,
+    challenge_type: str,
+    config: str | None,
+) -> None:
+    """Start server with Let's Encrypt/ACME certificates."""
+
+    # Build configuration overrides
+    overrides = {
+        "tls": {"enabled": True},
+        "acme": {
+            "enabled": True,
+            "email": email,
+            "domains": list(domain),
+            "staging": staging,
+            "challenge_type": challenge_type,
+        },
+    }
+
+    # Build server section if needed
+    if host or port or model or max_workers or log_level:
+        server_overrides = {}
+        if host:
+            server_overrides["host"] = host
+        if port:
+            server_overrides["port"] = str(port)  # Convert int to str
+        elif not port:  # Default to 443 for ACME/TLS
+            server_overrides["port"] = "443"
+        if model:
+            server_overrides["default_model"] = model
+        if max_workers:
+            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+        if log_level:
+            server_overrides["log_level"] = log_level
+        overrides["server"] = server_overrides
+
+    # Build JWT section if needed
+    if require_auth:
+        overrides["jwt"] = {"enabled": require_auth}
+
+    config_path = Path(config) if config else None
+    config_result = _load_and_validate_config(config_path, overrides)
+    if isinstance(config_result, Error):
+        handle_result(config_result)
+        return
+
+    server_config = config_result.data
+    if server_config is None:
+        handle_result(Error(error="Failed to load server configuration"))
+        return
+
+    # Ensure server_config is a dict type for mypy
+    assert isinstance(server_config, dict), "server_config must be a dict"
+
+    result = _create_and_start_server_common(server_config)
+    handle_result(result)
+
+
+@cli.command(name="serve-custom")
+@click.option("--host", default=None, help="Host to bind to")
+@click.option("--port", type=int, default=None, help="Port to bind to")
+@click.option("--model", default=None, help="Default LLM model")
+@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="Logging level",
+)
+@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@click.option(
+    "--cert-file",
+    required=True,
+    type=click.Path(exists=True),
+    help="TLS certificate file path",
+)
+@click.option(
+    "--key-file",
+    required=True,
+    type=click.Path(exists=True),
+    help="TLS private key file path",
+)
+@click.option(
+    "--ca-bundle-file",
+    type=click.Path(exists=True),
+    help="CA bundle for client verification",
+)
+@click.option("--config", type=click.Path(), help="Configuration file path")
+def serve_custom(
+    host: str | None,
+    port: int | None,
+    model: str | None,
+    max_workers: int | None,
+    log_level: str | None,
+    require_auth: bool,
+    cert_file: str,
+    key_file: str,
+    ca_bundle_file: str | None,
+    config: str | None,
+) -> None:
+    """Start server with advanced/custom TLS configuration."""
+
+    # Build configuration overrides
+    overrides: dict = {
+        "tls": {"enabled": True, "cert_file": cert_file, "key_file": key_file},
+        "acme": {"enabled": False},
+    }
+
+    if ca_bundle_file:
+        overrides["tls"]["ca_bundle_file"] = ca_bundle_file
+
+    # Build server section if needed
+    if host or port or model or max_workers or log_level:
+        server_overrides = {}
+        if host:
+            server_overrides["host"] = host
+        if port:
+            server_overrides["port"] = str(port)  # Convert int to str
+        if model:
+            server_overrides["default_model"] = model
+        if max_workers:
+            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+        if log_level:
+            server_overrides["log_level"] = log_level
+        overrides["server"] = server_overrides
+
+    # Build JWT section if needed
+    if require_auth:
+        overrides["jwt"] = {"enabled": require_auth}
+
+    config_path = Path(config) if config else None
+    config_result = _load_and_validate_config(config_path, overrides)
+    if isinstance(config_result, Error):
+        handle_result(config_result)
+        return
+
+    server_config = config_result.data
+    if server_config is None:
+        handle_result(Error(error="Failed to load server configuration"))
+        return
+
+    # Ensure server_config is a dict type for mypy
+    assert isinstance(server_config, dict), "server_config must be a dict"
+
+    result = _create_and_start_server_common(server_config)
+    handle_result(result)
+
+
+@cli.command()
+@click.option("--config", type=click.Path(), help="Configuration file path")
+@click.pass_context
+def serve(ctx: click.Context, config: str | None) -> None:
+    """Start the gRPC server with intelligent routing."""
+
+    # Load config to determine routing
+    config_path = Path(config) if config else None
+    config_result = load_server_config(config_path)
+
+    if isinstance(config_result, Error):
+        handle_result(config_result)
+        return
+
+    server_config = config_result.data
+    if server_config is None:
+        handle_result(Error(error="Failed to load server configuration"))
+        return
+
+    mode = determine_serve_mode(server_config)
+
+    console_manager.print_note(f"🔍 Detected configuration mode: {mode}")
+
+    # Route to appropriate specialized command
+    if mode == ServeMode.INSECURE:
+        ctx.invoke(serve_insecure, config=config)
+    elif mode == ServeMode.CA:
+        ctx.invoke(serve_ca, config=config)
+    elif mode == ServeMode.ACME:
+        ctx.invoke(serve_acme, config=config)
+    elif mode == ServeMode.CUSTOM:
+        # Extract certificate paths from config for serve-custom
+        cert_file = server_config.get("tls", {}).get("cert_file")
+        key_file = server_config.get("tls", {}).get("key_file")
+        ca_bundle_file = server_config.get("tls", {}).get("ca_bundle_file")
+
+        if not cert_file or not key_file:
+            handle_result(
+                Error(
+                    error="serve-custom mode requires cert_file and key_file "
+                    "in configuration",
+                    recovery_suggestions="Set tls.cert_file and tls.key_file in your "
+                    "config file",
+                )
+            )
+            return
+
+        # Pass required arguments to serve_custom
+        ctx.invoke(
+            serve_custom,
+            config=config,
+            cert_file=cert_file,
+            key_file=key_file,
+            ca_bundle_file=ca_bundle_file,
+        )
+    else:
+        handle_result(Error(error=f"Unknown serve mode: {mode}"))
 
 
 def main() -> int:
