@@ -4,6 +4,17 @@
 
 The LLM Proxy Server feature enables vibectl to act as a proxy for Large Language Model (LLM) requests, providing centralized authentication, request routing, and streaming capabilities. This feature allows multiple clients to connect to a single vibectl server instance that manages LLM interactions.
 
+## Current Status
+
+The proxy server is functional but still under active development. Core features
+like JWT authentication and gRPC streaming are stable and have accompanying test
+coverage. Some CLI commands described in this document (for example the
+`vibectl-server config` helpers) remain TODO, so configuration is currently
+performed by editing the YAML file directly or by using environment variables.
+TLS is supported and can be enabled manually or via the ACME workflow described
+below.  See `examples/manifests/vibectl-server/` for a complete example that
+obtains certificates using a local ACME test server.
+
 ## Architecture
 
 ### Core Components
@@ -369,6 +380,57 @@ vibectl-server serve
 # Client setup with secure connection
 vibectl setup-proxy configure vibectl-server://production-token@llm-proxy.company.com:443
 ```
+
+### ACME / Let's Encrypt Certificate Workflow
+
+The repository includes Kubernetes manifests under
+`examples/manifests/vibectl-server/` (see the `README.md` in that directory)
+demonstrating how to obtain a trusted certificate using a local ACME server.
+The workflow mirrors a real Let's&nbsp;Encrypt flow but runs entirely inside the
+cluster so it can be tested without Internet access.
+
+1. Deploy the ACME test infrastructure:
+
+   ```bash
+   kubectl apply -f examples/manifests/vibectl-server/pebble.yaml
+   kubectl apply -f examples/manifests/vibectl-server/cluster-issuer.yaml
+   ```
+
+   The `pebble.yaml` file starts a lightweight ACME test server and the
+   `cluster-issuer.yaml` configures cert-manager to use it.
+
+2. Deploy the server manifests which reference the `ClusterIssuer` created in
+   the previous step.  This manifest defines a `Certificate` that cert-manager
+   will reconcile automatically:
+
+   ```bash
+   kubectl apply -f examples/manifests/vibectl-server/deployment-tls.yaml
+   kubectl wait --for=condition=available deployment/vibectl-server
+   ```
+
+3. Wait for cert-manager to perform the HTTP-01 challenge against the Pebble
+   server and issue the certificate.  You can check progress with:
+
+   ```bash
+   kubectl describe certificate vibectl-server-cert -n vibectl-demo
+   kubectl get secrets -n vibectl-demo vibectl-server-tls
+   ```
+
+   Once the secret exists, the deployment will mount it so the gRPC server can
+   start with TLS enabled automatically.
+
+4. Verify the certificate and server by running:
+
+   ```bash
+   openssl s_client -connect vibectl-server.vibectl-demo.svc.cluster.local:443
+   ```
+
+   or point the proxy client at the service URL.  Successful TLS negotiation
+   confirms the ACME workflow completed correctly.
+
+These manifests act as a complete end‑to‑end test of certificate generation and
+renewal. They are intentionally self‑contained so you can reproduce the process
+on any local cluster.
 
 ### Container/Docker Deployment
 

@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: vibectl-pebble
+spec:
+  acme:
+    server: https://pebble.pebble.svc:14000/dir
+    skipTLSVerify: true
+    email: test@example.com
+    privateKeySecretRef:
+      name: vibectl-pebble-account-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx

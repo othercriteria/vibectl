@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vibectl-demo
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vibectl-server-cert
+  namespace: vibectl-demo
+spec:
+  secretName: vibectl-server-tls
+  issuerRef:
+    name: vibectl-pebble
+    kind: ClusterIssuer
+  dnsNames:
+  - vibectl-server.vibectl-demo.svc.cluster.local
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vibectl-server
+  namespace: vibectl-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vibectl-server
+  template:
+    metadata:
+      labels:
+        app: vibectl-server
+    spec:
+      containers:
+      - name: vibectl-server
+        image: ghcr.io/vibectl/vibectl-server:latest
+        args:
+        - serve
+        ports:
+        - containerPort: 443
+        volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+        env:
+        - name: VIBECTL_CONFIG_FILE
+          value: /etc/vibectl/server-config.yaml
+      volumes:
+      - name: tls
+        secret:
+          secretName: vibectl-server-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vibectl-server
+  namespace: vibectl-demo
+spec:
+  selector:
+    app: vibectl-server
+  ports:
+  - name: https
+    port: 443
+    targetPort: 443
