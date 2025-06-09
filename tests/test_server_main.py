@@ -863,9 +863,9 @@ class TestCLICommands:
         mock_create_server.assert_called_once()
         # Verify TLS is forced off
         args, kwargs = mock_create_server.call_args
-        assert kwargs["use_tls"] is False
         assert kwargs["host"] == "127.0.0.1"
-        assert kwargs["port"] == "8080"  # Port is now a string due to type fixes
+        assert kwargs["port"] == 8080  # Port is now correctly kept as int
+        assert kwargs["use_tls"] is False
 
 
 class TestMainEntryPoint:

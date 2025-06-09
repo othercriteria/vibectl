@@ -311,3 +311,59 @@ def handle_certificate_generation_for_server(
         raise CertificateGenerationError(
             f"Certificate generation for server failed: {e}"
         ) from e
+
+
+def create_certificate_signing_request(
+    domains: list[str],
+    private_key: rsa.RSAPrivateKey,
+    organization: str | None = None,
+    country: str | None = None,
+) -> x509.CertificateSigningRequest:
+    """Create a Certificate Signing Request for the given domains.
+
+    Args:
+        domains: List of domain names (first will be used as Common Name)
+        private_key: Private key for the certificate
+        organization: Optional organization name
+        country: Optional country code
+
+    Returns:
+        Cryptography CSR object
+
+    Raises:
+        CertificateGenerationError: If CSR generation fails
+    """
+    try:
+        # Build subject with required Common Name
+        subject_components = [
+            x509.NameAttribute(NameOID.COMMON_NAME, domains[0]),
+        ]
+
+        # Add optional organization and country
+        if organization:
+            subject_components.append(
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization)
+            )
+        if country:
+            subject_components.append(x509.NameAttribute(NameOID.COUNTRY_NAME, country))
+
+        subject = x509.Name(subject_components)
+
+        # Create CSR builder
+        builder = x509.CertificateSigningRequestBuilder()
+        builder = builder.subject_name(subject)
+
+        # Add SAN extension for multiple domains or single domain
+        if len(domains) > 1 or domains[0]:
+            san_list = [x509.DNSName(domain) for domain in domains]
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName(san_list),
+                critical=False,
+            )
+
+        # Sign the CSR with SHA256
+        csr = builder.sign(private_key, hashes.SHA256())
+        return csr
+
+    except Exception as e:
+        raise CertificateGenerationError(f"Failed to create CSR: {e}") from e

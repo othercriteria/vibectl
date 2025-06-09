@@ -422,3 +422,52 @@ def validate_numeric_range(
             f"Invalid value for {field_name}: {value}. "
             f"Must be between {min_value} and {max_value}"
         )
+
+
+def parse_duration_to_days(duration_str: str) -> int:
+    """Parse a duration string into days.
+
+    Args:
+        duration_str: Duration string (e.g., '30d', '6m', '1y', or just '30')
+
+    Returns:
+        Number of days
+
+    Raises:
+        ValueError: If duration format is invalid
+    """
+    duration_str = duration_str.strip().lower()
+
+    # If it's just a number, treat as days
+    if duration_str.isdigit():
+        return int(duration_str)
+
+    # Parse with suffix
+    if len(duration_str) < 2:
+        raise ValueError(
+            f"Invalid duration format: {duration_str}. "
+            "Use format like '30d', '6m', '1y', or just a number for days"
+        )
+
+    value_str = duration_str[:-1]
+    suffix = duration_str[-1]
+
+    try:
+        value = int(value_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid duration format: {duration_str}. "
+            "Use format like '30d', '6m', '1y', or just a number for days"
+        ) from e
+
+    if suffix == "d":
+        return value
+    elif suffix == "m":
+        return value * 30  # Approximate month as 30 days
+    elif suffix == "y":
+        return value * 365  # Approximate year as 365 days
+    else:
+        raise ValueError(
+            f"Invalid duration suffix: {suffix}. "
+            "Use 'd' for days, 'm' for months, 'y' for years"
+        )

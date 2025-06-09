@@ -8,8 +8,10 @@ server deployment scenarios.
 """
 
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.table import Table
@@ -18,18 +20,52 @@ from vibectl.config_utils import (
     ensure_config_dir,
     get_config_dir,
     load_yaml_config,
+    parse_duration_to_days,
 )
 from vibectl.console import console_manager
 from vibectl.logutil import init_logging, logger
 from vibectl.types import Error, Result, ServeMode, Success
 from vibectl.utils import handle_exception
 
+from . import cert_utils
+from .acme_client import LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, create_acme_client
 from .ca_manager import CAManager, CAManagerError, setup_private_ca
 from .grpc_server import create_server
 from .jwt_auth import JWTAuthManager, load_config_with_generation
 
 # Graceful shutdown handling
 shutdown_event = False
+
+
+# --- Common Server Option Decorator ---
+def common_server_options() -> Callable:
+    """Decorator to DRY out common server CLI options."""
+
+    def decorator(f: Callable) -> Callable:
+        options = [
+            click.option("--config", type=click.Path(), help="Configuration file path"),
+            click.option(
+                "--require-auth", is_flag=True, help="Enable JWT authentication"
+            ),
+            click.option(
+                "--log-level",
+                type=click.Choice(
+                    ["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False
+                ),
+                help="Logging level",
+            ),
+            click.option(
+                "--max-workers", type=int, default=None, help="Maximum worker threads"
+            ),
+            click.option("--model", default=None, help="Default LLM model"),
+            click.option("--port", type=int, default=None, help="Port to bind to"),
+            click.option("--host", default=None, help="Host to bind to"),
+        ]
+        for option in reversed(options):
+            f = option(f)
+        return f
+
+    return decorator
 
 
 def signal_handler(signum: int, frame: object) -> None:
@@ -53,9 +89,6 @@ def get_default_server_config() -> dict:
 
     This function provides the default configuration values used by both
     load_server_config() and create_default_config() to avoid duplication.
-
-    Returns:
-        dict: Default server configuration
     """
     return {
         "server": {
@@ -94,14 +127,7 @@ def get_default_server_config() -> dict:
 
 
 def load_server_config(config_path: Path | None = None) -> Result:
-    """Load server configuration from file or create defaults.
-
-    Args:
-        config_path: Optional path to configuration file
-
-    Returns:
-        Success with configuration dict or Error
-    """
+    """Load server configuration from file or create defaults."""
     if config_path is None:
         config_path = get_server_config_path()
 
@@ -116,14 +142,7 @@ def load_server_config(config_path: Path | None = None) -> Result:
 
 
 def create_default_config(config_path: Path | None = None) -> Result:
-    """Create a default configuration file.
-
-    Args:
-        config_path: Optional path for the configuration file
-
-    Returns:
-        Success or Error
-    """
+    """Create a default configuration file."""
     import yaml
 
     if config_path is None:
@@ -144,65 +163,18 @@ def create_default_config(config_path: Path | None = None) -> Result:
 
 
 def parse_duration(duration_str: str) -> Result:
-    """Parse a duration string into days.
-
-    Args:
-        duration_str: Duration string (e.g., '30d', '6m', '1y', or just '30')
-
-    Returns:
-        Success with number of days or Error
-    """
+    """Parse a duration string into days."""
     try:
-        duration_str = duration_str.strip().lower()
-
-        # If it's just a number, treat as days
-        if duration_str.isdigit():
-            return Success(data=int(duration_str))
-
-        # Parse with suffix
-        if len(duration_str) < 2:
-            return Error(
-                error=f"Invalid duration format: {duration_str}. "
-                "Use format like '30d', '6m', '1y', or just a number for days"
-            )
-
-        value_str = duration_str[:-1]
-        suffix = duration_str[-1]
-
-        try:
-            value = int(value_str)
-        except ValueError:
-            return Error(
-                error=f"Invalid duration format: {duration_str}. "
-                "Use format like '30d', '6m', '1y', or just a number for days"
-            )
-
-        if suffix == "d":
-            return Success(data=value)
-        elif suffix == "m":
-            return Success(data=value * 30)  # Approximate month as 30 days
-        elif suffix == "y":
-            return Success(data=value * 365)  # Approximate year as 365 days
-        else:
-            return Error(
-                error=f"Invalid duration suffix: {suffix}. "
-                "Use 'd' for days, 'm' for months, 'y' for years"
-            )
+        days = parse_duration_to_days(duration_str)
+        return Success(data=days)
+    except ValueError as e:
+        return Error(error=str(e))
     except Exception as e:
         return Error(error=f"Failed to parse duration: {e}", exception=e)
 
 
 def validate_config(host: str, port: int, max_workers: int) -> Result:
-    """Validate server configuration values.
-
-    Args:
-        host: Host address to bind to
-        port: Port number to bind to
-        max_workers: Maximum number of worker threads
-
-    Returns:
-        Success or Error
-    """
+    """Validate server configuration values."""
     try:
         if not isinstance(port, int) or port < 1 or port > 65535:
             return Error(
@@ -218,12 +190,8 @@ def validate_config(host: str, port: int, max_workers: int) -> Result:
         return Error(error=f"Configuration validation failed: {e}", exception=e)
 
 
-def handle_result(result: Result) -> None:
-    """Handle command results using console manager.
-
-    Args:
-        result: The result to handle
-    """
+def handle_result(result: Result, exit_on_error: bool = True) -> None:
+    """Handle command results using console manager."""
     exit_code: int = 0
     if isinstance(result, Success):
         if result.message:
@@ -238,6 +206,9 @@ def handle_result(result: Result) -> None:
         logger.debug(f"Success result, final exit_code: {exit_code}")
     elif isinstance(result, Error):
         console_manager.print_error(result.error)
+        # Handle recovery suggestions if they exist
+        if hasattr(result, "recovery_suggestions") and result.recovery_suggestions:
+            console_manager.print_note(result.recovery_suggestions)
         if result.exception and result.exception is not None:
             handle_exception(result.exception)
         # Check for original_exit_code similar to main CLI
@@ -249,7 +220,8 @@ def handle_result(result: Result) -> None:
             exit_code = 1  # Default for Error
         logger.debug(f"Error result, final exit_code: {exit_code}")
 
-    sys.exit(exit_code)
+    if exit_on_error:
+        sys.exit(exit_code)
 
 
 @click.group(invoke_without_command=True)
@@ -292,16 +264,7 @@ def generate_token(
 def _generate_jwt_token(
     subject: str, expiration_days: int, output: str | None
 ) -> Result:
-    """Generate a JWT token.
-
-    Args:
-        subject: Token subject
-        expiration_days: Token expiration in days
-        output: Output file path or None for stdout
-
-    Returns:
-        Success or Error
-    """
+    """Generate a JWT token."""
     try:
         # Load JWT configuration
         config = load_config_with_generation(persist_generated_key=True)
@@ -404,25 +367,15 @@ def generate_certs(
 def _perform_certificate_generation(
     hostname: str, cert_file: str | None, key_file: str | None, force: bool
 ) -> Result:
-    """Perform the actual certificate generation.
-
-    Args:
-        hostname: Hostname for the certificate
-        cert_file: Certificate file path
-        key_file: Key file path
-        force: Whether to overwrite existing files
-
-    Returns:
-        Success or Error
-    """
+    """Perform the actual certificate generation."""
     try:
-        from .cert_utils import ensure_certificate_exists, get_default_cert_paths
-
         config_dir = get_config_dir("server")
 
         # Use default paths if not specified
         if cert_file is None or key_file is None:
-            default_cert_file, default_key_file = get_default_cert_paths(config_dir)
+            default_cert_file, default_key_file = cert_utils.get_default_cert_paths(
+                config_dir
+            )
             cert_file = cert_file or default_cert_file
             key_file = key_file or default_key_file
 
@@ -445,7 +398,7 @@ def _perform_certificate_generation(
         logger.info(f"Key file: {key_path}")
 
         # Generate the certificate
-        ensure_certificate_exists(
+        cert_utils.ensure_certificate_exists(
             str(cert_path), str(key_path), hostname=hostname, regenerate=force
         )
 
@@ -538,19 +491,7 @@ def _initialize_ca(
     country: str,
     force: bool,
 ) -> Result:
-    """Initialize the Certificate Authority.
-
-    Args:
-        ca_dir: CA directory path
-        root_cn: Root CA common name
-        intermediate_cn: Intermediate CA common name
-        organization: Organization name
-        country: Country code
-        force: Whether to overwrite existing CA
-
-    Returns:
-        Success or Error
-    """
+    """Initialize the Certificate Authority."""
     try:
         # Determine CA directory
         if ca_dir is None:
@@ -572,8 +513,8 @@ def _initialize_ca(
 
         console_manager.print_processing(f"Initializing CA in {ca_dir_path}")
 
-        # Initialize the CA - Note: setup_private_ca signature needs to be checked
-        setup_private_ca(ca_dir_path)
+        # Initialize the CA with all parameters
+        setup_private_ca(ca_dir_path, root_cn, intermediate_cn, organization, country)
 
         return Success(message=f"CA initialized successfully in {ca_dir_path}")
 
@@ -631,18 +572,7 @@ def _create_server_certificate(
     validity_days: int,
     force: bool,
 ) -> Result:
-    """Create a server certificate using the CA.
-
-    Args:
-        hostname: Hostname for the certificate
-        ca_dir: CA directory path
-        san: Subject Alternative Names
-        validity_days: Certificate validity in days
-        force: Whether to overwrite existing certificate
-
-    Returns:
-        Success or Error
-    """
+    """Create a server certificate using the CA."""
     try:
         # Determine CA directory
         if ca_dir is None:
@@ -664,9 +594,10 @@ def _create_server_certificate(
         ca_manager = CAManager(ca_dir_path)
 
         # Check if certificate already exists
-        certs_dir = ca_dir_path / "certs"
-        expected_cert_path = certs_dir / f"{hostname}.crt"
-        expected_key_path = certs_dir / f"{hostname}.key"
+        # CAManager creates certificates in server_certs/hostname/ directory
+        server_certs_dir = ca_dir_path / "server_certs" / hostname
+        expected_cert_path = server_certs_dir / f"{hostname}.crt"
+        expected_key_path = server_certs_dir / f"{hostname}.key"
 
         if not force and (expected_cert_path.exists() or expected_key_path.exists()):
             return Error(
@@ -729,15 +660,7 @@ def _check_certificate_status(
 ) -> bool:
     """Check certificate status and add row to status table.
 
-    Args:
-        cert_path: Path to certificate file
-        cert_type: Type description for the certificate
-        ca_manager: CAManager instance for certificate operations
-        days: Number of days for expiry warning threshold
-        status_table: Table to add the status row to
-
-    Returns:
-        True iff warnings were found (expired, expires soon, missing, or error)
+    Returns True if warnings were found (expired, expires soon, missing, or error).
     """
     warnings_found = False
 
@@ -794,15 +717,7 @@ def ca_status(ca_dir: str | None, days: int) -> None:
 
 
 def _show_ca_status(ca_dir: str | None, days: int) -> Result:
-    """Show the status of the CA and certificates.
-
-    Args:
-        ca_dir: CA directory path
-        days: Days ahead to check for certificate expiry
-
-    Returns:
-        Success or Error
-    """
+    """Show the status of the CA and certificates."""
     # Determine CA directory
     if ca_dir is None:
         config_dir = ensure_config_dir("server")
@@ -917,15 +832,7 @@ def ca_check_expiry(ca_dir: str | None, days: int) -> None:
 
 
 def _check_certificate_expiry(ca_dir: str | None, days: int) -> Result:
-    """Check for expired or expiring certificates.
-
-    Args:
-        ca_dir: CA directory path
-        days: Days threshold for expiry warning
-
-    Returns:
-        Success or Error
-    """
+    """Check for expired or expiring certificates."""
     # Determine CA directory
     if ca_dir is None:
         config_dir = ensure_config_dir("server")
@@ -1006,15 +913,7 @@ def _check_certificate_expiry(ca_dir: str | None, days: int) -> Result:
 
 
 def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Result:
-    """Load configuration with CLI overrides and validation.
-
-    Args:
-        config_path: Optional path to configuration file
-        overrides: Dictionary of configuration overrides from CLI
-
-    Returns:
-        Success with configuration dict or Error
-    """
+    """Load configuration with CLI overrides and validation."""
     # Load base configuration
     config_result = load_server_config(config_path)
     if isinstance(config_result, Error):
@@ -1039,12 +938,29 @@ def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Resu
 
     server_config = deep_merge(server_config, overrides)
 
+    # Validate configuration - extract values with proper types
+    server_section = server_config.get("server", {})
+    host = server_section.get("host", "0.0.0.0")
+    port = server_section.get("port", 50051)
+    max_workers = server_section.get("max_workers", 10)
+
+    # Ensure port and max_workers are integers
+    if not isinstance(port, int):
+        try:
+            port = int(port)
+            server_section["port"] = port
+        except (ValueError, TypeError):
+            return Error(error=f"Invalid port value: {port}")
+
+    if not isinstance(max_workers, int):
+        try:
+            max_workers = int(max_workers)
+            server_section["max_workers"] = max_workers
+        except (ValueError, TypeError):
+            return Error(error=f"Invalid max_workers value: {max_workers}")
+
     # Validate configuration
-    validation_result = validate_config(
-        server_config["server"]["host"],
-        server_config["server"]["port"],
-        server_config["server"]["max_workers"],
-    )
+    validation_result = validate_config(host, port, max_workers)
     if isinstance(validation_result, Error):
         return validation_result
 
@@ -1052,14 +968,7 @@ def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Resu
 
 
 def _create_and_start_server_common(server_config: dict) -> Result:
-    """Common server creation and startup logic for all serve commands.
-
-    Args:
-        server_config: Complete server configuration dictionary
-
-    Returns:
-        Success or Error
-    """
+    """Common server creation and startup logic for all serve commands."""
     try:
         # Log server configuration
         logger.info("Starting vibectl LLM proxy server")
@@ -1073,10 +982,10 @@ def _create_and_start_server_common(server_config: dict) -> Result:
         tls_status = "enabled" if server_config["tls"]["enabled"] else "disabled"
         logger.info(f"TLS: {tls_status}")
 
-        # Log ACME status
+        # Handle ACME certificate provisioning if enabled
         if server_config["acme"]["enabled"]:
             acme_status = "enabled"
-            if server_config["acme"]["staging"]:
+            if server_config["acme"].get("staging", False):
                 acme_status += " (staging)"
             logger.info(f"ACME: {acme_status}")
             if server_config["acme"]["email"]:
@@ -1097,6 +1006,30 @@ def _create_and_start_server_common(server_config: dict) -> Result:
                     error="ACME enabled but no domains provided. "
                     "Use --acme-domain or set acme.domains in config."
                 )
+
+            # Provision ACME certificates
+            try:
+                cert_result = _provision_acme_certificates(server_config)
+                if isinstance(cert_result, Error):
+                    return cert_result
+
+                # Update TLS configuration with provisioned certificates
+                if cert_result.data is None:
+                    return Error(
+                        error="ACME certificate provisioning returned no "
+                        "certificate data"
+                    )
+                cert_file, key_file = cert_result.data
+                server_config["tls"]["cert_file"] = cert_file
+                server_config["tls"]["key_file"] = key_file
+                logger.info("ACME certificates provisioned successfully")
+                logger.info(f"Certificate: {cert_file}")
+                logger.info(f"Private key: {key_file}")
+
+            except Exception as e:
+                return Error(
+                    error=f"ACME certificate provisioning failed: {e}", exception=e
+                )
         else:
             logger.info("ACME: disabled")
 
@@ -1106,6 +1039,14 @@ def _create_and_start_server_common(server_config: dict) -> Result:
             logger.info("No default model configured - clients must specify model")
 
         # Create the server
+        # Handle TLS configuration safely
+        if server_config["tls"]["enabled"]:
+            cert_file = server_config["tls"].get("cert_file")
+            key_file = server_config["tls"].get("key_file")
+        else:
+            cert_file = None
+            key_file = None
+
         server = create_server(
             host=server_config["server"]["host"],
             port=server_config["server"]["port"],
@@ -1113,8 +1054,8 @@ def _create_and_start_server_common(server_config: dict) -> Result:
             max_workers=server_config["server"]["max_workers"],
             require_auth=server_config["jwt"]["enabled"],
             use_tls=server_config["tls"]["enabled"],
-            cert_file=server_config["tls"]["cert_file"],
-            key_file=server_config["tls"]["key_file"],
+            cert_file=cert_file,
+            key_file=key_file,
         )
 
         logger.info("Server created successfully")
@@ -1130,15 +1071,61 @@ def _create_and_start_server_common(server_config: dict) -> Result:
         return Error(error=f"Server startup failed: {e}", exception=e)
 
 
+def _provision_acme_certificates(server_config: dict) -> Result:
+    """Provision or renew ACME certificates for the server."""
+    try:
+        acme_config = server_config["acme"]
+
+        # Determine directory URL based on staging flag
+        staging = acme_config.get("staging", False)
+        directory_url = acme_config.get("directory_url")
+
+        if directory_url is None:
+            # Use staging or production based on staging flag
+            directory_url = LETSENCRYPT_STAGING if staging else LETSENCRYPT_PRODUCTION
+
+        # Create ACME client
+        acme_client = create_acme_client(
+            directory_url=directory_url,
+            email=acme_config["email"],
+        )
+
+        # Determine certificate file paths
+        cert_dir = Path.home() / ".config" / "vibectl" / "server" / "acme-certs"
+        cert_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use the first domain as the filename base
+        primary_domain = acme_config["domains"][0]
+        cert_file = str(cert_dir / f"{primary_domain}.crt")
+        key_file = str(cert_dir / f"{primary_domain}.key")
+
+        # Check if certificates need renewal
+        if acme_client.needs_renewal(cert_file, days_before_expiry=30):
+            logger.info("ACME certificates need provisioning or renewal")
+
+            # Request new certificates
+            cert_bytes, key_bytes = acme_client.request_certificate(
+                domains=acme_config["domains"],
+                challenge_type=acme_config.get("challenge_type", "http-01"),
+                cert_file=cert_file,
+                key_file=key_file,
+                challenge_dir=acme_config.get(
+                    "challenge_dir", ".well-known/acme-challenge"
+                ),
+            )
+
+            logger.info("ACME certificate provisioning completed")
+        else:
+            logger.info("Existing ACME certificates are still valid")
+
+        return Success(data=(cert_file, key_file))
+
+    except Exception as e:
+        return Error(error=f"ACME certificate provisioning failed: {e}", exception=e)
+
+
 def determine_serve_mode(config: dict) -> ServeMode:
-    """Determine which specialized serve command to use based on configuration.
-
-    Args:
-        config: Server configuration dictionary
-
-    Returns:
-        ServeMode indicating the appropriate deployment mode
-    """
+    """Determine which specialized serve command to use based on configuration."""
     tls_enabled = config.get("tls", {}).get("enabled", False)
     acme_enabled = config.get("acme", {}).get("enabled", False)
 
@@ -1156,17 +1143,7 @@ def determine_serve_mode(config: dict) -> ServeMode:
 
 
 @cli.command(name="serve-insecure")
-@click.option("--host", default=None, help="Host to bind to")
-@click.option("--port", type=int, default=None, help="Port to bind to")
-@click.option("--model", default=None, help="Default LLM model")
-@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
-    help="Logging level",
-)
-@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
-@click.option("--config", type=click.Path(), help="Configuration file path")
+@common_server_options()
 def serve_insecure(
     host: str | None,
     port: int | None,
@@ -1179,22 +1156,22 @@ def serve_insecure(
     """Start insecure HTTP server (development only)."""
 
     # Build configuration overrides
-    overrides: dict = {
+    overrides: dict[str, Any] = {
         "tls": {"enabled": False},  # Force TLS off
         "acme": {"enabled": False},  # Force ACME off
     }
 
     # Build server section if needed
     if host or port or model or max_workers or log_level:
-        server_overrides = {}
+        server_overrides: dict[str, Any] = {}
         if host:
             server_overrides["host"] = host
         if port:
-            server_overrides["port"] = str(port)  # Convert int to str
+            server_overrides["port"] = port
         if model:
             server_overrides["default_model"] = model
         if max_workers:
-            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+            server_overrides["max_workers"] = max_workers
         if log_level:
             server_overrides["log_level"] = log_level
         overrides["server"] = server_overrides
@@ -1228,23 +1205,13 @@ def serve_insecure(
 
 
 @cli.command(name="serve-ca")
-@click.option("--host", default=None, help="Host to bind to")
-@click.option("--port", type=int, default=None, help="Port to bind to")
-@click.option("--model", default=None, help="Default LLM model")
-@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
-    help="Logging level",
-)
-@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@common_server_options()
 @click.option("--ca-dir", type=click.Path(), help="CA directory path")
 @click.option("--hostname", default="localhost", help="Certificate hostname")
 @click.option("--san", multiple=True, help="Subject Alternative Names")
 @click.option(
     "--validity-days", type=int, default=90, help="Certificate validity in days"
 )
-@click.option("--config", type=click.Path(), help="Configuration file path")
 def serve_ca(
     host: str | None,
     port: int | None,
@@ -1252,11 +1219,11 @@ def serve_ca(
     max_workers: int | None,
     log_level: str | None,
     require_auth: bool,
+    config: str | None,
     ca_dir: str | None,
     hostname: str,
     san: tuple[str, ...],
     validity_days: int,
-    config: str | None,
 ) -> None:
     """Start server with private CA certificates."""
 
@@ -1290,7 +1257,7 @@ def serve_ca(
         return
 
     # Build configuration overrides
-    overrides: dict = {
+    overrides: dict[str, Any] = {
         "tls": {
             "enabled": True,
             "cert_file": str(cert_path),
@@ -1306,7 +1273,7 @@ def serve_ca(
     if port:
         if "server" not in overrides:
             overrides["server"] = {}
-        overrides["server"]["port"] = str(port)
+        overrides["server"]["port"] = port
     if model:
         if "server" not in overrides:
             overrides["server"] = {}
@@ -1314,7 +1281,7 @@ def serve_ca(
     if max_workers:
         if "server" not in overrides:
             overrides["server"] = {}
-        overrides["server"]["max_workers"] = str(max_workers)
+        overrides["server"]["max_workers"] = max_workers
     if log_level:
         if "server" not in overrides:
             overrides["server"] = {}
@@ -1343,16 +1310,7 @@ def serve_ca(
 
 
 @cli.command(name="serve-acme")
-@click.option("--host", default=None, help="Host to bind to")
-@click.option("--port", type=int, default=None, help="Port to bind to")
-@click.option("--model", default=None, help="Default LLM model")
-@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
-    help="Logging level",
-)
-@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@common_server_options()
 @click.option("--email", required=True, help="ACME account email")
 @click.option(
     "--domain",
@@ -1367,7 +1325,6 @@ def serve_ca(
     default="http-01",
     help="Challenge type",
 )
-@click.option("--config", type=click.Path(), help="Configuration file path")
 def serve_acme(
     host: str | None,
     port: int | None,
@@ -1375,16 +1332,16 @@ def serve_acme(
     max_workers: int | None,
     log_level: str | None,
     require_auth: bool,
+    config: str | None,
     email: str,
     domain: tuple[str, ...],
     staging: bool,
     challenge_type: str,
-    config: str | None,
 ) -> None:
-    """Start server with Let's Encrypt/ACME certificates."""
+    """Start server with Let's Encrypt ACME certificates."""
 
     # Build configuration overrides
-    overrides = {
+    overrides: dict[str, Any] = {
         "tls": {"enabled": True},
         "acme": {
             "enabled": True,
@@ -1397,17 +1354,17 @@ def serve_acme(
 
     # Build server section if needed
     if host or port or model or max_workers or log_level:
-        server_overrides = {}
+        server_overrides: dict[str, Any] = {}
         if host:
             server_overrides["host"] = host
         if port:
-            server_overrides["port"] = str(port)  # Convert int to str
+            server_overrides["port"] = port
         elif not port:  # Default to 443 for ACME/TLS
-            server_overrides["port"] = "443"
+            server_overrides["port"] = 443
         if model:
             server_overrides["default_model"] = model
         if max_workers:
-            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+            server_overrides["max_workers"] = max_workers
         if log_level:
             server_overrides["log_level"] = log_level
         overrides["server"] = server_overrides
@@ -1435,16 +1392,7 @@ def serve_acme(
 
 
 @cli.command(name="serve-custom")
-@click.option("--host", default=None, help="Host to bind to")
-@click.option("--port", type=int, default=None, help="Port to bind to")
-@click.option("--model", default=None, help="Default LLM model")
-@click.option("--max-workers", type=int, default=None, help="Maximum worker threads")
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
-    help="Logging level",
-)
-@click.option("--require-auth", is_flag=True, help="Enable JWT authentication")
+@common_server_options()
 @click.option(
     "--cert-file",
     required=True,
@@ -1462,7 +1410,6 @@ def serve_acme(
     type=click.Path(exists=True),
     help="CA bundle for client verification",
 )
-@click.option("--config", type=click.Path(), help="Configuration file path")
 def serve_custom(
     host: str | None,
     port: int | None,
@@ -1470,15 +1417,15 @@ def serve_custom(
     max_workers: int | None,
     log_level: str | None,
     require_auth: bool,
+    config: str | None,
     cert_file: str,
     key_file: str,
     ca_bundle_file: str | None,
-    config: str | None,
 ) -> None:
-    """Start server with advanced/custom TLS configuration."""
+    """Start server with custom TLS certificates."""
 
     # Build configuration overrides
-    overrides: dict = {
+    overrides: dict[str, Any] = {
         "tls": {"enabled": True, "cert_file": cert_file, "key_file": key_file},
         "acme": {"enabled": False},
     }
@@ -1488,15 +1435,15 @@ def serve_custom(
 
     # Build server section if needed
     if host or port or model or max_workers or log_level:
-        server_overrides = {}
+        server_overrides: dict[str, Any] = {}
         if host:
             server_overrides["host"] = host
         if port:
-            server_overrides["port"] = str(port)  # Convert int to str
+            server_overrides["port"] = port
         if model:
             server_overrides["default_model"] = model
         if max_workers:
-            server_overrides["max_workers"] = str(max_workers)  # Convert int to str
+            server_overrides["max_workers"] = max_workers
         if log_level:
             server_overrides["log_level"] = log_level
         overrides["server"] = server_overrides

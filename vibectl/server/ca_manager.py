@@ -558,6 +558,8 @@ def setup_private_ca(
     ca_dir: Path,
     root_cn: str = "vibectl Root CA",
     intermediate_cn: str = "vibectl Intermediate CA",
+    organization: str = "vibectl",
+    country: str = "US",
 ) -> CAManager:
     """Set up a complete private CA infrastructure.
 
@@ -565,6 +567,8 @@ def setup_private_ca(
         ca_dir: Directory to create CA in
         root_cn: Common name for root CA
         intermediate_cn: Common name for intermediate CA
+        organization: Organization name for certificates
+        country: Country code for certificates (2 letters)
 
     Returns:
         Configured CAManager instance
@@ -575,12 +579,16 @@ def setup_private_ca(
     root_cert_path = ca_manager.root_ca_dir / "ca.crt"
     if not root_cert_path.exists():
         logger.info("Creating private CA infrastructure...")
-        ca_manager.create_root_ca(common_name=root_cn)
+        ca_manager.create_root_ca(
+            common_name=root_cn, organization=organization, country=country
+        )
 
     # Create Intermediate CA if it doesn't exist
     intermediate_cert_path = ca_manager.intermediate_ca_dir / "ca.crt"
     if not intermediate_cert_path.exists():
-        ca_manager.create_intermediate_ca(common_name=intermediate_cn)
+        ca_manager.create_intermediate_ca(
+            common_name=intermediate_cn, organization=organization, country=country
+        )
 
     # Create CA bundle
     ca_manager.create_ca_bundle()

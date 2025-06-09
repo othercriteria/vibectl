@@ -5,14 +5,17 @@ Tests cover certificate validation, loading, generation, and utility functions
 for TLS support in the vibectl LLM proxy server.
 """
 
+import contextlib
 import os
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
 
 from vibectl.server.cert_utils import (
+    create_certificate_signing_request,
     ensure_certificate_exists,
     generate_self_signed_certificate,
     get_default_cert_paths,
@@ -503,3 +506,121 @@ class TestHandleCertificateGenerationForServer:
             assert result_key == key_file
             mock_get_config_dir.assert_called_once()
             mock_get_default_paths.assert_called_once_with(mock_config_dir)
+
+
+class TestCreateCertificateSigningRequest:
+    """Test CSR creation functionality."""
+
+    def test_create_csr_single_domain(self) -> None:
+        """Test CSR creation for single domain."""
+        from cryptography import x509
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Generate a test private key
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+
+        domains = ["example.com"]
+        csr = create_certificate_signing_request(domains, private_key)
+
+        # Verify it's a valid CSR
+        assert isinstance(csr, x509.CertificateSigningRequest)
+
+        # Check subject
+        subject = csr.subject
+        cn_attributes = [
+            attr for attr in subject if attr.oid == x509.NameOID.COMMON_NAME
+        ]
+        assert len(cn_attributes) == 1
+        assert cn_attributes[0].value == "example.com"
+
+        # Check SAN extension exists
+        san_ext = None
+        with contextlib.suppress(x509.ExtensionNotFound):
+            san_ext = csr.extensions.get_extension_for_oid(
+                x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+            )
+
+        assert san_ext is not None
+        # Type cast for mypy - we know this is a SubjectAlternativeName
+        san_value = cast(x509.SubjectAlternativeName, san_ext.value)
+        dns_names = [name.value for name in san_value if isinstance(name, x509.DNSName)]
+        assert "example.com" in dns_names
+
+    def test_create_csr_multiple_domains(self) -> None:
+        """Test CSR creation for multiple domains."""
+        from cryptography import x509
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Generate a test private key
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+
+        domains = ["example.com", "www.example.com", "api.example.com"]
+        csr = create_certificate_signing_request(domains, private_key)
+
+        # Verify it's a valid CSR
+        assert isinstance(csr, x509.CertificateSigningRequest)
+
+        # Check subject (should use first domain as CN)
+        subject = csr.subject
+        cn_attributes = [
+            attr for attr in subject if attr.oid == x509.NameOID.COMMON_NAME
+        ]
+        assert len(cn_attributes) == 1
+        assert cn_attributes[0].value == "example.com"
+
+        # Check SAN extension includes all domains
+        san_ext = csr.extensions.get_extension_for_oid(
+            x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
+        # Type cast for mypy - we know this is a SubjectAlternativeName
+        san_value = cast(x509.SubjectAlternativeName, san_ext.value)
+        dns_names = [name.value for name in san_value if isinstance(name, x509.DNSName)]
+
+        for domain in domains:
+            assert domain in dns_names
+
+    def test_create_csr_with_organization(self) -> None:
+        """Test CSR creation with organization information."""
+        from cryptography import x509
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Generate a test private key
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+
+        domains = ["example.com"]
+        csr = create_certificate_signing_request(
+            domains, private_key, organization="Test Org", country="US"
+        )
+
+        # Check subject includes organization and country
+        subject = csr.subject
+
+        org_attributes = [
+            attr for attr in subject if attr.oid == x509.NameOID.ORGANIZATION_NAME
+        ]
+        assert len(org_attributes) == 1
+        assert org_attributes[0].value == "Test Org"
+
+        country_attributes = [
+            attr for attr in subject if attr.oid == x509.NameOID.COUNTRY_NAME
+        ]
+        assert len(country_attributes) == 1
+        assert country_attributes[0].value == "US"
+
+    def test_create_csr_invalid_key(self) -> None:
+        """Test CSR creation with invalid private key."""
+        from vibectl.types import CertificateGenerationError
+
+        domains = ["example.com"]
+
+        with pytest.raises(CertificateGenerationError, match="Failed to create CSR"):
+            create_certificate_signing_request(domains, "invalid_key")  # type: ignore
