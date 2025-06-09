@@ -19,7 +19,6 @@ from rich.table import Table
 from vibectl.config_utils import (
     ensure_config_dir,
     get_config_dir,
-    load_yaml_config,
     parse_duration_to_days,
 )
 from vibectl.console import console_manager
@@ -30,6 +29,11 @@ from vibectl.utils import handle_exception
 from . import cert_utils
 from .acme_client import LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, create_acme_client
 from .ca_manager import CAManager, CAManagerError, setup_private_ca
+from .config import (
+    ServerConfig,
+    create_default_server_config,
+    load_server_config,
+)
 from .grpc_server import create_server
 from .jwt_auth import JWTAuthManager, load_config_with_generation
 
@@ -75,93 +79,6 @@ def signal_handler(signum: int, frame: object) -> None:
     shutdown_event = True
 
 
-def get_server_config_path() -> Path:
-    """Get the path to the server configuration file.
-
-    Returns:
-        Path to the server configuration file
-    """
-    return get_config_dir("server") / "config.yaml"
-
-
-def get_default_server_config() -> dict:
-    """Get the default server configuration.
-
-    This function provides the default configuration values used by both
-    load_server_config() and create_default_config() to avoid duplication.
-    """
-    return {
-        "server": {
-            "host": "0.0.0.0",
-            "port": 50051,
-            "default_model": "anthropic/claude-3-7-sonnet-latest",
-            "max_workers": 10,
-            "log_level": "INFO",
-        },
-        "tls": {
-            "enabled": False,
-            "cert_file": None,
-            "key_file": None,
-            "ca_bundle_file": None,
-        },
-        "acme": {
-            "enabled": False,
-            "email": None,
-            "domains": [],
-            "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
-            "staging": False,
-            "challenge_type": "http-01",
-            "challenge_dir": ".well-known/acme-challenge",
-            "auto_renew": True,
-            "renew_days_before_expiry": 30,
-        },
-        "jwt": {
-            "enabled": False,
-            "secret_key": None,  # Will use environment or generate if None
-            "secret_key_file": None,  # Path to file containing secret key
-            "algorithm": "HS256",
-            "issuer": "vibectl-server",
-            "expiration_days": 30,
-        },
-    }
-
-
-def load_server_config(config_path: Path | None = None) -> Result:
-    """Load server configuration from file or create defaults."""
-    if config_path is None:
-        config_path = get_server_config_path()
-
-    try:
-        # Use shared config loading utility with deep merge
-        config = load_yaml_config(config_path, get_default_server_config())
-        return Success(data=config)
-    except ValueError as e:
-        logger.error("Failed to load config from %s: %s", config_path, e)
-        logger.info("Using default configuration")
-        return Success(data=get_default_server_config())
-
-
-def create_default_config(config_path: Path | None = None) -> Result:
-    """Create a default configuration file."""
-    import yaml
-
-    if config_path is None:
-        config_path = get_server_config_path()
-
-    try:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        default_config = get_default_server_config()
-
-        with config_path.open("w") as f:
-            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
-
-        return Success(message=f"Created default config at {config_path}")
-    except Exception as e:
-        return Error(
-            error=f"Failed to create config file at {config_path}: {e}", exception=e
-        )
-
-
 def parse_duration(duration_str: str) -> Result:
     """Parse a duration string into days."""
     try:
@@ -171,23 +88,6 @@ def parse_duration(duration_str: str) -> Result:
         return Error(error=str(e))
     except Exception as e:
         return Error(error=f"Failed to parse duration: {e}", exception=e)
-
-
-def validate_config(host: str, port: int, max_workers: int) -> Result:
-    """Validate server configuration values."""
-    try:
-        if not isinstance(port, int) or port < 1 or port > 65535:
-            return Error(
-                error=f"Invalid port number: {port}. Must be between 1 and 65535"
-            )
-
-        if not isinstance(max_workers, int) or max_workers < 1:
-            return Error(error=f"Invalid max_workers: {max_workers}. Must be >= 1")
-
-        # Host validation would go here if needed
-        return Success()
-    except Exception as e:
-        return Error(error=f"Configuration validation failed: {e}", exception=e)
 
 
 def handle_result(result: Result, exit_on_error: bool = True) -> None:
@@ -296,7 +196,7 @@ def _generate_jwt_token(
 @cli.command()
 @click.option("--force", is_flag=True, help="Overwrite existing configuration files")
 def init_config(force: bool) -> None:
-    """Initialize server configuration directory and files"""
+    """Initialize server configuration with default values."""
     try:
         config_dir = ensure_config_dir("server")
         config_file = config_dir / "config.yaml"
@@ -308,7 +208,7 @@ def init_config(force: bool) -> None:
             console_manager.print_note("Use --force to overwrite")
             sys.exit(1)
 
-        result = create_default_config()
+        result = create_default_server_config(config_file, force=force)
         if isinstance(result, Error):
             handle_result(result)
             return
@@ -912,59 +812,71 @@ def _check_certificate_expiry(ca_dir: str | None, days: int) -> Result:
     return Success(message=message)
 
 
+def _build_config_overrides(
+    host: str | None = None,
+    port: int | None = None,
+    model: str | None = None,
+    max_workers: int | None = None,
+    log_level: str | None = None,
+    require_auth: bool = False,
+    tls_overrides: dict[str, Any] | None = None,
+    jwt_overrides: dict[str, Any] | None = None,
+    acme_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build configuration overrides from CLI parameters and explicit overrides."""
+    overrides: dict[str, Any] = {}
+
+    # Build server section if any server parameters are provided
+    server_params = {
+        "host": host,
+        "port": port,
+        "default_model": model,
+        "max_workers": max_workers,
+        "log_level": log_level,
+    }
+    server_overrides = {k: v for k, v in server_params.items() if v is not None}
+    if server_overrides:
+        overrides["server"] = server_overrides
+
+    # Build JWT section if authentication is enabled
+    if require_auth:
+        overrides["jwt"] = {"enabled": True}
+
+    # Add explicit overrides
+    if tls_overrides:
+        overrides["tls"] = tls_overrides
+    if jwt_overrides:
+        if "jwt" in overrides:
+            overrides["jwt"].update(jwt_overrides)
+        else:
+            overrides["jwt"] = jwt_overrides
+    if acme_overrides:
+        overrides["acme"] = acme_overrides
+
+    return overrides
+
+
 def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Result:
     """Load configuration with CLI overrides and validation."""
+    # Create server config instance
+    server_config_manager = ServerConfig(config_path)
+
     # Load base configuration
-    config_result = load_server_config(config_path)
+    config_result = server_config_manager.load()
     if isinstance(config_result, Error):
         return config_result
 
     server_config = config_result.data if config_result.data is not None else {}
 
-    # Apply overrides using deep merge
-    def deep_merge(base: dict, updates: dict) -> dict:
-        """Recursively merge dictionaries."""
-        result = base.copy()
-        for key, value in updates.items():
-            if (
-                key in result
-                and isinstance(result[key], dict)
-                and isinstance(value, dict)
-            ):
-                result[key] = deep_merge(result[key], value)
-            else:
-                result[key] = value
-        return result
+    # Apply overrides using the config manager's deep merge
+    merged_config = server_config_manager.apply_overrides(server_config, overrides)
 
-    server_config = deep_merge(server_config, overrides)
-
-    # Validate configuration - extract values with proper types
-    server_section = server_config.get("server", {})
-    host = server_section.get("host", "0.0.0.0")
-    port = server_section.get("port", 50051)
-    max_workers = server_section.get("max_workers", 10)
-
-    # Ensure port and max_workers are integers
-    if not isinstance(port, int):
-        try:
-            port = int(port)
-            server_section["port"] = port
-        except (ValueError, TypeError):
-            return Error(error=f"Invalid port value: {port}")
-
-    if not isinstance(max_workers, int):
-        try:
-            max_workers = int(max_workers)
-            server_section["max_workers"] = max_workers
-        except (ValueError, TypeError):
-            return Error(error=f"Invalid max_workers value: {max_workers}")
-
-    # Validate configuration
-    validation_result = validate_config(host, port, max_workers)
+    # Validate configuration using the config manager
+    validation_result = server_config_manager.validate(merged_config)
     if isinstance(validation_result, Error):
         return validation_result
 
-    return Success(data=server_config)
+    return Success(data=validation_result.data)
 
 
 def _create_and_start_server_common(server_config: dict) -> Result:
@@ -1155,30 +1067,17 @@ def serve_insecure(
 ) -> None:
     """Start insecure HTTP server (development only)."""
 
-    # Build configuration overrides
-    overrides: dict[str, Any] = {
-        "tls": {"enabled": False},  # Force TLS off
-        "acme": {"enabled": False},  # Force ACME off
-    }
-
-    # Build server section if needed
-    if host or port or model or max_workers or log_level:
-        server_overrides: dict[str, Any] = {}
-        if host:
-            server_overrides["host"] = host
-        if port:
-            server_overrides["port"] = port
-        if model:
-            server_overrides["default_model"] = model
-        if max_workers:
-            server_overrides["max_workers"] = max_workers
-        if log_level:
-            server_overrides["log_level"] = log_level
-        overrides["server"] = server_overrides
-
-    # Build JWT section if needed
-    if require_auth:
-        overrides["jwt"] = {"enabled": require_auth}
+    # Build configuration overrides using helper
+    overrides = _build_config_overrides(
+        host=host,
+        port=port,
+        model=model,
+        max_workers=max_workers,
+        log_level=log_level,
+        require_auth=require_auth,
+        tls_overrides={"enabled": False},  # Force TLS off
+        acme_overrides={"enabled": False},  # Force ACME off
+    )
 
     config_path = Path(config) if config else None
     config_result = _load_and_validate_config(config_path, overrides)
@@ -1256,40 +1155,21 @@ def serve_ca(
         handle_result(Error(error=f"Failed to create server certificate: {e}"))
         return
 
-    # Build configuration overrides
-    overrides: dict[str, Any] = {
-        "tls": {
+    # Build configuration overrides using helper
+    overrides = _build_config_overrides(
+        host=host,
+        port=port,
+        model=model,
+        max_workers=max_workers,
+        log_level=log_level,
+        require_auth=require_auth,
+        tls_overrides={
             "enabled": True,
             "cert_file": str(cert_path),
             "key_file": str(key_path),
         },
-        "acme": {"enabled": False},
-    }
-
-    if host:
-        if "server" not in overrides:
-            overrides["server"] = {}
-        overrides["server"]["host"] = host
-    if port:
-        if "server" not in overrides:
-            overrides["server"] = {}
-        overrides["server"]["port"] = port
-    if model:
-        if "server" not in overrides:
-            overrides["server"] = {}
-        overrides["server"]["default_model"] = model
-    if max_workers:
-        if "server" not in overrides:
-            overrides["server"] = {}
-        overrides["server"]["max_workers"] = max_workers
-    if log_level:
-        if "server" not in overrides:
-            overrides["server"] = {}
-        overrides["server"]["log_level"] = log_level
-    if require_auth:
-        if "jwt" not in overrides:
-            overrides["jwt"] = {}
-        overrides["jwt"]["enabled"] = require_auth
+        acme_overrides={"enabled": False},
+    )
 
     config_path = Path(config) if config else None
     config_result = _load_and_validate_config(config_path, overrides)
@@ -1340,38 +1220,26 @@ def serve_acme(
 ) -> None:
     """Start server with Let's Encrypt ACME certificates."""
 
-    # Build configuration overrides
-    overrides: dict[str, Any] = {
-        "tls": {"enabled": True},
-        "acme": {
+    # Build configuration overrides using helper
+    # Default to port 443 for ACME/TLS if no port specified
+    acme_port = port if port is not None else 443
+
+    overrides = _build_config_overrides(
+        host=host,
+        port=acme_port,
+        model=model,
+        max_workers=max_workers,
+        log_level=log_level,
+        require_auth=require_auth,
+        tls_overrides={"enabled": True},
+        acme_overrides={
             "enabled": True,
             "email": email,
             "domains": list(domain),
             "staging": staging,
             "challenge_type": challenge_type,
         },
-    }
-
-    # Build server section if needed
-    if host or port or model or max_workers or log_level:
-        server_overrides: dict[str, Any] = {}
-        if host:
-            server_overrides["host"] = host
-        if port:
-            server_overrides["port"] = port
-        elif not port:  # Default to 443 for ACME/TLS
-            server_overrides["port"] = 443
-        if model:
-            server_overrides["default_model"] = model
-        if max_workers:
-            server_overrides["max_workers"] = max_workers
-        if log_level:
-            server_overrides["log_level"] = log_level
-        overrides["server"] = server_overrides
-
-    # Build JWT section if needed
-    if require_auth:
-        overrides["jwt"] = {"enabled": require_auth}
+    )
 
     config_path = Path(config) if config else None
     config_result = _load_and_validate_config(config_path, overrides)
@@ -1424,33 +1292,27 @@ def serve_custom(
 ) -> None:
     """Start server with custom TLS certificates."""
 
-    # Build configuration overrides
-    overrides: dict[str, Any] = {
-        "tls": {"enabled": True, "cert_file": cert_file, "key_file": key_file},
-        "acme": {"enabled": False},
+    # Prepare TLS overrides with cert files
+    tls_overrides = {
+        "enabled": True,
+        "cert_file": cert_file,
+        "key_file": key_file,
     }
 
     if ca_bundle_file:
-        overrides["tls"]["ca_bundle_file"] = ca_bundle_file
+        tls_overrides["ca_bundle_file"] = ca_bundle_file
 
-    # Build server section if needed
-    if host or port or model or max_workers or log_level:
-        server_overrides: dict[str, Any] = {}
-        if host:
-            server_overrides["host"] = host
-        if port:
-            server_overrides["port"] = port
-        if model:
-            server_overrides["default_model"] = model
-        if max_workers:
-            server_overrides["max_workers"] = max_workers
-        if log_level:
-            server_overrides["log_level"] = log_level
-        overrides["server"] = server_overrides
-
-    # Build JWT section if needed
-    if require_auth:
-        overrides["jwt"] = {"enabled": require_auth}
+    # Build configuration overrides using helper
+    overrides = _build_config_overrides(
+        host=host,
+        port=port,
+        model=model,
+        max_workers=max_workers,
+        log_level=log_level,
+        require_auth=require_auth,
+        tls_overrides=tls_overrides,
+        acme_overrides={"enabled": False},
+    )
 
     config_path = Path(config) if config else None
     config_result = _load_and_validate_config(config_path, overrides)

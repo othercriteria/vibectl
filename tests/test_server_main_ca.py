@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from click.testing import CliRunner
 
 from vibectl.server.ca_manager import CAManagerError
+from vibectl.server.config import get_default_server_config
 from vibectl.server.main import (
     _check_certificate_expiry,
     _check_certificate_status,
@@ -19,7 +20,6 @@ from vibectl.server.main import (
     _initialize_ca,
     _show_ca_status,
     cli,
-    get_default_server_config,
 )
 from vibectl.types import Error, Success
 

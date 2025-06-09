@@ -9,25 +9,28 @@ import os
 import signal
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
+from typing import Any
+from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from vibectl.server.main import (
-    cli,
-    create_default_config,
-    generate_certs,
-    generate_token,
+from vibectl.server.config import (
+    create_default_server_config as create_default_config,
     get_default_server_config,
     get_server_config_path,
-    init_config,
     load_server_config,
+    validate_server_config as validate_config,
+)
+from vibectl.server.main import (
+    cli,
+    generate_certs,
+    generate_token,
+    init_config,
     main,
     parse_duration,
     serve,
     serve_insecure,
     signal_handler,
-    validate_config,
 )
 from vibectl.types import Error, Success
 
@@ -35,244 +38,101 @@ from vibectl.types import Error, Success
 class TestConfigurationManagement:
     """Test configuration-related functions."""
 
-    @patch("vibectl.server.main.get_config_dir")
-    def test_get_server_config_path(self, mock_get_config_dir: Mock) -> None:
+    def test_get_server_config_path(self) -> None:
         """Test getting server configuration path."""
-        mock_config_dir = Path("/mock/config")
-        mock_get_config_dir.return_value = mock_config_dir
-
         result = get_server_config_path()
 
-        mock_get_config_dir.assert_called_once_with("server")
-        assert result == mock_config_dir / "config.yaml"
+        # Should return a Path object pointing to the expected location
+        assert isinstance(result, Path)
+        expected_path = Path.home() / ".config" / "vibectl" / "server" / "config.yaml"
+        assert result == expected_path
 
     def test_get_default_server_config(self) -> None:
-        """Test get_default_server_config returns correct structure."""
+        """Test getting default server configuration."""
         config = get_default_server_config()
 
-        # Check structure and required keys
         assert isinstance(config, dict)
         assert "server" in config
-        assert "tls" in config
         assert "jwt" in config
+        assert "tls" in config
+        assert "acme" in config
 
         # Check server section
         server_config = config["server"]
         assert server_config["host"] == "0.0.0.0"
         assert server_config["port"] == 50051
-        assert server_config["default_model"] == "anthropic/claude-3-7-sonnet-latest"
         assert server_config["max_workers"] == 10
+        assert server_config["default_model"] == "anthropic/claude-3-7-sonnet-latest"
         assert server_config["log_level"] == "INFO"
 
-        # Check tls section
-        tls_config = config["tls"]
-        assert tls_config["enabled"] is False
-        assert tls_config["cert_file"] is None
-        assert tls_config["key_file"] is None
-        assert tls_config["ca_bundle_file"] is None
-
-        # Check jwt section
-        jwt_config = config["jwt"]
-        assert jwt_config["enabled"] is False
-        assert jwt_config["secret_key"] is None
-        assert jwt_config["secret_key_file"] is None
-        assert jwt_config["algorithm"] == "HS256"
-        assert jwt_config["issuer"] == "vibectl-server"
-        assert jwt_config["expiration_days"] == 30
-
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("vibectl.server.main.load_yaml_config")
-    def test_load_server_config_file_exists(
-        self, mock_load_yaml: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test loading server config from existing file."""
-        mock_path = Mock()
-        mock_get_path.return_value = mock_path
-
-        # Mock the deep-merged result that load_yaml_config returns
-        merged_config = {
-            "server": {
-                "host": "custom.host",  # From user config
-                "port": 8080,  # From user config
-                "default_model": "anthropic/claude-3-7-sonnet-latest",  # From defaults
-                "max_workers": 10,  # From defaults
-                "log_level": "INFO",  # From defaults
-            },
-            "tls": {
-                "enabled": True,  # From user config
-                "cert_file": "/path/to/cert.pem",  # From user config
-                "key_file": "/path/to/key.pem",  # From user config
-                "ca_bundle_file": None,  # From defaults
-            },
-            "jwt": {
-                "enabled": True,  # From user config
-                "secret_key": "custom_secret",  # From user config
-                "secret_key_file": None,  # From defaults
-                "algorithm": "HS256",  # From defaults
-                "issuer": "vibectl-server",  # From defaults
-                "expiration_days": 30,  # From defaults
-            },
-        }
-
-        mock_load_yaml.return_value = merged_config
-        mock_path.exists.return_value = True
-
-        # Load the configuration
-        result = load_server_config()
-
-        # Verify the result is Success and configuration matches
-        assert isinstance(result, Success)
-        mock_load_yaml.assert_called_once_with(mock_path, get_default_server_config())
-        config_data = result.data
-        assert isinstance(config_data, dict)
-        assert config_data["server"]["host"] == "custom.host"
-        assert config_data["server"]["port"] == 8080
-
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("vibectl.server.main.load_yaml_config")
-    def test_load_server_config_file_not_exists(
-        self, mock_load_yaml: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test loading server config when file doesn't exist."""
-        mock_path = Mock()
-        mock_get_path.return_value = mock_path
-
-        # When file doesn't exist, load_yaml_config should return defaults
+    @patch("vibectl.server.config.ServerConfig.load")
+    def test_load_server_config_success(self, mock_load: Mock) -> None:
+        """Test loading server config successfully."""
         expected_config = get_default_server_config()
-        mock_load_yaml.return_value = expected_config
+        expected_config["server"]["host"] = "custom.host"
+        expected_config["server"]["port"] = 8080
+
+        mock_load.return_value = Success(data=expected_config)
 
         result = load_server_config()
 
         assert isinstance(result, Success)
-        mock_load_yaml.assert_called_once_with(mock_path, get_default_server_config())
-        config_data = result.data
-        assert isinstance(config_data, dict)
-        assert config_data["server"]["host"] == "0.0.0.0"
-        assert config_data["server"]["port"] == 50051
+        assert result.data == expected_config
+        mock_load.assert_called_once()
 
-    @patch("vibectl.server.main.load_yaml_config")
-    def test_load_server_config_with_explicit_path(self, mock_load_yaml: Mock) -> None:
+    @patch("vibectl.server.config.ServerConfig.load")
+    def test_load_server_config_error(self, mock_load: Mock) -> None:
+        """Test loading server config with error."""
+        mock_load.return_value = Error(error="Failed to load config")
+
+        result = load_server_config()
+
+        assert isinstance(result, Error)
+        assert "Failed to load config" in result.error
+        mock_load.assert_called_once()
+
+    @patch("vibectl.server.config.ServerConfig.load")
+    def test_load_server_config_with_path(self, mock_load: Mock) -> None:
         """Test loading server config with explicit path."""
-        explicit_path = Path("/explicit/config.yaml")
-
-        # Set up expected config with explicit host in structured format
+        config_path = Path("/test/config.yaml")
         expected_config = get_default_server_config()
-        expected_config["server"]["host"] = "explicit.host"
-        mock_load_yaml.return_value = expected_config
+        mock_load.return_value = Success(data=expected_config)
 
-        result = load_server_config(explicit_path)
+        result = load_server_config(config_path)
 
         assert isinstance(result, Success)
-        mock_load_yaml.assert_called_once_with(
-            explicit_path, get_default_server_config()
-        )
-        config_data = result.data
-        assert isinstance(config_data, dict)
-        assert config_data["server"]["host"] == "explicit.host"
+        mock_load.assert_called_once()
 
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.exists")
-    def test_load_server_config_yaml_error(
-        self, mock_exists: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test loading server config with YAML error."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-        mock_exists.return_value = True
-
-        with (
-            patch("builtins.open", mock_open(read_data="invalid: yaml: content")),
-            patch(
-                "vibectl.config_utils.load_yaml_config",
-                side_effect=ValueError("Invalid YAML"),
-            ),
-        ):
-            result = load_server_config()
-
-        # Should return Success with defaults on error
-        assert isinstance(result, Success)
-        expected = get_default_server_config()
-        assert result.data == expected
-
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.exists")
-    def test_load_server_config_empty_file(
-        self, mock_exists: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test loading server config with empty file."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-        mock_exists.return_value = True
-
-        with (
-            patch("builtins.open", mock_open(read_data="")),
-            patch(
-                "vibectl.config_utils.load_yaml_config",
-                return_value=get_default_server_config(),
-            ),
-        ):
-            result = load_server_config()
-
-        # Should return Success with defaults when file is empty
-        assert isinstance(result, Success)
-        expected = get_default_server_config()
-        assert result.data == expected
-
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.mkdir")
-    @patch("pathlib.Path.open")
-    def test_create_default_config(
-        self, mock_path_open: Mock, mock_mkdir: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test creating default configuration file."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-
-        # Mock the file opening and writing
-        mock_file = mock_open()
-        mock_path_open.return_value = mock_file.return_value
+    @patch("vibectl.server.config.ServerConfig.create_default")
+    def test_create_default_config_success(self, mock_create: Mock) -> None:
+        """Test creating default config successfully."""
+        mock_create.return_value = Success()
 
         result = create_default_config()
 
         assert isinstance(result, Success)
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
-        # Verify open was called with "w" mode
-        mock_path_open.assert_called_once_with("w")
+        mock_create.assert_called_once_with(False)
 
-    @patch("pathlib.Path.mkdir")
-    @patch("pathlib.Path.open")
-    def test_create_default_config_with_explicit_path(
-        self, mock_path_open: Mock, mock_mkdir: Mock
-    ) -> None:
-        """Test creating default config with explicit path."""
-        explicit_path = Path("/explicit/config.yaml")
+    @patch("vibectl.server.config.ServerConfig.create_default")
+    def test_create_default_config_with_force(self, mock_create: Mock) -> None:
+        """Test creating default config with force flag."""
+        mock_create.return_value = Success()
 
-        # Mock the file opening and writing
-        mock_file = mock_open()
-        mock_path_open.return_value = mock_file.return_value
-
-        result = create_default_config(explicit_path)
+        result = create_default_config(force=True)
 
         assert isinstance(result, Success)
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
-        # Verify open was called with "w" mode
-        mock_path_open.assert_called_once_with("w")
+        mock_create.assert_called_once_with(True)
 
-    @patch("vibectl.server.main.get_server_config_path")
-    @patch("pathlib.Path.mkdir")
-    @patch("pathlib.Path.open")
-    def test_create_default_config_write_error(
-        self, mock_open: Mock, mock_mkdir: Mock, mock_get_path: Mock
-    ) -> None:
-        """Test creating default config with write error."""
-        config_path = Path("/mock/config.yaml")
-        mock_get_path.return_value = config_path
-        mock_open.side_effect = OSError("Permission denied")
+    @patch("vibectl.server.config.ServerConfig.create_default")
+    def test_create_default_config_error(self, mock_create: Mock) -> None:
+        """Test creating default config with error."""
+        mock_create.return_value = Error(error="Failed to create config")
 
         result = create_default_config()
 
         assert isinstance(result, Error)
-        assert "Permission denied" in result.error
+        assert "Failed to create config" in result.error
+        mock_create.assert_called_once_with(False)
 
 
 class TestUtilityFunctions:
@@ -334,20 +194,57 @@ class TestUtilityFunctions:
 
     def test_validate_config_valid(self) -> None:
         """Test config validation with valid parameters."""
-        result = validate_config("localhost", 8080, 5)
+        config = {
+            "server": {
+                "host": "localhost",
+                "port": 8080,
+                "max_workers": 5,
+                "default_model": "test-model",
+                "log_level": "INFO",
+            },
+            "jwt": {"enabled": False},
+            "tls": {"enabled": False},
+            "acme": {"enabled": False},
+        }
+        result = validate_config(config)
         assert isinstance(result, Success)
 
     def test_validate_config_invalid_port(self) -> None:
         """Test config validation with invalid port."""
-        result = validate_config("localhost", 0, 5)
+        config: dict[str, Any] = {
+            "server": {
+                "host": "localhost",
+                "port": 0,
+                "max_workers": 5,
+                "default_model": "test-model",
+                "log_level": "INFO",
+            },
+            "jwt": {"enabled": False},
+            "tls": {"enabled": False},
+            "acme": {"enabled": False},
+        }
+        result = validate_config(config)
         assert isinstance(result, Error)
 
-        result = validate_config("localhost", 65536, 5)
+        config["server"]["port"] = 65536
+        result = validate_config(config)
         assert isinstance(result, Error)
 
     def test_validate_config_invalid_workers(self) -> None:
         """Test config validation with invalid max workers."""
-        result = validate_config("localhost", 8080, 0)
+        config = {
+            "server": {
+                "host": "localhost",
+                "port": 8080,
+                "max_workers": 0,
+                "default_model": "test-model",
+                "log_level": "INFO",
+            },
+            "jwt": {"enabled": False},
+            "tls": {"enabled": False},
+            "acme": {"enabled": False},
+        }
+        result = validate_config(config)
         assert isinstance(result, Error)
 
     def test_signal_handler(self) -> None:
@@ -372,14 +269,12 @@ class TestCLICommands:
         """Set up test fixtures."""
         self.runner = CliRunner()
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main._load_and_validate_config")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_default(
         self,
         mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
+        mock_load_validate: Mock,
     ) -> None:
         """Test serve command with default configuration."""
         mock_config = {
@@ -417,8 +312,7 @@ class TestCLICommands:
             },
         }
 
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_load_validate.return_value = Success(data=mock_config)
         mock_server = Mock()
         mock_create_server.return_value = mock_server
 
@@ -427,9 +321,6 @@ class TestCLICommands:
 
         # Verify the command succeeded
         assert result.exit_code == 0
-
-        # Verify configuration validation
-        mock_validate.assert_called_once_with("0.0.0.0", 50051, 10)
 
         # Verify server creation
         mock_create_server.assert_called_once_with(
@@ -447,7 +338,7 @@ class TestCLICommands:
         mock_server.serve_forever.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_smart_routing_insecure(
         self,
@@ -460,7 +351,7 @@ class TestCLICommands:
         # TLS disabled = insecure mode
         mock_config["tls"]["enabled"] = False
         mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_validate.return_value = Success(data=mock_config)
 
         mock_server = Mock()
         mock_create_server.return_value = mock_server
@@ -473,7 +364,7 @@ class TestCLICommands:
             mock_serve_insecure.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_smart_routing_ca(
         self,
@@ -487,7 +378,7 @@ class TestCLICommands:
         mock_config["tls"]["enabled"] = True
         mock_config["acme"]["enabled"] = False
         mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_validate.return_value = Success(data=mock_config)
 
         mock_server = Mock()
         mock_create_server.return_value = mock_server
@@ -499,7 +390,7 @@ class TestCLICommands:
             mock_serve_ca.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_smart_routing_custom(
         self,
@@ -515,7 +406,7 @@ class TestCLICommands:
         mock_config["tls"]["key_file"] = "/path/to/key.pem"
         mock_config["acme"]["enabled"] = False
         mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_validate.return_value = Success(data=mock_config)
 
         mock_server = Mock()
         mock_create_server.return_value = mock_server
@@ -527,7 +418,7 @@ class TestCLICommands:
             mock_serve_custom.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_smart_routing_acme(
         self,
@@ -541,7 +432,7 @@ class TestCLICommands:
         mock_config["tls"]["enabled"] = True
         mock_config["acme"]["enabled"] = True
         mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_validate.return_value = Success(data=mock_config)
 
         mock_server = Mock()
         mock_create_server.return_value = mock_server
@@ -553,7 +444,7 @@ class TestCLICommands:
             mock_serve_acme.assert_called_once()
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_validation_error(
         self,
@@ -572,19 +463,16 @@ class TestCLICommands:
         # Error is printed to output in CLI
         assert "Error: Invalid port" in result.output
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main._load_and_validate_config")
     @patch("vibectl.server.main.create_server")
     def test_serve_command_keyboard_interrupt(
         self,
         mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
+        mock_load_validate: Mock,
     ) -> None:
         """Test serve command with keyboard interrupt."""
         mock_config = get_default_server_config()
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+        mock_load_validate.return_value = Success(data=mock_config)
 
         mock_server = Mock()
         mock_server.serve_forever.side_effect = KeyboardInterrupt()
@@ -683,23 +571,23 @@ class TestCLICommands:
         assert result.exit_code == 1
 
     @patch("vibectl.server.main.ensure_config_dir")
-    @patch("vibectl.server.main.create_default_config")
+    @patch("vibectl.server.config.ServerConfig.create_default")
     @patch("pathlib.Path.exists")
     def test_init_config_command(
-        self, mock_exists: Mock, mock_create_config: Mock, mock_ensure_dir: Mock
+        self, mock_exists: Mock, mock_create_default: Mock, mock_ensure_dir: Mock
     ) -> None:
         """Test init config command."""
         config_dir = Path("/mock/config")
         _config_file = config_dir / "config.yaml"
         mock_ensure_dir.return_value = config_dir
         mock_exists.return_value = False
-        mock_create_config.return_value = Success()
+        mock_create_default.return_value = Success()
 
         result = self.runner.invoke(init_config)
 
         assert result.exit_code == 0
         mock_ensure_dir.assert_called_once_with("server")
-        mock_create_config.assert_called_once()
+        mock_create_default.assert_called_once()
 
     @patch("vibectl.server.main.ensure_config_dir")
     @patch("pathlib.Path.exists")
@@ -717,22 +605,22 @@ class TestCLICommands:
         assert result.exit_code == 1
 
     @patch("vibectl.server.main.ensure_config_dir")
-    @patch("vibectl.server.main.create_default_config")
+    @patch("vibectl.server.config.ServerConfig.create_default")
     @patch("pathlib.Path.exists")
     def test_init_config_with_force(
-        self, mock_exists: Mock, mock_create_config: Mock, mock_ensure_dir: Mock
+        self, mock_exists: Mock, mock_create_default: Mock, mock_ensure_dir: Mock
     ) -> None:
         """Test init config command with force flag."""
         config_dir = Path("/mock/config")
         _config_file = config_dir / "config.yaml"
         mock_ensure_dir.return_value = config_dir
         mock_exists.return_value = True
-        mock_create_config.return_value = Success()
+        mock_create_default.return_value = Success()
 
         result = self.runner.invoke(init_config, ["--force"])
 
         assert result.exit_code == 0
-        mock_create_config.assert_called_once()
+        mock_create_default.assert_called_once()
 
     @patch("vibectl.server.main.ensure_config_dir")
     def test_init_config_error(self, mock_ensure_dir: Mock) -> None:
@@ -837,19 +725,36 @@ class TestCLICommands:
         result = self.runner.invoke(generate_certs)
         assert result.exit_code == 1
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.main._load_and_validate_config")
     @patch("vibectl.server.main.create_server")
     def test_serve_insecure_command(
         self,
         mock_create_server: Mock,
-        mock_validate: Mock,
-        mock_load_config: Mock,
+        mock_load_validate: Mock,
     ) -> None:
         """Test serve-insecure command works correctly."""
-        mock_config = get_default_server_config()
-        mock_load_config.return_value = Success(data=mock_config)
-        mock_validate.return_value = Success()
+
+        def mock_load_and_validate(
+            config_path: Path | None, overrides: dict
+        ) -> Success:
+            """Mock that applies overrides to the default config."""
+            mock_config = get_default_server_config()
+
+            # Apply server overrides if present
+            if "server" in overrides:
+                mock_config["server"].update(overrides["server"])
+
+            # Apply other overrides
+            for key, value in overrides.items():
+                if key != "server":
+                    if isinstance(value, dict) and key in mock_config:
+                        mock_config[key].update(value)
+                    else:
+                        mock_config[key] = value
+
+            return Success(data=mock_config)
+
+        mock_load_validate.side_effect = mock_load_and_validate
 
         mock_server = Mock()
         mock_create_server.return_value = mock_server

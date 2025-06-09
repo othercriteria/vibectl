@@ -60,7 +60,7 @@ def load_config_from_server(
 
     # Load server config if not provided
     if server_config is None:
-        from .main import get_default_server_config, load_server_config
+        from .config import get_default_server_config, load_server_config
 
         config_result = load_server_config()
         if isinstance(config_result, Error):
@@ -191,7 +191,7 @@ def load_config_with_generation(
 
     # Load server config if not provided
     if server_config is None:
-        from .main import (
+        from .config import (
             get_default_server_config,
             get_server_config_path,
             load_server_config,

@@ -10,11 +10,11 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
+from vibectl.server.config import get_default_server_config
 from vibectl.server.main import (
     _provision_acme_certificates,
     cli,
     determine_serve_mode,
-    get_default_server_config,
 )
 from vibectl.types import Error, ServeMode, Success
 

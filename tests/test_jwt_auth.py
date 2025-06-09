@@ -8,6 +8,7 @@ and configuration loading for the vibectl LLM proxy server.
 import datetime
 import os
 import uuid
+from typing import Any
 from unittest.mock import patch
 
 import jwt as pyjwt  # Avoid conflict with class names
@@ -21,7 +22,7 @@ from vibectl.server.jwt_auth import (
     load_config_from_server,
     load_config_with_generation,
 )
-from vibectl.types import Success
+from vibectl.types import Error, Success
 
 
 class TestJWTConfig:
@@ -324,7 +325,7 @@ class TestLoadConfigFromServer:
         with (
             patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
             patch("vibectl.server.jwt_auth.logger") as _mock_logger,
-            patch("vibectl.server.main.load_server_config") as mock_load_config,
+            patch("vibectl.server.config.load_server_config") as mock_load_config,
         ):
             mock_gen.return_value = "generated-secret"
             mock_load_config.return_value = Success(
@@ -427,8 +428,10 @@ class TestLoadConfigWithGeneration:
                 with (
                     patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
                     patch("vibectl.server.jwt_auth.logger") as mock_logger,
-                    patch("vibectl.server.main.load_server_config") as mock_load_config,
-                    patch("vibectl.server.main.get_server_config_path") as mock_path,
+                    patch(
+                        "vibectl.server.config.load_server_config"
+                    ) as mock_load_config,
+                    patch("vibectl.server.config.get_server_config_path") as mock_path,
                 ):
                     mock_gen.return_value = "generated-secret-key"
                     mock_load_config.return_value = Success(data=initial_config.copy())
@@ -495,8 +498,8 @@ class TestLoadConfigWithGeneration:
             with (
                 patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
                 patch("vibectl.server.jwt_auth.logger") as mock_logger,
-                patch("vibectl.server.main.load_server_config") as mock_load_config,
-                patch("vibectl.server.main.get_server_config_path") as mock_get_path,
+                patch("vibectl.server.config.load_server_config") as mock_load_config,
+                patch("vibectl.server.config.get_server_config_path") as mock_get_path,
             ):
                 mock_gen.return_value = "generated-secret-key"
                 mock_load_config.return_value = Success(data={})
@@ -592,8 +595,10 @@ class TestLoadConfigWithGeneration:
                 with (
                     patch("vibectl.server.jwt_auth.generate_secret_key") as mock_gen,
                     patch("vibectl.server.jwt_auth.logger") as mock_logger,
-                    patch("vibectl.server.main.load_server_config") as mock_load_config,
-                    patch("vibectl.server.main.get_server_config_path") as mock_path,
+                    patch(
+                        "vibectl.server.config.load_server_config"
+                    ) as mock_load_config,
+                    patch("vibectl.server.config.get_server_config_path") as mock_path,
                 ):
                     mock_gen.return_value = "generated-secret-key"
                     mock_load_config.return_value = Success(
@@ -901,54 +906,177 @@ class TestCreateJWTManager:
 
 
 class TestJWTIntegration:
-    """Integration tests for JWT authentication flow."""
+    """Integration tests for JWT authentication."""
 
     def test_full_token_lifecycle(self) -> None:
-        """Test complete token generation, validation, and expiration cycle."""
-        config = JWTConfig(secret_key="integration-test-secret")
-        manager = JWTAuthManager(config)
+        """Test complete token generation and validation lifecycle."""
+        # Clear environment
+        with patch.dict(os.environ, {}, clear=True):
+            # Test with temporary config
+            server_config = {
+                "jwt": {
+                    "secret_key": "test-integration-secret",
+                    "algorithm": "HS256",
+                    "issuer": "integration-test",
+                    "expiration_days": 1,
+                }
+            }
 
-        # Generate token
-        token = manager.generate_token("integration-test-subject", expiration_days=1)
+            config = load_config_from_server(server_config)
+            manager = JWTAuthManager(config)
 
-        # Validate token
-        payload = manager.validate_token(token)
-        assert payload["sub"] == "integration-test-subject"
-        assert payload["iss"] == "vibectl-server"
+            # Generate token
+            subject = "test-user"
+            token = manager.generate_token(subject)
 
-        # Extract subject without validation
-        subject = manager.get_token_subject(token)
-        assert subject == "integration-test-subject"
+            # Validate token
+            payload = manager.validate_token(token)
+            assert payload["sub"] == subject
+            assert payload["iss"] == "integration-test"
 
     def test_cross_manager_validation_fails(self) -> None:
-        """Test tokens from manager aren't invalidated by ones with different secret."""
-        config1 = JWTConfig(secret_key="secret-1")
-        config2 = JWTConfig(secret_key="secret-2")
+        """Test that tokens from one manager fail validation in another."""
+        config1 = JWTConfig(secret_key="secret1", issuer="issuer1")
+        config2 = JWTConfig(
+            secret_key="secret2", issuer="issuer1"
+        )  # Same issuer, different secret
 
         manager1 = JWTAuthManager(config1)
         manager2 = JWTAuthManager(config2)
 
-        # Generate token with manager1
-        token = manager1.generate_token("test-subject")
+        token = manager1.generate_token("test-user")
 
-        # Validation with manager1 should succeed
-        payload = manager1.validate_token(token)
-        assert payload["sub"] == "test-subject"
-
-        # Validation with manager2 should fail
         with pytest.raises(pyjwt.InvalidTokenError):
             manager2.validate_token(token)
 
     def test_algorithm_compatibility(self) -> None:
-        """Test that different algorithms work correctly."""
-        algorithms = ["HS256", "HS384", "HS512"]
-
-        for algorithm in algorithms:
-            config = JWTConfig(secret_key="test-secret", algorithm=algorithm)
+        """Test JWT token generation and validation with different algorithms."""
+        for algorithm in ["HS256", "HS384", "HS512"]:
+            config = JWTConfig(
+                secret_key="test-secret", algorithm=algorithm, issuer="test-issuer"
+            )
             manager = JWTAuthManager(config)
 
-            # Generate and validate token
-            token = manager.generate_token(f"test-subject-{algorithm}")
+            token = manager.generate_token("test-subject")
             payload = manager.validate_token(token)
 
-            assert payload["sub"] == f"test-subject-{algorithm}"
+            assert payload["sub"] == "test-subject"
+            assert payload["iss"] == "test-issuer"
+
+
+class TestJWTAuthCoverageGaps:
+    """Tests to fill specific coverage gaps in JWT auth module."""
+
+    def test_load_config_with_invalid_server_config_data_type(self) -> None:
+        """Test handling of invalid server config data type."""
+        with (
+            patch("vibectl.server.config.load_server_config") as mock_load,
+            patch("vibectl.server.config.get_default_server_config") as mock_default,
+        ):
+            mock_load.return_value = Error("config error")
+            mock_default.return_value = {"jwt": {"secret_key": "fallback-key"}}
+
+            config = load_config_from_server()
+
+            mock_load.assert_called_once()
+            mock_default.assert_called_once()
+            assert config.secret_key == "fallback-key"
+            assert config.algorithm == "HS256"
+
+    def test_load_config_env_key_file_missing(self) -> None:
+        """Test handling of missing environment key file."""
+
+        # Use a non-existent file path
+        nonexistent_file = "/tmp/does_not_exist_jwt_secret.txt"
+        env_vars = {"VIBECTL_JWT_SECRET_FILE": nonexistent_file}
+        server_config = {"jwt": {"secret_key": "config-fallback-key"}}
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            config = load_config_from_server(server_config)
+            assert config.secret_key == "config-fallback-key"
+
+    def test_load_config_config_key_file_missing(self) -> None:
+        """Test handling of missing config key file."""
+        nonexistent_file = "/tmp/does_not_exist_config_jwt_secret.txt"
+        server_config = {"jwt": {"secret_key_file": nonexistent_file}}
+
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_config_from_server(server_config)
+            # Should fall back to generating a new key
+            assert len(config.secret_key) > 0
+            assert config.secret_key.replace("-", "").replace("_", "").isalnum()
+
+    def test_load_config_with_generation_config_path_none(self) -> None:
+        """Test load_config_with_generation when config_path is None."""
+        server_config: dict[str, Any] = {"jwt": {}}  # No secret configured
+
+        # Test without persist_generated_key - should behave normally
+        config = load_config_with_generation(
+            server_config=server_config, persist_generated_key=False
+        )
+        assert len(config.secret_key) > 0
+
+        # Test with persist_generated_key but no config_path - should not persist
+        config = load_config_with_generation(
+            server_config=server_config, persist_generated_key=True
+        )
+        assert len(config.secret_key) > 0
+
+    def test_load_config_with_generation_yaml_dump_error(self) -> None:
+        """Test handling of YAML dump errors during key persistence."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as config_file:
+            config_file.write("jwt: {}\n")
+            config_file.flush()
+            config_path = config_file.name
+
+        server_config: dict[str, Any] = {"jwt": {}}  # No secret configured
+
+        with (
+            patch(
+                "vibectl.server.config.get_server_config_path", return_value=config_path
+            ),
+            patch("vibectl.server.config.load_server_config") as mock_load,
+            patch("yaml.dump", side_effect=Exception("YAML dump failed")),
+            patch("vibectl.server.jwt_auth.logger") as mock_logger,
+        ):
+            mock_load.return_value = Success(data=server_config)
+
+            # This should still work despite the YAML dump error
+            config = load_config_with_generation(
+                server_config=None, persist_generated_key=True
+            )
+
+            # Should generate a key but fail to persist
+            assert config.secret_key  # Generated key
+            mock_logger.error.assert_called_once()  # Should log the persistence error
+
+        os.unlink(config_path)
+
+    def test_jwt_manager_get_token_subject_decode_error(self) -> None:
+        """Test get_token_subject handling of token decode errors."""
+        config = JWTConfig(secret_key="test-secret")
+        manager = JWTAuthManager(config)
+
+        # Test with completely invalid token
+        invalid_token = "not.a.valid.jwt.token"
+        subject = manager.get_token_subject(invalid_token)
+        assert subject is None
+
+        # Test with malformed token structure
+        malformed_token = "header.payload"  # Missing signature
+        subject = manager.get_token_subject(malformed_token)
+        assert subject is None
+
+    def test_jwt_manager_validate_token_generic_exception(self) -> None:
+        """Test validate_token handling of unexpected exceptions."""
+        config = JWTConfig(secret_key="test-secret")
+        manager = JWTAuthManager(config)
+
+        # Mock jwt.decode to raise an unexpected exception
+        with (
+            patch("jwt.decode", side_effect=ValueError("Unexpected error")),
+            pytest.raises(pyjwt.InvalidTokenError, match="Token validation failed"),
+        ):
+            manager.validate_token("any-token")

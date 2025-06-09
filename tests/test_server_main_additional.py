@@ -6,16 +6,17 @@ smart serve command, server creation, and other utility functions.
 """
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
+from vibectl.server.config import get_default_server_config
 from vibectl.server.main import (
     _create_and_start_server_common,
     _load_and_validate_config,
     _perform_certificate_generation,
     cli,
-    get_default_server_config,
     handle_result,
 )
 from vibectl.types import Error, ServeMode, Success
@@ -235,7 +236,7 @@ class TestConfigurationLoading:
     """Test configuration loading and validation."""
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.validate_server_config")
     def test_load_and_validate_config_success(
         self, mock_validate: Mock, mock_load_config: Mock
     ) -> None:
@@ -253,10 +254,13 @@ class TestConfigurationLoading:
         # Port should be converted to int and merged
         assert result.data["server"]["port"] == 8080
 
-    @patch("vibectl.server.main.load_server_config")
-    def test_load_and_validate_config_load_error(self, mock_load_config: Mock) -> None:
+    @patch("vibectl.server.config.ServerConfig.load")
+    @patch("vibectl.server.config.ServerConfig.validate")
+    def test_load_and_validate_config_load_error(
+        self, mock_validate: Mock, mock_load: Mock
+    ) -> None:
         """Test configuration loading when loading fails."""
-        mock_load_config.return_value = Error(error="Failed to load config")
+        mock_load.return_value = Error(error="Failed to load config")
 
         result = _load_and_validate_config(
             config_path=Path("/test/config.yaml"), overrides={}
@@ -265,14 +269,14 @@ class TestConfigurationLoading:
         assert isinstance(result, Error)
         assert "Failed to load config" in result.error
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.load")
+    @patch("vibectl.server.config.ServerConfig.validate")
     def test_load_and_validate_config_validation_error(
-        self, mock_validate: Mock, mock_load_config: Mock
+        self, mock_validate: Mock, mock_load: Mock
     ) -> None:
         """Test configuration loading when validation fails."""
         config = get_default_server_config()
-        mock_load_config.return_value = Success(data=config)
+        mock_load.return_value = Success(data=config)
         mock_validate.return_value = Error(error="Invalid port number")
 
         result = _load_and_validate_config(config_path=None, overrides={})
@@ -280,15 +284,29 @@ class TestConfigurationLoading:
         assert isinstance(result, Error)
         assert "Invalid port number" in result.error
 
-    @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.validate_config")
+    @patch("vibectl.server.config.ServerConfig.load")
+    @patch("vibectl.server.config.ServerConfig.validate")
     def test_load_and_validate_config_with_overrides(
-        self, mock_validate: Mock, mock_load_config: Mock
+        self, mock_validate: Mock, mock_load: Mock
     ) -> None:
         """Test configuration loading with complex overrides."""
         config = get_default_server_config()
-        mock_load_config.return_value = Success(data=config)
-        mock_validate.return_value = Success()
+        mock_load.return_value = Success(data=config)
+
+        # Make validate return the config it receives (with overrides applied)
+        def validate_side_effect(received_config: dict[str, Any]) -> Success:
+            # Apply type conversions that real validation would do
+            if "server" in received_config:
+                server_section = received_config["server"]
+                if "port" in server_section and isinstance(server_section["port"], str):
+                    server_section["port"] = int(server_section["port"])
+                if "max_workers" in server_section and isinstance(
+                    server_section["max_workers"], str
+                ):
+                    server_section["max_workers"] = int(server_section["max_workers"])
+            return Success(data=received_config)
+
+        mock_validate.side_effect = validate_side_effect
 
         overrides = {
             "server": {"host": "custom.host", "port": "9000", "max_workers": "15"},
@@ -639,3 +657,360 @@ class TestHandleResult:
             "Run 'vibectl-server ca init' to create a CA"
         )
         mock_exit.assert_called_once_with(1)
+
+
+class TestErrorHandlingPaths:
+    """Test error handling paths that are missing coverage."""
+
+    def test_parse_duration_general_exception(self) -> None:
+        """Test parse_duration handles general exceptions correctly."""
+        from unittest.mock import patch
+
+        from vibectl.server.main import parse_duration
+
+        # Mock parse_duration_to_days to raise a general exception
+        with patch(
+            "vibectl.server.main.parse_duration_to_days",
+            side_effect=RuntimeError("Unexpected duration parsing error"),
+        ):
+            result = parse_duration("invalid")
+
+        assert isinstance(result, Error)
+        assert (
+            "Failed to parse duration: Unexpected duration parsing error"
+            in result.error
+        )
+        assert result.exception is not None
+
+    @patch("vibectl.server.main.setup_private_ca")
+    def test_initialize_ca_ca_manager_error(self, mock_setup_ca: Mock) -> None:
+        """Test CA initialization with CAManagerError."""
+        # This tests lines 523-524: CAManagerError handling
+        from vibectl.server.ca_manager import CAManagerError
+        from vibectl.server.main import _initialize_ca
+
+        mock_setup_ca.side_effect = CAManagerError("CA setup failed")
+
+        result = _initialize_ca(
+            ca_dir=None,
+            root_cn="Test Root CA",
+            intermediate_cn="Test Intermediate CA",
+            organization="Test Org",
+            country="US",
+            force=False,
+        )
+
+        assert isinstance(result, Error)
+        assert "CA initialization failed: CA setup failed" in result.error
+        assert result.exception is not None
+
+    @patch("vibectl.server.main.setup_private_ca")
+    def test_initialize_ca_unexpected_exception(self, mock_setup_ca: Mock) -> None:
+        """Test CA initialization with unexpected exception."""
+        # This tests lines 498-499: general exception handling in CA initialization
+        from vibectl.server.main import _initialize_ca
+
+        mock_setup_ca.side_effect = Exception("Unexpected CA error")
+
+        result = _initialize_ca(
+            ca_dir=None,
+            root_cn="Test Root CA",
+            intermediate_cn="Test Intermediate CA",
+            organization="Test Org",
+            country="US",
+            force=False,
+        )
+
+        assert isinstance(result, Error)
+        assert (
+            "Unexpected error during CA initialization: Unexpected CA error"
+            in result.error
+        )
+        assert result.exception is not None
+
+    def test_create_and_start_server_acme_missing_email(self) -> None:
+        """Test server startup with ACME enabled but missing email."""
+        # This tests lines 1017-1020: ACME email validation error
+        from vibectl.server.main import _create_and_start_server_common
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {"enabled": True, "email": None, "domains": ["example.com"]},
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no email provided" in result.error
+
+    def test_create_and_start_server_acme_missing_domains(self) -> None:
+        """Test server startup with ACME enabled but missing domains."""
+        # This tests lines 1023-1026: ACME domains validation error
+        from vibectl.server.main import _create_and_start_server_common
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {"enabled": True, "email": "test@example.com", "domains": []},
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no domains provided" in result.error
+
+    @patch("vibectl.server.main._provision_acme_certificates")
+    def test_create_and_start_server_acme_cert_provision_error(
+        self, mock_provision: Mock
+    ) -> None:
+        """Test server startup when ACME certificate provisioning fails."""
+        # This tests lines around 1029-1030: ACME certificate provisioning failure
+        from vibectl.server.main import _create_and_start_server_common
+
+        mock_provision.return_value = Error(error="Certificate provisioning failed")
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {
+                "enabled": True,
+                "email": "test@example.com",
+                "domains": ["example.com"],
+            },
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert "Certificate provisioning failed" in result.error
+
+    @patch("vibectl.server.main._provision_acme_certificates")
+    def test_create_and_start_server_acme_no_cert_data(
+        self, mock_provision: Mock
+    ) -> None:
+        """Test server startup when ACME provisioning returns no certificate data."""
+        # This tests the data validation after ACME provisioning
+        from vibectl.server.main import _create_and_start_server_common
+
+        mock_provision.return_value = Success(data=None)
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {
+                "enabled": True,
+                "email": "test@example.com",
+                "domains": ["example.com"],
+            },
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert (
+            "ACME certificate provisioning returned no certificate data" in result.error
+        )
+
+    @patch("vibectl.server.main._provision_acme_certificates")
+    def test_create_and_start_server_acme_provision_exception(
+        self, mock_provision: Mock
+    ) -> None:
+        """Test server startup when ACME provisioning raises an exception."""
+        # This tests lines 1051-1054: exception handling in ACME provisioning
+        from vibectl.server.main import _create_and_start_server_common
+
+        mock_provision.side_effect = Exception("ACME service unavailable")
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {
+                "enabled": True,
+                "email": "test@example.com",
+                "domains": ["example.com"],
+            },
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert (
+            "ACME certificate provisioning failed: ACME service unavailable"
+            in result.error
+        )
+        assert result.exception is not None
+
+
+class TestServerStartupErrorPaths:
+    """Test server startup error paths that are missing coverage."""
+
+    @patch("vibectl.server.main.init_logging")
+    @patch("vibectl.server.main.create_server")
+    def test_create_and_start_server_unexpected_server_error(
+        self, mock_create_server: Mock, mock_init_logging: Mock
+    ) -> None:
+        """Test _create_and_start_server_common handles unexpected server errors."""
+        from unittest.mock import patch
+
+        from vibectl.server.main import _create_and_start_server_common
+
+        # Use a complete server config to avoid KeyError
+        server_config = {
+            "server": {
+                "host": "localhost",
+                "port": 8080,
+                "max_workers": 5,
+                "default_model": "test",
+            },
+            "jwt": {"enabled": False},
+            "tls": {"enabled": False},
+            "acme": {"enabled": False},  # Add this to prevent KeyError
+        }
+
+        # Mock create_server to raise an unexpected exception
+        with patch(
+            "vibectl.server.main.create_server",
+            side_effect=RuntimeError("Unexpected server initialization error"),
+        ):
+            result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert (
+            "Server startup failed: Unexpected server initialization error"
+            in result.error
+        )
+        assert result.exception is not None
+
+    @patch("vibectl.server.main.init_logging")
+    def test_create_and_start_server_invalid_config_structure(
+        self, mock_init_logging: Mock
+    ) -> None:
+        """Test server startup with invalid configuration structure."""
+        # This tests edge cases in config validation
+        from vibectl.server.main import _create_and_start_server_common
+
+        # Missing required server section
+        server_config = {"tls": {"enabled": False}, "jwt": {"enabled": False}}
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        # The exact error will depend on how the function handles missing
+        # config sections
+
+    def test_create_default_config_write_permission_error(self) -> None:
+        """Test create_default_config handles write permission errors."""
+        import tempfile
+        from unittest.mock import patch
+
+        from vibectl.server.config import create_default_server_config
+        from vibectl.types import Error
+
+        # Create a temporary file path
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.yaml"
+
+        # Mock ServerConfig.save to return an Error result (simulating what
+        # real save does with PermissionError)
+        expected_error = Error(
+            error=f"Failed to save server configuration to {config_path}: "
+            "Permission denied",
+            exception=PermissionError("Permission denied"),
+        )
+        with patch(
+            "vibectl.server.config.ServerConfig.save", return_value=expected_error
+        ):
+            result = create_default_server_config(config_path)
+
+        assert isinstance(result, Error)
+        assert "Permission denied" in result.error
+        assert result.exception is not None
+
+
+class TestCertificateOperationErrors:
+    """Test certificate operation error paths for missing coverage."""
+
+    @patch("vibectl.server.main.get_config_dir")
+    @patch("vibectl.server.main.cert_utils.get_default_cert_paths")
+    @patch("pathlib.Path.mkdir")
+    def test_perform_certificate_generation_mkdir_error(
+        self, mock_mkdir: Mock, mock_get_paths: Mock, mock_get_config_dir: Mock
+    ) -> None:
+        """Test certificate generation when directory creation fails."""
+        # This tests error handling in certificate generation
+        from pathlib import Path
+
+        from vibectl.server.main import _perform_certificate_generation
+
+        mock_get_config_dir.return_value = Path("/test/config")
+        mock_get_paths.return_value = ("/test/server.crt", "/test/server.key")
+        mock_mkdir.side_effect = PermissionError("Cannot create directory")
+
+        result = _perform_certificate_generation("localhost", None, None, False)
+
+        assert isinstance(result, Error)
+        assert "Certificate generation failed" in result.error
+        assert result.exception is not None
+
+    def test_create_server_certificate_ca_manager_init_error(self) -> None:
+        """Test _create_server_certificate handles CA manager initialization errors."""
+        import tempfile
+
+        from vibectl.server.main import _create_server_certificate
+
+        # Create a temporary directory that doesn't exist as CA directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            non_existent_ca_dir = Path(temp_dir) / "non_existent_ca"
+
+        result = _create_server_certificate(
+            "test.example.com", str(non_existent_ca_dir), (), 90, False
+        )
+
+        assert isinstance(result, Error)
+        assert "CA directory not found:" in result.error
+
+    def test_show_ca_status_manager_init_error(self) -> None:
+        """Test _show_ca_status handles CA manager initialization errors."""
+        import tempfile
+
+        from vibectl.server.main import _show_ca_status
+
+        # Create a temporary directory that doesn't exist as CA directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            non_existent_ca_dir = Path(temp_dir) / "non_existent_ca"
+
+        result = _show_ca_status(str(non_existent_ca_dir), 30)
+
+        assert isinstance(result, Error)
+        assert "CA directory not found:" in result.error
