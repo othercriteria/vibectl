@@ -76,9 +76,9 @@ Client URLs determine whether TLS is used:
 - `vibectl-server://host:port` → TLS
 - `vibectl-server-insecure://host:port` → plain text
 
-## Let's Encrypt Integration (Planned)
+## ACME / Let's Encrypt Integration
 
-For production deployments with public hostnames, vibectl-server will support automatic certificate provisioning via Let's Encrypt and other ACME-compatible certificate authorities.
+vibectl-server includes built in support for obtaining TLS certificates from Let's Encrypt or any other ACME compatible certificate authority.  This is useful for public deployments where you want trusted certificates without manually managing them.
 
 ### Why Let's Encrypt?
 
@@ -97,17 +97,25 @@ For production deployments with public hostnames, vibectl-server will support au
 - Reduces operational complexity compared to traditional CAs
 - Integrates seamlessly with Kubernetes cert-manager
 
-### Planned Workflow
+### Workflow
 
-Once implemented, automatic certificate provisioning will work like this:
+Automatic certificate provisioning works like this:
 
 ```bash
-# 1. Configure server for ACME with domain validation
-vibectl-server init-config --acme-domain vibectl.company.com \
-  --acme-email admin@company.com
+# 1. (Optional) Create a default configuration
+vibectl-server init-config
 
-# 2. Start server with automatic certificate provisioning
-vibectl-server serve --acme
+# 2. Start the server in ACME mode
+  vibectl-server serve-acme \
+  --email admin@company.com \
+  --domain vibectl.company.com
+
+# For local testing you can override the directory URL to use a Pebble instance:
+# vibectl-server serve-acme \
+#   --email admin@company.com \
+#   --domain vibectl.test \
+#   --directory-url http://pebble.pebble.svc.cluster.local:14000/dir \
+#   --challenge-dir /tmp/acme-challenges
 
 # 3. Server automatically:
 #    - Requests certificates from Let's Encrypt
@@ -132,6 +140,11 @@ spec:
   - vibectl.company.com
 ```
 
+For local experiments there is also a `pebble.yaml` manifest in
+`examples/manifests/vibectl-server/` which launches a Pebble ACME test server.
+Point `--directory-url` at the Pebble service when running `serve-acme` to
+exercise the full workflow end-to-end.
+
 **Client Configuration:**
 ```bash
 # No custom CA bundle needed - uses system trust store
@@ -153,7 +166,10 @@ For a minimal single-replica deployment see the manifests under
 `examples/manifests/vibectl-server/`.  They install a `Deployment`,
 `Service`, `ConfigMap` and `Secret` suitable for local demos.  After
 applying them you can generate a token from the running pod and point
-`vibectl` at the exposed NodePort service.
+`vibectl` at the exposed NodePort service.  The `demo.sh` script in that
+directory runs an end-to-end test of the private CA setup.  A
+`pebble.yaml` manifest is also provided so you can run a local Pebble
+ACME server to test certificate issuance with `serve-acme`.
 
 ## Checking the server
 

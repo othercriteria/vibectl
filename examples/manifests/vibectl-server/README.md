@@ -71,6 +71,23 @@ This demonstrates:
 - Proper certificate verification with CA bundles
 - Production-ready TLS configuration
 
+## Local ACME Testing with Pebble
+
+Use the `pebble.yaml` manifest to run a local [Pebble](https://github.com/letsencrypt/pebble) instance and test the `serve-acme` command:
+
+```bash
+kubectl apply -f examples/manifests/vibectl-server/pebble.yaml
+kubectl wait --for=condition=ready pod -l app=pebble --timeout=60s
+
+# Run vibectl-server in ACME mode pointing at the Pebble service
+vibectl-server serve-acme \
+  --email test@example.com \
+  --domain localhost \
+  --directory-url http://pebble.pebble.svc.cluster.local:14000/dir
+```
+
+After certificates are issued you can configure vibectl using the NodePort service shown earlier.
+
 ## Troubleshooting
 
 ### Check server logs
