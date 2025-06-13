@@ -52,7 +52,7 @@ case $choice in
         echo "======================================"
         echo ""
         echo "🔍 Checking for existing demo namespaces..."
-        
+
         # Check for CA demo
         if kubectl get namespace vibectl-server-ca >/dev/null 2>&1; then
             echo "🗑️  Removing CA demo namespace..."
@@ -61,7 +61,7 @@ case $choice in
         else
             echo "ℹ️  No CA demo namespace found"
         fi
-        
+
         # Check for ACME demo
         if kubectl get namespace vibectl-server-acme >/dev/null 2>&1; then
             echo "🗑️  Removing ACME demo namespace..."
@@ -70,14 +70,14 @@ case $choice in
         else
             echo "ℹ️  No ACME demo namespace found"
         fi
-        
+
         # Clean up temporary files
         echo ""
         echo "🧹 Cleaning up temporary files..."
         rm -f /tmp/vibectl-demo-ca-bundle.crt
         rm -f /tmp/vibectl-demo-acme-cert.pem
         echo "✅ Temporary files cleaned up"
-        
+
         echo ""
         echo "🎉 All demo environments cleaned up successfully!"
         echo ""
@@ -88,4 +88,4 @@ case $choice in
         echo ""
         exec "$0"
         ;;
-esac 
+esac

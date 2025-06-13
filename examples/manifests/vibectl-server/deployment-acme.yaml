@@ -26,18 +26,18 @@ spec:
           - |
             set -e
             echo "📋 Setting up writable config directory..."
-            
+
             # Copy config to writable location
             cp /config-source/config.yaml /config-dest/config.yaml
-            
+
             # Substitute ACME directory URL and domain using | as delimiter
             sed -i "s|\${ACME_DIRECTORY_URL}|$ACME_DIRECTORY_URL|g" /config-dest/config.yaml
             sed -i "s|\${ACME_DOMAIN_INTERNAL}|$ACME_DOMAIN_INTERNAL|g" /config-dest/config.yaml
             sed -i "s|\${ACME_DOMAIN_EXTERNAL}|$ACME_DOMAIN_EXTERNAL|g" /config-dest/config.yaml
-            
+
             # Create certs directory for auto-generated certificates
             mkdir -p /config-dest/certs
-            
+
             echo "✅ Config setup complete"
             echo "📋 Final config:"
             cat /config-dest/config.yaml
@@ -74,12 +74,12 @@ spec:
           - |
             set -e
             echo "🔑 Generating demo JWT token..."
-            
+
             # Generate demo token valid for 7 days
             vibectl-server generate-token demo-user \
               --expires-in 7d \
               --output /jwt-data/demo-token.jwt
-              
+
             echo "✅ JWT token generated successfully"
             ls -la /jwt-data/
         env:
@@ -176,4 +176,4 @@ spec:
         # Allow running as root for port 443 binding
         fsGroup: 0
         runAsGroup: 0
-        runAsUser: 0 
+        runAsUser: 0

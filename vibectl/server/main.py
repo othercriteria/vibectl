@@ -981,7 +981,7 @@ def _create_and_start_server_with_async_acme(server_config: dict) -> Result:
 
     # Check if we're already in an event loop
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # We're in an event loop, run in a thread
         import threading
 
@@ -1025,7 +1025,6 @@ async def _async_acme_server_main(server_config: dict) -> Result:
 
         from .acme_manager import ACMEManager
 
-        # Determine challenge type
         acme_config = server_config["acme"]
         challenge_type = acme_config.get("challenge_type", "http-01")
 
@@ -1042,7 +1041,8 @@ async def _async_acme_server_main(server_config: dict) -> Result:
             http_port = http_config.get("port", 80)
 
             logger.info(
-                f"Starting HTTP challenge server on {http_host}:{http_port} for HTTP-01 challenges"
+                f"Starting HTTP challenge server on {http_host}:{http_port} "
+                "for HTTP-01 challenges"
             )
 
             # Start HTTP challenge server
@@ -1063,8 +1063,6 @@ async def _async_acme_server_main(server_config: dict) -> Result:
 
             # Create TLS-ALPN challenge manager (does not bind to any port)
             tls_alpn_challenge_server = TLSALPNChallengeServer()
-
-            # We'll use ALPN multiplexing instead of separate servers
 
         else:
             logger.info(
@@ -1100,9 +1098,6 @@ async def _async_acme_server_main(server_config: dict) -> Result:
                     "ALPN multiplexer started on port 443 for gRPC + TLS-ALPN-01"
                 )
 
-                # ------------------------------------------------------------------
-                # Signal container readiness for Kubernetes probes
-                # ------------------------------------------------------------------
                 _signal_container_ready()
 
             else:
@@ -1114,17 +1109,16 @@ async def _async_acme_server_main(server_config: dict) -> Result:
                 _signal_container_ready()
 
             # Start ACME manager in background
-            # For TLS-ALPN-01, we need to use a different approach since ACMEManager
-            # currently only supports HTTP challenge servers
             if challenge_type == "tls-alpn-01":
-                # Use enhanced ACMEManager that now properly supports TLS-ALPN-01
                 logger.debug(
-                    f"Creating ACME manager for TLS-ALPN-01 with server_config['tls']: {server_config['tls']}"
+                    "Creating ACME manager for TLS-ALPN-01 with "
+                    f"server_config['tls']: {server_config['tls']}"
                 )
                 acme_manager = ACMEManager(
-                    challenge_server=None,  # No HTTP challenge server needed for TLS-ALPN-01
+                    challenge_server=None,  # No challenge server needed for TLS-ALPN-01
                     acme_config=server_config["acme"],
-                    # Hot-reload the multiplexer's certificate once ACME provisioning succeeds
+                    # Hot-reload the multiplexer's certificate
+                    # once ACME provisioning succeeds
                     cert_reload_callback=lambda cert, key: _reload_server_certificates(
                         alpn_multiplexer, cert, key
                     ),
@@ -1132,7 +1126,7 @@ async def _async_acme_server_main(server_config: dict) -> Result:
                 )
             else:
                 acme_manager = ACMEManager(
-                    challenge_server=challenge_server,  # May be None for non-HTTP challenges
+                    challenge_server=challenge_server,
                     acme_config=server_config["acme"],
                     cert_reload_callback=lambda cert, key: _reload_server_certificates(
                         server, cert, key
@@ -1149,8 +1143,9 @@ async def _async_acme_server_main(server_config: dict) -> Result:
             # Main server loop - wait for termination
             try:
                 if challenge_type == "tls-alpn-01":
-                    # For TLS-ALPN-01, wait indefinitely (multiplexer handles connections)
-                    await asyncio.Event().wait()  # Wait indefinitely until interrupted
+                    # For TLS-ALPN-01, wait indefinitely
+                    # (multiplexer handles connections)
+                    await asyncio.Event().wait()
                 else:
                     server.wait_for_termination()
             except KeyboardInterrupt:
@@ -1197,10 +1192,11 @@ def _create_grpc_server_with_temp_certs(server_config: dict) -> Any:
 
     # For TLS-ALPN-01, include ACME domains in the bootstrap certificate
     # This allows Pebble to connect during initial challenge validation
-    if (server_config.get("acme", {}).get("enabled") and
-        server_config.get("acme", {}).get("challenge_type") == "tls-alpn-01" and
-        server_config.get("acme", {}).get("domains")):
-
+    if (
+        server_config.get("acme", {}).get("enabled")
+        and server_config.get("acme", {}).get("challenge_type") == "tls-alpn-01"
+        and server_config.get("acme", {}).get("domains")
+    ):
         logger.info("Generating self-signed certificate for development use")
         acme_domains = server_config["acme"]["domains"]
         logger.info(f"Including ACME domains in bootstrap certificate: {acme_domains}")
@@ -1214,10 +1210,17 @@ def _create_grpc_server_with_temp_certs(server_config: dict) -> Any:
             cert_file=temp_cert_file,
             key_file=temp_key_file,
             days_valid=365,
-            additional_sans=acme_domains + [hostname, "localhost"]  # Include original hostname and localhost
+            additional_sans=[
+                *acme_domains,
+                hostname,
+                "localhost",
+            ],  # Include original hostname and localhost
         )
 
-        logger.info(f"Generated bootstrap certificate with SANs for: {', '.join(acme_domains + [hostname, 'localhost'])}")
+        logger.info(
+            "Generated bootstrap certificate with SANs for: "
+            f"{', '.join([*acme_domains, hostname, 'localhost'])}"
+        )
     else:
         ensure_certificate_exists(temp_cert_file, temp_key_file, hostname=hostname)
 
@@ -1240,16 +1243,14 @@ def _reload_server_certificates(target: Any, cert_file: str, key_file: str) -> N
     The ACME manager invokes this callback after new certificates have been
     written to disk.  For the TLS-ALPN-01 flow we terminate TLS inside the
     ``ALPNMultiplexer`` which owns an ``ssl.SSLContext`` instance.  That
-    context supports live reloading via ``SSLContext.load_cert_chain`` – we
+    context supports live reloading via ``SSLContext.load_cert_chain`` - we
     simply need to re-load the new files.  If *target* does not expose an
     ``_ssl_context`` attribute we fall back to logging a warning (gRPC's
     built-in server credentials cannot be reloaded dynamically in
     python-grpc).
     """
 
-    logger.info(
-        "Certificate reload requested: cert=%s, key=%s", cert_file, key_file
-    )
+    logger.info("Certificate reload requested: cert=%s, key=%s", cert_file, key_file)
 
     try:
         # Fast-path: ALPNMultiplexer (has `_ssl_context` attribute)
@@ -1268,11 +1269,11 @@ def _reload_server_certificates(target: Any, cert_file: str, key_file: str) -> N
 
         # Fallback / unsupported targets
         logger.warning(
-            "Hot certificate reload not supported for target %s – restart required",
+            "Hot certificate reload not supported for target %s - restart required",
             type(target).__name__,
         )
 
-    except Exception as exc:  # pragma: no cover – best-effort reload
+    except Exception as exc:  # pragma: no cover - best-effort reload
         logger.error("❌ Failed to hot-reload certificates: %s", exc)
 
 
@@ -1689,12 +1690,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# ------------------------------------------------------------------
-# Container readiness signalling
-# ------------------------------------------------------------------
-
-
-def _signal_container_ready(path: str = "/tmp/ready") -> None:  # noqa: D401
+def _signal_container_ready(path: str = "/tmp/ready") -> None:
     """Create a readiness file so an exec/readinessProbe can detect readiness."""
 
     try:

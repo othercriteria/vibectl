@@ -5,8 +5,7 @@ Tests basic server lifecycle, challenge management, and certificate generation
 without requiring actual network connections.
 """
 
-import ssl
-import tempfile
+import contextlib
 from unittest.mock import Mock, patch
 
 import pytest
@@ -97,21 +96,19 @@ class TestTLSALPNChallengeServer:
         san_ext = cert.extensions.get_extension_for_oid(
             x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
         )
-        san_names = [name.value for name in san_ext.value]
+        san_names = [name.value for name in san_ext.value]  # type: ignore[attr-defined]
         assert domain in san_names
 
         # Verify ACME extension exists and is critical
         acme_ext = None
-        try:
+        with contextlib.suppress(x509.ExtensionNotFound):
             acme_ext = cert.extensions.get_extension_for_oid(
                 x509.ObjectIdentifier("1.3.6.1.5.5.7.1.31")
             )
-        except x509.ExtensionNotFound:
-            pass
-        
+
         assert acme_ext is not None
         assert acme_ext.critical is True
-        assert acme_ext.value.value == challenge_response
+        assert acme_ext.value.value == challenge_response  # type: ignore[attr-defined]
 
     def test_create_challenge_certificate_with_key(self) -> None:
         """Test challenge certificate generation with specific key."""

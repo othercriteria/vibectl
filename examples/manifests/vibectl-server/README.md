@@ -8,7 +8,7 @@ This directory contains comprehensive demonstration setups for `vibectl-server` 
 
 **Purpose**: Demonstrates vibectl-server with **private Certificate Authority (CA)** management.
 
-**Use Case**: 
+**Use Case**:
 - **Production internal networks** where you control certificate trust
 - **Air-gapped environments** without internet access
 - **Corporate environments** with existing PKI infrastructure
@@ -73,11 +73,11 @@ This directory contains comprehensive demonstration setups for `vibectl-server` 
 
 The ACME demo uses **TLS-ALPN-01** challenges instead of the traditional HTTP-01 approach, providing significant benefits:
 
-✅ **Simplified Architecture**: Single container deployment without nginx sidecar  
-✅ **Enhanced Security**: No HTTP port (80) exposure required  
-✅ **Direct Challenge Handling**: Challenges processed on the main gRPC port  
-✅ **Reduced Resource Usage**: Fewer containers, volumes, and configurations  
-✅ **Automatic Management**: Challenge handling integrated into the main server process  
+✅ **Simplified Architecture**: Single container deployment without nginx sidecar
+✅ **Enhanced Security**: No HTTP port (80) exposure required
+✅ **Direct Challenge Handling**: Challenges processed on the main gRPC port
+✅ **Reduced Resource Usage**: Fewer containers, volumes, and configurations
+✅ **Automatic Management**: Challenge handling integrated into the main server process
 
 ## Parallel Operation
 
@@ -106,7 +106,7 @@ Both demos share:
 ca-init container:
   1. Generate root CA private key
   2. Create CA certificate
-  3. Generate server private key  
+  3. Generate server private key
   4. Create certificate signing request (CSR)
   5. Sign server certificate with CA
   6. Bundle certificates for client verification
@@ -123,14 +123,14 @@ acme-init container:
   4. Complete TLS-ALPN-01 challenge (directly on gRPC port)
   5. Acquire signed certificate
   6. Store certificate for server use
-  
+
 # Single container deployment:
 vibectl-server container:
   - Handles gRPC API requests
   - Processes TLS-ALPN-01 challenges automatically
   - No separate HTTP server needed
   - Simplified volume and networking configuration
-  
+
 # Pebble ACME server provides:
 pebble service:
   - ACME directory at https://pebble:14000/dir
@@ -148,7 +148,7 @@ Each demo provides its own cleanup commands:
 kubectl delete namespace vibectl-server-ca
 rm -f /tmp/vibectl-demo-ca-bundle.crt
 
-# Clean up ACME demo  
+# Clean up ACME demo
 kubectl delete namespace vibectl-server-acme
 rm -f /tmp/vibectl-demo-acme-cert.pem
 ```
@@ -162,7 +162,7 @@ rm -f /tmp/vibectl-demo-acme-cert.pem
    # Verify cluster type
    kubectl version --short
    kubectl config current-context
-   
+
    # Manual image loading for kind
    kind load docker-image vibectl-server:local
    ```
@@ -179,7 +179,7 @@ rm -f /tmp/vibectl-demo-acme-cert.pem
    # Verify certificate files
    kubectl exec deploy/vibectl-server -- ls -la /ca-data/     # CA demo
    kubectl exec deploy/vibectl-server -- ls -la /root/.config/vibectl/server/certs/   # ACME demo
-   
+
    # Test certificate manually
    openssl s_client -connect NODE_IP:NODE_PORT -CAfile /tmp/cert-file.pem
    ```
@@ -197,7 +197,7 @@ rm -f /tmp/vibectl-demo-acme-cert.pem
    ```bash
    # Check server logs for challenge processing
    kubectl logs deploy/vibectl-server -n vibectl-server-acme -c vibectl-server
-   
+
    # Verify TLS configuration
    kubectl port-forward svc/vibectl-server 30443:50051 -n vibectl-server-acme &
    openssl s_client -connect localhost:30443 -alpn acme-tls/1

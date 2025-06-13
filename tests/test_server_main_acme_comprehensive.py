@@ -8,19 +8,17 @@ certificate request, challenge validation, and certificate retrieval.
 
 import asyncio
 import tempfile
-import time
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
-from typing import Any, Tuple, Optional
+from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 
 from vibectl.server.acme_client import (
     ACMEClient,
     ACMEValidationError,
-    ACMECertificateError,
 )
-from vibectl.types import Error, Success
+from vibectl.types import Success
 
 
 class TestComprehensiveACMETLSALPN01Flow:
@@ -65,7 +63,11 @@ class TestComprehensiveACMETLSALPN01Flow:
 
         # Mock CSR creation
         mock_csr = Mock()
-        mock_csr.csr.public_bytes.return_value = b"-----BEGIN CERTIFICATE REQUEST-----\ntest_csr\n-----END CERTIFICATE REQUEST-----"
+        mock_csr.csr.public_bytes.return_value = (
+            b"-----BEGIN CERTIFICATE REQUEST-----\n"
+            b"test_csr\n"
+            b"-----END CERTIFICATE REQUEST-----"
+        )
         mock_create_csr.return_value = mock_csr
 
         # Mock directory and account registration
@@ -84,8 +86,8 @@ class TestComprehensiveACMETLSALPN01Flow:
 
         # The actual implementation calls response_and_validation with domain parameter
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
-        ) -> Tuple[Mock, bytes]:
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
             return Mock(), b"challenge_validation_token_12345"
 
         mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
@@ -95,7 +97,8 @@ class TestComprehensiveACMETLSALPN01Flow:
 
         mock_authz.body.challenges = [mock_challenge_body]
 
-        # Mock order creation - authorizations should contain actual authorization objects, not URLs
+        # Mock order creation - authorizations should contain actual
+        # authorization objects, not URLs
         mock_order = Mock()
         mock_order.body.identifiers = [Mock(value="vibectl.test")]
         mock_order.authorizations = [
@@ -167,9 +170,7 @@ class TestComprehensiveACMETLSALPN01Flow:
         assert isinstance(call_args[1], bytes)  # Should be challenge hash
         mock_client.answer_challenge.assert_called_once()
         assert mock_client.poll.call_count == 2  # Pending then valid
-        mock_tls_alpn_server.remove_challenge.assert_called_once_with(
-            "vibectl.test"
-        )
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("vibectl.test")
         mock_client.finalize_order.assert_called_once()
 
         # Verify certificate files were mocked to be written
@@ -219,8 +220,8 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_tls_alpn_challenge.typ = "tls-alpn-01"
 
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
-        ) -> Tuple[Mock, bytes]:
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
             return Mock(), b"validation_token"
 
         mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
@@ -249,7 +250,8 @@ class TestComprehensiveACMETLSALPN01Flow:
         # First test the challenge setup
         client._complete_tls_alpn01_challenge(mock_challenge_body, "vibectl.test")
 
-        # Verify challenge was set up properly - check for challenge hash instead of raw token
+        # Verify challenge was set up properly - check for challenge hash
+        # instead of raw token
         mock_tls_alpn_server.set_challenge.assert_called_once()
         call_args = mock_tls_alpn_server.set_challenge.call_args[0]
         assert call_args[0] == "vibectl.test"
@@ -282,16 +284,24 @@ class TestComprehensiveACMETLSALPN01Flow:
         """Test TLS-ALPN-01 challenge when validation fails."""
         # Setup time mocks to prevent real sleep calls - enough for 8 retry attempts
         mock_time.time.side_effect = [
-            0,   # Start time
-            1, 2,   # First attempt (elapsed, retry)
-            3, 4,   # Second attempt 
-            5, 6,   # Third attempt
-            7, 8,   # Fourth attempt
-            9, 10,  # Fifth attempt
-            11, 12, # Sixth attempt
-            13, 14, # Seventh attempt
-            15, 16, # Eighth attempt (final)
-            17,     # After max retries reached
+            0,  # Start time
+            1,
+            2,  # First attempt (elapsed, retry)
+            3,
+            4,  # Second attempt
+            5,
+            6,  # Third attempt
+            7,
+            8,  # Fourth attempt
+            9,
+            10,  # Fifth attempt
+            11,
+            12,  # Sixth attempt
+            13,
+            14,  # Seventh attempt
+            15,
+            16,  # Eighth attempt (final)
+            17,  # After max retries reached
         ]
         mock_time.sleep = Mock()
 
@@ -308,8 +318,8 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_tls_alpn_challenge.typ = "tls-alpn-01"
 
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
-        ) -> Tuple[Mock, bytes]:
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
             return Mock(), b"validation_token"
 
         mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
@@ -373,8 +383,8 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_tls_alpn_challenge.typ = "tls-alpn-01"
 
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
-        ) -> Tuple[Mock, bytes]:
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
             return Mock(), b"validation_token"
 
         mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
@@ -472,12 +482,27 @@ class TestComprehensiveACMETLSALPN01Flow:
                 tls_alpn_challenge_server=mock_tls_alpn_server,
             )
 
-            # The ACMEManager uses its own configured cert paths and positional arguments
+            # The ACMEManager uses its own configured cert paths and positional
+            # arguments
             mock_acme_client.request_certificate.assert_called_once_with(
                 ["vibectl.test"],  # domains (positional)
                 "tls-alpn-01",  # challenge_type (positional)
-                "/home/dlk/.config/vibectl/server/acme-certs/vibectl.test.crt",  # cert_file (positional)
-                "/home/dlk/.config/vibectl/server/acme-certs/vibectl.test.key",  # key_file (positional)
+                str(
+                    Path.home()
+                    / ".config"
+                    / "vibectl"
+                    / "server"
+                    / "acme-certs"
+                    / "vibectl.test.crt"
+                ),
+                str(
+                    Path.home()
+                    / ".config"
+                    / "vibectl"
+                    / "server"
+                    / "acme-certs"
+                    / "vibectl.test.key"
+                ),
             )
 
             # Clean up
@@ -545,8 +570,9 @@ class TestComprehensiveACMETLSALPN01Flow:
             # Start the manager
             start_result = await acme_manager.start()
 
-            # Should return Success when certificate provisioning fails during startup for TLS-ALPN-01
-            # because the server continues operation and retries in background
+            # Should return Success when certificate provisioning fails
+            # during startup for TLS-ALPN-01 because the server continues
+            # operation and retries in background
             assert isinstance(start_result, Success)
             assert "ACME manager started" in start_result.message
 
@@ -561,12 +587,27 @@ class TestComprehensiveACMETLSALPN01Flow:
                 tls_alpn_challenge_server=mock_tls_alpn_server,
             )
 
-            # Verify certificate request was attempted - using ACMEManager's own paths and positional args
+            # Verify certificate request was attempted - using ACMEManager's
+            # own paths and positional args
             mock_acme_client.request_certificate.assert_called_once_with(
                 ["vibectl.test"],  # domains (positional)
                 "tls-alpn-01",  # challenge_type (positional)
-                "/home/dlk/.config/vibectl/server/acme-certs/vibectl.test.crt",  # cert_file (positional)
-                "/home/dlk/.config/vibectl/server/acme-certs/vibectl.test.key",  # key_file (positional)
+                str(
+                    Path.home()
+                    / ".config"
+                    / "vibectl"
+                    / "server"
+                    / "acme-certs"
+                    / "vibectl.test.crt"
+                ),
+                str(
+                    Path.home()
+                    / ".config"
+                    / "vibectl"
+                    / "server"
+                    / "acme-certs"
+                    / "vibectl.test.key"
+                ),
             )
 
             # Clean up
@@ -594,7 +635,7 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_ensure_client: Mock,
         mock_sleep: Mock,
     ) -> None:
-        """Test TLS-ALPN ACME manager when Pebble server is unreachable (simulating the demo hang scenario)."""
+        """Test TLS-ALPN ACME manager when Pebble server is unreachable."""
         from vibectl.server.acme_manager import ACMEManager
 
         # Mock TLS-ALPN server
@@ -643,7 +684,8 @@ class TestComprehensiveACMETLSALPN01Flow:
             tls_alpn_challenge_server=mock_tls_alpn_server,
         )
 
-        # Start the manager (this should succeed even with connectivity issues because we mocked the ACME client)
+        # Start the manager (this should succeed even with connectivity issues
+        # because we mocked the ACME client)
         start_result = await acme_manager.start()
 
         # Should succeed because ACME client methods are mocked
@@ -749,7 +791,7 @@ class TestACMEIntegrationIssues:
         mock_tls_alpn_challenge.typ = "tls-alpn-01"
 
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
+            account_key: Any, domain: str | None = None
         ) -> None:
             raise Exception("Invalid domain format for TLS-ALPN-01 challenge")
 
@@ -867,9 +909,10 @@ class TestACMEDemoDebugging:
     async def test_demo_hanging_scenario_reproduction(
         self, mock_sleep: Mock, mock_request_cert: Mock, mock_ensure_client: Mock
     ) -> None:
-        """Test scenario that could cause demo hanging - with proper mocking to prevent actual hanging."""
-        from vibectl.server.acme_manager import ACMEManager
+        """Test scenario that could cause demo hanging - with proper mocking."""
         import asyncio
+
+        from vibectl.server.acme_manager import ACMEManager
 
         # Mock TLS-ALPN server
         mock_tls_alpn_server = Mock()
@@ -937,7 +980,7 @@ class TestACMEDemoDebugging:
         mock_net.get.side_effect = Exception("Connection refused to Pebble server")
 
         client = ACMEClient(
-            directory_url="https://10.43.179.11:14000/dir",  # Pebble IP from hanging demo
+            directory_url="https://10.43.179.11:14000/dir",
             email="admin@vibectl.test",
             ca_cert_file="/pebble-ca/ca.crt",
         )
@@ -945,7 +988,9 @@ class TestACMEDemoDebugging:
         # Should raise ACMECertificateError wrapping the connection error
         with pytest.raises(
             Exception,
-            match="Failed to connect to ACME server.*Connection refused to Pebble server",
+            match=(
+                "Failed to connect to ACME server.*Connection refused to Pebble server"
+            ),
         ):
             client._ensure_client()
 
@@ -969,8 +1014,8 @@ class TestACMEDemoDebugging:
         mock_tls_alpn_challenge.typ = "tls-alpn-01"
 
         def mock_response_and_validation(
-            account_key: Any, domain: Optional[str] = None
-        ) -> Tuple[Mock, bytes]:
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
             return Mock(), b"test_validation_token"
 
         mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation

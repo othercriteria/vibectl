@@ -32,9 +32,9 @@ data:
     acme:
       enabled: true
       email: admin@vibectl.test
-      domains: 
+      domains:
         - ${ACME_DOMAIN_INTERNAL}
         - ${ACME_DOMAIN_EXTERNAL}
       directory_url: ${ACME_DIRECTORY_URL}
       challenge_type: tls-alpn-01
-      ca_cert_file: /pebble-ca/ca.crt 
+      ca_cert_file: /pebble-ca/ca.crt

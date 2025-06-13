@@ -152,6 +152,9 @@ module = [
     "jwt",
     "acme.*",
     "josepy",
+    "aiohttp",
+    "aiohttp.*",
+    "requests.*",
 ]
 ignore_missing_imports = true
 

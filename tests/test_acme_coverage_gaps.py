@@ -1,29 +1,21 @@
 """
 Tests for specific coverage gaps in ACME client and manager functionality.
-
-This test suite specifically targets the uncovered lines identified in the coverage report.
-These tests complement the existing comprehensive test suites.
 """
 
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
 from datetime import datetime, timedelta
+from unittest.mock import Mock, mock_open, patch
 
 import pytest
-import acme.errors
 
-from vibectl.server.acme_client import ACMEClient, ACMECertificateError
+from vibectl.server.acme_client import ACMECertificateError, ACMEClient
 from vibectl.server.acme_manager import ACMEManager
-from vibectl.types import Error, Success
 
 
 class TestACMEClientCoverageGaps:
     """Test cases to improve code coverage for ACMEClient gaps."""
 
     def test_cleanup_no_longer_needed(self) -> None:
-        """Test that cleanup methods are no longer needed with session-based approach."""
+        """Test cleanup methods are no longer needed with session-based approach."""
         client = ACMEClient(ca_cert_file="/fake/ca.crt")
 
         # No cleanup methods should exist anymore
@@ -41,7 +33,9 @@ class TestACMEClientCoverageGaps:
             patch(
                 "builtins.open",
                 mock_open(
-                    read_data="-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"
+                    read_data=(
+                        "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"
+                    )
                 ),
             ),
             patch(
@@ -157,7 +151,8 @@ class TestACMEClientNeedsRenewalEdgeCases:
         """Test needs_renewal with a valid certificate that doesn't need renewal."""
         client = ACMEClient()
 
-        # Mock expiry date in the future (more than 30 days) - use timezone-aware datetime
+        # Mock expiry date in the future (more than 30 days)
+        # using timezone-aware datetime
         future_date = datetime.now().astimezone() + timedelta(days=60)
 
         with patch.object(client, "check_certificate_expiry", return_value=future_date):
@@ -168,7 +163,8 @@ class TestACMEClientNeedsRenewalEdgeCases:
         """Test needs_renewal with a certificate that's expiring soon."""
         client = ACMEClient()
 
-        # Mock expiry date in the near future (less than 30 days) - use timezone-aware datetime
+        # Mock expiry date in the near future (less than 30 days)
+        # using timezone-aware datetime
         near_future_date = datetime.now().astimezone() + timedelta(days=15)
 
         with patch.object(

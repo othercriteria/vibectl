@@ -44,34 +44,34 @@ spec:
           - |
             set -e
             echo "🔑 Generating Pebble CA and server certificates..."
-            
+
             # Create certificate directory
             mkdir -p /certs
-            
+
             # Read network configuration
             NAMESPACE=$(cat /network-info/namespace)
             NODE_IP=$(cat /network-info/node-ip)
-            
+
             echo "📍 Using namespace: $NAMESPACE"
             echo "📍 Using node IP: $NODE_IP"
-            
+
             # Generate CA private key
             openssl genrsa -out /certs/ca.key 2048
-            
+
             # Generate CA certificate (self-signed)
             openssl req -new -x509 -key /certs/ca.key \
               -out /certs/ca.crt \
               -days 365 \
               -subj "/CN=pebble-ca"
-              
+
             # Generate server private key
             openssl genrsa -out /certs/pebble.key 2048
-            
+
             # Generate server certificate signing request
             openssl req -new -key /certs/pebble.key \
               -out /certs/pebble.csr \
               -subj "/CN=pebble"
-              
+
             # Create OpenSSL config file for extensions
             cat > /tmp/v3.ext << EOF
             [v3_req]
@@ -79,7 +79,7 @@ spec:
             extendedKeyUsage = serverAuth
             subjectAltName = DNS:pebble,DNS:pebble.$NAMESPACE.svc.cluster.local,DNS:localhost,IP:127.0.0.1,IP:$NODE_IP
             EOF
-            
+
             # Generate server certificate signed by our CA with comprehensive SANs
             openssl x509 -req -in /certs/pebble.csr \
               -CA /certs/ca.crt -CAkey /certs/ca.key -CAcreateserial \
@@ -87,7 +87,7 @@ spec:
               -days 365 \
               -extensions v3_req \
               -extfile /tmp/v3.ext
-              
+
             echo "✅ Pebble CA and server certificates generated"
             echo "📋 CA Certificate:"
             openssl x509 -in /certs/ca.crt -text -noout | grep -A 3 "Subject:"
@@ -169,4 +169,4 @@ spec:
     targetPort: 15000
     protocol: TCP
   selector:
-    app: pebble 
+    app: pebble

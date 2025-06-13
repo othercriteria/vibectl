@@ -94,7 +94,7 @@ Enable TLS with `--tls` or by setting `server.use_tls: true`. If `cert_file` and
 
 **Use Cases:**
 - Corporate environments with existing PKI infrastructure
-- Air-gapped or restricted network environments  
+- Air-gapped or restricted network environments
 - Internal services where you control certificate trust
 - Development environments with full certificate control
 - High-security environments requiring custom CA validation
@@ -210,12 +210,12 @@ This approach provides the **security of private CAs** for internal deployments 
 For comprehensive demonstration setups see the manifests under `examples/manifests/vibectl-server/`. They provide two complete scenarios:
 
 ### CA Management Demo
-- Private Certificate Authority setup  
+- Private Certificate Authority setup
 - Self-contained deployment for internal networks
 - Complete certificate lifecycle management
 - Run with: `./examples/manifests/vibectl-server/demo-ca.sh`
 
-### ACME Management Demo  
+### ACME Management Demo
 - Pebble ACME test server integration
 - Let's Encrypt-compatible certificate workflow
 - Automatic domain validation and renewal

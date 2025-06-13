@@ -15,4 +15,4 @@ metadata:
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - vibectl-demo-pool 
+    - vibectl-demo-pool

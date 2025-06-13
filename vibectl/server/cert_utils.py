@@ -134,11 +134,11 @@ def generate_self_signed_certificate(
             x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
             x509.IPAddress(ipaddress.IPv6Address("::1")),
         ]
-        
+
         # Add localhost if it's not already the hostname
         if hostname != "localhost":
             san_names.append(x509.DNSName("localhost"))
-        
+
         # Add additional SANs if provided
         if additional_sans:
             # Keep track of existing values to avoid duplicates
@@ -146,7 +146,7 @@ def generate_self_signed_certificate(
             if hostname != "localhost":
                 existing_dns_names.add("localhost")
             existing_ip_addresses = {"127.0.0.1", "::1"}
-            
+
             for san in additional_sans:
                 try:
                     # Try to parse as IP address first

@@ -10,7 +10,7 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from aiohttp import web
 from aiohttp.web import Application, Request, Response
@@ -36,7 +36,7 @@ class HTTPChallengeServer:
         self,
         host: str = "0.0.0.0",
         port: int = 80,
-        challenge_dir: Optional[str] = None,
+        challenge_dir: str | None = None,
     ):
         """Initialize the HTTP challenge server.
 
@@ -49,12 +49,12 @@ class HTTPChallengeServer:
         self.host = host
         self.port = port
         self.challenge_dir = Path(challenge_dir) if challenge_dir else None
-        self.app: Optional[Application] = None
-        self.runner: Optional[web.AppRunner] = None
-        self.site: Optional[web.TCPSite] = None
+        self.app: Application | None = None
+        self.runner: web.AppRunner | None = None
+        self.site: web.TCPSite | None = None
 
         # In-memory challenge storage (when not using filesystem)
-        self._challenges: Dict[str, str] = {}
+        self._challenges: dict[str, str] = {}
         self._lock = threading.Lock()
 
         # Server state
@@ -94,7 +94,7 @@ class HTTPChallengeServer:
         logger.info(f"Serving ACME challenge for token: {token}")
         return web.Response(text=challenge_response, content_type="text/plain")
 
-    async def _get_challenge_response(self, token: str) -> Optional[str]:
+    async def _get_challenge_response(self, token: str) -> str | None:
         """Get the challenge response for a token."""
 
         # Try filesystem first if challenge_dir is configured
@@ -226,7 +226,7 @@ class HTTPChallengeServer:
         try:
             await asyncio.wait_for(self._start_event.wait(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     @property
@@ -247,7 +247,7 @@ class HTTPChallengeServer:
 
 
 async def start_challenge_server(
-    host: str = "0.0.0.0", port: int = 80, challenge_dir: Optional[str] = None
+    host: str = "0.0.0.0", port: int = 80, challenge_dir: str | None = None
 ) -> HTTPChallengeServer:
     """Start an HTTP challenge server.
 
@@ -271,7 +271,7 @@ class TemporaryChallengeServer:
     def __init__(self, **kwargs: Any):
         """Initialize with HTTPChallengeServer arguments."""
         self.kwargs = kwargs
-        self.server: Optional[HTTPChallengeServer] = None
+        self.server: HTTPChallengeServer | None = None
 
     async def __aenter__(self) -> HTTPChallengeServer:
         """Start the server."""

@@ -13,10 +13,12 @@ and ACME TLS-ALPN-01 challenges.
 """
 
 import asyncio
+import contextlib
 import logging
 import ssl
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
+
 from .alpn_bridge import TLSALPNBridge
 
 logger = logging.getLogger(__name__)
@@ -66,22 +68,21 @@ class GRPCHandler:
             # Cancel remaining tasks
             for task in pending:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
         except Exception as e:
             logger.error(f"Error in gRPC proxy: {e}")
         finally:
             # Cleanup connections
-            for w in [writer, upstream_writer if 'upstream_writer' in locals() else None]:
+            for w in [
+                writer,
+                upstream_writer if "upstream_writer" in locals() else None,
+            ]:
                 if w and not w.is_closing():
                     w.close()
-                    try:
+                    with contextlib.suppress(Exception):
                         await w.wait_closed()
-                    except Exception:
-                        pass
 
     async def _proxy_data(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str
@@ -103,7 +104,7 @@ class GRPCHandler:
 
 class TLSALPNHandler:
     """Handler for TLS-ALPN-01 challenge connections (ALPN: acme-tls/1).
-    
+
     This handler manages its own SSL context with challenge certificates,
     separate from the main server's SSL context.
     """
@@ -116,7 +117,7 @@ class TLSALPNHandler:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         """Handle TLS-ALPN-01 challenge connection.
-        
+
         For TLS-ALPN-01 challenges, the connection is handled by checking
         the SNI and presenting the appropriate challenge certificate.
         The ALPN multiplexer routes here, and we handle the rest.
@@ -130,23 +131,29 @@ class TLSALPNHandler:
 
             # Extract SNI and connection info for detailed logging
             server_name = ssl_object.server_hostname if ssl_object else None
-            peer_addr = writer.get_extra_info('peername', 'unknown')
-            
+            peer_addr = writer.get_extra_info("peername", "unknown")
+
             logger.info(f"🎯 TLS-ALPN-01 challenge connection from {peer_addr}")
             logger.info(f"🎯 Challenge connection for domain: '{server_name}'")
-            
+
             # Log certificate info that was presented
             try:
                 cert = ssl_object.getpeercert(binary_form=False)
                 if cert:
-                    subject = dict(x[0] for x in cert['subject'])
-                    logger.info(f"🎯 Certificate subject presented: {subject.get('commonName', 'unknown')}")
+                    subject = dict(x[0] for x in cert["subject"])
+                    logger.info(
+                        "🎯 Certificate subject presented: "
+                        f"{subject.get('commonName', 'unknown')}"
+                    )
                 else:
                     logger.debug("No peer certificate info available")
             except Exception as e:
                 logger.debug(f"Could not get certificate info: {e}")
 
-            logger.info(f"✅ TLS-ALPN-01 challenge connection completed successfully for domain: '{server_name}'")
+            logger.info(
+                "✅ TLS-ALPN-01 challenge connection completed successfully for "
+                f"domain: '{server_name}'"
+            )
 
             # Note: At this point, the TLS handshake is complete and we're in the
             # application layer. For TLS-ALPN-01, the ACME server has already
@@ -166,19 +173,17 @@ class TLSALPNHandler:
             # Always close the connection immediately per RFC 8737
             if not writer.is_closing():
                 writer.close()
-                try:
+                with contextlib.suppress(Exception):
                     await writer.wait_closed()
-                except Exception:
-                    pass
 
 
 class ALPNMultiplexer:
     """ALPN multiplexing server for handling multiple protocols on port 443.
-    
+
     This multiplexer routes connections based on the negotiated ALPN protocol:
     - h2: Routes to gRPC handler (proxies to internal gRPC server)
     - acme-tls/1: Routes to TLS-ALPN challenge handler (uses challenge certificates)
-    
+
     Each protocol can have its own SSL certificate management strategy.
     """
 
@@ -230,7 +235,7 @@ class ALPNMultiplexer:
 
     def _create_ssl_context(self) -> ssl.SSLContext:
         """Create SSL context with ALPN support.
-        
+
         For TLS-ALPN-01 challenges, certificate selection is handled by
         a custom SSL context callback that can access the negotiated ALPN protocol.
         """
@@ -247,12 +252,56 @@ class ALPNMultiplexer:
             context.set_alpn_protocols(alpn_protocols)
             logger.info(f"ALPN protocols configured: {alpn_protocols}")
 
-        # Add SNI callback for TLS-ALPN-01 challenge certificates if handler is registered
+        # Add SNI callback for TLS-ALPN-01 challenge certificates
+        # if handler is registered
         if "acme-tls/1" in self._handlers:
             context.sni_callback = self._create_sni_callback()
-            logger.info("SNI callback configured for TLS-ALPN-01 challenge certificates")
+            logger.info(
+                "SNI callback configured for TLS-ALPN-01 challenge certificates"
+            )
 
         return context
+
+    def _select_challenge_context(
+        self, tls_alpn_server: Any, server_name: str | None
+    ) -> ssl.SSLContext | None:
+        """Select an appropriate SSL context for a TLS-ALPN-01 challenge.
+
+        The logic is centralised here so that it can be unit-tested and reused
+        from the SNI callback without cluttering that callback with
+        conditional branches.
+
+        Args:
+            tls_alpn_server: The ACME TLS-ALPN challenge server instance.
+            server_name: The SNI server name provided by the client (may be
+                ``None`` when the client did not include SNI).
+
+        Returns:
+            An ``ssl.SSLContext`` with the correct challenge certificate loaded
+            when a matching challenge exists, otherwise ``None``.
+        """
+        try:
+            # When SNI is present, look for an exact challenge for that domain.
+            if server_name:
+                if tls_alpn_server._get_challenge_response(server_name):
+                    return cast(
+                        ssl.SSLContext, tls_alpn_server._create_ssl_context(server_name)
+                    )
+                return None
+
+            # No SNI provided - fall back to heuristics based on active challenges.
+            active_domains = tls_alpn_server._get_active_challenge_domains()
+            if len(active_domains) == 1:
+                # Single challenge active - use its certificate.
+                domain = next(iter(active_domains))
+                return cast(ssl.SSLContext, tls_alpn_server._create_ssl_context(domain))
+
+            # Zero or multiple active challenges - no unambiguous choice.
+            return None
+
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.warning(f"⚠️ Failed to select challenge SSL context: {exc}")
+            return None
 
     def _create_sni_callback(self) -> Callable:
         """Create SNI callback that can present challenge certificates for TLS-ALPN-01.
@@ -260,78 +309,47 @@ class ALPNMultiplexer:
         Returns:
             SNI callback function for SSL context
         """
-        def sni_callback(ssl_socket: Any, server_name: str | None, ssl_context: ssl.SSLContext) -> None:
-            """SNI callback for dynamic certificate selection.
 
-            This callback is called during TLS handshake when SNI is present.
-            For TLS-ALPN-01 challenges, it can present challenge certificates.
-            """
-            logger.info(f"🔍 SNI callback triggered! server_name: '{server_name}'")
-            logger.info(f"🔍 SNI callback processing server_name: '{server_name}'")
+        def sni_callback(
+            ssl_socket: Any, server_name: str | None, ssl_context: ssl.SSLContext
+        ) -> None:
+            """SNI callback for dynamic certificate selection during TLS handshake."""
+
+            logger.info(f"🔍 SNI callback triggered - server_name='{server_name}'")
 
             try:
-                # Get TLS-ALPN handler if available
                 tls_alpn_handler = self._handlers.get("acme-tls/1")
-                if not tls_alpn_handler or not isinstance(tls_alpn_handler, TLSALPNHandler):
-                    logger.debug("🔧 No TLS-ALPN handler available for challenge certificate")
+                if not isinstance(tls_alpn_handler, TLSALPNHandler):
+                    logger.debug(
+                        "🔧 TLS-ALPN handler not available; falling back to "
+                        "default certificate"
+                    )
                     return
 
                 tls_alpn_server = tls_alpn_handler.tls_alpn_server
 
-                # Cache active domains to avoid double calls in tests
-                active_domains = tls_alpn_server._get_active_challenge_domains()
-                logger.info(f"🔍 Active challenge domains at SNI time: {active_domains}")
-                logger.info(f"🔍 SNI server_name: '{server_name}'")
+                # Delegate the actual selection logic to a helper for readability.
+                challenge_context = self._select_challenge_context(
+                    tls_alpn_server, server_name
+                )
 
-                if server_name:
-                    # Try to get challenge certificate for the specific domain
-                    challenge_response = tls_alpn_server._get_challenge_response(server_name)
-                    if challenge_response:
-                        logger.info(f"🎯 Found TLS-ALPN-01 challenge for domain: {server_name}")
-                        try:
-                            challenge_context = tls_alpn_server._create_ssl_context(server_name)
-                            if challenge_context:
-                                # Extra debug: confirm ALPN configuration and cert subject
-                                try:
-                                    alpn_cfg = challenge_context.get_alpn_protocols()
-                                except AttributeError:
-                                    alpn_cfg = "<not-available>"
-                                logger.debug(
-                                    f"🔧 Created challenge SSLContext for '{server_name}', ALPNs={alpn_cfg}"
-                                )
-                                ssl_socket.context = challenge_context
-                                logger.info(f"✅ Using challenge certificate for domain: {server_name}")
-                                return
-                        except Exception as e:
-                            logger.warning(f"⚠️ Failed to create challenge SSL context for {server_name}: {e}")
-                    else:
-                        logger.debug(f"🔧 No challenge found for domain: {server_name}")
+                if challenge_context is not None:
+                    ssl_socket.context = challenge_context
+                    chosen = server_name or getattr(
+                        challenge_context, "server_name", "<auto>"
+                    )
+                    logger.info(
+                        "✅ Using TLS-ALPN-01 challenge certificate for "
+                        f"domain: '{chosen}'"
+                    )
                 else:
-                    # No SNI provided - try to handle this case intelligently
-                    if len(active_domains) == 1:
-                        # If we have exactly one active challenge, use it
-                        domain = list(active_domains)[0]
-                        try:
-                            challenge_context = tls_alpn_server._create_ssl_context(domain)
-                            if challenge_context:
-                                ssl_socket.context = challenge_context
-                                logger.info(f"✅ Using single challenge certificate for domain: {domain} (no SNI)")
-                                return
-                        except Exception as e:
-                            logger.warning(f"⚠️ Failed to create challenge context for {domain}: {e}")
-                    elif len(active_domains) > 1:
-                        logger.warning(f"⚠️ No SNI provided with multiple active challenges: {active_domains}")
-                        logger.warning("⚠️ Cannot select challenge certificate without SNI - using default certificate")
-                    else:
-                        logger.warning("⚠️ No SNI provided and no active challenges available")
+                    logger.info(
+                        f"🔧 Using default certificate for server_name: '{server_name}'"
+                    )
 
-                # Fallback to default certificate
-                logger.info(f"🔧 Using default certificate for server_name: '{server_name}' (no matching challenge)")
-
-            except Exception as e:
-                logger.error(f"❌ Exception in SNI callback: {e}")
-                logger.error(f"❌ SNI callback error details: {type(e).__name__}: {e}")
-                # Let TLS handshake continue with default certificate
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.error(f"❌ Exception in SNI callback: {exc}")
+                # Allow TLS handshake to continue with default certificate.
 
         return sni_callback
 
@@ -343,8 +361,8 @@ class ALPNMultiplexer:
         try:
             # Get connection info for debugging
             try:
-                peer_addr = writer.get_extra_info('peername')
-                sockname = writer.get_extra_info('sockname')
+                peer_addr = writer.get_extra_info("peername")
+                sockname = writer.get_extra_info("sockname")
                 logger.info(f"🔄 New connection from {peer_addr} to {sockname}")
             except Exception as e:
                 logger.debug(f"Could not get connection info: {e}")
@@ -358,9 +376,11 @@ class ALPNMultiplexer:
 
             # Log SNI and cipher info
             try:
-                server_hostname = getattr(ssl_object, 'server_hostname', None)
+                server_hostname = getattr(ssl_object, "server_hostname", None)
                 cipher = ssl_object.cipher()
-                logger.debug(f"🔍 SSL info - SNI: '{server_hostname}', Cipher: {cipher}")
+                logger.debug(
+                    f"🔍 SSL info - SNI: '{server_hostname}', Cipher: {cipher}"
+                )
             except Exception as e:
                 logger.debug(f"Could not get SSL details: {e}")
 
@@ -375,7 +395,9 @@ class ALPNMultiplexer:
             # Route to appropriate handler
             handler = self._handlers.get(alpn_protocol)
             if handler is None:
-                logger.warning(f"❌ No handler registered for ALPN protocol: {alpn_protocol}")
+                logger.warning(
+                    f"❌ No handler registered for ALPN protocol: {alpn_protocol}"
+                )
                 return
 
             logger.debug(f"🔄 Routing to handler for protocol: {alpn_protocol}")
@@ -388,11 +410,8 @@ class ALPNMultiplexer:
             # Ensure cleanup happens regardless of how we exit
             if not writer.is_closing():
                 writer.close()
-                try:
+                with contextlib.suppress(Exception):
                     await writer.wait_closed()
-                except Exception:
-                    # Ignore errors during cleanup
-                    pass
 
     async def start(self) -> None:
         """Start the ALPN multiplexing server."""
@@ -428,7 +447,9 @@ class ALPNMultiplexer:
 
             self._running = True
             self._start_event.set()
-            logger.info(f"🎉 ALPN multiplexer started successfully on {self.host}:{self.port}")
+            logger.info(
+                f"🎉 ALPN multiplexer started successfully on {self.host}:{self.port}"
+            )
 
         except Exception as e:
             logger.error(f"❌ Failed to start ALPN multiplexer: {e}")
@@ -462,17 +483,19 @@ class ALPNMultiplexer:
         try:
             await asyncio.wait_for(self._start_event.wait(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
-            logger.warning(f"⏰ Timeout waiting for ALPN multiplexer to be ready ({timeout}s)")
+        except TimeoutError:
+            logger.warning(
+                f"⏰ Timeout waiting for ALPN multiplexer to be ready ({timeout}s)"
+            )
             return False
 
     async def _cleanup(self) -> None:
         """Clean up server resources."""
         logger.info("🧹 Cleaning up ALPN multiplexer...")
-        
+
         self._running = False
         self._start_event.clear()
-        
+
         if self._server:
             try:
                 self._server.close()
@@ -482,7 +505,7 @@ class ALPNMultiplexer:
                 logger.warning(f"⚠️ Error closing server: {e}")
             finally:
                 self._server = None
-        
+
         self._ssl_context = None
         logger.info("🧹 ALPN multiplexer cleanup complete")
 
@@ -503,8 +526,9 @@ async def create_alpn_multiplexer_for_acme(
 ) -> ALPNMultiplexer:
     """Create and configure an ALPN multiplexer for ACME and gRPC.
 
-    This function sets up a TLS server that can handle both gRPC connections (via ALPN "h2")
-    and TLS-ALPN-01 ACME challenges (via ALPN "acme-tls/1") on the same port (typically 443).
+    This function sets up a TLS server that can handle both gRPC connections
+    (via ALPN "h2") and TLS-ALPN-01 ACME challenges (via ALPN "acme-tls/1") on
+    the same port (typically 443).
 
     The gRPC server is started on a separate internal port and the multiplexer proxies
     gRPC connections to it, while handling ACME challenges directly.
@@ -525,7 +549,8 @@ async def create_alpn_multiplexer_for_acme(
         Exception: If the gRPC server fails to start or multiplexer setup fails
     """
     logger.info(
-        f"Setting up ALPN multiplexer with gRPC server on internal port {grpc_internal_port}"
+        "Setting up ALPN multiplexer with gRPC server on internal port "
+        f"{grpc_internal_port}"
     )
 
     # Start the gRPC server on the internal port (insecure, since it's local)
@@ -562,8 +587,6 @@ async def create_alpn_multiplexer_for_acme(
     except Exception as e:
         # Clean up if something goes wrong
         logger.error(f"Failed to set up ALPN multiplexer: {e}")
-        try:
+        with contextlib.suppress(Exception):
             grpc_server.stop()
-        except:
-            pass
         raise

@@ -10,8 +10,6 @@ This test suite covers the complete ACME protocol implementation including:
 - Error handling and edge cases
 """
 
-from datetime import datetime, timedelta
-from pathlib import Path
 from unittest.mock import Mock, mock_open, patch
 
 import acme.challenges
@@ -19,7 +17,6 @@ import acme.client
 import acme.errors
 import acme.messages
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 
 from vibectl.server.acme_client import (
     LETSENCRYPT_PRODUCTION,
@@ -120,7 +117,11 @@ class TestACMEClient:
     @patch(
         "builtins.open",
         new_callable=mock_open,
-        read_data="-----BEGIN CERTIFICATE-----\nfake_ca_cert_content\n-----END CERTIFICATE-----\n",
+        read_data=(
+            "-----BEGIN CERTIFICATE-----\n"
+            "fake_ca_cert_content\n"
+            "-----END CERTIFICATE-----\n"
+        ),
     )
     @patch("requests.Session")
     @patch("vibectl.server.acme_client.acme.client.ClientNetwork")
@@ -183,7 +184,7 @@ class TestACMEClient:
         mock_isfile.assert_called_with(ca_cert_file)
         mock_getsize.assert_called_with(ca_cert_file)  # Verify getsize was called
         mock_logger.info.assert_any_call(f"Using custom CA certificate: {ca_cert_file}")
-        mock_logger.debug.assert_any_call(f"CA file size: 1024 bytes")
+        mock_logger.debug.assert_any_call("CA file size: 1024 bytes")
 
         # Verify ClientNetwork was created with standard SSL verification
         mock_client_net_class.assert_called_once_with(
@@ -216,7 +217,7 @@ class TestACMEClient:
         mock_rsa_gen: Mock,
         mock_jwk_rsa: Mock,
     ) -> None:
-        """Test ACME client initialization without custom CA certificate (default behavior)."""
+        """Test ACME client initialization without custom CA certificate."""
         # Setup mocks
         mock_private_key = Mock()
         mock_rsa_gen.return_value = mock_private_key
@@ -568,14 +569,13 @@ class TestACMEClient:
 
         # Mock challenge for the unsupported type
         mock_challenge = Mock()
-        mock_challenge.typ = "fake-challenge-01"  # This will be found but not supported by our implementation
+        mock_challenge.typ = "fake-challenge-01"
         mock_challenge_body = Mock()
         mock_challenge_body.chall = mock_challenge
         mock_authz.body.challenges = [mock_challenge_body]
 
         client = ACMEClient()
 
-        # This should trigger the else clause on line 226
         with pytest.raises(
             ACMEValidationError, match="Unsupported challenge type: fake-challenge-01"
         ):
@@ -780,7 +780,8 @@ class TestACMEClient:
 
         # Check that the domain and validation token are mentioned in logs
         assert any("example.com" in call for call in all_log_calls)
-        # The validation token is converted to challenge_hash hex, so we check for debug logs
+        # The validation token is converted to challenge_hash hex, so
+        # we check for debug logs
         assert any("Challenge hash (hex):" in call for call in debug_calls)
         assert any("TLS-ALPN-01 challenge initiated" in call for call in info_calls)
 
@@ -888,16 +889,24 @@ class TestACMEClient:
         """Test authorization validation failure."""
         # Set up time mock with more values for the new retry logic (8 attempts)
         mock_time.time.side_effect = [
-            0,   # Start time
-            1, 2,   # First attempt (elapsed, retry)
-            3, 4,   # Second attempt 
-            5, 6,   # Third attempt
-            7, 8,   # Fourth attempt
-            9, 10,  # Fifth attempt
-            11, 12, # Sixth attempt
-            13, 14, # Seventh attempt
-            15, 16, # Eighth attempt (final)
-            17,     # After max retries reached
+            0,  # Start time
+            1,
+            2,  # First attempt (elapsed, retry)
+            3,
+            4,  # Second attempt
+            5,
+            6,  # Third attempt
+            7,
+            8,  # Fourth attempt
+            9,
+            10,  # Fifth attempt
+            11,
+            12,  # Sixth attempt
+            13,
+            14,  # Seventh attempt
+            15,
+            16,  # Eighth attempt (final)
+            17,  # After max retries reached
         ]
         mock_time.sleep = Mock()
 
@@ -1083,14 +1092,15 @@ class TestACMEClient:
         authz.body.identifier.value = "test.example.com"
 
         # Mock the cleanup method
-        client._cleanup_completed_challenge = Mock()
+        with patch.object(client, "_cleanup_completed_challenge"):
+            # Should raise ACMEValidationError
+            with pytest.raises(
+                ACMEValidationError, match="Authorization validation error"
+            ):
+                client._wait_for_authorization_validation(authz)
 
-        # Should raise ACMEValidationError
-        with pytest.raises(ACMEValidationError, match="Authorization validation error"):
-            client._wait_for_authorization_validation(authz)
-
-        # Should have attempted to poll once
-        client._client.poll.assert_called_once_with(authz)
+            # Should have attempted to poll once
+            client._client.poll.assert_called_once_with(authz)
 
 
 class TestCreateACMEClient:

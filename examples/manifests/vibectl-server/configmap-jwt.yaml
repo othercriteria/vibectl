@@ -8,4 +8,4 @@ data:
     jwt:
       enabled: true
       algorithm: "HS256"
-      expiration_days: 1 
+      expiration_days: 1

@@ -7,10 +7,12 @@ provisioning, renewal, and hot-reloading without blocking the main server.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 from vibectl.types import Error, Result, Success
 
@@ -36,19 +38,21 @@ class ACMEManager:
 
     def __init__(
         self,
-        challenge_server: Optional[HTTPChallengeServer],
-        acme_config: Dict[str, Any],
-        cert_reload_callback: Optional[Callable[[str, str], None]] = None,
-        tls_alpn_challenge_server: Optional[Any] = None,
+        challenge_server: HTTPChallengeServer | None,
+        acme_config: dict[str, Any],
+        cert_reload_callback: Callable[[str, str], None] | None = None,
+        tls_alpn_challenge_server: Any | None = None,
     ):
         """Initialize ACME manager.
 
         Args:
-            challenge_server: Optional HTTP challenge server instance. Required for HTTP-01 challenges.
+            challenge_server: Optional HTTP challenge server instance.
+                             Required for HTTP-01 challenges.
             acme_config: ACME configuration dictionary
             cert_reload_callback: Optional callback for certificate updates
                                  Called with (cert_file, key_file) when certs change
-            tls_alpn_challenge_server: Optional TLS-ALPN challenge server. Required for TLS-ALPN-01 challenges.
+            tls_alpn_challenge_server: Optional TLS-ALPN challenge server.
+                                      Required for TLS-ALPN-01 challenges.
         """
         self.challenge_server = challenge_server
         self.tls_alpn_challenge_server = tls_alpn_challenge_server
@@ -65,13 +69,13 @@ class ACMEManager:
             )
 
         # Certificate state
-        self.cert_file: Optional[str] = None
-        self.key_file: Optional[str] = None
+        self.cert_file: str | None = None
+        self.key_file: str | None = None
         self.last_cert_check = 0.0
 
         # Manager state
         self._running = False
-        self._renewal_task: Optional[asyncio.Task] = None
+        self._renewal_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
         # Configuration
@@ -100,15 +104,18 @@ class ACMEManager:
             # Perform initial certificate provisioning
             initial_result = await self._provision_initial_certificates()
             if isinstance(initial_result, Error):
-                # For TLS-ALPN-01 challenges, continue running even if initial provisioning fails
+                # For TLS-ALPN-01 challenges, continue running even if
+                # initial provisioning fails
                 # The server needs to stay up to handle subsequent challenge requests
                 challenge_type = self.acme_config.get("challenge_type", "http-01")
                 if challenge_type == "tls-alpn-01":
                     logger.warning(
-                        f"Initial certificate provisioning failed for TLS-ALPN-01: {initial_result.error}"
+                        "Initial certificate provisioning failed for TLS-ALPN-01: "
+                        f"{initial_result.error}"
                     )
                     logger.info(
-                        "Continuing server operation - certificate provisioning will be retried during renewal check"
+                        "Continuing server operation - certificate provisioning will "
+                        "be retried during renewal check"
                     )
                 else:
                     await self.stop()
@@ -134,10 +141,8 @@ class ACMEManager:
         # Cancel renewal task
         if self._renewal_task and not self._renewal_task.done():
             self._renewal_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._renewal_task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("ACME manager stopped")
 
@@ -204,9 +209,9 @@ class ACMEManager:
     ) -> Result:
         """Provision certificates asynchronously."""
         try:
-            # Note: ACME client logs this message, so we don't duplicate it here
             logger.debug(
-                f"Starting async certificate provisioning for domains: {self.acme_config['domains']}"
+                "Starting async certificate provisioning for domains: "
+                f"{self.acme_config['domains']}"
             )
 
             challenge_type = self.acme_config.get("challenge_type", "http-01")
@@ -263,7 +268,7 @@ class ACMEManager:
         self,
         challenge_body: Any,
         domain: str,
-        challenge_dir: Optional[str],
+        challenge_dir: str | None,
         original_method: Callable,
         acme_client: Any,
     ) -> None:
@@ -321,7 +326,7 @@ class ACMEManager:
                     )
                     # Stop event was set
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Timeout reached, perform renewal check
                     pass
 
@@ -412,7 +417,7 @@ class ACMEManager:
         """Check if the ACME manager is running."""
         return self._running
 
-    def get_certificate_files(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_certificate_files(self) -> tuple[str | None, str | None]:
         """Get current certificate file paths.
 
         Returns:

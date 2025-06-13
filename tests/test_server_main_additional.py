@@ -1116,7 +1116,7 @@ class TestSmartServeCommandRouting:
     def test_serve_routes_to_acme_with_extracted_arguments(
         self, mock_serve_acme: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serve command routes to ACME mode with extracted arguments from config."""
+        """Test serves ACME mode with extracted arguments from config."""
         config = get_default_server_config()
         config["tls"]["enabled"] = True
         config["acme"] = {
@@ -1144,7 +1144,7 @@ class TestSmartServeCommandRouting:
     def test_serve_routes_to_acme_with_defaults(
         self, mock_serve_acme: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serve command routes to ACME mode with minimal config (using defaults)."""
+        """Test serves ACME mode with minimal config (using defaults)."""
         config = get_default_server_config()
         config["tls"]["enabled"] = True
         config["acme"] = {
@@ -1171,7 +1171,7 @@ class TestSmartServeCommandRouting:
     def test_serve_routes_to_custom_with_extracted_arguments(
         self, mock_serve_custom: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serve command routes to custom mode with extracted cert file arguments."""
+        """Test serves custom mode with extracted cert file arguments."""
         config = get_default_server_config()
         config["tls"] = {
             "enabled": True,
@@ -1223,7 +1223,7 @@ class TestSmartServeCommandRouting:
     def test_serve_ca_mode_missing_ca_directory_with_key_only(
         self, mock_handle_result: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serve command routes to CA mode when only key_file is provided (missing cert_file)."""
+        """Test serves CA mode when only key_file is provided (missing cert_file)."""
         config = get_default_server_config()
         config["tls"] = {
             "enabled": True,
@@ -1247,7 +1247,7 @@ class TestSmartServeCommandRouting:
     def test_serve_ca_mode_missing_ca_directory_with_cert_only(
         self, mock_handle_result: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serve command routes to CA mode when only cert_file is provided (missing key_file)."""
+        """Test serves CA mode when only cert_file is provided (missing key_file)."""
         config = get_default_server_config()
         config["tls"] = {
             "enabled": True,

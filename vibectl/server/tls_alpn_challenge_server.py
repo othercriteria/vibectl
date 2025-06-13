@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 TLS-ALPN-01 Challenge Certificate Manager for ACME challenges.
 
@@ -23,10 +21,15 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
+# Runtime import to avoid NameError in type annotations (tests access annotations).
+from .alpn_bridge import TLSALPNBridge
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from .alpn_bridge import TLSALPNBridge
+    # Re-exported so type checkers still see correct symbol location.
+    from .alpn_bridge import TLSALPNBridge  # type: ignore
+
 
 class TLSALPNChallengeServer:
     """Challenge certificate manager for ACME TLS-ALPN-01 challenges.
@@ -50,19 +53,22 @@ class TLSALPNChallengeServer:
         # Challenge state management
         self._challenges: dict[str, bytes] = {}
         self._lock = threading.Lock()
-        
+
         # Configuration
         self.host = host
         self.port = port
-        
-        # Bridge to share state with the multiplexer
-        from .alpn_bridge import TLSALPNBridge  # local import to avoid cycle
-        self._bridge: TLSALPNBridge | None = None
-        
-        logger.info(f"📋 TLS-ALPN-01 challenge manager initialized for {host}:{port}")
-        logger.info("🔧 Challenge manager ready to handle certificate generation for ALPN multiplexer")
 
-    def _attach_bridge(self, bridge: "TLSALPNBridge") -> None:
+        # Bridge to share state with the multiplexer
+
+        self._bridge: TLSALPNBridge | None = None
+
+        logger.info(f"📋 TLS-ALPN-01 challenge manager initialized for {host}:{port}")
+        logger.info(
+            "🔧 Challenge manager ready to handle certificate generation for "
+            "ALPN multiplexer"
+        )
+
+    def _attach_bridge(self, bridge: TLSALPNBridge) -> None:
         """Called by factory after both components are created."""
         self._bridge = bridge
         bridge.attach_challenge_server(self)  # back-reference
@@ -90,9 +96,9 @@ class TLSALPNChallengeServer:
                 try:
                     self._update_multiplexer_default_cert(domain, challenge_response)
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to update multiplexer default certificate: {e}")
-
-            # Additional notification hooks could be placed here
+                    logger.warning(
+                        f"⚠️ Failed to update multiplexer default certificate: {e}"
+                    )
 
             logger.info(f"✅ Set TLS-ALPN-01 challenge for domain: {domain}")
 
@@ -106,15 +112,22 @@ class TLSALPNChallengeServer:
             if domain in self._challenges:
                 del self._challenges[domain]
                 logger.debug(f"Removed TLS-ALPN-01 challenge for domain: {domain}")
-                logger.debug(f"Remaining challenge domains: {list(self._challenges.keys())}")
+                logger.debug(
+                    f"Remaining challenge domains: {list(self._challenges.keys())}"
+                )
 
                 # If no active challenges remain, restore the default certificate so
                 # subsequent non-ACME connections present the correct gRPC cert.
                 if not self._challenges:
                     self._restore_multiplexer_default_cert()
             else:
-                logger.warning(f"Attempted to remove challenge for domain {domain}, but no challenge was found")
-                logger.debug(f"Current challenge domains: {list(self._challenges.keys())}")
+                logger.warning(
+                    f"Attempted to remove challenge for domain {domain}, "
+                    "but no challenge was found"
+                )
+                logger.debug(
+                    f"Current challenge domains: {list(self._challenges.keys())}"
+                )
 
     def clear_challenges(self) -> None:
         """Clear all challenges."""
@@ -139,7 +152,9 @@ class TLSALPNChallengeServer:
                 return challenge_bytes
             else:
                 logger.debug(f"Challenge lookup for domain '{domain}': not found")
-                logger.debug(f"Current active challenges: {list(self._challenges.keys())}")
+                logger.debug(
+                    f"Current active challenges: {list(self._challenges.keys())}"
+                )
                 return None
 
     def _get_active_challenge_domains(self) -> list[str]:
@@ -174,7 +189,7 @@ class TLSALPNChallengeServer:
         # contains the 32-byte SHA-256 digest (the "acmeValidation" payload).
         #
         # cryptography expects *DER-encoded* bytes for UnrecognizedExtension
-        # – i.e. the raw contents of the outer Extension.value OCTET STRING.
+        # - i.e. the raw contents of the outer Extension.value OCTET STRING.
         # Therefore we must wrap our challenge bytes in a one-level-deeper
         # OCTET STRING before passing it to the builder.
         #
@@ -184,7 +199,7 @@ class TLSALPNChallengeServer:
         # ------------------------------------------------------------------
 
         if len(challenge_response) == 32:
-            # Normal case – RFC-compliant digest length (32-byte SHA-256)
+            # Normal case - RFC-compliant digest length (32-byte SHA-256)
             der_wrapped_validation = (
                 b"\x04" + bytes([len(challenge_response)]) + challenge_response
             )
@@ -194,8 +209,9 @@ class TLSALPNChallengeServer:
             # previous behaviour (raw bytes) so unit tests don't break, but log
             # a warning so real code paths aren't affected.
             logger.warning(
-                "⚠️ TLS-ALPN-01 challenge digest len %d != 32 – using raw value for test"
-                % len(challenge_response)
+                "⚠️ TLS-ALPN-01 challenge digest len %d != 32 - "
+                "using raw value for test",
+                len(challenge_response),
             )
             value_bytes = challenge_response
 
@@ -253,8 +269,6 @@ class TLSALPNChallengeServer:
             domain, challenge_response, private_key
         )
 
-        # Debug logging of generated cert removed (reduces noise and avoids type-checker issues)
-
         return cert_pem
 
     def _create_ssl_context(self, domain: str) -> ssl.SSLContext:
@@ -276,7 +290,7 @@ class TLSALPNChallengeServer:
             )
             logger.error(f"❌ {error_msg}")
             raise ValueError(error_msg)
-        
+
         logger.debug(f"✅ Found challenge response for domain: {domain}")
 
         # Generate a temporary private key for the challenge certificate
@@ -323,11 +337,11 @@ class TLSALPNChallengeServer:
             os.unlink(cert_path)
             os.unlink(key_path)
 
-        # Set ALPN protocols – ONLY "acme-tls/1" is required for the
+        # Set ALPN protocols - ONLY "acme-tls/1" is required for the
         # ACME validation handshake.  Advertising additional protocols (e.g. "h2")
         # can lead some ACME VAs to attempt an HTTP/2 upgrade after the handshake,
         # which is unnecessary and has caused intermittent validation failures.
-        context.set_alpn_protocols(["acme-tls/1"])  # RFC 8737
+        context.set_alpn_protocols(["acme-tls/1"])  # RFC 8737
 
         # Continue to build SSL context with the generated challenge certificate
         return context
@@ -337,26 +351,32 @@ class TLSALPNChallengeServer:
     # ------------------------------------------------------------------
 
     def _restore_multiplexer_default_cert(self) -> None:
-        """Restore the multiplexer's original certificate after all challenges are cleared."""
+        """Restore multiplexer's original certificate after all challenges cleared."""
 
         if (
             self._bridge is None
             or self._bridge.multiplexer is None
-            or self._bridge.multiplexer._ssl_context is None  # type: ignore[attr-defined]
+            or self._bridge.multiplexer._ssl_context is None
         ):
-            logger.debug("ℹ️ Multiplexer not ready, skipping default cert restore")
+            logger.debug("i Multiplexer not ready, skipping default cert restore")
             return
 
         cert_file = self._bridge.multiplexer.cert_file
         key_file = self._bridge.multiplexer.key_file
 
         if not cert_file or not key_file:
-            logger.warning("⚠️ Cannot restore default cert – cert_file/key_file not set on multiplexer")
+            logger.warning(
+                "⚠️ Cannot restore default cert - "
+                "cert_file/key_file not set on multiplexer"
+            )
             return
 
         try:
-            self._bridge.multiplexer._ssl_context.load_cert_chain(cert_file, key_file)  # type: ignore[attr-defined]
-            logger.info("🔄 Restored multiplexer default certificate after clearing all TLS-ALPN-01 challenges")
+            self._bridge.multiplexer._ssl_context.load_cert_chain(cert_file, key_file)
+            logger.info(
+                "🔄 Restored multiplexer default certificate after clearing "
+                "all TLS-ALPN-01 challenges"
+            )
         except Exception as e:
             logger.warning(f"⚠️ Failed to restore default certificate: {e}")
 
@@ -382,18 +402,28 @@ class TLSALPNChallengeServer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _update_multiplexer_default_cert(self, domain: str, challenge_response: bytes) -> None:
+    def _update_multiplexer_default_cert(
+        self, domain: str, challenge_response: bytes
+    ) -> None:
         """Load challenge certificate into multiplexer's default SSLContext."""
-        if self._bridge is None or self._bridge.multiplexer is None or self._bridge.multiplexer._ssl_context is None:  # type: ignore[attr-defined]
-            logger.debug("ℹ️ Multiplexer not ready, skipping default cert update")
+        if (
+            self._bridge is None
+            or self._bridge.multiplexer is None
+            or self._bridge.multiplexer._ssl_context is None
+        ):
+            logger.debug("i Multiplexer not ready, skipping default cert update")
             return
 
-        import tempfile, os
+        import os
+        import tempfile
+
         from cryptography.hazmat.primitives.asymmetric import rsa
 
         # Generate cert + key matching challenge
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        cert_pem = self._create_challenge_certificate_with_key(domain, challenge_response, private_key)
+        cert_pem = self._create_challenge_certificate_with_key(
+            domain, challenge_response, private_key
+        )
         key_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -401,18 +431,23 @@ class TLSALPNChallengeServer:
         )
 
         # Write to tempfiles because load_cert_chain requires paths
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as cert_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".pem", delete=False
+        ) as cert_file:
             cert_file.write(cert_pem.decode("utf-8"))
             cert_path = cert_file.name
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as key_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".pem", delete=False
+        ) as key_file:
             key_file.write(key_pem.decode("utf-8"))
             key_path = key_file.name
 
         try:
-            self._bridge.multiplexer._ssl_context.load_cert_chain(cert_path, key_path)  # type: ignore[attr-defined]
+            self._bridge.multiplexer._ssl_context.load_cert_chain(cert_path, key_path)
             logger.info(
-                f"🔄 Replaced multiplexer default certificate with challenge certificate for '{domain}' (no-SNI support)"
+                "🔄 Replaced multiplexer default certificate with "
+                f"challenge certificate for '{domain}' (no-SNI support)"
             )
         finally:
             # Cleanup temp files

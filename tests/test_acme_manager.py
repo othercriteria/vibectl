@@ -1,17 +1,16 @@
 """Tests for ACME certificate manager functionality."""
 
-import asyncio
-import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
-from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
 
-from vibectl.server.acme_manager import ACMEManager, ACMEChallengeResponder
+import pytest
+
+from vibectl.server.acme_manager import ACMEChallengeResponder, ACMEManager
 from vibectl.server.http_challenge_server import HTTPChallengeServer
-from vibectl.types import Error, Success, ACMECertificateError
+from vibectl.types import ACMECertificateError, Error, Success
 
 
 @pytest.fixture
-def mock_http_challenge_server():
+def mock_http_challenge_server() -> Mock:
     """Create a mock HTTP challenge server."""
     server = Mock(spec=HTTPChallengeServer)
     server.set_challenge = Mock()
@@ -20,7 +19,7 @@ def mock_http_challenge_server():
 
 
 @pytest.fixture
-def mock_tls_alpn_challenge_server():
+def mock_tls_alpn_challenge_server() -> Mock:
     """Create a mock TLS-ALPN challenge server."""
     server = Mock()
     server.set_challenge = Mock()
@@ -30,7 +29,7 @@ def mock_tls_alpn_challenge_server():
 
 
 @pytest.fixture
-def acme_config_http():
+def acme_config_http() -> dict[str, str | list[str]]:
     """Basic ACME configuration for HTTP-01 challenges."""
     return {
         "email": "test@example.com",
@@ -41,7 +40,7 @@ def acme_config_http():
 
 
 @pytest.fixture
-def acme_config_tls_alpn():
+def acme_config_tls_alpn() -> dict[str, str | list[str]]:
     """ACME configuration for TLS-ALPN-01 challenges."""
     return {
         "email": "test@example.com",
@@ -52,7 +51,7 @@ def acme_config_tls_alpn():
 
 
 @pytest.fixture
-def acme_config_with_ca():
+def acme_config_with_ca() -> dict[str, str | list[str]]:
     """ACME configuration with custom CA certificate."""
     return {
         "email": "test@example.com",
@@ -67,8 +66,10 @@ class TestACMEManagerInit:
     """Test ACME manager initialization."""
 
     def test_init_http_challenge_valid(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test initialization with HTTP challenge server."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -81,8 +82,10 @@ class TestACMEManagerInit:
         assert not manager.is_running
 
     def test_init_tls_alpn_challenge_valid(
-        self, mock_tls_alpn_challenge_server, acme_config_tls_alpn
-    ):
+        self,
+        mock_tls_alpn_challenge_server: Mock,
+        acme_config_tls_alpn: dict[str, str | list[str]],
+    ) -> None:
         """Test initialization with TLS-ALPN challenge server."""
         manager = ACMEManager(
             challenge_server=None,
@@ -94,7 +97,9 @@ class TestACMEManagerInit:
         assert manager.tls_alpn_challenge_server == mock_tls_alpn_challenge_server
         assert manager.acme_config == acme_config_tls_alpn
 
-    def test_init_http_challenge_missing_server(self, acme_config_http):
+    def test_init_http_challenge_missing_server(
+        self, acme_config_http: dict[str, str | list[str]]
+    ) -> None:
         """Test initialization fails when HTTP challenge server is missing."""
         with pytest.raises(ValueError, match="HTTP challenge server is required"):
             ACMEManager(
@@ -102,7 +107,9 @@ class TestACMEManagerInit:
                 acme_config=acme_config_http,
             )
 
-    def test_init_tls_alpn_challenge_missing_server(self, acme_config_tls_alpn):
+    def test_init_tls_alpn_challenge_missing_server(
+        self, acme_config_tls_alpn: dict[str, str | list[str]]
+    ) -> None:
         """Test initialization fails when TLS-ALPN challenge server is missing."""
         with pytest.raises(ValueError, match="TLS-ALPN challenge server is required"):
             ACMEManager(
@@ -111,8 +118,10 @@ class TestACMEManagerInit:
             )
 
     def test_init_with_cert_reload_callback(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test initialization with certificate reload callback."""
         callback = Mock()
         manager = ACMEManager(
@@ -129,8 +138,10 @@ class TestACMEManagerStartStop:
 
     @pytest.mark.asyncio
     async def test_start_already_running(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test starting manager when already running."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -145,7 +156,11 @@ class TestACMEManagerStartStop:
         assert "already running" in result.message
 
     @pytest.mark.asyncio
-    async def test_stop_not_running(self, mock_http_challenge_server, acme_config_http):
+    async def test_stop_not_running(
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test stopping manager when not running."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -157,8 +172,10 @@ class TestACMEManagerStartStop:
 
     @pytest.mark.asyncio
     async def test_start_with_certificate_provisioning_error(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test start behavior when certificate provisioning fails."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -176,8 +193,10 @@ class TestACMEManagerStartStop:
 
     @pytest.mark.asyncio
     async def test_start_stop_with_renewal_task(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test start/stop with renewal task management."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -205,8 +224,11 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_initial_certificates_http(
-        self, mock_http_challenge_server, acme_config_http, tmp_path
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+        tmp_path: str,
+    ) -> None:
         """Test initial certificate provisioning for HTTP-01."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -242,8 +264,11 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_initial_certificates_tls_alpn(
-        self, mock_tls_alpn_challenge_server, acme_config_tls_alpn, tmp_path
-    ):
+        self,
+        mock_tls_alpn_challenge_server: Mock,
+        acme_config_tls_alpn: dict[str, str | list[str]],
+        tmp_path: str,
+    ) -> None:
         """Test initial certificate provisioning for TLS-ALPN-01."""
         manager = ACMEManager(
             challenge_server=None,
@@ -274,8 +299,11 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_initial_certificates_with_callback(
-        self, mock_http_challenge_server, acme_config_http, tmp_path
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+        tmp_path: str,
+    ) -> None:
         """Test certificate provisioning with reload callback."""
         callback = Mock()
         manager = ACMEManager(
@@ -306,11 +334,14 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_initial_certificates_callback_error(
-        self, mock_http_challenge_server, acme_config_http, tmp_path
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+        tmp_path: str,
+    ) -> None:
         """Test certificate provisioning when callback fails."""
 
-        def failing_callback(cert_file, key_file):
+        def failing_callback(cert_file: str, key_file: str) -> None:
             raise Exception("Callback failed")
 
         manager = ACMEManager(
@@ -340,8 +371,10 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_certificates_async_http(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test async certificate provisioning for HTTP-01."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -369,8 +402,10 @@ class TestACMEManagerCertificateProvisioning:
 
     @pytest.mark.asyncio
     async def test_provision_certificates_async_tls_alpn(
-        self, mock_tls_alpn_challenge_server, acme_config_tls_alpn
-    ):
+        self,
+        mock_tls_alpn_challenge_server: Mock,
+        acme_config_tls_alpn: dict[str, str | list[str]],
+    ) -> None:
         """Test async certificate provisioning for TLS-ALPN-01."""
         manager = ACMEManager(
             challenge_server=None,
@@ -401,8 +436,10 @@ class TestACMEManagerHTTPChallenge:
     """Test HTTP-01 challenge handling."""
 
     def test_handle_http01_challenge(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test HTTP-01 challenge handling."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -438,7 +475,9 @@ class TestACMEManagerHTTPChallenge:
         )
         mock_acme_client._client.answer_challenge.assert_called_once()
 
-    def test_handle_http01_challenge_no_server(self, acme_config_http):
+    def test_handle_http01_challenge_no_server(
+        self, acme_config_http: dict[str, str | list[str]]
+    ) -> None:
         """Test HTTP-01 challenge handling fails without server."""
         # Should raise ValueError when no HTTP challenge server is provided for HTTP-01
         with pytest.raises(
@@ -450,8 +489,10 @@ class TestACMEManagerHTTPChallenge:
             )
 
     def test_handle_http01_challenge_submit_error(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test HTTP-01 challenge handling when submission fails."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -493,8 +534,10 @@ class TestACMEManagerUtils:
     """Test ACME manager utility methods."""
 
     def test_create_acme_client_http(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test ACME client creation for HTTP-01."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -516,8 +559,10 @@ class TestACMEManagerUtils:
             assert client == mock_client
 
     def test_create_acme_client_tls_alpn(
-        self, mock_tls_alpn_challenge_server, acme_config_tls_alpn
-    ):
+        self,
+        mock_tls_alpn_challenge_server: Mock,
+        acme_config_tls_alpn: dict[str, str | list[str]],
+    ) -> None:
         """Test ACME client creation for TLS-ALPN-01."""
         manager = ACMEManager(
             challenge_server=None,
@@ -529,7 +574,7 @@ class TestACMEManagerUtils:
             mock_client = Mock()
             mock_create.return_value = mock_client
 
-            client = manager._create_acme_client()
+            manager._create_acme_client()
 
             mock_create.assert_called_once_with(
                 directory_url=acme_config_tls_alpn["directory_url"],
@@ -539,8 +584,10 @@ class TestACMEManagerUtils:
             )
 
     def test_create_acme_client_with_ca_cert(
-        self, mock_tls_alpn_challenge_server, acme_config_with_ca
-    ):
+        self,
+        mock_tls_alpn_challenge_server: Mock,
+        acme_config_with_ca: dict[str, str | list[str]],
+    ) -> None:
         """Test ACME client creation with custom CA certificate."""
         manager = ACMEManager(
             challenge_server=None,
@@ -552,7 +599,7 @@ class TestACMEManagerUtils:
             mock_client = Mock()
             mock_create.return_value = mock_client
 
-            client = manager._create_acme_client()
+            manager._create_acme_client()
 
             mock_create.assert_called_once_with(
                 directory_url=acme_config_with_ca["directory_url"],
@@ -561,7 +608,11 @@ class TestACMEManagerUtils:
                 tls_alpn_challenge_server=mock_tls_alpn_challenge_server,
             )
 
-    def test_get_cert_directory(self, mock_http_challenge_server, acme_config_http):
+    def test_get_cert_directory(
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test certificate directory path generation."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -574,7 +625,11 @@ class TestACMEManagerUtils:
         assert "vibectl" in str(cert_dir)
         assert "server" in str(cert_dir)
 
-    def test_get_certificate_files(self, mock_http_challenge_server, acme_config_http):
+    def test_get_certificate_files(
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test getting certificate file paths."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -598,7 +653,7 @@ class TestACMEManagerUtils:
 class TestACMEChallengeResponder:
     """Test ACME challenge responder functionality."""
 
-    def test_create_challenge_file(self, mock_http_challenge_server):
+    def test_create_challenge_file(self, mock_http_challenge_server: Mock) -> None:
         """Test challenge file creation."""
         responder = ACMEChallengeResponder(mock_http_challenge_server)
 
@@ -608,7 +663,7 @@ class TestACMEChallengeResponder:
             "test-token", "test-content"
         )
 
-    def test_cleanup_challenge_file(self, mock_http_challenge_server):
+    def test_cleanup_challenge_file(self, mock_http_challenge_server: Mock) -> None:
         """Test challenge file cleanup."""
         responder = ACMEChallengeResponder(mock_http_challenge_server)
 
@@ -624,8 +679,10 @@ class TestACMEManagerRenewal:
     """Test certificate renewal functionality."""
 
     async def test_check_and_renew_certificates_no_files(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test renewal check when no certificate files are configured."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -640,8 +697,10 @@ class TestACMEManagerRenewal:
         assert manager.key_file is None
 
     async def test_check_and_renew_certificates_no_renewal_needed(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test renewal check when certificates are still valid."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -662,8 +721,10 @@ class TestACMEManagerRenewal:
             mock_client.needs_renewal.assert_called_once()
 
     async def test_check_and_renew_certificates_renewal_success(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test successful certificate renewal."""
         callback = Mock()
         manager = ACMEManager(
@@ -691,8 +752,10 @@ class TestACMEManagerRenewal:
                 callback.assert_called_once_with("/test/cert.crt", "/test/cert.key")
 
     async def test_check_and_renew_certificates_renewal_failure(
-        self, mock_http_challenge_server, acme_config_http
-    ):
+        self,
+        mock_http_challenge_server: Mock,
+        acme_config_http: dict[str, str | list[str]],
+    ) -> None:
         """Test certificate renewal failure."""
         manager = ACMEManager(
             challenge_server=mock_http_challenge_server,
@@ -718,7 +781,7 @@ class TestACMEManagerRenewal:
                 mock_provision.assert_called_once()
 
     async def test_start_tls_alpn_continues_on_initial_failure(self) -> None:
-        """Test TLS-ALPN-01 manager continues running even if initial provisioning fails."""
+        """Test TLS-ALPN-01 manager keeps running even if initial provisioning fails."""
         mock_acme_client = AsyncMock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
             "Initial certificate request failed"
@@ -756,7 +819,7 @@ class TestACMEManagerRenewal:
             await manager.stop()
 
     async def test_start_http01_exits_on_initial_failure(self) -> None:
-        """Test HTTP-01 manager exits when initial provisioning fails (existing behavior)."""
+        """Test HTTP-01 manager exits when initial provisioning fails."""
         mock_acme_client = AsyncMock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
             "Initial certificate request failed"
@@ -817,7 +880,7 @@ class TestACMEManagerRenewal:
                 "vibectl.server.acme_manager.create_acme_client",
                 return_value=mock_acme_client,
             ),
-            patch("pathlib.Path.write_bytes") as mock_write_bytes,
+            patch("pathlib.Path.write_bytes"),
             patch("pathlib.Path.parent") as mock_parent,
         ):
             mock_parent.mkdir = Mock()

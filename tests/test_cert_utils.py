@@ -5,8 +5,6 @@ Tests cover certificate validation, loading, generation, and utility functions
 for TLS support in the vibectl LLM proxy server.
 """
 
-import contextlib
-import ipaddress
 import os
 import tempfile
 from pathlib import Path
@@ -275,70 +273,82 @@ class TestSelfSignedCertificateGeneration:
     def test_generate_self_signed_certificate_with_additional_sans_dns(self) -> None:
         """Test certificate generation with additional DNS SANs."""
         additional_sans = ["api.example.com", "www.example.com", "example.com"]
-        
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract DNS names from SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        
+
         # Should include default values plus additional SANs
-        expected_dns_names = ["localhost"] + additional_sans
+        expected_dns_names = ["localhost", *additional_sans]
         for expected_dns in expected_dns_names:
             assert expected_dns in dns_names
 
     def test_generate_self_signed_certificate_with_additional_sans_ip(self) -> None:
         """Test certificate generation with additional IP SANs."""
         additional_sans = ["192.168.1.100", "10.0.0.50"]
-        
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify IP SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract IP addresses from SANs
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Should include default IPs plus additional IPs
-        expected_ips = ["127.0.0.1", "::1"] + additional_sans
+        expected_ips = ["127.0.0.1", "::1", *additional_sans]
         for expected_ip in expected_ips:
             assert expected_ip in ip_addresses
 
     def test_generate_self_signed_certificate_with_mixed_sans(self) -> None:
         """Test certificate generation with mixed DNS and IP SANs."""
-        additional_sans = ["example.com", "192.168.1.100", "api.example.com", "10.0.0.50"]
-        
+        additional_sans = [
+            "example.com",
+            "192.168.1.100",
+            "api.example.com",
+            "10.0.0.50",
+        ]
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify mixed SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract DNS names and IP addresses from SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Verify DNS names
         assert "localhost" in dns_names
         assert "example.com" in dns_names
         assert "api.example.com" in dns_names
-        
+
         # Verify IP addresses
         assert "127.0.0.1" in ip_addresses
         assert "::1" in ip_addresses
@@ -349,52 +359,58 @@ class TestSelfSignedCertificateGeneration:
         """Test that duplicate SANs are properly handled."""
         # Include duplicates of default values and additional duplicates
         additional_sans = ["localhost", "127.0.0.1", "example.com", "example.com"]
-        
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify no duplicates
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract all SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Check that localhost appears only once
         assert dns_names.count("localhost") == 1
-        
+
         # Check that 127.0.0.1 appears only once
         assert ip_addresses.count("127.0.0.1") == 1
-        
+
         # Check that example.com appears only once
         assert dns_names.count("example.com") == 1
 
     def test_generate_self_signed_certificate_empty_additional_sans(self) -> None:
         """Test certificate generation with empty additional SANs list."""
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="test.example.com",
-            additional_sans=[]
+            hostname="test.example.com", additional_sans=[]
         )
 
         # Parse certificate to verify only default SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract DNS names and IP addresses from SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Should only have default values
         assert "test.example.com" in dns_names
         assert "localhost" in dns_names
         assert "127.0.0.1" in ip_addresses
         assert "::1" in ip_addresses
-        
+
         # Should not have any additional SANs
         assert len(dns_names) == 2  # hostname + localhost
         assert len(ip_addresses) == 2  # 127.0.0.1 + ::1
@@ -402,25 +418,28 @@ class TestSelfSignedCertificateGeneration:
     def test_generate_self_signed_certificate_none_additional_sans(self) -> None:
         """Test certificate generation with None additional SANs."""
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="test.example.com",
-            additional_sans=None
+            hostname="test.example.com", additional_sans=None
         )
 
         # Parse certificate to verify only default SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract DNS names and IP addresses from SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Should only have default values
         assert "test.example.com" in dns_names
         assert "localhost" in dns_names
         assert "127.0.0.1" in ip_addresses
         assert "::1" in ip_addresses
-        
+
         # Should not have any additional SANs
         assert len(dns_names) == 2  # hostname + localhost
         assert len(ip_addresses) == 2  # 127.0.0.1 + ::1
@@ -428,25 +447,28 @@ class TestSelfSignedCertificateGeneration:
     def test_generate_self_signed_certificate_ipv6_additional_sans(self) -> None:
         """Test certificate generation with IPv6 additional SANs."""
         additional_sans = ["2001:db8::1", "::1"]  # Include a duplicate IPv6
-        
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify IPv6 SANs
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract IP addresses from SANs
-        ip_addresses = [str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)]
-        
+        ip_addresses = [
+            str(ip) for ip in san_values.get_values_for_type(x509.IPAddress)
+        ]
+
         # Should include default IPs plus new IPv6
         assert "127.0.0.1" in ip_addresses
         assert "::1" in ip_addresses
         assert "2001:db8::1" in ip_addresses
-        
+
         # Check that ::1 appears only once (duplicate handling)
         assert ip_addresses.count("::1") == 1
 
@@ -454,20 +476,21 @@ class TestSelfSignedCertificateGeneration:
         """Test that invalid IP addresses are treated as DNS names."""
         # This is actually a valid behavior - treat malformed IPs as DNS names
         additional_sans = ["256.256.256.256", "not.an.ip.address"]
-        
+
         cert_bytes, _ = generate_self_signed_certificate(
-            hostname="localhost",
-            additional_sans=additional_sans
+            hostname="localhost", additional_sans=additional_sans
         )
 
         # Parse certificate to verify they're treated as DNS names
         cert = x509.load_pem_x509_certificate(cert_bytes)
-        san_extension = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = cert.extensions.get_extension_for_oid(
+            x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san_values = cast(x509.SubjectAlternativeName, san_extension.value)
 
         # Extract DNS names from SANs
         dns_names = [str(dns) for dns in san_values.get_values_for_type(x509.DNSName)]
-        
+
         # Invalid IP should be treated as DNS name
         assert "256.256.256.256" in dns_names
         assert "not.an.ip.address" in dns_names
@@ -554,9 +577,7 @@ class TestEnsureCertificateExists:
             key_file.write_text(original_key)
 
             # Force regeneration
-            ensure_certificate_exists(
-                str(cert_file), str(key_file), regenerate=True
-            )
+            ensure_certificate_exists(str(cert_file), str(key_file), regenerate=True)
 
             # Content should be changed to valid PEM
             new_cert_content = cert_file.read_text()
@@ -591,9 +612,7 @@ class TestEnsureCertificateExists:
             cert_file = Path(temp_dir) / "server.crt"
             key_file = Path(temp_dir) / "server.key"
 
-            ensure_certificate_exists(
-                str(cert_file), str(key_file), days_valid=30
-            )
+            ensure_certificate_exists(str(cert_file), str(key_file), days_valid=30)
 
             # Parse certificate to check validity
             cert_content = cert_file.read_bytes()
@@ -716,9 +735,7 @@ class TestCreateCertificateSigningRequest:
         from cryptography.hazmat.primitives.asymmetric import rsa
 
         # Generate a test key
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048
-        )
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         domains = ["example.com"]
         csr = create_certificate_signing_request(domains, private_key)
@@ -753,9 +770,7 @@ class TestCreateCertificateSigningRequest:
         from cryptography.hazmat.primitives.asymmetric import rsa
 
         # Generate a test key
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048
-        )
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         domains = ["example.com", "www.example.com", "api.example.com"]
         csr = create_certificate_signing_request(domains, private_key)
@@ -789,9 +804,7 @@ class TestCreateCertificateSigningRequest:
         from cryptography.hazmat.primitives.asymmetric import rsa
 
         # Generate a test key
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048
-        )
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         domains = ["example.com"]
         organization = "Test Organization"

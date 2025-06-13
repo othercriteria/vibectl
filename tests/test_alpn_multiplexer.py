@@ -6,11 +6,12 @@ without requiring actual network connections.
 """
 
 import asyncio
+import contextlib
 import ssl
 import tempfile
 import unittest.mock
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -36,18 +37,21 @@ def _create_test_certificates() -> tuple[str, str]:
     )
 
     # Create temporary files
-    cert_file = tempfile.NamedTemporaryFile(mode="wb", suffix=".pem", delete=False)
-    key_file = tempfile.NamedTemporaryFile(mode="wb", suffix=".pem", delete=False)
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".pem", delete=False
+    ) as cert_file:
+        cert_file.write(cert_data)
+        cert_file.flush()
+        cert_file_name = cert_file.name
 
-    cert_file.write(cert_data)
-    cert_file.flush()
-    key_file.write(key_data)
-    key_file.flush()
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".pem", delete=False
+    ) as key_file:
+        key_file.write(key_data)
+        key_file.flush()
+        key_file_name = key_file.name
 
-    cert_file.close()
-    key_file.close()
-
-    return cert_file.name, key_file.name
+    return cert_file_name, key_file_name
 
 
 class TestGRPCHandler:
@@ -117,8 +121,8 @@ class TestGRPCHandler:
         # Should handle the error gracefully
         await handler.handle_connection(mock_client_reader, mock_client_writer)
 
-        # In the implementation, when open_connection fails, the exception is caught and logged,
-        # then cleanup happens in the finally block
+        # In the implementation, when open_connection fails, the exception is caught
+        # and logged, then cleanup happens in the finally block
         mock_client_writer.close.assert_called_once()
         mock_client_writer.wait_closed.assert_called_once()
 
@@ -153,7 +157,7 @@ class TestTLSALPNHandler:
         # Should have calls for both peername (logging) and ssl_object (functionality)
         expected_calls = [
             unittest.mock.call("ssl_object"),
-            unittest.mock.call('peername', 'unknown')
+            unittest.mock.call("peername", "unknown"),
         ]
         mock_writer.get_extra_info.assert_has_calls(expected_calls, any_order=True)
         mock_writer.close.assert_called_once()
@@ -165,7 +169,7 @@ class TestTLSALPNHandler:
         handler = TLSALPNHandler(mock_tls_alpn_server)
 
         mock_reader = AsyncMock()
-        # Use Mock() for synchronous methods and AsyncMock() for async methods  
+        # Use Mock() for synchronous methods and AsyncMock() for async methods
         mock_writer = Mock()
         # Simulate get_extra_info raising an exception
         mock_writer.get_extra_info.side_effect = Exception("Test error")
@@ -493,10 +497,8 @@ class TestALPNMultiplexer:
         with patch.object(
             multiplexer, "_cleanup", new_callable=AsyncMock
         ) as mock_cleanup:
-            try:
+            with contextlib.suppress(Exception):
                 await multiplexer.start()
-            except Exception:
-                pass  # Expected to fail
 
             # Cleanup should have been called
             mock_cleanup.assert_called_once()
@@ -663,7 +665,8 @@ class TestGRPCHandlerCoverage:
         # Should clean up properly even with exception
         mock_client_writer.close.assert_called()
         # Upstream writer might not be closed if the connection failed early
-        # The updated implementation only closes writers that exist and are not already closing
+        # The updated implementation only closes writers that exist and are not
+        # already closing
 
     @patch("asyncio.open_connection")
     async def test_handle_connection_cleanup_exception(
@@ -878,6 +881,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_socket.context = Mock(spec=ssl.SSLContext)  # Initialize context
             mock_ssl_context = Mock(spec=ssl.SSLContext)
 
+            assert callback is not None  # Ensure callback exists
             result = callback(mock_ssl_socket, "example.com", mock_ssl_context)
 
             # SNI callback should return None and modify the socket's context
@@ -917,6 +921,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_context = Mock(spec=ssl.SSLContext)
             original_context = mock_ssl_socket.context
 
+            assert callback is not None  # Ensure callback exists
             result = callback(mock_ssl_socket, "example.com", mock_ssl_context)
 
             # Should not modify the socket context
@@ -932,7 +937,7 @@ class TestALPNMultiplexerSNICallback:
             Path(key_file).unlink(missing_ok=True)
 
     def test_sni_callback_no_server_name_no_challenges(self) -> None:
-        """Test SNI callback handles missing server name (no SNI) when no challenges exist."""
+        """Test SNI callback handles missing server name (no SNI) with no challenges."""
         cert_file, key_file = _create_test_certificates()
 
         try:
@@ -953,7 +958,8 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_context = Mock(spec=ssl.SSLContext)
             original_context = mock_ssl_socket.context
 
-            callback(mock_ssl_socket, None, mock_ssl_context)
+            assert callback is not None  # Ensure callback exists
+            callback(mock_ssl_socket, None, mock_ssl_context)  # type: ignore[arg-type]
 
             # Should not modify context when no challenges exist
             assert mock_ssl_socket.context == original_context
@@ -993,7 +999,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_socket.context = Mock(spec=ssl.SSLContext)  # Initialize context
             mock_ssl_context = Mock(spec=ssl.SSLContext)
 
-            callback(mock_ssl_socket, None, mock_ssl_context)
+            callback(mock_ssl_socket, None, mock_ssl_context)  # type: ignore[misc,arg-type]
 
             # Should use the single active challenge certificate
             assert mock_ssl_socket.context == mock_challenge_context
@@ -1007,7 +1013,7 @@ class TestALPNMultiplexerSNICallback:
             Path(key_file).unlink(missing_ok=True)
 
     def test_sni_callback_no_server_name_multiple_challenges(self) -> None:
-        """Test SNI callback warns but doesn't modify context when multiple challenges exist."""
+        """Test SNI callback warns but doesn't modify context if multiple challenges."""
         cert_file, key_file = _create_test_certificates()
 
         try:
@@ -1032,7 +1038,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_context = Mock(spec=ssl.SSLContext)
             original_context = mock_ssl_socket.context
 
-            callback(mock_ssl_socket, None, mock_ssl_context)
+            callback(mock_ssl_socket, None, mock_ssl_context)  # type: ignore[misc,arg-type]
 
             # Should not modify context when multiple challenges exist (ambiguous)
             assert mock_ssl_socket.context == original_context
@@ -1066,7 +1072,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_context = Mock(spec=ssl.SSLContext)
             original_context = mock_ssl_socket.context
 
-            callback(mock_ssl_socket, None, mock_ssl_context)
+            callback(mock_ssl_socket, None, mock_ssl_context)  # type: ignore[misc,arg-type]
 
             # Should not modify context or call TLS-ALPN server for challenge lookup
             assert mock_ssl_socket.context == original_context
@@ -1088,7 +1094,7 @@ class TestALPNMultiplexerSNICallback:
             multiplexer.register_handler("h2", grpc_handler)
 
             ssl_context = multiplexer._create_ssl_context()
-            
+
             # When no TLS-ALPN handler is registered, no SNI callback should be set
             assert ssl_context.sni_callback is None
 
@@ -1121,7 +1127,7 @@ class TestALPNMultiplexerSNICallback:
             mock_ssl_context = Mock(spec=ssl.SSLContext)
             original_context = mock_ssl_socket.context
 
-            callback(mock_ssl_socket, "example.com", mock_ssl_context)
+            callback(mock_ssl_socket, "example.com", mock_ssl_context)  # type: ignore[misc]
 
             # Should not modify context despite the exception
             assert mock_ssl_socket.context == original_context
@@ -1147,7 +1153,8 @@ class TestALPNMultiplexerSNICallback:
 
             assert isinstance(context, ssl.SSLContext)
             # The context should be configured with the registered ALPN protocols
-            # Note: We can't easily test the ALPN protocols directly as they're internal to SSLContext
+            # Note: We can't easily test the ALPN protocols directly as they're
+            # internal to SSLContext
 
         finally:
             Path(cert_file).unlink(missing_ok=True)
@@ -1162,7 +1169,7 @@ class TestALPNMultiplexerSNICallback:
 
     @patch("asyncio.start_server")
     async def test_start_with_sni_callback(self, mock_start_server: AsyncMock) -> None:
-        """Test server start uses SSL context with SNI callback when TLS-ALPN handler is registered."""
+        """Test server start has SSL context with SNI callback for TLS-ALPN handler."""
         cert_file, key_file = _create_test_certificates()
 
         try:
