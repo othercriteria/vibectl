@@ -111,7 +111,8 @@ async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
                         )
                         logger.debug(
                             "Creating secure channel with custom "
-                            f"CA bundle ({ca_bundle_path}) for connection test"
+                            f"CA bundle ({ca_bundle_path}) for connection test "
+                            f"using TLS 1.3+"
                         )
                     except FileNotFoundError:
                         return Error(
@@ -126,11 +127,24 @@ async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
                     credentials = grpc.ssl_channel_credentials()
                     logger.debug(
                         "Creating secure channel with system trust store "
-                        "for connection test"
+                        "for connection test using TLS 1.3+"
                     )
 
+                # Configure TLS 1.3+ enforcement via gRPC channel options
+                channel_options = [
+                    # Enforce TLS 1.3+ for enhanced security
+                    ("grpc.ssl_min_tls_version", "TLSv1_3"),
+                    ("grpc.ssl_max_tls_version", "TLSv1_3"),
+                    # Additional security options
+                    ("grpc.keepalive_time_ms", 30000),
+                    ("grpc.keepalive_timeout_ms", 5000),
+                    ("grpc.keepalive_permit_without_calls", True),
+                ]
+
                 channel = grpc.secure_channel(
-                    f"{proxy_config.host}:{proxy_config.port}", credentials
+                    f"{proxy_config.host}:{proxy_config.port}",
+                    credentials,
+                    options=channel_options,
                 )
             else:
                 channel = grpc.insecure_channel(

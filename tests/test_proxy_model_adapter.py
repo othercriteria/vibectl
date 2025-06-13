@@ -13,6 +13,7 @@ import grpc
 import pytest
 from pydantic import BaseModel
 
+from vibectl.proto import llm_proxy_pb2_grpc
 from vibectl.proxy_model_adapter import (
     ProxyModelAdapter,
     ProxyModelWrapper,
@@ -314,7 +315,17 @@ class TestProxyModelAdapterChannelCreation:
         assert result == mock_channel
         assert adapter.channel == mock_channel
         mock_ssl_creds.assert_called_once_with()  # No custom CA
-        mock_secure_channel.assert_called_once_with("test-host:8080", mock_credentials)
+        # Verify secure_channel is called with TLS 1.3+ options
+        expected_options = [
+            ("grpc.ssl_min_tls_version", "TLSv1_3"),
+            ("grpc.ssl_max_tls_version", "TLSv1_3"),
+            ("grpc.keepalive_time_ms", 30000),
+            ("grpc.keepalive_timeout_ms", 5000),
+            ("grpc.keepalive_permit_without_calls", True),
+        ]
+        mock_secure_channel.assert_called_once_with(
+            "test-host:8080", mock_credentials, options=expected_options
+        )
 
     @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
     @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
@@ -342,7 +353,17 @@ class TestProxyModelAdapterChannelCreation:
         assert result == mock_channel
         assert adapter.channel == mock_channel
         mock_ssl_creds.assert_called_once_with(root_certificates=b"test-ca-cert-data")
-        mock_secure_channel.assert_called_once_with("test-host:8080", mock_credentials)
+        # Verify secure_channel is called with TLS 1.3+ options
+        expected_options = [
+            ("grpc.ssl_min_tls_version", "TLSv1_3"),
+            ("grpc.ssl_max_tls_version", "TLSv1_3"),
+            ("grpc.keepalive_time_ms", 30000),
+            ("grpc.keepalive_timeout_ms", 5000),
+            ("grpc.keepalive_permit_without_calls", True),
+        ]
+        mock_secure_channel.assert_called_once_with(
+            "test-host:8080", mock_credentials, options=expected_options
+        )
 
     @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
     @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
@@ -444,7 +465,17 @@ class TestProxyModelAdapterConnection:
         assert proxy_adapter_with_auth.stub is not None
 
         mock_ssl_creds.assert_called_once()
-        mock_secure_channel.assert_called_once_with("localhost:50051", mock_creds)
+        # Verify secure_channel is called with TLS 1.3+ options
+        expected_options = [
+            ("grpc.ssl_min_tls_version", "TLSv1_3"),
+            ("grpc.ssl_max_tls_version", "TLSv1_3"),
+            ("grpc.keepalive_time_ms", 30000),
+            ("grpc.keepalive_timeout_ms", 5000),
+            ("grpc.keepalive_permit_without_calls", True),
+        ]
+        mock_secure_channel.assert_called_once_with(
+            "localhost:50051", mock_creds, options=expected_options
+        )
         mock_logger.debug.assert_called()
 
     def test_get_channel_reuses_existing(
@@ -1907,3 +1938,336 @@ class TestProxyModelAdapterVersionCompatibility:
             assert "Version skew detected: client v%s, server v%s" in format_string
             assert args[0] == "0.6.2"
             assert args[1] == "0.6.1"
+
+
+class TestProxyModelAdapterTLSEnforcement:
+    """Test TLS 1.3+ enforcement and channel options."""
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_tls_channel_options_enforced(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test that TLS 1.3+ options are always enforced for secure channels."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+        adapter._get_channel()
+
+        # Verify the exact TLS options are passed
+        expected_options = [
+            ("grpc.ssl_min_tls_version", "TLSv1_3"),
+            ("grpc.ssl_max_tls_version", "TLSv1_3"),
+            ("grpc.keepalive_time_ms", 30000),
+            ("grpc.keepalive_timeout_ms", 5000),
+            ("grpc.keepalive_permit_without_calls", True),
+        ]
+        mock_secure_channel.assert_called_once_with(
+            "test-host:8080", mock_credentials, options=expected_options
+        )
+
+    @patch("vibectl.proxy_model_adapter.grpc.insecure_channel")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_insecure_channel_no_tls_options(
+        self, mock_logger: Mock, mock_insecure_channel: Mock
+    ) -> None:
+        """Test that insecure channels don't get TLS options."""
+        mock_channel = Mock()
+        mock_insecure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+        adapter._get_channel()
+
+        # Verify insecure channel is called without any options
+        mock_insecure_channel.assert_called_once_with("test-host:8080")
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", mock_open(read_data=b"custom-ca-data"))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_custom_ca_with_tls_enforcement(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test that custom CA bundles still enforce TLS 1.3+."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+        adapter._get_channel()
+
+        # Verify custom CA is used
+        mock_ssl_creds.assert_called_once_with(root_certificates=b"custom-ca-data")
+
+        # Verify TLS 1.3+ is still enforced
+        expected_options = [
+            ("grpc.ssl_min_tls_version", "TLSv1_3"),
+            ("grpc.ssl_max_tls_version", "TLSv1_3"),
+            ("grpc.keepalive_time_ms", 30000),
+            ("grpc.keepalive_timeout_ms", 5000),
+            ("grpc.keepalive_permit_without_calls", True),
+        ]
+        mock_secure_channel.assert_called_once_with(
+            "test-host:8080", mock_credentials, options=expected_options
+        )
+
+
+class TestProxyModelAdapterCABundleErrorHandling:
+    """Test comprehensive CA bundle error handling scenarios."""
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", side_effect=PermissionError("Permission denied"))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_ca_bundle_permission_error(
+        self,
+        mock_logger: Mock,
+        mock_open: Mock,
+        mock_ssl_creds: Mock,
+        mock_secure_channel: Mock,
+    ) -> None:
+        """Test CA bundle file permission error handling."""
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/restricted/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Failed to read CA bundle file /restricted/ca.pem: Permission denied",
+        ):
+            adapter._get_channel()
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", side_effect=OSError("I/O error"))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_ca_bundle_io_error(
+        self,
+        mock_logger: Mock,
+        mock_open: Mock,
+        mock_ssl_creds: Mock,
+        mock_secure_channel: Mock,
+    ) -> None:
+        """Test CA bundle file I/O error handling."""
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/corrupted/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Failed to read CA bundle file /corrupted/ca.pem: I/O error",
+        ):
+            adapter._get_channel()
+
+    @patch.dict("os.environ", {"VIBECTL_CA_BUNDLE": "/env/ca.pem"})
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_env_ca_bundle_not_found(
+        self,
+        mock_logger: Mock,
+        mock_open: Mock,
+        mock_ssl_creds: Mock,
+        mock_secure_channel: Mock,
+    ) -> None:
+        """Test environment CA bundle file not found error."""
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/env/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+
+        with pytest.raises(ValueError, match="CA bundle file not found: /env/ca.pem"):
+            adapter._get_channel()
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", mock_open(read_data=b""))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_empty_ca_bundle_file(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test handling of empty CA bundle file."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/empty/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+
+        # Should not raise an error - empty file is passed to gRPC
+        result = adapter._get_channel()
+
+        assert result == mock_channel
+        mock_ssl_creds.assert_called_once_with(root_certificates=b"")
+
+
+class TestProxyModelAdapterChannelReuse:
+    """Test channel reuse and lifecycle management."""
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_channel_reuse_multiple_calls(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test that channel is reused across multiple calls."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+
+        # Call _get_channel multiple times
+        channel1 = adapter._get_channel()
+        channel2 = adapter._get_channel()
+        channel3 = adapter._get_channel()
+
+        # Should all return the same channel
+        assert channel1 == mock_channel
+        assert channel2 == mock_channel
+        assert channel3 == mock_channel
+
+        # grpc.secure_channel should only be called once
+        mock_secure_channel.assert_called_once()
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_stub_creation_with_channel(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test that stub is created correctly when channel is established."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+
+        # Initially no stub
+        assert adapter.stub is None
+
+        # Get channel should create stub
+        channel = adapter._get_channel()
+
+        assert channel == mock_channel
+        assert adapter.stub is not None
+        assert isinstance(adapter.stub, llm_proxy_pb2_grpc.VibectlLLMProxyStub)
+
+    def test_get_stub_without_channel_creates_channel(self) -> None:
+        """Test that _get_stub creates channel if it doesn't exist."""
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+
+        with patch.object(adapter, "_get_channel") as mock_get_channel:
+            mock_channel = Mock()
+            mock_get_channel.return_value = mock_channel
+            adapter.stub = Mock()  # Set after channel creation
+
+            stub = adapter._get_stub()
+
+            mock_get_channel.assert_called_once()
+            assert stub == adapter.stub
+
+    def test_get_stub_raises_if_stub_creation_fails(self) -> None:
+        """Test that _get_stub raises error if stub is None after channel creation."""
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+
+        with patch.object(adapter, "_get_channel"):
+            adapter.stub = None  # Simulate stub creation failure
+
+            with pytest.raises(RuntimeError, match="Failed to create gRPC stub"):
+                adapter._get_stub()
+
+
+class TestProxyModelAdapterLogging:
+    """Test logging behavior for TLS and CA bundle operations."""
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_system_ca_logging(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test logging for system CA trust store usage."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+        adapter._get_channel()
+
+        # Verify debug log for system trust store
+        mock_logger.debug.assert_called_with(
+            "Creating secure channel with system trust store to "
+            "test-host:8080 using TLS 1.3+"
+        )
+
+    @patch("vibectl.proxy_model_adapter.grpc.secure_channel")
+    @patch("vibectl.proxy_model_adapter.grpc.ssl_channel_credentials")
+    @patch("builtins.open", mock_open(read_data=b"custom-ca-data"))
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_custom_ca_logging(
+        self, mock_logger: Mock, mock_ssl_creds: Mock, mock_secure_channel: Mock
+    ) -> None:
+        """Test logging for custom CA bundle usage."""
+        mock_credentials = Mock()
+        mock_ssl_creds.return_value = mock_credentials
+        mock_channel = Mock()
+        mock_secure_channel.return_value = mock_channel
+
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="test-host", port=8080, use_tls=True
+        )
+        adapter._get_channel()
+
+        # Verify debug log for custom CA bundle
+        mock_logger.debug.assert_called_with(
+            "Creating secure channel with custom CA bundle "
+            "(/custom/ca.pem) to test-host:8080 using TLS 1.3+"
+        )
+
+    @patch("vibectl.proxy_model_adapter.grpc.insecure_channel")
+    @patch("vibectl.proxy_model_adapter.logger")
+    def test_insecure_channel_logging(
+        self, mock_logger: Mock, mock_insecure_channel: Mock
+    ) -> None:
+        """Test logging for insecure channel creation."""
+        mock_channel = Mock()
+        mock_insecure_channel.return_value = mock_channel
+
+        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+        adapter._get_channel()
+
+        # Verify debug log for insecure channel
+        mock_logger.debug.assert_called_with(
+            "Creating insecure channel to test-host:8080"
+        )

@@ -244,6 +244,14 @@ class ALPNMultiplexer:
 
         # Create SSL context with the default certificate
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+
+        # NOTE: We intentionally allow TLS 1.2 here so that ACME
+        # validation clients (which frequently fall back to TLS 1.2)
+        # can complete the `tls-alpn-01` handshake.  Runtime routing
+        # logic (see `_handle_connection`) still rejects gRPC traffic
+        # that does not negotiate TLS 1.3, so normal proxy use remains
+        # hardened while ACME remains interoperable.
+
         context.load_cert_chain(self.cert_file, self.key_file)
 
         # Set ALPN protocols based on registered handlers
@@ -391,6 +399,31 @@ class ALPNMultiplexer:
                 return
 
             logger.info(f"✅ ALPN protocol negotiated: '{alpn_protocol}'")
+
+            # Runtime TLS-version enforcement:
+            #  • ACME validation clients ("acme-tls/1") are permitted to use
+            #    TLS ≥1.2 per RFC 8737.
+            #  • All gRPC traffic ("h2") must still negotiate TLS 1.3 for
+            #    hardened security.
+            tls_version = None
+            with contextlib.suppress(Exception):
+                # Best-effort only - continue if version cannot be determined.
+                tls_version = (
+                    ssl_object.version()
+                    if callable(getattr(ssl_object, "version", None))
+                    else None
+                )
+
+            if (
+                alpn_protocol == "h2"
+                and tls_version is not None
+                and tls_version != "TLSv1.3"
+            ):
+                logger.warning(
+                    "❌ Connection rejected - gRPC (h2) requires TLS 1.3, got %s",
+                    tls_version,
+                )
+                return
 
             # Route to appropriate handler
             handler = self._handlers.get(alpn_protocol)

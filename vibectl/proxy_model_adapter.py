@@ -124,7 +124,7 @@ class ProxyModelAdapter(ModelAdapter):
                         )
                         logger.debug(
                             "Creating secure channel with custom CA bundle "
-                            f"({ca_bundle_path}) to {target}"
+                            f"({ca_bundle_path}) to {target} using TLS 1.3+"
                         )
                     except FileNotFoundError as e:
                         raise ValueError(
@@ -138,10 +138,24 @@ class ProxyModelAdapter(ModelAdapter):
                     # Production TLS with system trust store
                     credentials = grpc.ssl_channel_credentials()
                     logger.debug(
-                        f"Creating secure channel with system trust store to {target}"
+                        f"Creating secure channel with system trust store to "
+                        f"{target} using TLS 1.3+"
                     )
 
-                self.channel = grpc.secure_channel(target, credentials)
+                # Configure TLS 1.3+ enforcement via gRPC channel options
+                channel_options = [
+                    # Enforce TLS 1.3+ for enhanced security
+                    ("grpc.ssl_min_tls_version", "TLSv1_3"),
+                    ("grpc.ssl_max_tls_version", "TLSv1_3"),
+                    # Additional security options
+                    ("grpc.keepalive_time_ms", 30000),
+                    ("grpc.keepalive_timeout_ms", 5000),
+                    ("grpc.keepalive_permit_without_calls", True),
+                ]
+
+                self.channel = grpc.secure_channel(
+                    target, credentials, options=channel_options
+                )
             else:
                 # Insecure connection (development only)
                 logger.debug(f"Creating insecure channel to {target}")

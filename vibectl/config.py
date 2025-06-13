@@ -554,24 +554,16 @@ class Config:
         self.set(f"providers.{provider}.key_file", str(path))
 
     def get_ca_bundle_path(self) -> str | None:
-        """Get CA bundle path from environment variable or configuration.
+        """Get CA bundle path from config or environment."""
+        # Check environment variable first
+        env_path = os.environ.get("VIBECTL_CA_BUNDLE")
+        if env_path:
+            return env_path
 
-        Checks in order:
-        1. VIBECTL_CA_BUNDLE environment variable
-        2. proxy.ca_bundle_path configuration value
-
-        Returns:
-            Path to CA bundle file, or None if not configured
-        """
-        # 1. Check environment variable override
-        env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
-        if env_ca_bundle:
-            return env_ca_bundle
-
-        # 2. Check configured CA bundle path
-        config_ca_bundle = self.get("proxy.ca_bundle_path")
-        if config_ca_bundle:
-            return str(config_ca_bundle)
+        # Check config file
+        config_path = self.get("proxy.ca_bundle_path")
+        if config_path:
+            return str(config_path)
 
         return None
 

@@ -279,6 +279,7 @@ class TestALPNMultiplexer:
         # Mock SSL object with ALPN protocol - fix the method call issue
         mock_ssl_object = Mock()
         mock_ssl_object.selected_alpn_protocol = Mock(return_value="h2")
+        mock_ssl_object.version = Mock(return_value="TLSv1.3")
 
         # Fix the get_extra_info to return the SSL object directly
         mock_writer.get_extra_info = Mock(return_value=mock_ssl_object)
@@ -320,6 +321,7 @@ class TestALPNMultiplexer:
 
         mock_ssl_object = Mock()
         mock_ssl_object.selected_alpn_protocol = Mock(return_value=None)
+        mock_ssl_object.version = Mock(return_value="TLSv1.3")
 
         # Fix get_extra_info to return SSL object properly
         mock_writer.get_extra_info = Mock(return_value=mock_ssl_object)
@@ -344,6 +346,7 @@ class TestALPNMultiplexer:
 
         mock_ssl_object = Mock()
         mock_ssl_object.selected_alpn_protocol = Mock(return_value="unknown-protocol")
+        mock_ssl_object.version = Mock(return_value="TLSv1.3")
 
         # Fix get_extra_info to return SSL object properly
         mock_writer.get_extra_info = Mock(return_value=mock_ssl_object)
@@ -453,6 +456,7 @@ class TestALPNMultiplexer:
 
         mock_ssl_object = Mock()
         mock_ssl_object.selected_alpn_protocol = Mock(return_value="h2")
+        mock_ssl_object.version = Mock(return_value="TLSv1.3")
         mock_writer.get_extra_info = Mock(return_value=mock_ssl_object)
 
         await multiplexer._handle_connection(mock_reader, mock_writer)
@@ -478,6 +482,7 @@ class TestALPNMultiplexer:
 
         mock_ssl_object = Mock()
         mock_ssl_object.selected_alpn_protocol = Mock(return_value="h2")
+        mock_ssl_object.version = Mock(return_value="TLSv1.3")
         mock_writer.get_extra_info = Mock(return_value=mock_ssl_object)
 
         await multiplexer._handle_connection(mock_reader, mock_writer)
