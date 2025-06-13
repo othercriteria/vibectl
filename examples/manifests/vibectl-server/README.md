@@ -150,7 +150,7 @@ rm -f /tmp/vibectl-demo-ca-bundle.crt
 
 # Clean up ACME demo
 kubectl delete namespace vibectl-server-acme
-rm -f /tmp/vibectl-demo-acme-cert.pem
+rm -f /tmp/vibectl-demo-pebble-ca.crt
 ```
 
 ## Troubleshooting

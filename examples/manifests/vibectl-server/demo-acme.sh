@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🔰 vibectl-server Demo: JWT Auth + ACME + TLS-ALPN-01 [EXPERIMENTAL]"
-echo "=================================================================="
+echo "🔰 vibectl-server Demo: ACME (TLS-ALPN-01) + JWT Auth"
+echo "===================================================="
 echo ""
-echo "This demo showcases ACME certificate provisioning using TLS-ALPN-01 challenges"
-echo "with a Pebble ACME test server. This approach provides automatic certificate"
-echo "management compatible with Let's Encrypt for production deployments."
-echo ""
-echo "⚠️  NOTE: TLS-ALPN-01 implementation is experimental and demonstrates the"
-echo "    architecture. For production use, HTTP-01 or DNS-01 challenges are"
-echo "    recommended until TLS-ALPN-01 is fully integrated."
+echo "This demo provisions certificates via ACME TLS-ALPN-01 using the Pebble test CA."
 echo ""
 
 # Check that we're in the project root
@@ -71,9 +65,7 @@ echo "📦 Step 2: Creating namespace and deploying Pebble ACME server..."
 echo "=================================================================="
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
-# ----------------------------------------------------------------------------
 # MetalLB prerequisite check (fail fast if not present)
-# ----------------------------------------------------------------------------
 if ! kubectl get ns metallb-system >/dev/null 2>&1; then
     cat <<EOF
 ❌ MetalLB not detected in the cluster.
@@ -225,7 +217,7 @@ kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/deployment-acme.yaml"
 echo "✅ All manifests deployed successfully!"
 
 echo ""
-echo "⏳ Step 4: Waiting for ACME certificate provisioning..."
+echo "⏳ Step 4: Waiting for deployment to be ready..."
 echo "======================================================"
 echo "The server will:"
 echo "  🏭 Start with temporary self-signed certificates"
@@ -296,24 +288,6 @@ if [ $timeout -le 0 ]; then
 fi
 
 echo ""
-echo "🔍 Step 5b: Verifying ACME certificate details..."
-echo "================================================"
-echo "🔍 Checking ACME certificate SANs and chain..."
-kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- sh -c '
-  CERT_FILE=$(ls /root/.config/vibectl/server/acme-certs/*.crt 2>/dev/null | head -n 1)
-  if [ -n "$CERT_FILE" ]; then
-    echo "📋 Certificate Subject Alternative Names:"
-    openssl x509 -in "$CERT_FILE" -text -noout | grep -A 5 "Subject Alternative Name" || echo "   No SANs found"
-    echo ""
-    echo "📋 Certificate chain summary:"
-    openssl crl2pkcs7 -nocrl -certfile "$CERT_FILE" | openssl pkcs7 -print_certs -noout
-  else
-    echo "⚠️  ACME certificate not found"
-    exit 1
-  fi
-'
-
-echo ""
 echo "🔑 Step 6: Setting up demo credentials..."
 echo "========================================"
 
@@ -340,7 +314,7 @@ kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- sh -c '
         /-----END CERTIFICATE-----/ && capture { capture = 0 }
         END {
           if (count < 2) {
-            print \"❌ No intermediate CA found in certificate chain\" > "/dev/stderr";
+            print \"❌ No intermediate CA found in certificate chain\" > \"/dev/stderr\";
             exit 1;
           }
         }"
@@ -363,20 +337,12 @@ echo ""
 echo "🔑 Step 7: Getting service access information..."
 echo "==============================================="
 
-###############################
-#  Step 7: Service information #
-###############################
-
-# For external access, use NodePort (clients outside cluster can't resolve internal DNS)
+# Display connection info
 PROXY_HOST="$EXTERNAL_DOMAIN"
 PROXY_PORT="443"
-
-echo "🔍 ACME validation uses internal domain: $ACME_DOMAIN"
-echo "🌐 Client access uses external domain: $EXTERNAL_DOMAIN"
-
-echo "📍 Proxy Host: $PROXY_HOST"
-echo "🔌 Proxy Port: $PROXY_PORT"
-echo "🌐 External URL (DNS-based): vibectl-server://$JWT_TOKEN@$PROXY_HOST:$PROXY_PORT"
+echo "🔍 ACME validation domain : $ACME_DOMAIN"
+echo "🌐 External access domain : $EXTERNAL_DOMAIN"
+echo "🌐 External URL          : vibectl-server://$JWT_TOKEN@$PROXY_HOST:$PROXY_PORT"
 
 echo ""
 echo "⚙️  Step 8: Configuring vibectl proxy with Pebble CA..."
@@ -401,22 +367,12 @@ if vibectl setup-proxy test; then
     echo "📋 Technical Summary:"
     echo "   • Server endpoint: ${PROXY_HOST}:${PROXY_PORT}"
     echo "   • Token: ${JWT_TOKEN}"
-    echo "   • ACME Provider: Pebble (${PEBBLE_URL})"
-    echo "   • Challenge Type: TLS-ALPN-01"
-    echo "   • Domain: ${ACME_DOMAIN} (cluster DNS)"
-    echo "   • Email: admin@vibectl.test (hard-coded in config)"
+    echo "   • ACME Provider : Pebble (${PEBBLE_URL})"
+    echo "   • Challenge     : TLS-ALPN-01"
+    echo "   • Domain        : ${ACME_DOMAIN}"
+    echo "   • Email         : admin@vibectl.test"
     echo ""
-    echo "🔰 ACME Features Demonstrated:"
-    echo "   • Automatic certificate provisioning via TLS-ALPN-01"
-    echo "   • Integration with Pebble ACME test server"
-    echo "   • Single-port operation (443) for both gRPC and ACME challenges"
-    echo "   • Production-ready ACME workflow (compatible with Let's Encrypt)"
-    echo "   • Simplified configuration with hard-coded demo values"
-    echo ""
-    echo "🧪 Verification Commands:"
-    echo "   • Check logs: kubectl logs deployment/vibectl-server -n ${NAMESPACE}"
-    echo "   • Pebble status: kubectl logs deployment/pebble -n ${NAMESPACE}"
-    echo "   • Test connection: vibectl setup-proxy test"
+    echo "(For logs, run: kubectl logs deployment/vibectl-server -n ${NAMESPACE})"
 else
     echo ""
     echo "❌ Connection test failed. Troubleshooting information:"
@@ -432,12 +388,7 @@ else
     echo "🔍 Check ACME certificate provisioning:"
     echo "   kubectl exec deploy/vibectl-server -n ${NAMESPACE} -- ls -la /root/.config/vibectl/server/certs/"
     echo ""
-    echo "🔍 Manual connection test:"
-    echo "   # Test ACME server connectivity"
-    echo "   curl -k ${PEBBLE_URL}"
-    echo ""
-    echo "   # Test vibectl-server gRPC port"
-    echo "   telnet ${NODE_IP} ${NODE_PORT}"
+    # Manual connection test removed – use logs above for troubleshooting
 fi
 
 echo ""
