@@ -18,7 +18,7 @@ vibectl-server generate-token dev-user --expires-in 30d --output dev.jwt
 
 # 4. Point vibectl at the proxy
 vibectl setup-proxy configure \
-  vibectl-server://$(cat dev.jwt)@localhost:50051
+  vibectl-server://$(cat dev.jwt)@localhost
 
 # 5. Use vibectl as normal
 vibectl vibe "explain kubernetes pods"
@@ -67,18 +67,55 @@ Create tokens with:
 vibectl-server generate-token <subject> --expires-in <duration>
 ```
 
-## TLS
+## TLS Certificate Management
+
+vibectl-server supports two primary approaches for TLS certificate management, each suited to different deployment scenarios:
+
+### Certificate Management Approaches
+
+| Feature | Private CA | ACME (Let's Encrypt) |
+|---------|------------|----------------------|
+| **Certificate Source** | Private Certificate Authority | ACME Server (Let's Encrypt/Pebble) |
+| **Internet Dependency** | None | Required for real Let's Encrypt |
+| **Trust Model** | Custom CA bundle | Public/ACME CA |
+| **Renewal Process** | Manual regeneration | Automatic ACME renewal |
+| **Complexity** | Lower | Higher (ACME protocol) |
+| **Best For** | Internal/Private networks | Public internet deployments |
+| **Domain Validation** | Not required | Required |
+| **Certificate Expiry** | Long-lived (configurable) | Short-lived (90 days) |
+| **Network Security** | Air-gap friendly | Internet dependent |
+| **Production Ready** | Yes (internal) | Yes (public) |
+
+### Private Certificate Authority
+
+**Best for**: Internal networks, air-gapped environments, corporate PKI
 
 Enable TLS with `--tls` or by setting `server.use_tls: true`. If `cert_file` and `key_file` are missing the server will generate self‑signed certificates. Use `vibectl-server generate-certs` to generate them manually.
 
-Client URLs determine whether TLS is used:
+**Use Cases:**
+- Corporate environments with existing PKI infrastructure
+- Air-gapped or restricted network environments  
+- Internal services where you control certificate trust
+- Development environments with full certificate control
+- High-security environments requiring custom CA validation
 
+**Client Configuration:**
+```bash
+# Requires custom CA bundle for certificate verification
+vibectl setup-proxy configure \
+  vibectl-server://TOKEN@internal-server:443 \
+  --ca-bundle /path/to/ca-bundle.crt
+```
+
+Client URLs determine whether TLS is used:
 - `vibectl-server://host:port` → TLS
 - `vibectl-server-insecure://host:port` → plain text
 
 ## ACME / Let's Encrypt Integration
 
-vibectl-server includes built in support for obtaining TLS certificates from Let's Encrypt or any other ACME compatible certificate authority.  This is useful for public deployments where you want trusted certificates without manually managing them.
+vibectl-server includes built in support for obtaining TLS certificates from Let's Encrypt or any other ACME compatible certificate authority. This is useful for public deployments where you want trusted certificates without manually managing them.
+
+**Best for**: Internet-facing deployments, automatic certificate renewal
 
 ### Why Let's Encrypt?
 
@@ -97,7 +134,15 @@ vibectl-server includes built in support for obtaining TLS certificates from Let
 - Reduces operational complexity compared to traditional CAs
 - Integrates seamlessly with Kubernetes cert-manager
 
-### Workflow
+### ACME Use Cases
+
+- Internet-facing services with public domain names
+- Production deployments requiring automatic certificate renewal
+- Services that need publicly trusted certificates
+- Multi-domain certificate management
+- Integration with Let's Encrypt or other ACME providers
+
+### ACME Workflow
 
 Automatic certificate provisioning works like this:
 
@@ -106,7 +151,7 @@ Automatic certificate provisioning works like this:
 vibectl-server init-config
 
 # 2. Start the server in ACME mode
-  vibectl-server serve-acme \
+vibectl-server serve-acme \
   --email admin@company.com \
   --domain vibectl.company.com
 
@@ -158,18 +203,25 @@ vibectl setup-proxy configure \
 - Zero-downtime certificate updates via graceful reload
 - Fallback to self-signed certificates if ACME fails
 
-This approach provides the **security of private CAs** (from Phase 1) for internal deployments and the **convenience of public CAs** for internet-facing services.
+This approach provides the **security of private CAs** for internal deployments and the **convenience of public CAs** for internet-facing services.
 
 ## Kubernetes example
 
-For a minimal single-replica deployment see the manifests under
-`examples/manifests/vibectl-server/`.  They install a `Deployment`,
-`Service`, `ConfigMap` and `Secret` suitable for local demos.  After
-applying them you can generate a token from the running pod and point
-`vibectl` at the exposed NodePort service.  The `demo.sh` script in that
-directory runs an end-to-end test of the private CA setup.  A
-`pebble.yaml` manifest is also provided so you can run a local Pebble
-ACME server to test certificate issuance with `serve-acme`.
+For comprehensive demonstration setups see the manifests under `examples/manifests/vibectl-server/`. They provide two complete scenarios:
+
+### CA Management Demo
+- Private Certificate Authority setup  
+- Self-contained deployment for internal networks
+- Complete certificate lifecycle management
+- Run with: `./examples/manifests/vibectl-server/demo-ca.sh`
+
+### ACME Management Demo  
+- Pebble ACME test server integration
+- Let's Encrypt-compatible certificate workflow
+- Automatic domain validation and renewal
+- Run with: `./examples/manifests/vibectl-server/demo-acme.sh`
+
+Both demos install a `Deployment`, `Service`, `ConfigMap` and `Secret` suitable for local testing. The interactive demo selector at `./examples/manifests/vibectl-server/demo.sh` helps choose the appropriate approach for your use case.
 
 ## Checking the server
 

@@ -1,0 +1,18 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vibectl-demo-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.0.240-192.168.0.250  # Adjust to unused IPs on your LAN
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: vibectl-demo-adv
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - vibectl-demo-pool 

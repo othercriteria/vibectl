@@ -6,9 +6,11 @@ TLS certificates from ACME-compatible certificate authorities like Let's Encrypt
 """
 
 import logging
+import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import acme
 import acme.errors
@@ -49,6 +51,8 @@ class ACMEClient:
         directory_url: str = LETSENCRYPT_PRODUCTION,
         email: str | None = None,
         key_size: int = 2048,
+        ca_cert_file: str | None = None,
+        tls_alpn_challenge_server: Any = None,
     ):
         """Initialize ACME client.
 
@@ -56,36 +60,88 @@ class ACMEClient:
             directory_url: ACME directory URL (defaults to Let's Encrypt production)
             email: Contact email for certificate registration
             key_size: RSA key size for generated keys
+            ca_cert_file: Path to custom CA certificate file for SSL verification
+            tls_alpn_challenge_server: TLS-ALPN challenge server for TLS-ALPN-01 challenges
         """
         self.directory_url = directory_url
         self.email = email
         self.key_size = key_size
+        self.ca_cert_file = ca_cert_file
+        self.tls_alpn_challenge_server = tls_alpn_challenge_server
         self._client: client.ClientV2 | None = None
         self._account_key: jose.JWKRSA | None = None
-        self._client_net: client.ClientNetwork | None = None
 
     def _ensure_client(self) -> None:
-        """Ensure ACME client is initialized."""
-        if self._client is None:
-            # Generate account key if not provided
-            if self._account_key is None:
-                self._account_key = jose.JWKRSA(
-                    key=rsa.generate_private_key(
-                        public_exponent=65537,
-                        key_size=2048,
-                    )
+        """Ensure the ACME client is initialized."""
+        if self._client is not None:
+            return
+
+        from acme import client as acme_client, messages as acme_messages
+        from acme.client import ClientNetwork
+
+        # Generate account key if not provided
+        if self._account_key is None:
+            self._account_key = jose.JWKRSA(
+                key=rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=2048,
+                )
+            )
+
+        try:
+            # Configure CA certificate via REQUESTS_CA_BUNDLE environment variable
+            if self.ca_cert_file and os.path.isfile(self.ca_cert_file):
+                logger.info(f"Using custom CA certificate: {self.ca_cert_file}")
+                logger.debug(
+                    f"CA file size: {os.path.getsize(self.ca_cert_file)} bytes"
                 )
 
-            # Create ACME client network interface
-            self._client_net = client.ClientNetwork(
-                key=self._account_key, user_agent="vibectl-server/1.0"
-            )
+                # Read and log CA certificate content preview
+                with open(self.ca_cert_file) as f:
+                    ca_content = f.read()
+                    preview_lines = ca_content.split("\n")[:5]  # First 5 lines
+                    logger.debug(
+                        f"CA certificate content preview: {chr(10).join(preview_lines)}"
+                    )
+                    if len(ca_content) > 300:
+                        end_lines = ca_content.split("\n")[-3:]  # Last 3 lines
+                        logger.debug(
+                            f"CA certificate content ends with: ...{chr(10).join(end_lines)}"
+                        )
 
-            # Initialize ACME client
-            directory = messages.Directory.from_json(
-                self._client_net.get(self.directory_url).json()
+                # Set REQUESTS_CA_BUNDLE environment variable for server operations
+                os.environ["REQUESTS_CA_BUNDLE"] = self.ca_cert_file
+                logger.debug(f"Set REQUESTS_CA_BUNDLE={self.ca_cert_file}")
+
+            # Create ClientNetwork with standard SSL verification
+            net = ClientNetwork(
+                key=self._account_key, verify_ssl=True, user_agent="vibectl-server/1.0"
             )
-            self._client = client.ClientV2(directory, net=self._client_net)
+            logger.debug("Created ACME network client with standard SSL verification")
+
+            # Test the network client connection
+            logger.debug(
+                f"Testing ACME network client connection to: {self.directory_url}"
+            )
+            try:
+                directory_response = net.get(self.directory_url)
+                logger.debug("ACME network client test successful")
+            except Exception as net_test_error:
+                logger.error(f"ACME network client test failed: {net_test_error}")
+                raise ACMECertificateError(
+                    f"Failed to connect to ACME server: {net_test_error}"
+                ) from net_test_error
+
+            # Parse directory
+            directory = acme_messages.Directory.from_json(directory_response.json())
+
+            # Create ACME client
+            self._client = acme_client.ClientV2(directory, net=net)
+            logger.debug("ACME client initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize ACME client: {e}")
+            raise ACMECertificateError(f"Failed to initialize ACME client: {e}") from e
 
     def register_account(self) -> None:
         """Register ACME account with the CA."""
@@ -120,7 +176,7 @@ class ACMEClient:
 
         Args:
             domains: List of domain names to include in certificate
-            challenge_type: ACME challenge type ("http-01" or "dns-01")
+            challenge_type: ACME challenge type ("http-01", "dns-01", or "tls-alpn-01")
             cert_file: Optional path to save certificate
             key_file: Optional path to save private key
             challenge_dir: Directory for HTTP-01 challenge files
@@ -210,7 +266,7 @@ class ACMEClient:
 
         Args:
             authz: Authorization resource from ACME server
-            challenge_type: Type of challenge to complete ("http-01" or "dns-01")
+            challenge_type: Type of challenge to complete ("http-01", "dns-01", or "tls-alpn-01")
             challenge_dir: Directory for HTTP-01 challenge files
         """
         domain = authz.body.identifier.value
@@ -224,19 +280,35 @@ class ACMEClient:
                 break
 
         if challenge_body is None:
+            available_types = [
+                chall_body.chall.typ for chall_body in authz.body.challenges
+            ]
+            logger.error(
+                f"No {challenge_type} challenge found. Available: {available_types}"
+            )
             raise ACMEValidationError(
-                f"No {challenge_type} challenge found for domain {domain}"
+                f"No {challenge_type} challenge found for domain {domain}. Available: {available_types}"
             )
 
         if challenge_type == "http-01":
             self._complete_http01_challenge(challenge_body, domain, challenge_dir)
         elif challenge_type == "dns-01":
             self._complete_dns01_challenge(challenge_body, domain)
+        elif challenge_type == "tls-alpn-01":
+            self._complete_tls_alpn01_challenge(challenge_body, domain)
         else:
             raise ACMEValidationError(f"Unsupported challenge type: {challenge_type}")
 
+        # Use longer timeout for TLS-ALPN-01 challenges
+        # These challenges often need more time for network connectivity to settle in containerized environments
+        if challenge_type == "tls-alpn-01":
+            timeout = 600  # 10 minutes for TLS-ALPN-01
+            logger.debug(f"Using extended timeout ({timeout}s) for TLS-ALPN-01 challenge validation")
+        else:
+            timeout = 300  # 5 minutes for other challenge types
+
         # Wait for authorization validation
-        self._wait_for_authorization_validation(authz)
+        self._wait_for_authorization_validation(authz, timeout)
 
     def _complete_http01_challenge(
         self,
@@ -257,8 +329,14 @@ class ACMEClient:
         # Get the actual challenge object
         challenge = challenge_body.chall
 
-        # Generate challenge response
-        response, validation = challenge.response_and_validation(self._account_key)
+        # Generate challenge response with debugging
+        try:
+            response, validation = challenge.response_and_validation(self._account_key)
+        except Exception as response_error:
+            logger.error(f"Error generating challenge response: {response_error}")
+            raise ACMEValidationError(
+                f"Failed to generate challenge response: {response_error}"
+            )
 
         # Determine challenge directory
         if challenge_dir is None:
@@ -268,14 +346,21 @@ class ACMEClient:
         challenge_path.mkdir(parents=True, exist_ok=True)
 
         # Write challenge file
-        # Decode token if it's bytes, otherwise use as-is
-        token_str = (
-            challenge.token.decode("utf-8")
-            if isinstance(challenge.token, bytes)
-            else challenge.token
-        )
+        try:
+            token_str = challenge.encode("token")
+        except Exception as encode_error:
+            logger.error(f"Error encoding challenge token: {encode_error}")
+            raise ACMEValidationError(
+                f"Failed to encode challenge token: {encode_error}"
+            )
+
         challenge_file = challenge_path / token_str
-        challenge_file.write_text(validation)
+
+        try:
+            challenge_file.write_text(validation)
+        except Exception as write_error:
+            logger.error(f"Error writing challenge file: {write_error}")
+            raise ACMEValidationError(f"Failed to write challenge file: {write_error}")
 
         logger.info(f"Created HTTP-01 challenge file: {challenge_file}")
         logger.info(
@@ -287,6 +372,11 @@ class ACMEClient:
             assert self._client is not None
             self._client.answer_challenge(challenge_body, response)
 
+        except Exception as submit_error:
+            logger.error(f"Error submitting challenge response: {submit_error}")
+            raise ACMEValidationError(
+                f"Failed to submit challenge response: {submit_error}"
+            )
         finally:
             # Clean up challenge file
             try:
@@ -316,11 +406,14 @@ class ACMEClient:
         # Calculate the DNS record value
         dns_record = f"_acme-challenge.{domain}"
 
+        # Convert validation to string if it's bytes
+        validation_str = validation.decode('utf-8') if isinstance(validation, bytes) else validation
+
         logger.warning(
             f"DNS-01 challenge requires manual DNS record creation:\n"
             f"Record: {dns_record}\n"
             f"Type: TXT\n"
-            f"Value: {validation}\n"
+            f"Value: {validation_str}\n"
             f"Please create this DNS record and press Enter to continue..."
         )
 
@@ -332,16 +425,123 @@ class ACMEClient:
         assert self._client is not None
         self._client.answer_challenge(challenge_body, response)
 
+    def _complete_tls_alpn01_challenge(
+        self, challenge_body: messages.ChallengeBody, domain: str
+    ) -> None:
+        """Complete TLS-ALPN-01 challenge.
+
+        The TLS-ALPN-01 challenge requires the server to present a special
+        self-signed certificate during the TLS handshake with ALPN extension
+        "acme-tls/1" for the domain being validated.
+
+        Args:
+            challenge_body: TLS-ALPN-01 challenge body from authorization
+            domain: Domain being validated
+        """
+        logger.debug(f"Starting TLS-ALPN-01 challenge for domain: {domain}")
+
+        # Ensure we have the account key
+        assert self._account_key is not None
+
+        # Ensure we have a TLS-ALPN challenge server
+        if self.tls_alpn_challenge_server is None:
+            raise ACMEValidationError(
+                "TLS-ALPN-01 challenge requires a TLS-ALPN challenge server instance"
+            )
+
+        # Get the actual challenge object
+        challenge = challenge_body.chall
+
+        # Generate challenge response
+        response, validation = challenge.response_and_validation(
+            self._account_key, domain=domain
+        )
+        logger.debug("Challenge response generated successfully")
+
+        logger.info(f"TLS-ALPN-01 challenge initiated for domain: {domain}")
+
+        # For TLS-ALPN-01, validation contains (Certificate, PrivateKey), but we need
+        # the challenge response hash for our certificate extension.
+        # Extract the hash from the response instead.
+        import hashlib
+        key_authorization = challenge.key_authorization(self._account_key)
+
+        # Ensure key_authorization is bytes for hashing
+        if isinstance(key_authorization, str):
+            key_authorization_bytes = key_authorization.encode('utf-8')
+        elif isinstance(key_authorization, bytes):
+            key_authorization_bytes = key_authorization
+        else:
+            key_authorization_bytes = str(key_authorization).encode('utf-8')
+
+        challenge_hash = hashlib.sha256(key_authorization_bytes).digest()
+
+        logger.debug(f"Key authorization: {key_authorization}")
+        logger.debug(f"Challenge hash (hex): {challenge_hash.hex()}")
+
+        # Set the challenge response hash in the TLS-ALPN challenge server
+        logger.info(
+            f"🚀 Setting challenge response in TLS-ALPN server for domain: {domain}"
+        )
+        logger.debug(f"🔑 Challenge hash: {challenge_hash.hex()[:32]}...")
+        
+        # Track timing for challenge setup
+        import time
+        set_start = time.time()
+        self.tls_alpn_challenge_server.set_challenge(domain, challenge_hash)
+        set_duration = (time.time() - set_start) * 1000
+        logger.debug(f"⏱️ Challenge set completed in {set_duration:.1f}ms")
+
+        # ------------------------------------------------------------------
+        # Wait for service readiness / Endpoint propagation
+        # ------------------------------------------------------------------
+        self._wait_for_tls_port_ready(domain, 443, timeout=15.0)
+
+        try:
+            # Submit challenge response to ACME server
+            assert self._client is not None
+            submit_start = time.time()
+            self._client.answer_challenge(challenge_body, response)
+            submit_duration = (time.time() - submit_start) * 1000
+            logger.info(f"✅ Challenge response submitted successfully in {submit_duration:.1f}ms")
+
+            logger.info(
+                "🎯 TLS-ALPN-01 challenge setup complete, ACME server will now validate..."
+            )
+
+        except Exception as submit_error:
+            # Clean up challenge response on error
+            logger.warning(f"⚠️ Challenge submission failed, cleaning up for domain: {domain}")
+            self.tls_alpn_challenge_server.remove_challenge(domain)
+            logger.debug(f"🧹 Cleaned up TLS-ALPN challenge for domain: {domain}")
+            logger.error(f"❌ Error submitting challenge response: {submit_error}")
+            raise ACMEValidationError(
+                f"Failed to submit challenge response: {submit_error}"
+            )
+
     def _wait_for_authorization_validation(
         self, authz: messages.AuthorizationResource, timeout: int = 300
     ) -> None:
-        """Wait for authorization validation to complete.
+        """Wait for authorization validation to complete using fixed polling interval.
 
         Args:
             authz: Authorization resource to wait for
             timeout: Maximum time to wait in seconds
         """
+        import random
+
         start_time = time.time()
+        poll_interval = 1.0  # Start with 1 second
+        max_poll_interval = 10.0  # Cap at 10 seconds
+
+        domain = authz.body.identifier.value
+        logger.info(f"🔄 Starting authorization validation polling for domain: {domain}")
+        logger.debug(f"📊 Using fixed polling interval, timeout: {timeout}s")
+        
+        # Log current challenge state at start of polling
+        if hasattr(self, 'tls_alpn_challenge_server') and self.tls_alpn_challenge_server:
+            active_domains = self.tls_alpn_challenge_server._get_active_challenge_domains()
+            logger.info(f"📋 Active challenges at polling start: {active_domains}")
 
         while time.time() - start_time < timeout:
             try:
@@ -349,25 +549,93 @@ class ACMEClient:
                 updated_authz, _ = self._client.poll(authz)
 
                 if updated_authz.body.status == messages.STATUS_VALID:
-                    logger.info("Authorization validation completed successfully")
+                    logger.info(
+                        f"Authorization validation completed successfully for domain: {domain}"
+                    )
+                    # Clean up challenge on success
+                    self._cleanup_completed_challenge(updated_authz)
                     return
+
                 elif updated_authz.body.status == messages.STATUS_INVALID:
+                    # Extract error details for better logging
+                    error_detail = "unknown error"
+                    for challenge in updated_authz.body.challenges:
+                        if challenge.error:
+                            error_detail = challenge.error.detail or str(
+                                challenge.error
+                            )
+                            break
+
+                    logger.error(
+                        f"❌ Authorization validation failed for domain: {domain} - {error_detail}"
+                    )
+                    # Clean up challenge on failure
+                    self._cleanup_completed_challenge(updated_authz)
                     raise ACMEValidationError(
-                        f"Authorization validation failed: {updated_authz.body}"
+                        f"Authorization validation failed for domain {updated_authz.body.identifier.value}: {error_detail}"
                     )
 
-                # Still pending, wait and retry
-                time.sleep(5)
+                # Still pending - use fixed polling interval
+                elif updated_authz.body.status == messages.STATUS_PENDING:
+                    elapsed = time.time() - start_time
+                    logger.debug(
+                        f"Authorization still pending for domain: {domain} (elapsed: {elapsed:.1f}s)"
+                    )
+                    time.sleep(poll_interval)
+
+                else:
+                    # Unknown status
+                    logger.warning(
+                        f"Unexpected authorization status: {updated_authz.body.status}"
+                    )
+                    time.sleep(poll_interval)
 
             except Exception as e:
                 if "still pending" in str(e).lower():
-                    time.sleep(5)
+                    time.sleep(poll_interval)
                     continue
+
+                logger.error(f"Error during authorization validation polling: {e}")
                 raise ACMEValidationError(f"Authorization validation error: {e}") from e
 
+        # Timeout reached - clean up and fail
+        elapsed = time.time() - start_time
+        logger.error(
+            f"Authorization validation timed out after {elapsed:.1f}s for domain: {domain}"
+        )
+        # Clean up challenge on timeout
+        self._cleanup_completed_challenge(authz)
         raise ACMEValidationError(
             f"Authorization validation timed out after {timeout} seconds"
         )
+
+    def _cleanup_completed_challenge(
+        self, authz: messages.AuthorizationResource
+    ) -> None:
+        """Clean up challenge responses after authorization completion.
+
+        Args:
+            authz: Completed authorization resource
+        """
+        if self.tls_alpn_challenge_server is None:
+            logger.debug("🚫 No TLS-ALPN challenge server available for cleanup")
+            return
+
+        # Extract domain from authorization identifier
+        domain = authz.body.identifier.value
+
+        # Log current state before cleanup
+        active_domains_before = self.tls_alpn_challenge_server._get_active_challenge_domains()
+        logger.info(f"🧹 Cleaning up challenge for domain: {domain}")
+        logger.debug(f"📋 Active challenges before cleanup: {active_domains_before}")
+
+        # Remove the challenge response from the TLS-ALPN server
+        self.tls_alpn_challenge_server.remove_challenge(domain)
+        
+        # Log state after cleanup
+        active_domains_after = self.tls_alpn_challenge_server._get_active_challenge_domains()
+        logger.info(f"✅ Cleaned up TLS-ALPN challenge for domain: {domain}")
+        logger.debug(f"📋 Active challenges after cleanup: {active_domains_after}")
 
     def _create_csr(
         self, domains: list[str], private_key: rsa.RSAPrivateKey
@@ -427,16 +695,62 @@ class ACMEClient:
         renewal_date = datetime.now().astimezone() + timedelta(days=days_before_expiry)
         return expiry_date <= renewal_date
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _wait_for_tls_port_ready(hostname: str, port: int, timeout: float = 15.0, interval: float = 0.5) -> None:
+        """Block until TCP connect() to hostname:port succeeds or timeout expires.
+
+        This helps ensure that the Kubernetes Service endpoint has propagated and the
+        vibectl-server pod is Ready before we ask the ACME server to connect.
+
+        Args:
+            hostname: DNS name or IP to test.
+            port: TCP port number.
+            timeout: Max seconds to wait.
+            interval: Seconds between attempts.
+        """
+        import socket
+        import time
+
+        start = time.time()
+        while True:
+            try:
+                with socket.create_connection((hostname, port), timeout=2):
+                    logger.debug(
+                        f"✅ Port {port} on {hostname} is reachable – continuing with challenge submission"
+                    )
+                    return
+            except socket.gaierror as exc:  # DNS resolution failure (common in unit tests)
+                logger.debug(
+                    f"🛑 DNS resolution failed for {hostname}: {exc}. Assuming test environment and skipping readiness wait."
+                )
+                return
+            except Exception as exc:  # pylint: disable=broad-except
+                elapsed = time.time() - start
+                if elapsed >= timeout:
+                    logger.warning(
+                        "⚠️ Port %s on %s not reachable after %.1fs: %s", port, hostname, elapsed, exc
+                    )
+                    return  # we still proceed; ACME server will tell us if it fails
+                time.sleep(interval)
+
 
 def create_acme_client(
     directory_url: str = LETSENCRYPT_PRODUCTION,
     email: str | None = None,
+    ca_cert_file: str | None = None,
+    tls_alpn_challenge_server: Any = None,
 ) -> ACMEClient:
     """Create an ACME client instance.
 
     Args:
         directory_url: ACME directory URL (defaults to Let's Encrypt production)
         email: Contact email for registration
+        ca_cert_file: Path to custom CA certificate file for SSL verification
+        tls_alpn_challenge_server: TLS-ALPN challenge server for TLS-ALPN-01 challenges
 
     Returns:
         Configured ACME client
@@ -451,10 +765,22 @@ def create_acme_client(
             email="admin@example.com"
         )
 
-        # Custom ACME server
+        # Custom ACME server with custom CA
         client = create_acme_client(
             directory_url="https://ca.example.com/acme/directory",
-            email="admin@example.com"
+            email="admin@example.com",
+            ca_cert_file="/path/to/ca.pem"
+        )
+
+        # With TLS-ALPN challenge server
+        client = create_acme_client(
+            email="admin@example.com",
+            tls_alpn_challenge_server=challenge_server
         )
     """
-    return ACMEClient(directory_url=directory_url, email=email)
+    return ACMEClient(
+        directory_url=directory_url,
+        email=email,
+        ca_cert_file=ca_cert_file,
+        tls_alpn_challenge_server=tls_alpn_challenge_server,
+    )

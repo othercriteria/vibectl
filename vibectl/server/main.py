@@ -7,6 +7,7 @@ of the main vibectl CLI, reducing complexity and enabling dedicated
 server deployment scenarios.
 """
 
+import asyncio
 import sys
 from collections.abc import Callable
 from datetime import datetime
@@ -22,12 +23,12 @@ from vibectl.config_utils import (
     parse_duration_to_days,
 )
 from vibectl.console import console_manager
-from vibectl.logutil import init_logging, logger
+from vibectl.logutil import init_logging, logger, update_logging_level
 from vibectl.types import Error, Result, ServeMode, Success
 from vibectl.utils import handle_exception
 
 from . import cert_utils
-from .acme_client import LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, create_acme_client
+from .acme_client import LETSENCRYPT_PRODUCTION
 from .ca_manager import CAManager, CAManagerError, setup_private_ca
 from .config import (
     ServerConfig,
@@ -879,9 +880,19 @@ def _load_and_validate_config(config_path: Path | None, overrides: dict) -> Resu
     return Success(data=validation_result.data)
 
 
+def _update_logging_level_from_config(server_config: dict) -> None:
+    """Update logging level from server configuration."""
+    log_level = server_config.get("server", {}).get("log_level")
+    if log_level:
+        update_logging_level(log_level)
+
+
 def _create_and_start_server_common(server_config: dict) -> Result:
     """Common server creation and startup logic for all serve commands."""
     try:
+        # Update logging level from config first
+        _update_logging_level_from_config(server_config)
+
         # Log server configuration
         logger.info("Starting vibectl LLM proxy server")
         logger.info(f"Host: {server_config['server']['host']}")
@@ -896,19 +907,21 @@ def _create_and_start_server_common(server_config: dict) -> Result:
 
         # Handle ACME certificate provisioning if enabled
         if server_config["acme"]["enabled"]:
-            acme_status = "enabled"
-            if server_config["acme"].get("staging", False):
-                acme_status += " (staging)"
-            logger.info(f"ACME: {acme_status}")
+            logger.info("ACME: enabled")
             if server_config["acme"]["email"]:
                 logger.info(f"ACME email: {server_config['acme']['email']}")
             if server_config["acme"]["domains"]:
                 logger.info(
                     f"ACME domains: {', '.join(server_config['acme']['domains'])}"
                 )
+            if server_config["acme"].get("directory_url"):
+                logger.info(f"ACME directory: {server_config['acme']['directory_url']}")
+            else:
+                logger.info(f"ACME directory: {LETSENCRYPT_PRODUCTION} (default)")
 
             # Validate ACME configuration
-            if not server_config["acme"]["email"]:
+            email = server_config["acme"]["email"]
+            if not email or not email.strip():
                 return Error(
                     error="ACME enabled but no email provided. "
                     "Use --acme-email or set acme.email in config."
@@ -919,29 +932,8 @@ def _create_and_start_server_common(server_config: dict) -> Result:
                     "Use --acme-domain or set acme.domains in config."
                 )
 
-            # Provision ACME certificates
-            try:
-                cert_result = _provision_acme_certificates(server_config)
-                if isinstance(cert_result, Error):
-                    return cert_result
-
-                # Update TLS configuration with provisioned certificates
-                if cert_result.data is None:
-                    return Error(
-                        error="ACME certificate provisioning returned no "
-                        "certificate data"
-                    )
-                cert_file, key_file = cert_result.data
-                server_config["tls"]["cert_file"] = cert_file
-                server_config["tls"]["key_file"] = key_file
-                logger.info("ACME certificates provisioned successfully")
-                logger.info(f"Certificate: {cert_file}")
-                logger.info(f"Private key: {key_file}")
-
-            except Exception as e:
-                return Error(
-                    error=f"ACME certificate provisioning failed: {e}", exception=e
-                )
+            # Use async ACME architecture
+            return _create_and_start_server_with_async_acme(server_config)
         else:
             logger.info("ACME: disabled")
 
@@ -983,57 +975,305 @@ def _create_and_start_server_common(server_config: dict) -> Result:
         return Error(error=f"Server startup failed: {e}", exception=e)
 
 
-def _provision_acme_certificates(server_config: dict) -> Result:
-    """Provision or renew ACME certificates for the server."""
+def _create_and_start_server_with_async_acme(server_config: dict) -> Result:
+    """Create and start server with async ACME certificate management."""
+    import asyncio
+
+    # Check if we're already in an event loop
     try:
-        acme_config = server_config["acme"]
+        loop = asyncio.get_running_loop()
+        # We're in an event loop, run in a thread
+        import threading
 
-        # Determine directory URL based on staging flag
-        staging = acme_config.get("staging", False)
-        directory_url = acme_config.get("directory_url")
+        result_container: list[Result | None] = [None]
+        exception_container: list[Exception | None] = [None]
 
-        if directory_url is None:
-            # Use staging or production based on staging flag
-            directory_url = LETSENCRYPT_STAGING if staging else LETSENCRYPT_PRODUCTION
+        def run_async_server() -> None:
+            try:
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                result_container[0] = new_loop.run_until_complete(
+                    _async_acme_server_main(server_config)
+                )
+            except Exception as e:
+                exception_container[0] = e
+            finally:
+                new_loop.close()
 
-        # Create ACME client
-        acme_client = create_acme_client(
-            directory_url=directory_url,
-            email=acme_config["email"],
+        # Run in separate thread
+        thread = threading.Thread(target=run_async_server)
+        thread.start()
+        thread.join()
+
+        if exception_container[0]:
+            raise exception_container[0]
+
+        return result_container[0] or Error(
+            error="Async server thread returned no result"
         )
 
-        # Determine certificate file paths
-        cert_dir = Path.home() / ".config" / "vibectl" / "server" / "acme-certs"
-        cert_dir.mkdir(parents=True, exist_ok=True)
+    except RuntimeError:
+        # No event loop running, we can use asyncio normally
+        return asyncio.run(_async_acme_server_main(server_config))
 
-        # Use the first domain as the filename base
-        primary_domain = acme_config["domains"][0]
-        cert_file = str(cert_dir / f"{primary_domain}.crt")
-        key_file = str(cert_dir / f"{primary_domain}.key")
 
-        # Check if certificates need renewal
-        if acme_client.needs_renewal(cert_file, days_before_expiry=30):
-            logger.info("ACME certificates need provisioning or renewal")
+async def _async_acme_server_main(server_config: dict) -> Result:
+    """Main async function for ACME server setup."""
+    try:
+        # Update logging level from config first
+        _update_logging_level_from_config(server_config)
 
-            # Request new certificates
-            cert_bytes, key_bytes = acme_client.request_certificate(
-                domains=acme_config["domains"],
-                challenge_type=acme_config.get("challenge_type", "http-01"),
-                cert_file=cert_file,
-                key_file=key_file,
-                challenge_dir=acme_config.get(
-                    "challenge_dir", ".well-known/acme-challenge"
-                ),
+        from .acme_manager import ACMEManager
+
+        # Determine challenge type
+        acme_config = server_config["acme"]
+        challenge_type = acme_config.get("challenge_type", "http-01")
+
+        challenge_server = None
+        tls_alpn_challenge_server = None
+
+        # Start appropriate challenge server based on challenge type
+        if challenge_type == "http-01":
+            from .http_challenge_server import HTTPChallengeServer
+
+            # Check if HTTP configuration is enabled
+            http_config = server_config.get("http", {})
+            http_host = http_config.get("host", "0.0.0.0")
+            http_port = http_config.get("port", 80)
+
+            logger.info(
+                f"Starting HTTP challenge server on {http_host}:{http_port} for HTTP-01 challenges"
             )
 
-            logger.info("ACME certificate provisioning completed")
-        else:
-            logger.info("Existing ACME certificates are still valid")
+            # Start HTTP challenge server
+            challenge_server = HTTPChallengeServer(host=http_host, port=http_port)
+            await challenge_server.start()
 
-        return Success(data=(cert_file, key_file))
+            # Wait for challenge server to be ready
+            if not await challenge_server.wait_until_ready():
+                return Error(error="HTTP challenge server failed to start")
+
+            logger.info("HTTP challenge server ready")
+
+        elif challenge_type == "tls-alpn-01":
+            from .alpn_multiplexer import create_alpn_multiplexer_for_acme
+            from .tls_alpn_challenge_server import TLSALPNChallengeServer
+
+            logger.info("Setting up TLS-ALPN-01 with ALPN multiplexing on port 443")
+
+            # Create TLS-ALPN challenge manager (does not bind to any port)
+            tls_alpn_challenge_server = TLSALPNChallengeServer()
+
+            # We'll use ALPN multiplexing instead of separate servers
+
+        else:
+            logger.info(
+                f"Using {challenge_type} challenges - no challenge server needed"
+            )
+
+        try:
+            # Handle TLS-ALPN-01 differently - use ALPN multiplexing
+            if challenge_type == "tls-alpn-01":
+                # For TLS-ALPN-01, we need to create a multiplexed server
+                # Create gRPC server without starting it
+                server = _create_grpc_server_with_temp_certs(server_config)
+
+                # Get certificate paths for ALPN multiplexer
+                cert_file = server_config["tls"].get("cert_file")
+                key_file = server_config["tls"].get("key_file")
+
+                if not cert_file or not key_file:
+                    return Error(error="TLS certificate files required for TLS-ALPN-01")
+
+                # Create ALPN multiplexer that handles both gRPC and TLS-ALPN-01
+                alpn_multiplexer = await create_alpn_multiplexer_for_acme(
+                    host=server_config["server"]["host"],
+                    port=server_config["server"]["port"],  # Should be 443
+                    cert_file=cert_file,
+                    key_file=key_file,
+                    grpc_server=server,
+                    tls_alpn_server=tls_alpn_challenge_server,
+                    grpc_internal_port=50051,  # Internal port for gRPC server
+                )
+
+                logger.info(
+                    "ALPN multiplexer started on port 443 for gRPC + TLS-ALPN-01"
+                )
+
+                # ------------------------------------------------------------------
+                # Signal container readiness for Kubernetes probes
+                # ------------------------------------------------------------------
+                _signal_container_ready()
+
+            else:
+                # For other challenge types, start gRPC server normally
+                server = _create_grpc_server_with_temp_certs(server_config)
+                server.start()
+                logger.info("gRPC server started with temporary certificates")
+
+                _signal_container_ready()
+
+            # Start ACME manager in background
+            # For TLS-ALPN-01, we need to use a different approach since ACMEManager
+            # currently only supports HTTP challenge servers
+            if challenge_type == "tls-alpn-01":
+                # Use enhanced ACMEManager that now properly supports TLS-ALPN-01
+                logger.debug(
+                    f"Creating ACME manager for TLS-ALPN-01 with server_config['tls']: {server_config['tls']}"
+                )
+                acme_manager = ACMEManager(
+                    challenge_server=None,  # No HTTP challenge server needed for TLS-ALPN-01
+                    acme_config=server_config["acme"],
+                    # Hot-reload the multiplexer's certificate once ACME provisioning succeeds
+                    cert_reload_callback=lambda cert, key: _reload_server_certificates(
+                        alpn_multiplexer, cert, key
+                    ),
+                    tls_alpn_challenge_server=tls_alpn_challenge_server,
+                )
+            else:
+                acme_manager = ACMEManager(
+                    challenge_server=challenge_server,  # May be None for non-HTTP challenges
+                    acme_config=server_config["acme"],
+                    cert_reload_callback=lambda cert, key: _reload_server_certificates(
+                        server, cert, key
+                    ),
+                )
+
+            acme_start_result = await acme_manager.start()
+            if isinstance(acme_start_result, Error):
+                logger.error(f"ACME manager failed to start: {acme_start_result.error}")
+                return acme_start_result
+
+            logger.info("ACME manager started, certificate provisioning in progress")
+
+            # Main server loop - wait for termination
+            try:
+                if challenge_type == "tls-alpn-01":
+                    # For TLS-ALPN-01, wait indefinitely (multiplexer handles connections)
+                    await asyncio.Event().wait()  # Wait indefinitely until interrupted
+                else:
+                    server.wait_for_termination()
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt, shutting down...")
+
+            return Success()
+
+        finally:
+            # Cleanup
+            if "acme_manager" in locals():
+                await acme_manager.stop()
+            if "server" in locals():
+                server.stop()
+            if challenge_server:
+                await challenge_server.stop()
+            if "alpn_multiplexer" in locals():
+                await alpn_multiplexer.stop()
+            if tls_alpn_challenge_server:
+                await tls_alpn_challenge_server.stop()
 
     except Exception as e:
-        return Error(error=f"ACME certificate provisioning failed: {e}", exception=e)
+        return Error(error=f"Async ACME server startup failed: {e}", exception=e)
+
+
+def _create_grpc_server_with_temp_certs(server_config: dict) -> Any:
+    """Create gRPC server with temporary certificates that can be reloaded later."""
+    from vibectl.config_utils import get_config_dir
+
+    from .cert_utils import (
+        ensure_certificate_exists,
+        generate_self_signed_certificate,
+        get_default_cert_paths,
+    )
+    from .grpc_server import GRPCServer
+
+    # Create temporary/default certificate if needed
+    config_dir = get_config_dir("server")
+    temp_cert_file, temp_key_file = get_default_cert_paths(config_dir)
+
+    # Ensure temp certificates exist
+    hostname = server_config["server"]["host"]
+    if hostname in ("0.0.0.0", "::"):
+        hostname = "localhost"
+
+    # For TLS-ALPN-01, include ACME domains in the bootstrap certificate
+    # This allows Pebble to connect during initial challenge validation
+    if (server_config.get("acme", {}).get("enabled") and
+        server_config.get("acme", {}).get("challenge_type") == "tls-alpn-01" and
+        server_config.get("acme", {}).get("domains")):
+
+        logger.info("Generating self-signed certificate for development use")
+        acme_domains = server_config["acme"]["domains"]
+        logger.info(f"Including ACME domains in bootstrap certificate: {acme_domains}")
+
+        # Use the first ACME domain as the primary hostname
+        primary_domain = acme_domains[0]
+
+        # Generate certificate with all ACME domains as SANs
+        generate_self_signed_certificate(
+            hostname=primary_domain,
+            cert_file=temp_cert_file,
+            key_file=temp_key_file,
+            days_valid=365,
+            additional_sans=acme_domains + [hostname, "localhost"]  # Include original hostname and localhost
+        )
+
+        logger.info(f"Generated bootstrap certificate with SANs for: {', '.join(acme_domains + [hostname, 'localhost'])}")
+    else:
+        ensure_certificate_exists(temp_cert_file, temp_key_file, hostname=hostname)
+
+    # Create server with temp certs
+    return GRPCServer(
+        host=server_config["server"]["host"],
+        port=server_config["server"]["port"],
+        default_model=server_config["server"]["default_model"],
+        max_workers=server_config["server"]["max_workers"],
+        require_auth=server_config["jwt"]["enabled"],
+        use_tls=server_config["tls"]["enabled"],
+        cert_file=temp_cert_file,
+        key_file=temp_key_file,
+    )
+
+
+def _reload_server_certificates(target: Any, cert_file: str, key_file: str) -> None:
+    """Hot-reload certificates for a running server component.
+
+    The ACME manager invokes this callback after new certificates have been
+    written to disk.  For the TLS-ALPN-01 flow we terminate TLS inside the
+    ``ALPNMultiplexer`` which owns an ``ssl.SSLContext`` instance.  That
+    context supports live reloading via ``SSLContext.load_cert_chain`` – we
+    simply need to re-load the new files.  If *target* does not expose an
+    ``_ssl_context`` attribute we fall back to logging a warning (gRPC's
+    built-in server credentials cannot be reloaded dynamically in
+    python-grpc).
+    """
+
+    logger.info(
+        "Certificate reload requested: cert=%s, key=%s", cert_file, key_file
+    )
+
+    try:
+        # Fast-path: ALPNMultiplexer (has `_ssl_context` attribute)
+        ssl_ctx = getattr(target, "_ssl_context", None)
+        if ssl_ctx is not None:
+            ssl_ctx.load_cert_chain(cert_file, key_file)
+
+            # Persist the new paths on the multiplexer for future restores
+            if hasattr(target, "cert_file"):
+                target.cert_file = cert_file
+            if hasattr(target, "key_file"):
+                target.key_file = key_file
+
+            logger.info("🔄 Hot certificate reload completed successfully")
+            return
+
+        # Fallback / unsupported targets
+        logger.warning(
+            "Hot certificate reload not supported for target %s – restart required",
+            type(target).__name__,
+        )
+
+    except Exception as exc:  # pragma: no cover – best-effort reload
+        logger.error("❌ Failed to hot-reload certificates: %s", exc)
 
 
 def determine_serve_mode(config: dict) -> ServeMode:
@@ -1198,10 +1438,13 @@ def serve_ca(
     required=True,
     help="Certificate domain (multiple allowed)",
 )
-@click.option("--staging", is_flag=True, help="Use Let's Encrypt staging environment")
+@click.option(
+    "--directory-url",
+    help="ACME directory URL (defaults to Let's Encrypt production)",
+)
 @click.option(
     "--challenge-type",
-    type=click.Choice(["http-01", "dns-01"]),
+    type=click.Choice(["http-01", "dns-01", "tls-alpn-01"]),
     default="http-01",
     help="Challenge type",
 )
@@ -1215,7 +1458,7 @@ def serve_acme(
     config: str | None,
     email: str,
     domain: tuple[str, ...],
-    staging: bool,
+    directory_url: str | None,
     challenge_type: str,
 ) -> None:
     """Start server with Let's Encrypt ACME certificates."""
@@ -1223,6 +1466,17 @@ def serve_acme(
     # Build configuration overrides using helper
     # Default to port 443 for ACME/TLS if no port specified
     acme_port = port if port is not None else 443
+
+    acme_overrides = {
+        "enabled": True,
+        "email": email,
+        "domains": list(domain),
+        "challenge_type": challenge_type,
+    }
+
+    # Add directory_url if provided
+    if directory_url is not None:
+        acme_overrides["directory_url"] = directory_url
 
     overrides = _build_config_overrides(
         host=host,
@@ -1232,13 +1486,7 @@ def serve_acme(
         log_level=log_level,
         require_auth=require_auth,
         tls_overrides={"enabled": True},
-        acme_overrides={
-            "enabled": True,
-            "email": email,
-            "domains": list(domain),
-            "staging": staging,
-            "challenge_type": challenge_type,
-        },
+        acme_overrides=acme_overrides,
     )
 
     config_path = Path(config) if config else None
@@ -1359,9 +1607,36 @@ def serve(ctx: click.Context, config: str | None) -> None:
     if mode == ServeMode.INSECURE:
         ctx.invoke(serve_insecure, config=config)
     elif mode == ServeMode.CA:
-        ctx.invoke(serve_ca, config=config)
+        # Extract CA configuration with proper defaults
+        ca_dir = None  # Let serve_ca determine the default CA directory
+        hostname = "localhost"  # Default hostname
+        san = ()  # Empty tuple for SANs
+        validity_days = 90  # Default validity
+
+        ctx.invoke(
+            serve_ca,
+            config=config,
+            ca_dir=ca_dir,
+            hostname=hostname,
+            san=san,
+            validity_days=validity_days,
+        )
     elif mode == ServeMode.ACME:
-        ctx.invoke(serve_acme, config=config)
+        # Extract ACME configuration for serve_acme
+        acme_config = server_config.get("acme", {})
+        email = acme_config.get("email")
+        domains = acme_config.get("domains", [])
+        directory_url = acme_config.get("directory_url")
+        challenge_type = acme_config.get("challenge_type", "http-01")
+
+        ctx.invoke(
+            serve_acme,
+            config=config,
+            email=email,
+            domain=domains,
+            directory_url=directory_url,
+            challenge_type=challenge_type,
+        )
     elif mode == ServeMode.CUSTOM:
         # Extract certificate paths from config for serve-custom
         cert_file = server_config.get("tls", {}).get("cert_file")
@@ -1412,3 +1687,21 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ------------------------------------------------------------------
+# Container readiness signalling
+# ------------------------------------------------------------------
+
+
+def _signal_container_ready(path: str = "/tmp/ready") -> None:  # noqa: D401
+    """Create a readiness file so an exec/readinessProbe can detect readiness."""
+
+    try:
+        from pathlib import Path
+
+        ready_file = Path(path)
+        ready_file.touch(exist_ok=True)
+        logger.info("📣 Container readiness signalled (created %s)", path)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("⚠️ Failed to create readiness file %s: %s", path, exc)

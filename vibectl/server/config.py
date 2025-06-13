@@ -56,10 +56,11 @@ class ServerConfig:
                 "enabled": False,
                 "email": None,
                 "domains": [],
-                "staging": False,
-                "directory_url": None,
+                "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
                 "challenge_type": "http-01",
                 "challenge_dir": ".well-known/acme-challenge",
+                "auto_renew": True,
+                "renew_days_before_expiry": 30,
             },
         }
 
@@ -276,7 +277,8 @@ class ServerConfig:
 
             # Validate ACME section
             if acme_section.get("enabled", False):
-                if not acme_section.get("email"):
+                email = acme_section.get("email")
+                if not email or not email.strip():
                     return Error(error="ACME enabled but no email provided")
                 if not acme_section.get("domains"):
                     return Error(error="ACME enabled but no domains provided")
@@ -426,7 +428,6 @@ def get_default_server_config() -> dict[str, Any]:
             "email": None,
             "domains": [],
             "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
-            "staging": False,
             "challenge_type": "http-01",
             "challenge_dir": ".well-known/acme-challenge",
             "auto_renew": True,

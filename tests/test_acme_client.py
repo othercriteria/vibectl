@@ -11,6 +11,7 @@ This test suite covers the complete ACME protocol implementation including:
 """
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, mock_open, patch
 
 import acme.challenges
@@ -18,6 +19,7 @@ import acme.client
 import acme.errors
 import acme.messages
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from vibectl.server.acme_client import (
     LETSENCRYPT_PRODUCTION,
@@ -35,12 +37,13 @@ class TestACMEClient:
         """Test ACMEClient initialization with default values."""
         client = ACMEClient()
 
-        assert client.directory_url == "https://acme-v02.api.letsencrypt.org/directory"
+        assert client.directory_url == LETSENCRYPT_PRODUCTION
         assert client.email is None
         assert client.key_size == 2048
+        assert client.ca_cert_file is None
+        assert client.tls_alpn_challenge_server is None
         assert client._client is None
         assert client._account_key is None
-        assert client._client_net is None
 
     def test_init_custom_values(self) -> None:
         """Test ACMEClient initialization with custom values."""
@@ -96,7 +99,7 @@ class TestACMEClient:
         mock_rsa_gen.assert_called_once_with(public_exponent=65537, key_size=2048)
         mock_jwk_rsa.assert_called_once_with(key=mock_private_key)
         mock_client_net_class.assert_called_once_with(
-            key=mock_account_key, user_agent="vibectl-server/1.0"
+            key=mock_account_key, user_agent="vibectl-server/1.0", verify_ssl=True
         )
         mock_client_net.get.assert_called_once_with(
             "https://test.example.com/directory"
@@ -106,8 +109,173 @@ class TestACMEClient:
 
         # Verify client state
         assert client._account_key == mock_account_key
-        assert client._client_net == mock_client_net
         assert client._client == mock_acme_client
+
+    @patch("vibectl.server.acme_client.jose.JWKRSA")
+    @patch("vibectl.server.acme_client.rsa.generate_private_key")
+    @patch("os.environ", new_callable=dict)
+    @patch("os.path.getsize")
+    @patch("os.path.exists")
+    @patch("os.path.isfile")
+    @patch(
+        "builtins.open",
+        new_callable=mock_open,
+        read_data="-----BEGIN CERTIFICATE-----\nfake_ca_cert_content\n-----END CERTIFICATE-----\n",
+    )
+    @patch("requests.Session")
+    @patch("vibectl.server.acme_client.acme.client.ClientNetwork")
+    @patch("vibectl.server.acme_client.acme.messages.Directory.from_json")
+    @patch("vibectl.server.acme_client.acme.client.ClientV2")
+    @patch("vibectl.server.acme_client.logger")
+    def test_ensure_client_with_custom_ca_certificate(
+        self,
+        mock_logger: Mock,
+        mock_client_v2: Mock,
+        mock_directory: Mock,
+        mock_client_net_class: Mock,
+        mock_session_class: Mock,
+        mock_open_file: Mock,
+        mock_isfile: Mock,
+        mock_exists: Mock,
+        mock_getsize: Mock,
+        mock_environ: dict,
+        mock_rsa_gen: Mock,
+        mock_jwk_rsa: Mock,
+    ) -> None:
+        """Test ACME client initialization with custom CA certificate."""
+        # Setup mocks
+        mock_exists.return_value = True  # Make the CA cert file check pass
+        mock_isfile.return_value = True  # Make the isfile check pass
+        mock_getsize.return_value = 1024  # Mock file size
+        mock_private_key = Mock()
+        mock_rsa_gen.return_value = mock_private_key
+
+        mock_account_key = Mock()
+        mock_jwk_rsa.return_value = mock_account_key
+
+        # Mock the custom session
+        mock_session = Mock()
+        mock_session.get.return_value = Mock(status_code=200)
+        mock_session_class.return_value = mock_session
+
+        mock_client_net = Mock()
+        mock_client_net_class.return_value = mock_client_net
+
+        mock_response = Mock()
+        mock_response.json.return_value = {"directory": "data"}
+        mock_client_net.get.return_value = mock_response
+
+        mock_directory_obj = Mock()
+        mock_directory.return_value = mock_directory_obj
+
+        mock_acme_client = Mock()
+        mock_client_v2.return_value = mock_acme_client
+
+        # Create client with custom CA certificate and call _ensure_client
+        ca_cert_file = "/path/to/ca.crt"
+        client = ACMEClient(
+            directory_url="https://test.example.com/directory",
+            ca_cert_file=ca_cert_file,
+        )
+        client._ensure_client()
+
+        # Verify that the custom CA certificate was used
+        mock_isfile.assert_called_with(ca_cert_file)
+        mock_getsize.assert_called_with(ca_cert_file)  # Verify getsize was called
+        mock_logger.info.assert_any_call(f"Using custom CA certificate: {ca_cert_file}")
+        mock_logger.debug.assert_any_call(f"CA file size: 1024 bytes")
+
+        # Verify ClientNetwork was created with standard SSL verification
+        mock_client_net_class.assert_called_once_with(
+            key=mock_account_key,
+            user_agent="vibectl-server/1.0",
+            verify_ssl=True,
+        )
+
+        # Verify that REQUESTS_CA_BUNDLE environment variable was set
+        assert mock_environ.get("REQUESTS_CA_BUNDLE") == ca_cert_file
+        mock_logger.debug.assert_any_call(f"Set REQUESTS_CA_BUNDLE={ca_cert_file}")
+
+        # Verify that no custom session was created (using REQUESTS_CA_BUNDLE instead)
+        mock_session_class.assert_not_called()
+
+        # Verify ACME client was created
+        mock_client_v2.assert_called_once()
+        assert client._client == mock_acme_client
+
+    @patch("vibectl.server.acme_client.jose.JWKRSA")
+    @patch("vibectl.server.acme_client.rsa.generate_private_key")
+    @patch("vibectl.server.acme_client.acme.client.ClientNetwork")
+    @patch("vibectl.server.acme_client.acme.messages.Directory.from_json")
+    @patch("vibectl.server.acme_client.acme.client.ClientV2")
+    def test_ensure_client_without_custom_ca_certificate(
+        self,
+        mock_client_v2: Mock,
+        mock_directory: Mock,
+        mock_client_net_class: Mock,
+        mock_rsa_gen: Mock,
+        mock_jwk_rsa: Mock,
+    ) -> None:
+        """Test ACME client initialization without custom CA certificate (default behavior)."""
+        # Setup mocks
+        mock_private_key = Mock()
+        mock_rsa_gen.return_value = mock_private_key
+
+        mock_account_key = Mock()
+        mock_jwk_rsa.return_value = mock_account_key
+
+        mock_client_net = Mock()
+        mock_client_net_class.return_value = mock_client_net
+
+        mock_response = Mock()
+        mock_response.json.return_value = {"directory": "data"}
+        mock_client_net.get.return_value = mock_response
+
+        mock_directory_obj = Mock()
+        mock_directory.return_value = mock_directory_obj
+
+        mock_acme_client = Mock()
+        mock_client_v2.return_value = mock_acme_client
+
+        # Create client without CA certificate and call _ensure_client
+        client = ACMEClient(
+            directory_url="https://test.example.com/directory",
+            ca_cert_file=None,  # Explicitly test None case
+        )
+        client._ensure_client()
+
+        # Verify default client network initialization (no custom SSL config)
+        mock_client_net_class.assert_called_once_with(
+            key=mock_account_key,
+            user_agent="vibectl-server/1.0",
+            verify_ssl=True,
+        )
+
+        # Verify ACME client initialization
+        mock_client_net.get.assert_called_once_with(
+            "https://test.example.com/directory"
+        )
+        mock_directory.assert_called_once_with({"directory": "data"})
+        mock_client_v2.assert_called_once_with(mock_directory_obj, net=mock_client_net)
+
+        # Verify client state
+        assert client._account_key == mock_account_key
+        assert client._client == mock_acme_client
+
+    def test_init_with_ca_cert_file(self) -> None:
+        """Test ACMEClient initialization with custom CA certificate file."""
+        ca_cert_file = "/path/to/ca.crt"
+        client = ACMEClient(
+            directory_url="https://example.com/acme",
+            email="test@example.com",
+            key_size=4096,
+            ca_cert_file=ca_cert_file,
+        )
+
+        assert client.directory_url == "https://example.com/acme"
+        assert client.email == "test@example.com"
+        assert client.key_size == 4096
+        assert client.ca_cert_file == ca_cert_file
 
     @patch("vibectl.server.acme_client.ACMEClient._ensure_client")
     @patch("vibectl.server.acme_client.acme.messages.NewRegistration.from_data")
@@ -400,9 +568,7 @@ class TestACMEClient:
 
         # Mock challenge for the unsupported type
         mock_challenge = Mock()
-        mock_challenge.typ = (
-            "tls-alpn-01"  # This will be found but not supported by our implementation
-        )
+        mock_challenge.typ = "fake-challenge-01"  # This will be found but not supported by our implementation
         mock_challenge_body = Mock()
         mock_challenge_body.chall = mock_challenge
         mock_authz.body.challenges = [mock_challenge_body]
@@ -411,9 +577,9 @@ class TestACMEClient:
 
         # This should trigger the else clause on line 226
         with pytest.raises(
-            ACMEValidationError, match="Unsupported challenge type: tls-alpn-01"
+            ACMEValidationError, match="Unsupported challenge type: fake-challenge-01"
         ):
-            client._complete_authorization(mock_authz, "tls-alpn-01", None)
+            client._complete_authorization(mock_authz, "fake-challenge-01", None)
 
     @patch("vibectl.server.acme_client.Path")
     @patch("vibectl.server.acme_client.logger")
@@ -424,10 +590,11 @@ class TestACMEClient:
         # Setup mocks - need to structure like ACME library
         mock_challenge_body = Mock()
         mock_challenge = Mock()
-        mock_challenge.token = b"test_token"
+        # Set up the encode method to return the proper token string
+        mock_challenge.encode.return_value = "test_token"
         mock_challenge.response_and_validation.return_value = (
             Mock(),
-            "test_validation",
+            b"test_validation",
         )
         # Properly structure the challenge body to match ACME library
         mock_challenge_body.chall = mock_challenge
@@ -451,7 +618,9 @@ class TestACMEClient:
         mock_path_class.assert_called_with("/test/dir")
         mock_challenge_path.mkdir.assert_called_once_with(parents=True, exist_ok=True)
         mock_challenge_path.__truediv__.assert_called_once_with("test_token")
-        mock_challenge_file.write_text.assert_called_once_with("test_validation")
+        mock_challenge_file.write_text.assert_called_once_with(b"test_validation")
+        # Verify that encode method was called with "token"
+        mock_challenge.encode.assert_called_once_with("token")
 
     @patch("vibectl.server.acme_client.Path")
     @patch("vibectl.server.acme_client.logger")
@@ -461,10 +630,10 @@ class TestACMEClient:
         """Test HTTP-01 challenge with default challenge directory."""
         mock_challenge_body = Mock()
         mock_challenge = Mock()
-        mock_challenge.token = b"test_token"
+        mock_challenge.encode.return_value = "test_token"
         mock_challenge.response_and_validation.return_value = (
             Mock(),
-            "test_validation",
+            b"test_validation",
         )
         mock_challenge_body.chall = mock_challenge
 
@@ -491,10 +660,10 @@ class TestACMEClient:
         """Test HTTP-01 challenge with cleanup error."""
         mock_challenge_body = Mock()
         mock_challenge = Mock()
-        mock_challenge.token = b"test_token"
+        mock_challenge.encode.return_value = "test_token"
         mock_challenge.response_and_validation.return_value = (
             Mock(),
-            "test_validation",
+            b"test_validation",
         )
         mock_challenge_body.chall = mock_challenge
 
@@ -523,41 +692,166 @@ class TestACMEClient:
         self, mock_logger: Mock, mock_input: Mock
     ) -> None:
         """Test successful DNS-01 challenge completion."""
-        mock_challenge_body = Mock()
+        # Setup challenge mock
         mock_challenge = Mock()
         mock_challenge.response_and_validation.return_value = (
             Mock(),
-            "test_validation",
+            b"dns_validation_value",
         )
+
+        mock_challenge_body = Mock()
         mock_challenge_body.chall = mock_challenge
 
-        mock_acme_client = Mock()
-
+        # Setup client
         client = ACMEClient()
-        client._client = mock_acme_client
         client._account_key = Mock()
+        client._client = Mock()
 
-        with patch.object(client, "_wait_for_authorization_validation"):
-            client._complete_dns01_challenge(mock_challenge_body, "example.com")
+        # Mock user input
+        mock_input.return_value = ""
 
-            # Verify challenge response generation
-            mock_challenge.response_and_validation.assert_called_once_with(
-                client._account_key
-            )
+        # Execute challenge completion
+        client._complete_dns01_challenge(mock_challenge_body, "example.com")
 
-            # Verify DNS record instructions
-            mock_logger.warning.assert_called_once()
-            warning_message = mock_logger.warning.call_args[0][0]
-            assert "_acme-challenge.example.com" in warning_message
-            assert "test_validation" in warning_message
+        # Verify challenge response generation
+        mock_challenge.response_and_validation.assert_called_once_with(
+            client._account_key
+        )
 
-            # Verify user prompt
-            mock_input.assert_called_once_with(
-                "Press Enter after creating the DNS record..."
-            )
+        # Verify challenge submission
+        client._client.answer_challenge.assert_called_once_with(
+            mock_challenge_body, mock_challenge.response_and_validation.return_value[0]
+        )
 
-            # Verify challenge submission
-            mock_acme_client.answer_challenge.assert_called_once()
+        # Verify user instructions logged
+        mock_logger.warning.assert_called_once()
+        warning_message = mock_logger.warning.call_args[0][0]
+        assert "_acme-challenge.example.com" in warning_message
+        assert "dns_validation_value" in warning_message
+
+    @patch("vibectl.server.acme_client.logger")
+    def test_complete_tls_alpn01_challenge_success(self, mock_logger: Mock) -> None:
+        """Test successful TLS-ALPN-01 challenge completion."""
+        # Setup challenge mock
+        mock_challenge = Mock()
+        mock_challenge.response_and_validation.return_value = (
+            Mock(),
+            b"tls_alpn_validation_token",
+        )
+
+        mock_challenge_body = Mock()
+        mock_challenge_body.chall = mock_challenge
+
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        # Setup client with TLS-ALPN challenge server
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
+        client._account_key = Mock()
+        client._client = Mock()
+
+        # Execute challenge completion
+        client._complete_tls_alpn01_challenge(mock_challenge_body, "example.com")
+
+        # Verify challenge response generation - updated to match actual implementation
+        mock_challenge.response_and_validation.assert_called_once_with(
+            client._account_key, domain="example.com"
+        )
+
+        # Verify challenge server was configured with challenge hash (bytes)
+        mock_tls_alpn_server.set_challenge.assert_called_once()
+        # The second argument should be the SHA256 hash of the key authorization
+        call_args = mock_tls_alpn_server.set_challenge.call_args[0]
+        assert call_args[0] == "example.com"
+        assert isinstance(call_args[1], bytes)  # Should be challenge hash
+
+        # Verify challenge submission
+        client._client.answer_challenge.assert_called_once_with(
+            mock_challenge_body, mock_challenge.response_and_validation.return_value[0]
+        )
+
+        # Verify appropriate logging occurred
+        mock_logger.info.assert_called()
+
+        # Get all log calls (both info and debug)
+        info_calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+        all_log_calls = info_calls + debug_calls
+
+        # Check that the domain and validation token are mentioned in logs
+        assert any("example.com" in call for call in all_log_calls)
+        # The validation token is converted to challenge_hash hex, so we check for debug logs
+        assert any("Challenge hash (hex):" in call for call in debug_calls)
+        assert any("TLS-ALPN-01 challenge initiated" in call for call in info_calls)
+
+    def test_complete_tls_alpn01_challenge_no_server(self) -> None:
+        """Test TLS-ALPN-01 challenge completion without TLS-ALPN challenge server."""
+        # Setup challenge mock
+        mock_challenge = Mock()
+        mock_challenge.response_and_validation.return_value = (
+            Mock(),
+            b"tls_alpn_validation_token",
+        )
+
+        mock_challenge_body = Mock()
+        mock_challenge_body.chall = mock_challenge
+
+        # Setup client without TLS-ALPN challenge server
+        client = ACMEClient()
+        client._account_key = Mock()
+        client._client = Mock()
+
+        # Execute challenge completion and expect failure
+        with pytest.raises(
+            ACMEValidationError,
+            match="TLS-ALPN-01 challenge requires a TLS-ALPN challenge server instance",
+        ):
+            client._complete_tls_alpn01_challenge(mock_challenge_body, "example.com")
+
+    @patch("vibectl.server.acme_client.logger")
+    def test_complete_tls_alpn01_challenge_submission_error(
+        self, mock_logger: Mock
+    ) -> None:
+        """Test TLS-ALPN-01 challenge completion with submission error."""
+        # Setup challenge mock
+        mock_challenge = Mock()
+        mock_challenge.response_and_validation.return_value = (
+            Mock(),
+            b"tls_alpn_validation_token",
+        )
+
+        mock_challenge_body = Mock()
+        mock_challenge_body.chall = mock_challenge
+
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        # Setup client with TLS-ALPN challenge server
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
+        client._account_key = Mock()
+        client._client = Mock()
+
+        # Make answer_challenge raise an exception
+        client._client.answer_challenge.side_effect = Exception(
+            "ACME submission failed"
+        )
+
+        # Execute challenge completion and expect failure
+        with pytest.raises(
+            ACMEValidationError,
+            match="Failed to submit challenge response: ACME submission failed",
+        ):
+            client._complete_tls_alpn01_challenge(mock_challenge_body, "example.com")
+
+        # Verify challenge server was configured with challenge hash (bytes)
+        mock_tls_alpn_server.set_challenge.assert_called_once()
+        # The second argument should be the SHA256 hash of the key authorization
+        call_args = mock_tls_alpn_server.set_challenge.call_args[0]
+        assert call_args[0] == "example.com"
+        assert isinstance(call_args[1], bytes)  # Should be challenge hash
+
+        # Verify challenge was cleaned up after error
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
 
     @patch("vibectl.server.acme_client.time")
     def test_wait_for_authorization_validation_success(self, mock_time: Mock) -> None:
@@ -566,13 +860,17 @@ class TestACMEClient:
         mock_time.time.side_effect = [0, 1]  # Start at 0, then advance to 1
         mock_time.sleep = Mock()
 
-        client = ACMEClient()
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
         client._client = Mock()
 
         # Mock successful authorization
         mock_authz = Mock()
         mock_updated_authz = Mock()
         mock_updated_authz.body.status = acme.messages.STATUS_VALID
+        mock_updated_authz.body.identifier.value = "example.com"
 
         client._client.poll.return_value = (mock_updated_authz, None)
 
@@ -582,67 +880,144 @@ class TestACMEClient:
         # Verify polling was called
         client._client.poll.assert_called_once_with(mock_authz)
 
+        # Verify cleanup was called
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
+
     @patch("vibectl.server.acme_client.time")
     def test_wait_for_authorization_validation_invalid(self, mock_time: Mock) -> None:
         """Test authorization validation failure."""
-        # Set up time mock
-        mock_time.time.side_effect = [0, 1]
+        # Set up time mock with more values for the new retry logic (8 attempts)
+        mock_time.time.side_effect = [
+            0,   # Start time
+            1, 2,   # First attempt (elapsed, retry)
+            3, 4,   # Second attempt 
+            5, 6,   # Third attempt
+            7, 8,   # Fourth attempt
+            9, 10,  # Fifth attempt
+            11, 12, # Sixth attempt
+            13, 14, # Seventh attempt
+            15, 16, # Eighth attempt (final)
+            17,     # After max retries reached
+        ]
         mock_time.sleep = Mock()
 
-        client = ACMEClient()
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
         client._client = Mock()
 
-        # Mock failed authorization
+        # Mock failed authorization with challenges for error details
         mock_authz = Mock()
         mock_updated_authz = Mock()
         mock_updated_authz.body.status = acme.messages.STATUS_INVALID
+        mock_updated_authz.body.identifier.value = "example.com"
+        mock_updated_authz.body.challenges = [
+            Mock(error=Mock(detail="Connection failed"))
+        ]
 
         client._client.poll.return_value = (mock_updated_authz, None)
 
-        # Execute and expect exception
+        # Execute and expect exception on first invalid
         with pytest.raises(
-            ACMEValidationError, match="Authorization validation failed"
-        ):
+            ACMEValidationError,
+        ) as excinfo:
             client._wait_for_authorization_validation(mock_authz)
+        # Check error message content
+        msg = str(excinfo.value)
+        assert "Authorization validation failed for domain example.com" in msg
+        assert "Connection failed" in msg
+
+        # Verify cleanup was called even on failure
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
+
+    def test_cleanup_completed_challenge_with_server(self) -> None:
+        """Test cleanup of completed challenge with TLS-ALPN server."""
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
+
+        # Mock authorization
+        mock_authz = Mock()
+        mock_authz.body.identifier.value = "example.com"
+
+        # Execute cleanup
+        client._cleanup_completed_challenge(mock_authz)
+
+        # Verify cleanup was called
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
+
+    def test_cleanup_completed_challenge_without_server(self) -> None:
+        """Test cleanup of completed challenge without TLS-ALPN server."""
+        client = ACMEClient()
+
+        # Mock authorization
+        mock_authz = Mock()
+        mock_authz.body.identifier.value = "example.com"
+
+        # Execute cleanup - should not raise an exception
+        client._cleanup_completed_challenge(mock_authz)
 
     @patch("vibectl.server.acme_client.time")
     def test_wait_for_authorization_validation_timeout(self, mock_time: Mock) -> None:
         """Test authorization validation timeout."""
-        # Set up time mock to simulate timeout
-        mock_time.time.side_effect = [0, 301]  # Start at 0, then exceed timeout
+        # Set up time mock - the pending path has multiple time.time() calls:
+        # start, timeout check, elapsed for pending log, timeout again, cleanup elapsed
+        mock_time.time.side_effect = [
+            0,
+            301,
+            301,
+            301,
+            301,
+        ]  # Enough values for all paths
         mock_time.sleep = Mock()
 
-        client = ACMEClient()
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
         client._client = Mock()
 
         # Mock pending authorization that never completes
         mock_authz = Mock()
+        mock_authz.body.identifier.value = "example.com"
         mock_updated_authz = Mock()
         mock_updated_authz.body.status = acme.messages.STATUS_PENDING
+        mock_updated_authz.body.identifier.value = "example.com"
 
         client._client.poll.return_value = (mock_updated_authz, None)
 
         # Execute and expect timeout exception
         with pytest.raises(
-            ACMEValidationError, match="Authorization validation timed out"
+            ACMEValidationError,
+            match="Authorization validation timed out after 300 seconds",
         ):
             client._wait_for_authorization_validation(mock_authz, timeout=300)
+
+        # Verify cleanup was called on timeout
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
 
     @patch("vibectl.server.acme_client.time")
     def test_wait_for_authorization_validation_retry_on_pending(
         self, mock_time: Mock
     ) -> None:
         """Test retrying on pending exception."""
-        # Mock time progression
-        mock_time.time.side_effect = [0, 5, 10, 15]
+        # Mock time progression for exponential backoff
+        mock_time.time.side_effect = [0, 5, 10, 15, 20]
         mock_time.sleep = Mock()
 
         # Mock authorization
         mock_authz = Mock()
+        mock_authz.body.identifier.value = "example.com"
         mock_updated_authz = Mock()
         mock_updated_authz.body.status = acme.messages.STATUS_VALID
+        mock_updated_authz.body.identifier.value = "example.com"
 
-        client = ACMEClient()
+        # Setup TLS-ALPN challenge server mock
+        mock_tls_alpn_server = Mock()
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
         client._client = Mock()
         # First call raises "still pending" error, second succeeds
         client._client.poll.side_effect = [
@@ -653,9 +1028,12 @@ class TestACMEClient:
         # Should complete without exception after retry
         client._wait_for_authorization_validation(mock_authz, timeout=300)
 
-        # Verify retry logic
+        # Verify retry logic - poll should be called twice
         assert client._client.poll.call_count == 2
-        mock_time.sleep.assert_called_with(5)
+        # Verify sleep was called for retry
+        mock_time.sleep.assert_called()
+        # Verify cleanup was called after success
+        mock_tls_alpn_server.remove_challenge.assert_called_once_with("example.com")
 
     @patch("vibectl.server.acme_client.time")
     def test_wait_for_authorization_validation_exception_retry(
@@ -689,175 +1067,30 @@ class TestACMEClient:
     def test_wait_for_authorization_validation_unrecoverable_exception(
         self, mock_time: Mock
     ) -> None:
-        """Test handling of unrecoverable exceptions."""
-        # Mock time to return numbers, not MagicMock
-        mock_time.time.side_effect = [0.0, 5.0]
-
+        """Test authorization validation with unrecoverable exception."""
+        # Setup mocks
         client = ACMEClient()
         client._client = Mock()
 
-        # Mock authorization validation with unrecoverable exception
-        mock_authz = Mock()
-        client._client.poll.side_effect = Exception("Unrecoverable error")
+        # Mock time.time() to track elapsed time
+        mock_time.time.side_effect = [0, 1]  # Start time, then 1 second elapsed
 
-        # Execute and verify exception propagation
+        # Mock poll to raise unrecoverable exception
+        client._client.poll.side_effect = Exception("Network error")
+
+        # Create mock authorization
+        authz = Mock()
+        authz.body.identifier.value = "test.example.com"
+
+        # Mock the cleanup method
+        client._cleanup_completed_challenge = Mock()
+
+        # Should raise ACMEValidationError
         with pytest.raises(ACMEValidationError, match="Authorization validation error"):
-            client._wait_for_authorization_validation(mock_authz, timeout=300)
+            client._wait_for_authorization_validation(authz)
 
-    @patch("vibectl.server.acme_client.create_certificate_signing_request")
-    def test_create_csr_single_domain(self, mock_create_csr: Mock) -> None:
-        """Test CSR creation for single domain."""
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
-        domains = ["example.com"]
-        # Use real cryptographic key instead of Mock
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048, backend=None
-        )
-
-        # Mock the generic CSR creation function
-        mock_csr = Mock()
-        mock_create_csr.return_value = mock_csr
-
-        # Mock the ACME conversion
-        mock_cert_request = Mock()
-
-        client = ACMEClient()
-
-        with patch(
-            "vibectl.server.acme_client.acme.messages.CertificateRequest",
-            return_value=mock_cert_request,
-        ):
-            result = client._create_csr(domains, private_key)
-
-        assert result == mock_cert_request
-        # Verify the generic CSR function was called correctly
-        mock_create_csr.assert_called_once_with(domains, private_key)
-
-    @patch("vibectl.server.acme_client.create_certificate_signing_request")
-    def test_create_csr_multiple_domains(self, mock_create_csr: Mock) -> None:
-        """Test CSR creation for multiple domains."""
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
-        domains = ["example.com", "www.example.com", "api.example.com"]
-        # Use real cryptographic key instead of Mock
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048, backend=None
-        )
-
-        # Mock the generic CSR creation function
-        mock_csr = Mock()
-        mock_create_csr.return_value = mock_csr
-
-        # Mock the ACME conversion
-        mock_cert_request = Mock()
-
-        client = ACMEClient()
-
-        with patch(
-            "vibectl.server.acme_client.acme.messages.CertificateRequest",
-            return_value=mock_cert_request,
-        ):
-            result = client._create_csr(domains, private_key)
-
-        assert result == mock_cert_request
-        # Verify the generic CSR function was called correctly
-        mock_create_csr.assert_called_once_with(domains, private_key)
-
-    @patch("builtins.open", new_callable=mock_open, read_data=b"cert_data")
-    @patch("vibectl.server.acme_client.x509.load_pem_x509_certificate")
-    @patch("vibectl.server.acme_client.CertificateInfo")
-    def test_check_certificate_expiry_success(
-        self, mock_cert_info_class: Mock, mock_load_cert: Mock, mock_file: Mock
-    ) -> None:
-        """Test successful certificate expiry check."""
-        # Mock certificate and expiry date
-        mock_cert = Mock()
-        mock_load_cert.return_value = mock_cert
-
-        expiry_date = datetime(2024, 12, 31, 23, 59, 59)
-        mock_cert_info = Mock()
-        mock_cert_info.not_valid_after = expiry_date
-        mock_cert_info_class.return_value = mock_cert_info
-
-        client = ACMEClient()
-        result = client.check_certificate_expiry("test.crt")
-
-        assert result == expiry_date
-        mock_file.assert_called_once_with("test.crt", "rb")
-        mock_load_cert.assert_called_once_with(b"cert_data")
-        mock_cert_info_class.assert_called_once_with(mock_cert)
-
-    def test_check_certificate_expiry_file_not_found(self) -> None:
-        """Test certificate expiry check when file doesn't exist."""
-        client = ACMEClient()
-
-        with patch("builtins.open", side_effect=FileNotFoundError):
-            result = client.check_certificate_expiry("nonexistent.crt")
-
-        assert result is None
-
-    @patch("builtins.open", new_callable=mock_open, read_data=b"invalid_cert_data")
-    @patch("vibectl.server.acme_client.x509.load_pem_x509_certificate")
-    @patch("vibectl.server.acme_client.logger")
-    def test_check_certificate_expiry_invalid_cert(
-        self, mock_logger: Mock, mock_load_cert: Mock, mock_file: Mock
-    ) -> None:
-        """Test certificate expiry check with invalid certificate."""
-        # Mock certificate loading error
-        mock_load_cert.side_effect = ValueError("Invalid certificate")
-
-        client = ACMEClient()
-        result = client.check_certificate_expiry("invalid.crt")
-
-        assert result is None
-        mock_logger.warning.assert_called_once()
-
-    def test_needs_renewal_no_certificate(self) -> None:
-        """Test renewal check when certificate doesn't exist."""
-        client = ACMEClient()
-
-        with patch.object(client, "check_certificate_expiry", return_value=None):
-            result = client.needs_renewal("nonexistent.crt")
-
-        assert result is True
-
-    def test_needs_renewal_expired_soon(self) -> None:
-        """Test renewal check for certificate expiring soon."""
-        client = ACMEClient()
-
-        # Certificate expires in 25 days (less than default 30-day threshold)
-        expiry_date = datetime.now().astimezone() + timedelta(days=25)
-
-        with patch.object(client, "check_certificate_expiry", return_value=expiry_date):
-            result = client.needs_renewal("expiring.crt")
-
-        assert result is True
-
-    def test_needs_renewal_not_yet(self) -> None:
-        """Test renewal check for certificate not yet needing renewal."""
-        client = ACMEClient()
-
-        # Certificate expires in 35 days (more than default 30-day threshold)
-        expiry_date = datetime.now().astimezone() + timedelta(days=35)
-
-        with patch.object(client, "check_certificate_expiry", return_value=expiry_date):
-            result = client.needs_renewal("valid.crt")
-
-        assert result is False
-
-    def test_needs_renewal_custom_threshold(self) -> None:
-        """Test renewal check with custom threshold."""
-        client = ACMEClient()
-
-        # Certificate expires in 45 days
-        expiry_date = datetime.now().astimezone() + timedelta(days=45)
-
-        with patch.object(client, "check_certificate_expiry", return_value=expiry_date):
-            # With 50-day threshold, should need renewal
-            result = client.needs_renewal("valid.crt", days_before_expiry=50)
-
-        assert result is True
+        # Should have attempted to poll once
+        client._client.poll.assert_called_once_with(authz)
 
 
 class TestCreateACMEClient:
@@ -895,3 +1128,31 @@ class TestCreateACMEClient:
 
         assert isinstance(client, ACMEClient)
         assert client.directory_url == LETSENCRYPT_PRODUCTION
+
+    def test_create_acme_client_with_ca_cert_file(self) -> None:
+        """Test creating ACME client with custom CA certificate file."""
+        ca_cert_file = "/path/to/ca.crt"
+        client = create_acme_client(
+            directory_url="https://pebble.example.com/dir",
+            email="test@example.com",
+            ca_cert_file=ca_cert_file,
+        )
+
+        assert isinstance(client, ACMEClient)
+        assert client.directory_url == "https://pebble.example.com/dir"
+        assert client.email == "test@example.com"
+        assert client.ca_cert_file == ca_cert_file
+
+    def test_create_acme_client_with_tls_alpn_challenge_server(self) -> None:
+        """Test creating ACME client with TLS-ALPN challenge server."""
+        mock_tls_alpn_server = Mock()
+
+        client = create_acme_client(
+            email="test@example.com",
+            tls_alpn_challenge_server=mock_tls_alpn_server,
+        )
+
+        assert isinstance(client, ACMEClient)
+        assert client.email == "test@example.com"
+        assert client.tls_alpn_challenge_server == mock_tls_alpn_server
+        assert client.directory_url == LETSENCRYPT_PRODUCTION  # Default

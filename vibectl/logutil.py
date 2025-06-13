@@ -51,3 +51,19 @@ def init_logging() -> None:
     logger.addHandler(stream_handler)
 
     logger.debug(f"Logging initialized at level: {log_level}")
+
+
+def update_logging_level(log_level: str) -> None:
+    """Update the logging level for the vibectl logger.
+
+    Args:
+        log_level: Log level string (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR')
+    """
+    level = getattr(logging, str(log_level).upper(), logging.INFO)
+    logger.setLevel(level)
+
+    # Update handlers' levels too
+    for handler in logger.handlers:
+        handler.setLevel(level)
+
+    logger.debug(f"Logging level updated to: {log_level}")

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vibectl-server-config
+  labels:
+    app: vibectl-server
+    mode: acme
+data:
+  config.yaml: |
+    # vibectl-server configuration for ACME demo (TLS-ALPN-01)
+    server:
+      host: 0.0.0.0
+      port: 443  # ACME requires port 443 for TLS-ALPN-01
+      max_workers: 4
+      require_auth: true
+      log_level: DEBUG  # Enable DEBUG logging for easier troubleshooting
+
+    # JWT configuration (shared between CA and ACME deployments)
+    jwt:
+      enabled: true
+      issuer: vibectl-server-acme-demo
+      expiration_days: 30
+
+    # TLS enabled for ACME - provide paths for bootstrap certificates
+    tls:
+      enabled: true
+      cert_file: /root/.config/vibectl/server/certs/server.crt
+      key_file: /root/.config/vibectl/server/certs/server.key
+      # Certificate files will be auto-generated and managed by ACME
+
+    # ACME configuration for TLS-ALPN-01
+    acme:
+      enabled: true
+      email: admin@vibectl.test
+      domains: 
+        - ${ACME_DOMAIN_INTERNAL}
+        - ${ACME_DOMAIN_EXTERNAL}
+      directory_url: ${ACME_DIRECTORY_URL}
+      challenge_type: tls-alpn-01
+      ca_cert_file: /pebble-ca/ca.crt 

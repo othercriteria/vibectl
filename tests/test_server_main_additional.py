@@ -26,19 +26,17 @@ class TestServerCreationAndStartup:
     """Test server creation and startup functionality."""
 
     @patch("vibectl.server.main.init_logging")
-    @patch("vibectl.server.main._provision_acme_certificates")
-    @patch("vibectl.server.main.create_server")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_common_acme_enabled(
         self,
-        mock_create_server: Mock,
-        mock_provision_acme: Mock,
+        mock_async_acme_server: Mock,
         mock_init_logging: Mock,
     ) -> None:
         """Test server creation with ACME certificates enabled."""
         server_config = {
             "server": {
                 "host": "0.0.0.0",
-                "port": 443,
+                "port": 50051,
                 "default_model": "test-model",
                 "max_workers": 10,
                 "log_level": "INFO",
@@ -48,35 +46,18 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
 
-        # Mock ACME certificate provisioning
-        mock_provision_acme.return_value = Success(
-            data=("/path/to/cert.pem", "/path/to/key.pem")
-        )
-
-        # Mock server creation and startup
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-        mock_server.serve_forever.return_value = None
+        # Mock ACME server startup
+        mock_async_acme_server.return_value = Success()
 
         result = _create_and_start_server_common(server_config)
 
         assert isinstance(result, Success)
-        mock_provision_acme.assert_called_once_with(server_config)
-        mock_create_server.assert_called_once_with(
-            host="0.0.0.0",
-            port=443,
-            default_model="test-model",
-            max_workers=10,
-            require_auth=False,
-            use_tls=True,
-            cert_file="/path/to/cert.pem",
-            key_file="/path/to/key.pem",
-        )
-        mock_server.serve_forever.assert_called_once()
+        mock_async_acme_server.assert_called_once_with(server_config)
 
     @patch("vibectl.server.main.init_logging")
     @patch("vibectl.server.main.create_server")
@@ -116,15 +97,15 @@ class TestServerCreationAndStartup:
         )
 
     @patch("vibectl.server.main.init_logging")
-    @patch("vibectl.server.main._provision_acme_certificates")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_common_acme_error(
-        self, mock_provision_acme: Mock, mock_init_logging: Mock
+        self, mock_async_acme_server: Mock, mock_init_logging: Mock
     ) -> None:
         """Test server creation when ACME provisioning fails."""
         server_config = {
             "server": {
                 "host": "0.0.0.0",
-                "port": 443,
+                "port": 50051,
                 "default_model": "test",
                 "max_workers": 10,
                 "log_level": "INFO",
@@ -134,11 +115,12 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
 
-        mock_provision_acme.return_value = Error(error="ACME provisioning failed")
+        mock_async_acme_server.return_value = Error(error="ACME provisioning failed")
 
         result = _create_and_start_server_common(server_config)
 
@@ -146,15 +128,15 @@ class TestServerCreationAndStartup:
         assert "ACME provisioning failed" in result.error
 
     @patch("vibectl.server.main.init_logging")
-    @patch("vibectl.server.main._provision_acme_certificates")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_common_acme_none_data(
-        self, mock_provision_acme: Mock, mock_init_logging: Mock
+        self, mock_async_acme_server: Mock, mock_init_logging: Mock
     ) -> None:
         """Test server creation when ACME provisioning returns None data."""
         server_config = {
             "server": {
                 "host": "0.0.0.0",
-                "port": 443,
+                "port": 50051,
                 "default_model": "test",
                 "max_workers": 10,
                 "log_level": "INFO",
@@ -164,12 +146,15 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
 
-        # Mock ACME returning success but with None data
-        mock_provision_acme.return_value = Success(data=None)
+        # Mock ACME returning error for missing data
+        mock_async_acme_server.return_value = Error(
+            error="ACME certificate provisioning returned no certificate data"
+        )
 
         result = _create_and_start_server_common(server_config)
 
@@ -386,8 +371,15 @@ class TestCertificateGeneration:
         )
 
     @patch("vibectl.server.main.cert_utils.ensure_certificate_exists")
-    def test_perform_certificate_generation_error(self, mock_ensure_cert: Mock) -> None:
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.mkdir")
+    def test_perform_certificate_generation_error(
+        self, mock_mkdir: Mock, mock_exists: Mock, mock_ensure_cert: Mock
+    ) -> None:
         """Test certificate generation when cert creation fails."""
+        mock_exists.return_value = (
+            False  # Files don't exist, so we proceed to cert generation
+        )
         mock_ensure_cert.side_effect = Exception("Failed to create certificate")
 
         result = _perform_certificate_generation(
@@ -401,10 +393,15 @@ class TestCertificateGeneration:
         assert "Certificate generation failed" in result.error
 
     @patch("vibectl.server.main.cert_utils.ensure_certificate_exists")
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.mkdir")
     def test_perform_certificate_generation_exception(
-        self, mock_ensure_cert: Mock
+        self, mock_mkdir: Mock, mock_exists: Mock, mock_ensure_cert: Mock
     ) -> None:
         """Test certificate generation with exception."""
+        mock_exists.return_value = (
+            False  # Files don't exist, so we proceed to cert generation
+        )
         mock_ensure_cert.side_effect = Exception("Unexpected error")
 
         result = _perform_certificate_generation(
@@ -750,6 +747,48 @@ class TestErrorHandlingPaths:
         assert isinstance(result, Error)
         assert "ACME enabled but no email provided" in result.error
 
+    def test_create_and_start_server_acme_empty_string_email(self) -> None:
+        """Test server startup with ACME enabled but empty string email."""
+        from vibectl.server.main import _create_and_start_server_common
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {"enabled": True, "email": "", "domains": ["example.com"]},
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no email provided" in result.error
+
+    def test_create_and_start_server_acme_whitespace_email(self) -> None:
+        """Test server startup with ACME enabled but whitespace-only email."""
+        from vibectl.server.main import _create_and_start_server_common
+
+        server_config = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 50051,
+                "max_workers": 10,
+                "default_model": "test",
+            },
+            "tls": {"enabled": True},
+            "acme": {"enabled": True, "email": "   ", "domains": ["example.com"]},
+            "jwt": {"enabled": False},
+        }
+
+        result = _create_and_start_server_common(server_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no email provided" in result.error
+
     def test_create_and_start_server_acme_missing_domains(self) -> None:
         """Test server startup with ACME enabled but missing domains."""
         # This tests lines 1023-1026: ACME domains validation error
@@ -772,15 +811,17 @@ class TestErrorHandlingPaths:
         assert isinstance(result, Error)
         assert "ACME enabled but no domains provided" in result.error
 
-    @patch("vibectl.server.main._provision_acme_certificates")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_acme_cert_provision_error(
-        self, mock_provision: Mock
+        self, mock_async_acme_server: Mock
     ) -> None:
         """Test server startup when ACME certificate provisioning fails."""
         # This tests lines around 1029-1030: ACME certificate provisioning failure
         from vibectl.server.main import _create_and_start_server_common
 
-        mock_provision.return_value = Error(error="Certificate provisioning failed")
+        mock_async_acme_server.return_value = Error(
+            error="Certificate provisioning failed"
+        )
 
         server_config = {
             "server": {
@@ -794,6 +835,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
@@ -803,15 +845,17 @@ class TestErrorHandlingPaths:
         assert isinstance(result, Error)
         assert "Certificate provisioning failed" in result.error
 
-    @patch("vibectl.server.main._provision_acme_certificates")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_acme_no_cert_data(
-        self, mock_provision: Mock
+        self, mock_async_acme_server: Mock
     ) -> None:
         """Test server startup when ACME provisioning returns no certificate data."""
         # This tests the data validation after ACME provisioning
         from vibectl.server.main import _create_and_start_server_common
 
-        mock_provision.return_value = Success(data=None)
+        mock_async_acme_server.return_value = Error(
+            error="ACME certificate provisioning returned no certificate data"
+        )
 
         server_config = {
             "server": {
@@ -825,6 +869,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
@@ -836,15 +881,19 @@ class TestErrorHandlingPaths:
             "ACME certificate provisioning returned no certificate data" in result.error
         )
 
-    @patch("vibectl.server.main._provision_acme_certificates")
+    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
     def test_create_and_start_server_acme_provision_exception(
-        self, mock_provision: Mock
+        self, mock_async_acme_server: Mock
     ) -> None:
         """Test server startup when ACME provisioning raises an exception."""
         # This tests lines 1051-1054: exception handling in ACME provisioning
         from vibectl.server.main import _create_and_start_server_common
 
-        mock_provision.side_effect = Exception("ACME service unavailable")
+        acme_exception = Exception("ACME service unavailable")
+        mock_async_acme_server.return_value = Error(
+            error="ACME certificate provisioning failed: ACME service unavailable",
+            exception=acme_exception,
+        )
 
         server_config = {
             "server": {
@@ -858,6 +907,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
+                "challenge_type": "tls-alpn-01",
             },
             "jwt": {"enabled": False},
         }
@@ -1014,3 +1064,241 @@ class TestCertificateOperationErrors:
 
         assert isinstance(result, Error)
         assert "CA directory not found:" in result.error
+
+
+class TestSmartServeCommandRouting:
+    """Test comprehensive smart serve command routing with argument passing."""
+
+    def setup_method(self) -> None:
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_insecure")
+    def test_serve_routes_to_insecure_with_config_only(
+        self, mock_serve_insecure: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to insecure mode with only config argument."""
+        config = get_default_server_config()
+        config["tls"]["enabled"] = False
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve", "--config", "test.yaml"])
+
+        assert result.exit_code == 0
+        mock_serve_insecure.assert_called_once_with(config="test.yaml")
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_ca")
+    def test_serve_routes_to_ca_with_proper_arguments(
+        self, mock_serve_ca: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to CA mode with proper default arguments."""
+        config = get_default_server_config()
+        config["tls"]["enabled"] = True
+        config["acme"]["enabled"] = False
+        # No cert_file/key_file specified = CA mode
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        mock_serve_ca.assert_called_once_with(
+            config=None,
+            ca_dir=None,
+            hostname="localhost",
+            san=(),
+            validity_days=90,
+        )
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_acme")
+    def test_serve_routes_to_acme_with_extracted_arguments(
+        self, mock_serve_acme: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to ACME mode with extracted arguments from config."""
+        config = get_default_server_config()
+        config["tls"]["enabled"] = True
+        config["acme"] = {
+            "enabled": True,
+            "email": "test@example.com",
+            "domains": ["example.com", "www.example.com"],
+            "directory_url": "https://acme-staging-v02.api.letsencrypt.org/directory",
+            "challenge_type": "dns-01",
+        }
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve", "--config", "acme.yaml"])
+
+        assert result.exit_code == 0
+        mock_serve_acme.assert_called_once_with(
+            config="acme.yaml",
+            email="test@example.com",
+            domain=["example.com", "www.example.com"],
+            directory_url="https://acme-staging-v02.api.letsencrypt.org/directory",
+            challenge_type="dns-01",
+        )
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_acme")
+    def test_serve_routes_to_acme_with_defaults(
+        self, mock_serve_acme: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to ACME mode with minimal config (using defaults)."""
+        config = get_default_server_config()
+        config["tls"]["enabled"] = True
+        config["acme"] = {
+            "enabled": True,
+            "email": "minimal@example.com",
+            "domains": ["minimal.com"],
+            # directory_url and challenge_type will use defaults
+        }
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        mock_serve_acme.assert_called_once_with(
+            config=None,
+            email="minimal@example.com",
+            domain=["minimal.com"],
+            directory_url=None,  # Default (Let's Encrypt production)
+            challenge_type="http-01",  # Default
+        )
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_custom")
+    def test_serve_routes_to_custom_with_extracted_arguments(
+        self, mock_serve_custom: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to custom mode with extracted cert file arguments."""
+        config = get_default_server_config()
+        config["tls"] = {
+            "enabled": True,
+            "cert_file": "/path/to/cert.pem",
+            "key_file": "/path/to/key.pem",
+            "ca_bundle_file": "/path/to/ca-bundle.pem",
+        }
+        config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve", "--config", "custom.yaml"])
+
+        assert result.exit_code == 0
+        mock_serve_custom.assert_called_once_with(
+            config="custom.yaml",
+            cert_file="/path/to/cert.pem",
+            key_file="/path/to/key.pem",
+            ca_bundle_file="/path/to/ca-bundle.pem",
+        )
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.serve_custom")
+    def test_serve_routes_to_custom_without_ca_bundle(
+        self, mock_serve_custom: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to custom mode without CA bundle."""
+        config = get_default_server_config()
+        config["tls"] = {
+            "enabled": True,
+            "cert_file": "/path/to/cert.pem",
+            "key_file": "/path/to/key.pem",
+            # No ca_bundle_file
+        }
+        config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        mock_serve_custom.assert_called_once_with(
+            config=None,
+            cert_file="/path/to/cert.pem",
+            key_file="/path/to/key.pem",
+            ca_bundle_file=None,
+        )
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.handle_result")
+    def test_serve_ca_mode_missing_ca_directory_with_key_only(
+        self, mock_handle_result: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to CA mode when only key_file is provided (missing cert_file)."""
+        config = get_default_server_config()
+        config["tls"] = {
+            "enabled": True,
+            "key_file": "/path/to/key.pem",
+            # Missing cert_file - should route to CA mode
+        }
+        config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        # Should call handle_result with an error about missing CA directory
+        mock_handle_result.assert_called_once()
+        error_call = mock_handle_result.call_args[0][0]
+        assert isinstance(error_call, Error)
+        assert "CA directory not found:" in error_call.error
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.handle_result")
+    def test_serve_ca_mode_missing_ca_directory_with_cert_only(
+        self, mock_handle_result: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command routes to CA mode when only cert_file is provided (missing key_file)."""
+        config = get_default_server_config()
+        config["tls"] = {
+            "enabled": True,
+            "cert_file": "/path/to/cert.pem",
+            # Missing key_file - should route to CA mode
+        }
+        config["acme"]["enabled"] = False
+        mock_load_config.return_value = Success(data=config)
+
+        result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        # Should call handle_result with an error about missing CA directory
+        mock_handle_result.assert_called_once()
+        error_call = mock_handle_result.call_args[0][0]
+        assert isinstance(error_call, Error)
+        assert "CA directory not found:" in error_call.error
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.handle_result")
+    def test_serve_unknown_mode_error(
+        self, mock_handle_result: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command handles unknown serve mode."""
+        config = get_default_server_config()
+        mock_load_config.return_value = Success(data=config)
+
+        # Mock determine_serve_mode to return an invalid mode
+        with patch(
+            "vibectl.server.main.determine_serve_mode", return_value="invalid-mode"
+        ):
+            result = self.runner.invoke(cli, ["serve"])
+
+        assert result.exit_code == 0
+        mock_handle_result.assert_called_once()
+        error_call = mock_handle_result.call_args[0][0]
+        assert isinstance(error_call, Error)
+        assert "Unknown serve mode: invalid-mode" in error_call.error
+
+    @patch("vibectl.server.main.load_server_config")
+    @patch("vibectl.server.main.handle_result")
+    def test_serve_config_loading_error(
+        self, mock_handle_result: Mock, mock_load_config: Mock
+    ) -> None:
+        """Test serve command handles configuration loading errors."""
+        mock_load_config.return_value = Error(error="Configuration file not found")
+
+        result = self.runner.invoke(cli, ["serve", "--config", "missing.yaml"])
+
+        assert result.exit_code == 0
+        mock_handle_result.assert_called_once()
+        error_call = mock_handle_result.call_args[0][0]
+        assert isinstance(error_call, Error)
+        assert "Configuration file not found" in error_call.error

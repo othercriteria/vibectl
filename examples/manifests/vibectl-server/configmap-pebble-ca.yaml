@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pebble-ca-cert
+  labels:
+    app: vibectl-server
+    component: ca-cert
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDOTCCAiGgAwIBAgIUIOUF0Scf/SVFWT2DdxcSHPTCtpswDQYJKoZIhvcNAQEL
+    BQAwETEPMA0GA1UEAwwGcGViYmxlMB4XDTI1MDYxMTE4MzUyN1oXDTI2MDYxMTE4
+    MzUyN1owETEPMA0GA1UEAwwGcGViYmxlMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+    MIIBCgKCAQEAzWCE2yo1poZy7RzRe+Dqfa+fuSDsoEua0RCj+RQjioyhGLCqVNP0
+    YR3+O2inKScsU2cfdQcJHvY+8rDjGMz5rUQo1UXyNk9N24rViZhLEWfMueCyvFN/
+    CPXhbmI34tfzLqBK9mWwW++Rp+Iwmq5Hr+8qI0/ttAqbrVVzARYx6V07niwTitBz
+    Nteai+bzSET+GK2zy1iUiF7YGH3PzZY8gWCQ/zO8/8m7oiSF/148L5w7I9z0r4aR
+    ugUIOvgJUqojSe1mdCnzeBZR0RK3lVObGdbsDlqvx5byj647DAmtGukq2fw5ULH+
+    lomqLatU7F3P0DLos9AkjKWfSktynTOWiQIDAQABo4GIMIGFMB0GA1UdDgQWBBQL
+    UC5ctv1Btd+wAIDNvoud00TYaDAfBgNVHSMEGDAWgBQLUC5ctv1Btd+wAIDNvoud
+    00TYaDAPBgNVHRMBAf8EBTADAQH/MDIGA1UdEQQrMCmCBnBlYmJsZYIfcGViYmxl
+    LnBlYmJsZS5zdmMuY2x1c3Rlci5sb2NhbDANBgkqhkiG9w0BAQsFAAOCAQEAoZkI
+    3npWEs7C3ttWf4+dPtm7VrNMjnjB/ctHRtq6JdjIWP6+dtDVplf9hoiCr2OEipej
+    BbNm6rd7BwuMuKWZjtB0n+4EMb1jks3ocoi4N2rje9ng6pI/YwxnbK7MkcYwsXSI
+    Lqq0kr3dX4jiQEG2noUjWLTTtkx4GS9jM9CnRSuolAt6nOTYsPeLIEbseo8wi2kh
+    Zqxpy1zdX63dNeGfpW+W7B4ivgO4RxZlUROtZoB4/bzOp9wMz3a3NWMxXSHXrkFJ
+    izl1ya1mSGpivJb0FwDLETgHBkLV65kUZxjNGezAAcsMKSksaoLZGgXVfrAPARne
+    Lg2rmmZgF2DU44JM3g==
+    -----END CERTIFICATE----- 

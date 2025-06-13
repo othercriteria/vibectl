@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vibectl-server-jwt-config
+data:
+  jwt-config.yaml: |
+    # JWT configuration (shared between CA and ACME deployments)
+    jwt:
+      enabled: true
+      algorithm: "HS256"
+      expiration_days: 1 

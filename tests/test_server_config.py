@@ -85,7 +85,6 @@ class TestServerConfig:
         assert acme["enabled"] is False
         assert acme["email"] is None
         assert acme["domains"] == []
-        assert acme["staging"] is False
 
     def test_load_file_not_exists(self) -> None:
         """Test loading config when file doesn't exist."""
@@ -710,6 +709,32 @@ class TestServerConfig:
         invalid_config = {
             "server": {"host": "localhost", "port": 8080, "max_workers": 5},
             "acme": {"enabled": True, "domains": ["example.com"]},
+        }
+
+        config = ServerConfig()
+        result = config.validate(invalid_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no email provided" in result.error
+
+    def test_validate_acme_enabled_empty_string_email(self) -> None:
+        """Test validating config with ACME enabled but empty string email."""
+        invalid_config = {
+            "server": {"host": "localhost", "port": 8080, "max_workers": 5},
+            "acme": {"enabled": True, "email": "", "domains": ["example.com"]},
+        }
+
+        config = ServerConfig()
+        result = config.validate(invalid_config)
+
+        assert isinstance(result, Error)
+        assert "ACME enabled but no email provided" in result.error
+
+    def test_validate_acme_enabled_whitespace_email(self) -> None:
+        """Test validating config with ACME enabled but whitespace-only email."""
+        invalid_config = {
+            "server": {"host": "localhost", "port": 8080, "max_workers": 5},
+            "acme": {"enabled": True, "email": "   ", "domains": ["example.com"]},
         }
 
         config = ServerConfig()

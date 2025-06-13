@@ -1,3 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pebble-config
+  labels:
+    app: pebble
+data:
+  pebble-config.json: |
+    {
+      "pebble": {
+        "listenAddress": "0.0.0.0:14000",
+        "managementListenAddress": "0.0.0.0:15000",
+        "certificate": "/certs/pebble.crt",
+        "privateKey": "/certs/pebble.key",
+        "httpPort": 80,
+        "tlsPort": 443,
+        "ocspResponderURL": "",
+        "externalAccountBindingRequired": false
+      }
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,26 +35,121 @@ spec:
       labels:
         app: pebble
     spec:
+      initContainers:
+      # Generate CA and server certificates for Pebble
+      - name: cert-init
+        image: alpine/openssl:latest
+        command: ['sh', '-c']
+        args:
+          - |
+            set -e
+            echo "🔑 Generating Pebble CA and server certificates..."
+            
+            # Create certificate directory
+            mkdir -p /certs
+            
+            # Read network configuration
+            NAMESPACE=$(cat /network-info/namespace)
+            NODE_IP=$(cat /network-info/node-ip)
+            
+            echo "📍 Using namespace: $NAMESPACE"
+            echo "📍 Using node IP: $NODE_IP"
+            
+            # Generate CA private key
+            openssl genrsa -out /certs/ca.key 2048
+            
+            # Generate CA certificate (self-signed)
+            openssl req -new -x509 -key /certs/ca.key \
+              -out /certs/ca.crt \
+              -days 365 \
+              -subj "/CN=pebble-ca"
+              
+            # Generate server private key
+            openssl genrsa -out /certs/pebble.key 2048
+            
+            # Generate server certificate signing request
+            openssl req -new -key /certs/pebble.key \
+              -out /certs/pebble.csr \
+              -subj "/CN=pebble"
+              
+            # Create OpenSSL config file for extensions
+            cat > /tmp/v3.ext << EOF
+            [v3_req]
+            keyUsage = keyEncipherment, dataEncipherment
+            extendedKeyUsage = serverAuth
+            subjectAltName = DNS:pebble,DNS:pebble.$NAMESPACE.svc.cluster.local,DNS:localhost,IP:127.0.0.1,IP:$NODE_IP
+            EOF
+            
+            # Generate server certificate signed by our CA with comprehensive SANs
+            openssl x509 -req -in /certs/pebble.csr \
+              -CA /certs/ca.crt -CAkey /certs/ca.key -CAcreateserial \
+              -out /certs/pebble.crt \
+              -days 365 \
+              -extensions v3_req \
+              -extfile /tmp/v3.ext
+              
+            echo "✅ Pebble CA and server certificates generated"
+            echo "📋 CA Certificate:"
+            openssl x509 -in /certs/ca.crt -text -noout | grep -A 3 "Subject:"
+            echo "📋 Server Certificate SANs:"
+            openssl x509 -in /certs/pebble.crt -text -noout | grep -A 1 "Subject Alternative Name"
+            ls -la /certs/
+        volumeMounts:
+        - name: certs
+          mountPath: /certs
+        - name: network-info
+          mountPath: /network-info
+          readOnly: true
+
       containers:
       - name: pebble
         image: letsencrypt/pebble:latest
-        args: ["-config", "/test/config/pebble-config.json"]
+        command: ['pebble']
+        args: ['-config', '/config/pebble-config.json']
+        ports:
+        - name: acme
+          containerPort: 14000
+          protocol: TCP
+        - name: management
+          containerPort: 15000
+          protocol: TCP
         env:
         - name: PEBBLE_VA_NOSLEEP
           value: "1"
-        - name: PEBBLE_WFE_NONCEREJECT
-          value: "0"
-        ports:
-        - containerPort: 14000
-        - containerPort: 15000
-      - name: pebble-challtestsrv
-        image: letsencrypt/pebble-challtestsrv:latest
-        env:
-        - name: PEBBLE_VA_NOSLEEP
-          value: "1"
-        ports:
-        - containerPort: 8055
-        - containerPort: 8053
+        - name: PEBBLE_VA_ALWAYS_VALID
+          value: "0"  # Set to "1" to skip validation for testing
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: certs
+          mountPath: /certs
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /dir
+            port: 14000
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /dir
+            port: 14000
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+      volumes:
+      - name: config
+        configMap:
+          name: pebble-config
+      - name: certs
+        emptyDir: {}
+      - name: network-info
+        configMap:
+          name: pebble-network-info
+
 ---
 apiVersion: v1
 kind: Service
@@ -43,15 +159,14 @@ metadata:
     app: pebble
 spec:
   type: ClusterIP
-  selector:
-    app: pebble
   ports:
   - name: acme
     port: 14000
     targetPort: 14000
-  - name: http-01
-    port: 8055
-    targetPort: 8055
-  - name: dns-01
-    port: 8053
-    targetPort: 8053
+    protocol: TCP
+  - name: management
+    port: 15000
+    targetPort: 15000
+    protocol: TCP
+  selector:
+    app: pebble 

@@ -93,6 +93,7 @@ def generate_self_signed_certificate(
     cert_file: str | None = None,
     key_file: str | None = None,
     days_valid: int = 365,
+    additional_sans: list[str] | None = None,
 ) -> tuple[bytes, bytes]:
     """Generate a self-signed certificate for development use.
 
@@ -101,6 +102,7 @@ def generate_self_signed_certificate(
         cert_file: Optional path to save certificate file
         key_file: Optional path to save private key file
         days_valid: Number of days the certificate should be valid
+        additional_sans: Additional Subject Alternative Names to include
 
     Returns:
         Tuple of (cert_bytes, key_bytes)
@@ -126,6 +128,39 @@ def generate_self_signed_certificate(
             ]
         )
 
+        # Build Subject Alternative Names list
+        san_names = [
+            x509.DNSName(hostname),
+            x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+            x509.IPAddress(ipaddress.IPv6Address("::1")),
+        ]
+        
+        # Add localhost if it's not already the hostname
+        if hostname != "localhost":
+            san_names.append(x509.DNSName("localhost"))
+        
+        # Add additional SANs if provided
+        if additional_sans:
+            # Keep track of existing values to avoid duplicates
+            existing_dns_names = {hostname}
+            if hostname != "localhost":
+                existing_dns_names.add("localhost")
+            existing_ip_addresses = {"127.0.0.1", "::1"}
+            
+            for san in additional_sans:
+                try:
+                    # Try to parse as IP address first
+                    ip = ipaddress.ip_address(san)
+                    ip_str = str(ip)
+                    if ip_str not in existing_ip_addresses:
+                        san_names.append(x509.IPAddress(ip))
+                        existing_ip_addresses.add(ip_str)
+                except ValueError:
+                    # Not an IP address, treat as DNS name
+                    if san not in existing_dns_names:
+                        san_names.append(x509.DNSName(san))
+                        existing_dns_names.add(san)
+
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
@@ -135,14 +170,7 @@ def generate_self_signed_certificate(
             .not_valid_before(datetime.utcnow())
             .not_valid_after(datetime.utcnow() + timedelta(days=days_valid))
             .add_extension(
-                x509.SubjectAlternativeName(
-                    [
-                        x509.DNSName(hostname),
-                        x509.DNSName("localhost"),
-                        x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-                        x509.IPAddress(ipaddress.IPv6Address("::1")),
-                    ]
-                ),
+                x509.SubjectAlternativeName(san_names),
                 critical=False,
             )
             .add_extension(
