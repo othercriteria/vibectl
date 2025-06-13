@@ -432,8 +432,13 @@ class TestACMEClient:
             patch.object(client, "register_account"),
         ):
             client._client = Mock()
-            # Create a mock authorization to pass to ValidationError
+            # Create a properly structured mock authorization for ValidationError
             mock_authz = Mock(spec=acme.messages.AuthorizationResource)
+            mock_authz.body = Mock()
+            mock_authz.body.identifier = Mock()
+            mock_authz.body.identifier.value = "example.com"
+            mock_authz.body.challenges = []  # Empty list to avoid iteration errors
+
             client._client.new_order.side_effect = acme.errors.ValidationError(
                 [mock_authz]
             )
