@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vibectl-server
+  labels:
+    app: vibectl-server
+spec:
+  type: NodePort
+  ports:
+  - port: 50051
+    targetPort: 50051
+    nodePort: 30551
+    name: grpc
+  selector:
+    app: vibectl-server
+---
+# Service to expose the JWT token data volume for demo script access
+apiVersion: v1
+kind: Service
+metadata:
+  name: vibectl-server-demo
+  labels:
+    app: vibectl-server
+    component: demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: demo-http
+  selector:
+    app: vibectl-server

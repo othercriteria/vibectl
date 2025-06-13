@@ -472,3 +472,20 @@ Rather than patch-specific history, implement a comprehensive undo system that w
 - Enhanced JSON patch with variables and templating
 - Strategic merge patch with array merge strategies
 - Server-side apply integration for field management
+
+## vibectl-server CLI Enhancements
+
+Track server configuration and debugging commands removed from the
+documentation but still desirable for a polished server experience.
+
+### Planned Commands
+
+- `vibectl-server config show [--section <name>] [--format yaml|json]`
+- `vibectl-server config set <key> <value>`
+- `vibectl-server config get <key>`
+- `vibectl-server config validate [--config-file path]`
+- `vibectl-server config generate-secret [--output-file path]`
+- `vibectl-server config reset [--section <name>]`
+- `vibectl-server status [--include-secrets]`
+- `vibectl-server test-jwt [--generate-token subject]`
+- `vibectl-server config precedence`

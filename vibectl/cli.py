@@ -176,8 +176,16 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
     default=False,
     help="Shortcut for --log-level=DEBUG.",
 )
+@click.option(
+    "--ca-bundle",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to CA bundle file for TLS verification when using proxy mode.",
+)
 @click.pass_context
-async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
+async def cli(
+    ctx: click.Context, log_level: str | None, verbose: bool, ca_bundle: str | None
+) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
 
@@ -185,6 +193,11 @@ async def cli(ctx: click.Context, log_level: str | None, verbose: bool) -> None:
         os.environ["VIBECTL_LOG_LEVEL"] = "DEBUG"
     elif log_level:
         os.environ["VIBECTL_LOG_LEVEL"] = log_level.upper()
+
+    # Set CA bundle from CLI flag if provided
+    if ca_bundle:
+        os.environ["VIBECTL_CA_BUNDLE"] = ca_bundle
+
     init_logging()
     logger.info("vibectl CLI started")
     # Initialize the console manager with the configured theme

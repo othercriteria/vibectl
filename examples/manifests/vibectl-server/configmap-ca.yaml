@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vibectl-server-config
+  labels:
+    app: vibectl-server
+data:
+  config.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: 50051
+      default_model: "anthropic/claude-3-7-sonnet-latest"
+      max_workers: 10
+      log_level: "INFO"
+
+    tls:
+      enabled: true
+      cert_file: "/ca-data/server_certs/localhost/localhost.crt"
+      key_file: "/ca-data/server_certs/localhost/localhost.key"
+
+    # ACME disabled (using CA mode instead)
+    acme:
+      enabled: false
+
+    jwt:
+      enabled: true
+      secret_key: null
+      secret_key_file: "/etc/vibectl/secret/jwt-secret"
+      algorithm: "HS256"
+      issuer: "vibectl-server"
+      expiration_days: 30

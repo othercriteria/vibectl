@@ -109,6 +109,64 @@ The server components implement a high-performance gRPC-based LLM proxy that all
 - **Mock Infrastructure**: Complete mocking of external dependencies
 - **Performance Testing**: Fast test execution with comprehensive coverage
 
+## TLS & Certificate Management
+
+### ALPN Multiplexer (`alpn_multiplexer.py`)
+- **Purpose**: Single-port multiplexing between gRPC (`h2`) and ACME TLS-ALPN-01 (`acme-tls/1`) protocols
+- **Size**: 570 lines
+- **Key Features**:
+  - Dynamic ALPN routing to protocol-specific handlers
+  - SNI callback for per-domain challenge certificates
+  - Proxying gRPC traffic to the internal gRPC server
+  - Graceful startup/shutdown and readiness probes
+
+### TLS-ALPN Challenge Manager (`tls_alpn_challenge_server.py`)
+- **Purpose**: On-the-fly generation and storage of ACME TLS-ALPN-01 challenge certificates
+- **Size**: 375 lines
+- **Key Features**:
+  - Thread-safe in-memory challenge store
+  - Critical ACME extension certificate generation
+  - Automatic integration with ALPN multiplexer via `TLSALPNBridge`
+  - Default-certificate replacement strategy for no-SNI clients
+
+### ACME Client (`acme_client.py`)
+- **Purpose**: Direct integration with ACME servers (Let's Encrypt, Pebble) for certificate issuance
+- **Size**: 740 lines
+- **Key Features**:
+  - Supports HTTP-01, DNS-01 and TLS-ALPN-01 challenges
+  - Extended timeout logic for TLS-ALPN-01 validations
+  - Detailed tracing and error reporting
+  - CSR generation and renewal checks
+
+### ACME Manager (`acme_manager.py`)
+- **Purpose**: Asynchronous orchestration of certificate provisioning, renewal and hot-reload
+- **Size**: 458 lines
+- **Key Features**:
+  - Background renewal monitor with configurable thresholds
+  - Live certificate reload callback for the running gRPC server
+  - Graceful degradation when initial provisioning fails (TLS-ALPN-01)
+
+### HTTP Challenge Server (`http_challenge_server.py`)
+- **Purpose**: Minimal HTTP server for HTTP-01 challenge token delivery
+- **Size**: 285 lines
+- **Key Features**:
+  - Async file-based token management
+  - Health and readiness checks
+  - Auto-shutdown when unused
+
+### Certificate Utilities & Support
+- **`cert_utils.py`**: PEM parsing, expiry checks, key generation helpers
+- **`ca_manager.py`**: Development root CA and signing helper for local tests
+- **`alpn_bridge.py`**: Dataclass to bridge multiplexer and challenge server while avoiding import cycles
+
+### ACME Workflow Overview
+1. `ACMEManager` creates an `ACMEClient` to request/renew certificates for configured domains.
+2. For TLS-ALPN-01, `ACMEClient` computes the challenge hash and registers it with `TLSALPNChallengeServer`.
+3. `ALPNMultiplexer`'s SNI callback queries `TLSALPNChallengeServer` for a per-domain `SSLContext` containing the special challenge certificate.
+4. The ACME server connects with ALPN `acme-tls/1`; the correct certificate is presented and validation succeeds.
+5. `ACMEClient` finalizes the order, writes `*.crt` and `*.key` to disk, and clears the active challenge.
+6. `ACMEManager` invokes the configured hot-reload callback so the gRPC server starts using the fresh certificate without restarts.
+
 ## Architecture Patterns
 
 ### Service Architecture

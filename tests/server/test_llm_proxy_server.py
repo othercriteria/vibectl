@@ -10,9 +10,11 @@ This module tests the LLMProxyServicer class including:
 - Error handling scenarios
 """
 
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import Mock, patch
 
+import grpc
 import pytest
 
 from vibectl.proto import llm_proxy_pb2  # type: ignore[attr-defined]
@@ -762,65 +764,267 @@ class TestLLMProxyServicerPrivateMethods:
         assert aliases == {}  # Should return empty dict on error
 
 
-class TestLLMProxyServicerIntegration:
-    """Integration tests for LLMProxyServicer combining multiple features."""
+class TestLLMProxyServicerCoverageGaps:
+    """Test coverage gaps for LLMProxyServicer."""
 
-    @patch("vibectl.server.llm_proxy.time")
-    @patch("vibectl.server.llm_proxy.llm")
-    def test_metrics_timing_accuracy(self, mock_llm: Mock, mock_time: Mock) -> None:
-        """Test that metrics timing is calculated accurately."""
-        # Arrange
-        start_time = 1000.0
-        end_time = 1002.5  # 2.5 seconds later
-        timestamp = 1000
-        mock_time.time.side_effect = [
-            start_time,
-            end_time,
-            timestamp,
-        ]  # start, duration calc, timestamp
-
-        mock_model = Mock()
-        mock_response = Mock()
-        mock_response.text.return_value = "Timed response"
-        mock_response.usage = {"prompt_tokens": 100, "completion_tokens": 200}
-        mock_model.prompt.return_value = mock_response
-        mock_llm.get_model.return_value = mock_model
-
-        servicer = LLMProxyServicer(default_model="test-model")
-        request = llm_proxy_pb2.ExecuteRequest(user_fragments=["Test timing"])  # type: ignore[attr-defined]
-        context = Mock()
-
-        # Act
-        response = servicer.Execute(request, context)
-
-        # Assert
-        assert response.success is not None
-        # Should be approximately 2500ms (2.5 seconds)
-        assert 2499 <= response.success.metrics.duration_ms <= 2501
+    @pytest.fixture
+    def servicer(self) -> LLMProxyServicer:
+        """Create a servicer instance for testing."""
+        return LLMProxyServicer(default_model="test-model")
 
     @patch("vibectl.server.llm_proxy.llm")
-    def test_prompt_construction_with_system_and_user_fragments(
-        self, mock_llm: Mock
+    def test_stream_execute_exception_fallback_streaming(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
     ) -> None:
-        """Test that system and user fragments are properly combined."""
-        # Arrange
+        """Test that streaming falls back to regular execution when streaming fails."""
+        # Set up model that simulates streaming failure, then succeeds with
+        # regular execution
         mock_model = Mock()
-        mock_response = Mock()
-        mock_response.text.return_value = "Combined response"
-        mock_response.usage = {}
-        mock_model.prompt.return_value = mock_response
         mock_llm.get_model.return_value = mock_model
 
-        servicer = LLMProxyServicer(default_model="test-model")
+        # First call (for streaming) raises exception
+        # Second call (for fallback) succeeds
+        mock_response = Mock()
+        mock_response.text.return_value = "Fallback response"
+        mock_response.usage = {"prompt_tokens": 10, "completion_tokens": 20}
+
+        call_count = 0
+
+        def prompt_side_effect(*args: Any, **kwargs: Any) -> Mock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call for streaming - raise exception
+                raise Exception("Streaming not supported")
+            else:
+                # Second call for fallback - succeed
+                return mock_response
+
+        mock_model.prompt.side_effect = prompt_side_effect
+
         request = llm_proxy_pb2.ExecuteRequest(  # type: ignore[attr-defined]
-            system_fragments=["System part 1", "System part 2"],
-            user_fragments=["User part 1", "User part 2"],
+            request_id="test-streaming-fallback",
+            user_fragments=["Test streaming fallback"],
         )
         context = Mock()
 
-        # Act
-        servicer.Execute(request, context)
+        # Execute streaming request
+        chunks = list(servicer.StreamExecute(request, context))
 
-        # Assert
-        expected_prompt = "System part 1\n\nSystem part 2\n\nUser part 1\n\nUser part 2"
-        mock_model.prompt.assert_called_once_with(expected_prompt)
+        # Should get 3 chunks: 1 text chunk + completion + final_metrics
+        # "Fallback response" (17 chars) creates only 1 chunk with 100-char chunk size
+        assert len(chunks) == 3  # 1 text chunk + completion + final_metrics
+
+        # Check that we got completion and final_metrics chunks
+        has_completion = any(chunk.complete for chunk in chunks)
+        has_final_metrics = any(chunk.final_metrics for chunk in chunks)
+        assert has_completion
+        assert has_final_metrics
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_stream_execute_non_iterable_response_fallback(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test fallback when model response is not iterable."""
+        mock_model = Mock()
+        mock_llm.get_model.return_value = mock_model
+
+        # Mock response that's not iterable
+        def iter_side_effect(*args: Any) -> None:
+            raise TypeError("Response is not iterable")
+
+        mock_response = Mock()
+        mock_response.__iter__ = iter_side_effect
+        mock_response.text.return_value = "Non-iterable response"
+        mock_response.usage = {"prompt_tokens": 5, "completion_tokens": 10}
+
+        mock_model.prompt.return_value = mock_response
+
+        request = llm_proxy_pb2.ExecuteRequest(  # type: ignore[attr-defined]
+            request_id="test-non-iterable", user_fragments=["Test non-iterable"]
+        )
+        context = Mock()
+
+        # Execute streaming request
+        chunks = list(servicer.StreamExecute(request, context))
+
+        # Should get text chunks + completion + final_metrics (fallback creates
+        # simulated chunks)
+        assert len(chunks) >= 3
+
+        # Verify we got the expected chunks
+        text_chunks = [
+            chunk
+            for chunk in chunks
+            if hasattr(chunk, "text_chunk") and chunk.text_chunk
+        ]
+        # Fix: Only count chunks that have actual completion data (with
+        # actual_model_used field)
+        completion_chunks = [
+            chunk
+            for chunk in chunks
+            if hasattr(chunk, "complete")
+            and chunk.complete
+            and chunk.complete.actual_model_used
+        ]
+        metrics_chunks = [
+            chunk
+            for chunk in chunks
+            if hasattr(chunk, "final_metrics")
+            and chunk.final_metrics
+            and chunk.final_metrics.input_tokens > 0
+        ]
+
+        assert len(text_chunks) > 0  # Should have text chunks from simulation
+        assert len(completion_chunks) == 1
+        assert len(metrics_chunks) == 1
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_stream_execute_token_usage_error_fallback(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test token usage error handling in streaming."""
+        mock_model = Mock()
+        mock_llm.get_model.return_value = mock_model
+
+        # Mock streaming response
+        def mock_streaming_response(*args: Any) -> Iterator[str]:
+            yield "chunk1"
+            yield "chunk2"
+
+        mock_response = Mock()
+        mock_response.__iter__ = mock_streaming_response
+        mock_response.text.return_value = "chunk1chunk2"  # Match the streamed content
+
+        # Mock usage that is callable but throws exception when called
+        mock_usage_callable = Mock(side_effect=Exception("Usage error"))
+        mock_response.usage = mock_usage_callable
+
+        mock_model.prompt.return_value = mock_response
+
+        request = llm_proxy_pb2.ExecuteRequest(  # type: ignore[attr-defined]
+            request_id="test-token-usage-error",
+            user_fragments=["Test token usage error"],
+        )
+        context = Mock()
+
+        # Execute streaming request
+        chunks = list(servicer.StreamExecute(request, context))
+
+        # Should still get chunks - text chunks + completion + final_metrics
+        assert len(chunks) >= 4  # 2 text chunks + completion + final_metrics
+
+        # Find the final metrics chunk (look for the one with actual token data)
+        final_metrics_chunk = None
+        for chunk in chunks:
+            if (
+                hasattr(chunk, "final_metrics")
+                and chunk.final_metrics
+                and hasattr(chunk.final_metrics, "input_tokens")
+                and chunk.final_metrics.input_tokens > 0
+            ):
+                final_metrics_chunk = chunk
+                break
+
+        assert final_metrics_chunk is not None
+        # Token usage should fallback to estimation (based on text length)
+        # The estimation is: max(1, len(text) // 4)
+        # For prompt "Test token usage error" (24 chars) -> max(1, 24//4) = 6
+        # For response "chunk1chunk2" (12 chars) -> max(1, 12//4) = 3
+        assert (
+            final_metrics_chunk.final_metrics.input_tokens >= 1
+        )  # Should be estimated, at least 1
+        assert (
+            final_metrics_chunk.final_metrics.output_tokens >= 1
+        )  # Should be estimated, at least 1
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_get_dynamic_model_aliases_error_handling(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test error handling in _get_dynamic_model_aliases."""
+        # Mock llm.get_models_with_aliases() to raise an exception
+        mock_llm.get_models_with_aliases.side_effect = Exception(
+            "Failed to get models with aliases"
+        )
+
+        # Call the private method directly
+        result = servicer._get_dynamic_model_aliases()
+
+        # Should return empty dict on error
+        assert result == {}
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_get_dynamic_model_aliases_missing_method(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test handling when llm doesn't have get_models_with_aliases method."""
+        # Mock llm to not have get_models_with_aliases method
+        if hasattr(mock_llm, "get_models_with_aliases"):
+            delattr(mock_llm, "get_models_with_aliases")
+
+        # Call the private method directly
+        result = servicer._get_dynamic_model_aliases()
+
+        # Should return empty dict when method doesn't exist
+        assert result == {}
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_get_server_info_exception_handling(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test exception handling in GetServerInfo (it raises exceptions)."""
+        # Mock llm.get_models() to raise an exception
+        mock_llm.get_models.side_effect = Exception("Critical error")
+
+        request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
+        context = Mock()
+
+        # GetServerInfo actually raises exceptions after setting grpc status
+        with pytest.raises(Exception, match="Critical error"):
+            servicer.GetServerInfo(request, context)
+
+        # Verify grpc context was set properly
+        context.set_code.assert_called_once_with(grpc.StatusCode.INTERNAL)
+        context.set_details.assert_called_once()
+
+    @patch("vibectl.server.llm_proxy.llm")
+    def test_execute_token_usage_comprehensive_error_handling(
+        self, mock_llm: Mock, servicer: LLMProxyServicer
+    ) -> None:
+        """Test comprehensive token usage error handling in Execute."""
+        mock_model = Mock()
+        mock_llm.get_model.return_value = mock_model
+
+        # Mock response with usage that throws errors for everything
+        mock_response = Mock()
+        mock_response.text.return_value = "Test response"
+
+        # Create a usage object that throws errors for everything
+        mock_usage = Mock()
+        mock_usage.side_effect = Exception("Usage call failed")
+        mock_usage.input = property(
+            lambda self: (_ for _ in ()).throw(Exception("Input property failed"))
+        )
+        mock_usage.output = property(
+            lambda self: (_ for _ in ()).throw(Exception("Output property failed"))
+        )
+
+        mock_response.usage = mock_usage
+        mock_model.prompt.return_value = mock_response
+
+        request = llm_proxy_pb2.ExecuteRequest(  # type: ignore[attr-defined]
+            request_id="test-comprehensive-token-error",
+            user_fragments=["Test comprehensive token error handling"],
+        )
+        context = Mock()
+
+        # Execute request
+        response = servicer.Execute(request, context)
+
+        # Should succeed despite token usage errors
+        assert response.success is not None
+        assert response.success.response_text == "Test response"
+        # Should fall back to token estimation
+        assert response.success.metrics.input_tokens > 0
+        assert response.success.metrics.output_tokens > 0

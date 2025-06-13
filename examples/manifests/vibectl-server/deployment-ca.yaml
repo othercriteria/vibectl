@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vibectl-server
+  labels:
+    app: vibectl-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vibectl-server
+  template:
+    metadata:
+      labels:
+        app: vibectl-server
+    spec:
+      initContainers:
+      # Init container to generate CA certificates if they don't exist
+      - name: ca-init
+        image: vibectl-server:local
+        imagePullPolicy: Never
+        env:
+        - name: NODE_IP
+          valueFrom:
+            configMapKeyRef:
+              name: vibectl-server-node-info
+              key: node-ip
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "🏭 CA Init Container: Setting up Certificate Authority..."
+
+          # Check if CA already exists (from external secret or previous run)
+          if [[ -f /ca-data/ca-bundle.crt && -f /ca-data/server_certs/localhost/localhost.crt ]]; then
+            echo "✅ CA already exists, skipping CA generation"
+            exit 0
+          fi
+
+          echo "📋 Generating new CA and server certificates..."
+
+          # Get the node IP from the ConfigMap
+          echo "🔍 Using node IP from ConfigMap..."
+          echo "📍 Node IP: ${NODE_IP}"
+
+          # Initialize CA directly in the target directory
+          vibectl-server ca init \
+            --ca-dir "/ca-data" \
+            --organization "vibectl Demo" \
+            --country "US" \
+            --root-cn "vibectl Demo Root CA" \
+            --intermediate-cn "vibectl Demo Intermediate CA" \
+            --force
+
+          # Create server certificate with the actual node IP in SAN list
+          echo "🏗️  Creating server certificate with specific node IP: ${NODE_IP}"
+          vibectl-server ca create-server-cert localhost \
+            --ca-dir "/ca-data" \
+            --san "localhost" \
+            --san "127.0.0.1" \
+            --san "vibectl-server.vibectl-server.svc.cluster.local" \
+            --san "vibectl-server" \
+            --san "${NODE_IP}" \
+            --validity-days 90 \
+            --force
+
+          echo "✅ CA and server certificates generated successfully"
+          echo "📋 Certificate includes SAN: localhost, 127.0.0.1, service DNS, and ${NODE_IP}"
+        volumeMounts:
+        - name: ca-data
+          mountPath: /ca-data
+        - name: config
+          mountPath: /etc/vibectl/config
+
+      # Init container to generate JWT token
+      - name: jwt-init
+        image: vibectl-server:local
+        imagePullPolicy: Never
+        env:
+        - name: VIBECTL_JWT_SECRET_FILE
+          value: /etc/vibectl/secret/jwt-secret
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+          echo "🔑 JWT Init Container: Generating demo token..."
+
+          # Check if token already exists
+          if [[ -f /jwt-data/demo-token.jwt ]]; then
+            echo "✅ Demo token already exists, skipping generation"
+            exit 0
+          fi
+
+          # Generate token for demo user
+          TOKEN=$(vibectl-server generate-token demo-user --expires-in 30d)
+          echo "$TOKEN" > /jwt-data/demo-token.jwt
+
+          echo "✅ Demo token generated and saved"
+        volumeMounts:
+        - name: jwt-secret
+          mountPath: /etc/vibectl/secret
+        - name: jwt-data
+          mountPath: /jwt-data
+        - name: config
+          mountPath: /etc/vibectl/config
+
+      containers:
+      - name: vibectl-server
+        image: vibectl-server:local
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 50051
+          name: grpc
+        env:
+        - name: VIBECTL_LOG_LEVEL
+          value: "INFO"
+        - name: VIBECTL_JWT_SECRET_FILE
+          value: /etc/vibectl/secret/jwt-secret
+        - name: NODE_IP
+          valueFrom:
+            configMapKeyRef:
+              name: vibectl-server-node-info
+              key: node-ip
+        command:
+        - vibectl-server
+        - serve
+        - --config
+        - /etc/vibectl/config/config.yaml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/vibectl/config
+        - name: jwt-secret
+          mountPath: /etc/vibectl/secret
+        - name: ca-data
+          mountPath: /root/.config/vibectl/server/ca
+        - name: ca-data
+          mountPath: /ca-data
+        - name: jwt-data
+          mountPath: /jwt-data
+        readinessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: config
+        configMap:
+          name: vibectl-server-config
+      - name: jwt-secret
+        secret:
+          secretName: vibectl-server-jwt
+      - name: ca-data
+        emptyDir: {}
+      - name: jwt-data
+        emptyDir: {}
