@@ -10,6 +10,9 @@ This test suite covers the complete ACME protocol implementation including:
 - Error handling and edge cases
 """
 
+import stat
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, mock_open, patch
 
 import acme.challenges
@@ -336,8 +339,10 @@ class TestACMEClient:
     @patch("vibectl.server.acme_client.acme.messages.NewOrder")
     @patch("vibectl.server.acme_client.Path.mkdir")
     @patch("vibectl.server.acme_client.Path.write_bytes")
+    @patch("vibectl.server.acme_client.Path.chmod")
     def test_request_certificate_success(
         self,
+        mock_chmod: Mock,
         mock_write_bytes: Mock,
         mock_mkdir: Mock,
         mock_new_order: Mock,
@@ -420,6 +425,7 @@ class TestACMEClient:
 
         # Verify file operations
         assert mock_write_bytes.call_count == 2
+        assert mock_chmod.call_count == 2
 
     def test_request_certificate_validation_error(self) -> None:
         """Test certificate request with validation error."""
@@ -802,7 +808,9 @@ class TestACMEClient:
         assert any("example.com" in call for call in all_log_calls)
         # The validation token is converted to challenge_hash hex, so
         # we check for debug logs
-        assert any("Challenge hash (hex):" in call for call in debug_calls)
+        assert any(
+            "Challenge hash (first 8 hex chars):" in call for call in debug_calls
+        )
         assert any("TLS-ALPN-01 challenge initiated" in call for call in info_calls)
 
     def test_complete_tls_alpn01_challenge_no_server(self) -> None:
@@ -1121,6 +1129,129 @@ class TestACMEClient:
 
             # Should have attempted to poll once
             client._client.poll.assert_called_once_with(authz)
+
+    def test_request_certificate_sets_secure_permissions(self) -> None:
+        """Test that certificate and key files have secure permissions."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cert_file = Path(temp_dir) / "test.crt"
+            key_file = Path(temp_dir) / "test.key"
+
+            # Mock the ACME client and all required methods
+            client = ACMEClient()
+            client._client = Mock()
+            client._account_key = Mock()
+
+            # Mock the entire certificate request flow
+            with (
+                patch.object(client, "_ensure_client"),
+                patch.object(client, "register_account"),
+                patch.object(client, "_complete_authorization"),
+                patch.object(client, "_create_csr") as mock_csr,
+                patch(
+                    "vibectl.server.acme_client.rsa.generate_private_key"
+                ) as mock_gen_key,
+            ):
+                # Mock private key
+                mock_private_key = Mock()
+                mock_private_key.private_bytes.return_value = (
+                    b"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"
+                )
+                mock_gen_key.return_value = mock_private_key
+
+                # Mock CSR
+                mock_csr_obj = Mock()
+                mock_csr_obj.csr.public_bytes.return_value = b"test_csr"
+                mock_csr.return_value = mock_csr_obj
+
+                # Mock order and finalization
+                mock_order = Mock()
+                mock_order.uri = "test_uri"
+                mock_order.authorizations = []
+                client._client.new_order.return_value = mock_order
+
+                mock_final_order = Mock()
+                mock_final_order.fullchain_pem = (
+                    "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"
+                )
+                client._client.finalize_order.return_value = mock_final_order
+
+                # Request certificate with file output
+                cert_bytes, key_bytes = client.request_certificate(
+                    domains=["test.example.com"],
+                    cert_file=str(cert_file),
+                    key_file=str(key_file),
+                )
+
+                # Verify files were created
+                assert cert_file.exists()
+                assert key_file.exists()
+
+                # Verify secure permissions
+                cert_stat = cert_file.stat()
+                key_stat = key_file.stat()
+
+                # Certificate should be 644 (readable by all, writable by owner)
+                assert stat.filemode(cert_stat.st_mode) == "-rw-r--r--"
+
+                # Private key should be 600 (readable/writable by owner only)
+                assert stat.filemode(key_stat.st_mode) == "-rw-------"
+
+    @patch("vibectl.server.acme_client.logger")
+    def test_sensitive_data_redaction_in_logs(self, mock_logger: Mock) -> None:
+        """Test that sensitive data is redacted in debug logs."""
+        client = ACMEClient()
+
+        # Mock dependencies
+        mock_challenge_body = Mock()
+        mock_challenge = Mock()
+        mock_challenge_body.chall = mock_challenge
+
+        # Mock account key and challenge server
+        client._account_key = Mock()
+        client.tls_alpn_challenge_server = Mock()
+        client._client = Mock()
+
+        # Mock the response and validation - use real string data
+        test_key_auth = "test_key_authorization_secret_data"
+        mock_challenge.response_and_validation.return_value = (Mock(), Mock())
+        mock_challenge.key_authorization.return_value = test_key_auth
+
+        with (
+            patch.object(client, "_wait_for_tls_port_ready"),
+        ):
+            # Call the method that should redact sensitive data
+            client._complete_tls_alpn01_challenge(
+                mock_challenge_body, "test.example.com"
+            )
+
+            # Verify that sensitive data is redacted in logs
+            debug_calls = list(mock_logger.debug.call_args_list)
+
+            # Should log key authorization length, not the full key
+            key_auth_logged = False
+            challenge_hash_logged = False
+
+            for call in debug_calls:
+                call_msg = call[0][0] if call[0] else ""
+                if "Key authorization length:" in call_msg:
+                    key_auth_logged = True
+                    assert (
+                        test_key_auth not in call_msg
+                    )  # Full key should not be logged
+                    assert (
+                        str(len(test_key_auth)) in call_msg
+                    )  # Length should be logged
+
+                # Should log partial challenge hash info
+                if "Challenge hash (first 8 hex chars):" in call_msg:
+                    challenge_hash_logged = True
+                    # Should contain some hex chars or indicate it's a mock
+                    assert "redacted" in call_msg or "..." in call_msg
+
+            assert key_auth_logged, "Key authorization length should be logged"
+            assert challenge_hash_logged, (
+                "Challenge hash should be logged with redaction"
+            )
 
 
 class TestCreateACMEClient:

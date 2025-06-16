@@ -238,3 +238,52 @@ class TestTLSALPNChallengeServer:
         # Clear all
         server.clear_challenges()
         assert server._get_active_challenge_domains() == []
+
+    @patch("vibectl.server.tls_alpn_challenge_server.logger")
+    def test_sensitive_challenge_response_redaction_in_logs(
+        self, mock_logger: Mock
+    ) -> None:
+        """Test that challenge response data is redacted in debug logs."""
+        server = TLSALPNChallengeServer()
+
+        # Test challenge response data that should be redacted
+        test_domain = "test.example.com"
+        test_challenge_response = (
+            b"secret_challenge_response_data_32bytes!!"  # 32 bytes
+        )
+
+        # Set challenge
+        server.set_challenge(test_domain, test_challenge_response)
+
+        # Verify debug log redacts the challenge response
+        debug_calls = list(mock_logger.debug.call_args_list)
+        challenge_length_logged = False
+
+        for call in debug_calls:
+            call_msg = call[0][0] if call[0] else ""
+            if "Challenge response length:" in call_msg:
+                challenge_length_logged = True
+                # Should log length but not the actual response data
+                assert str(len(test_challenge_response)) in call_msg
+                assert (
+                    test_challenge_response.hex() not in call_msg
+                )  # Hex data should not be logged
+                assert (
+                    "secret_challenge_response" not in call_msg
+                )  # Original data should not be logged
+
+        assert challenge_length_logged, "Challenge response length should be logged"
+
+        # Verify other debug information is still present
+        domain_logged = False
+        active_challenges_logged = False
+
+        for call in debug_calls:
+            call_msg = call[0][0] if call[0] else ""
+            if f"Set TLS-ALPN-01 challenge for domain: {test_domain}" in call_msg:
+                domain_logged = True
+            if "Total active challenges:" in call_msg:
+                active_challenges_logged = True
+
+        assert domain_logged, "Domain should still be logged"
+        assert active_challenges_logged, "Active challenge count should still be logged"

@@ -681,3 +681,99 @@ class TestTemporaryChallengeServer:
         # Server should be stopped even after exception
         assert server_ref is not None
         assert not server_ref.is_running
+
+    @patch("vibectl.server.http_challenge_server.logger")
+    def test_sensitive_token_redaction_in_logs(self, mock_logger: Mock) -> None:
+        """Test that challenge tokens are redacted in debug logs."""
+        server = HTTPChallengeServer()
+
+        # Test token operations that should redact sensitive data
+        test_token = "very_long_secret_challenge_token_123456789"
+        test_response = "challenge_response_data"
+
+        # Test set_challenge
+        server.set_challenge(test_token, test_response)
+
+        # Verify debug log redacts the token
+        debug_calls = list(mock_logger.debug.call_args_list)
+        set_token_logged = False
+        for call in debug_calls:
+            call_msg = call[0][0]  # Extract the message from the call
+            if "Set challenge token:" in call_msg:
+                set_token_logged = True
+                # Should log partial token but not the full token
+                assert test_token[:8] in call_msg  # First 8 chars should be logged
+                assert test_token not in call_msg  # Full token should not be logged
+
+        assert set_token_logged, "Set challenge token should be logged with redaction"
+
+        # Test remove_challenge
+        server.remove_challenge(test_token)
+
+        # Verify debug log redacts the token
+        debug_calls = list(mock_logger.debug.call_args_list)
+        remove_token_logged = False
+        for call in debug_calls:
+            call_msg = call[0][0]  # Extract the message from the call
+            if "Removed challenge token:" in call_msg:
+                remove_token_logged = True
+                # Should log partial token but not the full token
+                assert test_token[:8] in call_msg  # First 8 chars should be logged
+                assert test_token not in call_msg  # Full token should not be logged
+
+        assert remove_token_logged, (
+            "Remove challenge token should be logged with redaction"
+        )
+
+    @patch("vibectl.server.http_challenge_server.logger")
+    async def test_challenge_request_token_redaction(self, mock_logger: Mock) -> None:
+        """Test that tokens in challenge requests are redacted in logs."""
+        server = HTTPChallengeServer()
+
+        # Test the actual _handle_challenge method with a simple mock request
+        test_token = "another_long_secret_token_abcdefghijk"
+        test_response = "test_challenge_response"
+        server.set_challenge(test_token, test_response)
+
+        # Reset mock to focus on request handling
+        mock_logger.debug.reset_mock()
+        mock_logger.info.reset_mock()
+        mock_logger.warning.reset_mock()
+
+        # Create a simple mock request
+        mock_request = Mock()
+        mock_request.match_info = {"token": test_token}
+
+        # Mock the _get_challenge_response method to return our test response
+        with patch.object(
+            server, "_get_challenge_response", return_value=test_response
+        ):
+            # Handle the challenge request
+            response = await server._handle_challenge(mock_request)
+
+        # Verify response is correct
+        assert response.status == 200
+
+        # Verify that logs redact the token
+        all_calls = (
+            mock_logger.debug.call_args_list
+            + mock_logger.info.call_args_list
+            + mock_logger.warning.call_args_list
+        )
+
+        token_request_logged = False
+        token_serving_logged = False
+
+        for call in all_calls:
+            call_msg = call[0][0] if call[0] else ""
+            if "ACME challenge request for token:" in call_msg:
+                token_request_logged = True
+                assert test_token not in call_msg  # Full token should not be logged
+                assert test_token[:8] in call_msg  # First 8 chars should be logged
+            elif "Serving ACME challenge for token:" in call_msg:
+                token_serving_logged = True
+                assert test_token not in call_msg  # Full token should not be logged
+                assert test_token[:8] in call_msg  # First 8 chars should be logged
+
+        assert token_request_logged, "Challenge request should be logged with redaction"
+        assert token_serving_logged, "Challenge serving should be logged with redaction"

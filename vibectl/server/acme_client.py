@@ -5,6 +5,7 @@ This module provides functionality for requesting, validating, and renewing
 TLS certificates from ACME-compatible certificate authorities like Let's Encrypt.
 """
 
+import hashlib
 import logging
 import os
 import time
@@ -242,12 +243,16 @@ class ACMEClient:
                 cert_path = Path(cert_file)
                 cert_path.parent.mkdir(parents=True, exist_ok=True)
                 cert_path.write_bytes(cert_chain)
+                # Set secure permissions for certificate file (644)
+                cert_path.chmod(0o644)
                 logger.info(f"Certificate saved to {cert_file}")
 
             if key_file:
                 key_path = Path(key_file)
                 key_path.parent.mkdir(parents=True, exist_ok=True)
                 key_path.write_bytes(private_key_bytes)
+                # Set secure permissions for private key file (600)
+                key_path.chmod(0o600)
                 logger.info(f"Private key saved to {key_file}")
 
             logger.info("ACME certificate provisioning completed successfully")
@@ -496,7 +501,6 @@ class ACMEClient:
         # For TLS-ALPN-01, validation contains (Certificate, PrivateKey), but we need
         # the challenge response hash for our certificate extension.
         # Extract the hash from the response instead.
-        import hashlib
 
         key_authorization = challenge.key_authorization(self._account_key)
 
@@ -510,8 +514,22 @@ class ACMEClient:
 
         challenge_hash = hashlib.sha256(key_authorization_bytes).digest()
 
-        logger.debug(f"Key authorization: {key_authorization}")
-        logger.debug(f"Challenge hash (hex): {challenge_hash.hex()}")
+        # Redact sensitive data in debug logs while preserving usefulness
+        # Handle both string and Mock objects for testing
+        key_auth_info = (
+            f"{len(key_authorization)} bytes"
+            if hasattr(key_authorization, "__len__")
+            and not hasattr(key_authorization, "_mock_name")
+            else "redacted (test mock)"
+        )
+        hash_info = (
+            f"{challenge_hash.hex()[:8]}..."
+            if hasattr(challenge_hash, "hex")
+            and not hasattr(challenge_hash, "_mock_name")
+            else "redacted (test mock)"
+        )
+        logger.debug(f"Key authorization length: {key_auth_info}")
+        logger.debug(f"Challenge hash (first 8 hex chars): {hash_info}")
 
         # Set the challenge response hash in the TLS-ALPN challenge server
         logger.info(

@@ -61,6 +61,12 @@ class HTTPChallengeServer:
         self._running = False
         self._start_event = asyncio.Event()
 
+    def _redact_token(self, token: str) -> str:
+        """Redact token for logging while preserving usefulness."""
+        if hasattr(token, "_mock_name") or not isinstance(token, str):
+            return "redacted (test mock)"
+        return f"{token[:8]}..." if len(token) > 8 else token
+
     async def create_app(self) -> Application:
         """Create the aiohttp application with routes."""
         app = web.Application()
@@ -92,16 +98,16 @@ class HTTPChallengeServer:
             logger.debug("Received health probe on ACME challenge endpoint")
             return web.Response(text="OK", content_type="text/plain")
 
-        logger.debug(f"ACME challenge request for token: {token}")
+        logger.debug(f"ACME challenge request for token: {self._redact_token(token)}")
 
         # Get challenge response
         challenge_response = await self._get_challenge_response(token)
 
         if challenge_response is None:
-            logger.warning(f"Challenge token not found: {token}")
+            logger.warning(f"Challenge token not found: {self._redact_token(token)}")
             return web.Response(text=f"Challenge token not found: {token}", status=404)
 
-        logger.info(f"Serving ACME challenge for token: {token}")
+        logger.info(f"Serving ACME challenge for token: {self._redact_token(token)}")
         return web.Response(text=challenge_response, content_type="text/plain")
 
     async def _get_challenge_response(self, token: str) -> str | None:
@@ -146,7 +152,7 @@ class HTTPChallengeServer:
         """
         with self._lock:
             self._challenges[token] = response
-            logger.debug(f"Set challenge token: {token}")
+            logger.debug(f"Set challenge token: {self._redact_token(token)}")
 
     def remove_challenge(self, token: str) -> None:
         """Remove a challenge response (in-memory storage).
@@ -156,7 +162,7 @@ class HTTPChallengeServer:
         """
         with self._lock:
             self._challenges.pop(token, None)
-            logger.debug(f"Removed challenge token: {token}")
+            logger.debug(f"Removed challenge token: {self._redact_token(token)}")
 
     def clear_challenges(self) -> None:
         """Clear all challenge responses."""

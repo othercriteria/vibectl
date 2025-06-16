@@ -32,9 +32,11 @@ class TestComprehensiveACMETLSALPN01Flow:
     @patch("vibectl.server.acme_client.create_certificate_signing_request")
     @patch("vibectl.server.acme_client.Path.mkdir")
     @patch("vibectl.server.acme_client.Path.write_bytes")
+    @patch("vibectl.server.acme_client.Path.chmod")
     @pytest.mark.asyncio
     async def test_complete_tls_alpn01_certificate_request_flow(
         self,
+        mock_chmod: Mock,
         mock_write_bytes: Mock,
         mock_mkdir: Mock,
         mock_create_csr: Mock,
@@ -177,6 +179,7 @@ class TestComprehensiveACMETLSALPN01Flow:
         # Path.write_bytes is mocked, so files won't actually exist
         # Check that write_bytes was called to write the certificate and key
         assert mock_write_bytes.call_count == 2  # Called for cert and key
+        assert mock_chmod.call_count == 2  # Called for cert and key permissions
         assert (
             cert_bytes
             == b"-----BEGIN CERTIFICATE-----\ntest_cert_data\n-----END CERTIFICATE-----"

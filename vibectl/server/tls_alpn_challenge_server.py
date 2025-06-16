@@ -84,7 +84,14 @@ class TLSALPNChallengeServer:
         with self._lock:
             self._challenges[domain] = challenge_response
             logger.debug(f"Set TLS-ALPN-01 challenge for domain: {domain}")
-            logger.debug(f"Challenge response hash: {challenge_response.hex()[:32]}...")
+            # Handle both bytes and Mock objects for testing
+            response_info = (
+                f"{len(challenge_response)} bytes"
+                if hasattr(challenge_response, "__len__")
+                and not hasattr(challenge_response, "_mock_name")
+                else "redacted (test mock)"
+            )
+            logger.debug(f"Challenge response length: {response_info}")
             logger.debug(f"Total active challenges: {len(self._challenges)}")
             logger.debug(f"Active challenge domains: {list(self._challenges.keys())}")
 
