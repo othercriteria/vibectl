@@ -29,34 +29,34 @@ def mock_tls_alpn_challenge_server() -> Mock:
 
 
 @pytest.fixture
-def acme_config_http() -> dict[str, str | list[str]]:
+def acme_config_http() -> dict[str, str | list[str] | dict[str, str]]:
     """Basic ACME configuration for HTTP-01 challenges."""
     return {
         "email": "test@example.com",
         "domains": ["example.com"],
-        "challenge_type": "http-01",
+        "challenge": {"type": "http-01"},
         "directory_url": "https://acme-test.example.com/directory",
     }
 
 
 @pytest.fixture
-def acme_config_tls_alpn() -> dict[str, str | list[str]]:
+def acme_config_tls_alpn() -> dict[str, str | list[str] | dict[str, str]]:
     """ACME configuration for TLS-ALPN-01 challenges."""
     return {
         "email": "test@example.com",
         "domains": ["example.com"],
-        "challenge_type": "tls-alpn-01",
+        "challenge": {"type": "tls-alpn-01"},
         "directory_url": "https://acme-test.example.com/directory",
     }
 
 
 @pytest.fixture
-def acme_config_with_ca() -> dict[str, str | list[str]]:
+def acme_config_with_ca() -> dict[str, str | list[str] | dict[str, str]]:
     """ACME configuration with custom CA certificate."""
     return {
         "email": "test@example.com",
         "domains": ["example.com"],
-        "challenge_type": "tls-alpn-01",
+        "challenge": {"type": "tls-alpn-01"},
         "directory_url": "https://pebble.example.com:14000/dir",
         "ca_cert_file": "/test/ca.crt",
     }
@@ -187,9 +187,9 @@ class TestACMEManagerStartStop:
             mock_provision.return_value = Error(error="Certificate provisioning failed")
 
             result = await manager.start()
-            assert isinstance(result, Error)
-            assert "Certificate provisioning failed" in result.error
-            assert not manager.is_running
+            # HTTP-01 now continues running even when initial provisioning fails
+            assert isinstance(result, Success)
+            assert manager.is_running
 
     @pytest.mark.asyncio
     async def test_start_stop_with_renewal_task(
@@ -466,14 +466,13 @@ class TestACMEManagerHTTPChallenge:
             mock_challenge_body, "example.com", None, original_method, mock_acme_client
         )
 
-        # Verify challenge was set and removed
+        # Verify challenge was set
         mock_http_challenge_server.set_challenge.assert_called_once_with(
             "test-token", "validation"
         )
-        mock_http_challenge_server.remove_challenge.assert_called_once_with(
-            "test-token"
-        )
-        mock_acme_client._client.answer_challenge.assert_called_once()
+        # Challenge is NOT immediately removed to avoid race condition
+        # Cleanup happens later after ACME validation completes
+        mock_http_challenge_server.remove_challenge.assert_not_called()
 
     def test_handle_http01_challenge_no_server(
         self, acme_config_http: dict[str, str | list[str]]
@@ -793,7 +792,7 @@ class TestACMEManagerRenewal:
             "email": "test@example.com",
             "domains": ["test.example.com"],
             "directory_url": "https://acme.example.com/directory",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
             "ca_cert_file": None,
         }
 
@@ -818,8 +817,8 @@ class TestACMEManagerRenewal:
 
             await manager.stop()
 
-    async def test_start_http01_exits_on_initial_failure(self) -> None:
-        """Test HTTP-01 manager exits when initial provisioning fails."""
+    async def test_start_http01_continues_on_initial_failure(self) -> None:
+        """Test HTTP-01 manager continues running when initial provisioning fails."""
         mock_acme_client = AsyncMock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
             "Initial certificate request failed"
@@ -831,7 +830,7 @@ class TestACMEManagerRenewal:
             "email": "test@example.com",
             "domains": ["test.example.com"],
             "directory_url": "https://acme.example.com/directory",
-            "challenge_type": "http-01",
+            "challenge": {"type": "http-01"},
             "ca_cert_file": None,
         }
 
@@ -845,12 +844,12 @@ class TestACMEManagerRenewal:
                 challenge_server=mock_http_challenge_server, acme_config=config
             )
 
-            # Start should fail and manager should not be running
+            # Start should succeed and manager should continue running
             result = await manager.start()
 
-            # Should fail for HTTP-01
-            assert isinstance(result, Error)
-            assert not manager.is_running
+            # HTTP-01 now continues running even when initial provisioning fails
+            assert isinstance(result, Success)
+            assert manager.is_running
 
     async def test_start_tls_alpn_background_retry_success(self) -> None:
         """Test TLS-ALPN-01 manager retries in background and eventually succeeds."""
@@ -867,7 +866,7 @@ class TestACMEManagerRenewal:
             "email": "test@example.com",
             "domains": ["test.example.com"],
             "directory_url": "https://acme.example.com/directory",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
             "ca_cert_file": None,
             "cert_file": "/tmp/test_cert.pem",
             "key_file": "/tmp/test_key.pem",
@@ -911,7 +910,7 @@ class TestACMEManagerRenewal:
             "email": "test@example.com",
             "domains": ["test.example.com"],
             "directory_url": "https://acme.example.com/directory",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
             "ca_cert_file": None,
         }
 

@@ -71,6 +71,8 @@ class ACMEClient:
         self.tls_alpn_challenge_server = tls_alpn_challenge_server
         self._client: client.ClientV2 | None = None
         self._account_key: jose.JWKRSA | None = None
+        # Track HTTP-01 challenge files for cleanup after validation
+        self._http01_challenge_files: dict[str, Path] = {}
 
     def _ensure_client(self) -> None:
         """Ensure the ACME client is initialized."""
@@ -169,10 +171,11 @@ class ACMEClient:
     def request_certificate(
         self,
         domains: list[str],
-        challenge_type: str = "http-01",
+        challenge_type: str = "tls-alpn-01",
         cert_file: str | None = None,
         key_file: str | None = None,
         challenge_dir: str | None = None,
+        _retry: bool = False,
     ) -> tuple[bytes, bytes]:
         """Request a certificate for the specified domains.
 
@@ -182,6 +185,7 @@ class ACMEClient:
             cert_file: Optional path to save certificate
             key_file: Optional path to save private key
             challenge_dir: Directory for HTTP-01 challenge files
+            _retry: Whether to retry the request after a bad nonce error
 
         Returns:
             Tuple of (cert_bytes, key_bytes)
@@ -251,6 +255,37 @@ class ACMEClient:
 
         except acme.errors.ValidationError as e:
             raise ACMEValidationError(f"Domain validation failed: {e}") from e
+        except acme.errors.BadNonce as e:
+            # RFC 8555 §6.5 mandates the client to retry once with a fresh nonce
+            # when the server returns badNonce.
+            if _retry:
+                raise ACMECertificateError(
+                    f"ACME certificate request failed after nonce retry: {e}"
+                ) from e
+
+            logger.warning(
+                "Bad nonce from ACME CA - fetching a fresh nonce and retrying once"
+            )
+
+            # Fetch a new nonce (directory['newNonce'] is guaranteed)
+            assert self._client is not None
+            try:
+                _ = self._client.net.get(self._client.directory["newNonce"])
+            except Exception as nonce_err:  # pragma: no cover - unlikely
+                raise ACMECertificateError(
+                    f"Failed to refresh nonce after badNonce error: {nonce_err}"
+                ) from e
+
+            # Retry the whole flow once
+            return self.request_certificate(
+                domains,
+                challenge_type,
+                cert_file,
+                key_file,
+                challenge_dir,
+                _retry=True,
+            )
+
         except acme.errors.Error as e:
             raise ACMECertificateError(f"ACME certificate request failed: {e}") from e
         except Exception as e:
@@ -365,6 +400,9 @@ class ACMEClient:
             f"Challenge must be accessible at: http://{domain}/.well-known/acme-challenge/{token_str}"
         )
 
+        # Store challenge file for later cleanup
+        self._http01_challenge_files[domain] = challenge_file
+
         try:
             # Submit challenge response
             assert self._client is not None
@@ -372,16 +410,11 @@ class ACMEClient:
 
         except Exception as submit_error:
             logger.error(f"Error submitting challenge response: {submit_error}")
+            # Clean up on submission error only
+            self._cleanup_http01_challenge_file(domain)
             raise ACMEValidationError(
                 f"Failed to submit challenge response: {submit_error}"
             ) from submit_error
-        finally:
-            # Clean up challenge file
-            try:
-                challenge_file.unlink()
-                logger.info(f"Cleaned up challenge file: {challenge_file}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up challenge file: {e}")
 
     def _complete_dns01_challenge(
         self, challenge_body: messages.ChallengeBody, domain: str
@@ -620,6 +653,26 @@ class ACMEClient:
             f"Authorization validation timed out after {timeout} seconds"
         )
 
+    def _cleanup_http01_challenge_file(self, domain: str) -> None:
+        """Clean up HTTP-01 challenge file for a specific domain.
+
+        Args:
+            domain: Domain whose challenge file should be cleaned up
+        """
+        if domain not in self._http01_challenge_files:
+            logger.debug(f"No HTTP-01 challenge file to clean up for domain: {domain}")
+            return
+
+        challenge_file = self._http01_challenge_files[domain]
+        try:
+            challenge_file.unlink()
+            logger.info(f"Cleaned up HTTP-01 challenge file: {challenge_file}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up HTTP-01 challenge file: {e}")
+        finally:
+            # Remove from tracking regardless of success/failure
+            del self._http01_challenge_files[domain]
+
     def _cleanup_completed_challenge(
         self, authz: messages.AuthorizationResource
     ) -> None:
@@ -628,29 +681,35 @@ class ACMEClient:
         Args:
             authz: Completed authorization resource
         """
-        if self.tls_alpn_challenge_server is None:
-            logger.debug("🚫 No TLS-ALPN challenge server available for cleanup")
-            return
-
         # Extract domain from authorization identifier
         domain = authz.body.identifier.value
 
-        # Log current state before cleanup
-        active_domains_before = (
-            self.tls_alpn_challenge_server._get_active_challenge_domains()
-        )
         logger.info(f"🧹 Cleaning up challenge for domain: {domain}")
-        logger.debug(f"📋 Active challenges before cleanup: {active_domains_before}")
 
-        # Remove the challenge response from the TLS-ALPN server
-        self.tls_alpn_challenge_server.remove_challenge(domain)
+        # Clean up HTTP-01 challenge files
+        self._cleanup_http01_challenge_file(domain)
 
-        # Log state after cleanup
-        active_domains_after = (
-            self.tls_alpn_challenge_server._get_active_challenge_domains()
-        )
-        logger.info(f"✅ Cleaned up TLS-ALPN challenge for domain: {domain}")
-        logger.debug(f"📋 Active challenges after cleanup: {active_domains_after}")
+        # Clean up TLS-ALPN challenge server if available
+        if self.tls_alpn_challenge_server is not None:
+            # Log current state before cleanup
+            active_domains_before = (
+                self.tls_alpn_challenge_server._get_active_challenge_domains()
+            )
+            logger.debug(
+                f"📋 Active challenges before cleanup: {active_domains_before}"
+            )
+
+            # Remove the challenge response from the TLS-ALPN server
+            self.tls_alpn_challenge_server.remove_challenge(domain)
+
+            # Log state after cleanup
+            active_domains_after = (
+                self.tls_alpn_challenge_server._get_active_challenge_domains()
+            )
+            logger.info(f"✅ Cleaned up TLS-ALPN challenge for domain: {domain}")
+            logger.debug(f"📋 Active challenges after cleanup: {active_domains_after}")
+        else:
+            logger.debug("🚫 No TLS-ALPN challenge server available for cleanup")
 
     def _create_csr(
         self, domains: list[str], private_key: rsa.RSAPrivateKey

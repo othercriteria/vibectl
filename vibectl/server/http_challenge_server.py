@@ -82,6 +82,16 @@ class HTTPChallengeServer:
         """Handle ACME challenge requests."""
         token = request.match_info["token"]
 
+        # Special-case the common "health" probe token to avoid noisy 404/warning logs
+        # and simplify external health checking of the challenge service.  Return a
+        # standard 200 OK with a short body instead of treating it as a missing
+        # challenge.  This is useful for Kubernetes probes and demo scripts that hit
+        # `/.well-known/acme-challenge/health` before any real challenge tokens are
+        # present.
+        if token.lower() == "health":
+            logger.debug("Received health probe on ACME challenge endpoint")
+            return web.Response(text="OK", content_type="text/plain")
+
         logger.debug(f"ACME challenge request for token: {token}")
 
         # Get challenge response
@@ -173,6 +183,17 @@ class HTTPChallengeServer:
             self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
 
+            # Get the actual port if port 0 was used (auto-assign)
+            if self.port == 0:
+                # For port 0 (auto-assign), skip the readiness check
+                # aiohttp handles the binding correctly and the server is ready after
+                # site.start()
+                logger.debug("Port 0 used (auto-assign), skipping port readiness check")
+                # Skip port readiness check for auto-assigned ports
+            else:
+                # Wait for the port to actually be listening
+                await self._wait_for_port_ready(self.port)
+
             self._running = True
             self._start_event.set()
 
@@ -187,6 +208,39 @@ class HTTPChallengeServer:
             logger.error(f"Failed to start HTTP challenge server: {e}")
             await self._cleanup()
             raise
+
+    async def _wait_for_port_ready(self, port: int, timeout: float = 5.0) -> None:
+        """Wait for the port to actually be listening.
+
+        Args:
+            port: The actual port number to check
+            timeout: Maximum time to wait in seconds
+        """
+        import asyncio
+        import socket
+
+        start_time = asyncio.get_event_loop().time()
+
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            try:
+                # Test if we can connect to our own port
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.1)
+                result = sock.connect_ex(
+                    (self.host if self.host != "0.0.0.0" else "localhost", port)
+                )
+                sock.close()
+
+                if result == 0:
+                    logger.debug(f"Port {port} is now listening")
+                    return
+
+            except Exception as e:
+                logger.debug(f"Port check failed: {e}")
+
+            await asyncio.sleep(0.1)
+
+        raise RuntimeError(f"Port {port} not listening after {timeout} seconds")
 
     async def stop(self) -> None:
         """Stop the HTTP challenge server."""

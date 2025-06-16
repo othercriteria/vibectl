@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🔰 vibectl-server Demo: ACME (TLS-ALPN-01) + JWT Auth"
-echo "===================================================="
+echo "🌐 vibectl-server Demo: ACME (HTTP-01) + JWT Auth"
+echo "================================================="
 echo ""
-echo "This demo provisions certificates via ACME TLS-ALPN-01 using the Pebble test CA."
+echo "This demo provisions certificates via ACME HTTP-01 using the Pebble test CA."
+echo "Unlike TLS-ALPN-01, this requires HTTP (port 80) access for challenge verification."
 echo ""
 
 # Check that we're in the project root
 if [[ ! -f "pyproject.toml" || ! -d "vibectl" ]]; then
     echo "❌ Error: Please run this script from the project root:"
-    echo "   ./examples/manifests/vibectl-server/demo-acme.sh"
+    echo "   ./examples/manifests/vibectl-server/demo-acme-http.sh"
     echo ""
     echo "Current directory: $(pwd)"
     exit 1
@@ -19,7 +20,7 @@ fi
 PROJECT_ROOT="."
 MANIFESTS_DIR="examples/manifests/vibectl-server"
 IMAGE_NAME="vibectl-server:local"
-NAMESPACE="vibectl-server-acme"
+NAMESPACE="vibectl-server-acme-http"
 
 echo "🧹 Cleaning up any previous demo setup..."
 kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true
@@ -70,7 +71,7 @@ if ! kubectl get ns metallb-system >/dev/null 2>&1; then
     cat <<EOF
 ❌ MetalLB not detected in the cluster.
 
-This demo relies on a LoadBalancer Service (port 443) for ACME validation.
+This demo relies on LoadBalancer Services (ports 80 and 443) for HTTP-01 ACME validation.
 
 Quick single-node install (layer-2 mode):
 
@@ -149,7 +150,7 @@ PEBBLE_URL="https://pebble.${NAMESPACE}.svc.cluster.local:${PEBBLE_SERVICE_PORT}
 echo "✅ Pebble ACME server ready"
 echo "📍 Pebble URL (DNS): ${PEBBLE_URL}"
 echo "📍 Pebble IP: ${PEBBLE_SERVICE_IP}:${PEBBLE_SERVICE_PORT}"
-echo "🔐 Certificate includes SANs for both DNS name and IP address"
+echo "🌐 HTTP-01 challenges will be served on port 80"
 
 # Extract the dynamic CA certificate from Pebble and update the ConfigMap
 echo ""
@@ -165,11 +166,11 @@ kubectl create configmap pebble-ca-cert \
 echo "✅ Pebble CA certificate updated in ConfigMap"
 
 echo ""
-echo "📦 Step 3: Creating ACME configuration and deploying vibectl-server..."
-echo "====================================================================="
+echo "📦 Step 3: Creating HTTP-01 ACME configuration and deploying vibectl-server..."
+echo "==========================================================================="
 
-echo "🚀 Deploying vibectl-server services (ClusterIP + NodePort)..."
-kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/service-acme.yaml"
+echo "🚀 Deploying vibectl-server services (ClusterIP + LoadBalancer with HTTP and HTTPS)..."
+kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/service-acme-http.yaml"
 
 # Wait for the external IP of the LoadBalancer service
 echo "⏳ Waiting for LoadBalancer external IP..."
@@ -194,8 +195,9 @@ fi
 # External domain derived from LoadBalancer IP
 EXTERNAL_DOMAIN="$(echo $LB_IP | tr '.' '-')".nip.io
 
-# Create ACME configuration ConfigMap with the dynamic Pebble URL and domains
-echo "🔧 Creating ACME configuration..."
+# Create HTTP-01 ACME configuration ConfigMap with the dynamic Pebble URL and domains
+# Note: For HTTP-01 in this demo, we use the internal domain that Pebble can reach
+echo "🔧 Creating HTTP-01 ACME configuration..."
 kubectl create configmap vibectl-server-acme-config \
   --from-literal=directory-url="$PEBBLE_URL" \
   --from-literal=acme-domain-internal="$ACME_DOMAIN" \
@@ -203,11 +205,11 @@ kubectl create configmap vibectl-server-acme-config \
   -n "${NAMESPACE}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "🚀 Deploying vibectl-server with ACME..."
+echo "🚀 Deploying vibectl-server with HTTP-01 ACME..."
 kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/jwt-secret.yaml"
-kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/configmap-acme.yaml"
+kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/configmap-acme-http.yaml"
 # Note: pebble-ca-cert ConfigMap is created dynamically after Pebble starts
-kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/deployment-acme.yaml"
+kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS_DIR}/deployment-acme-http.yaml"
 
 echo "✅ All manifests deployed successfully!"
 
@@ -216,7 +218,8 @@ echo "⏳ Step 4: Waiting for deployment to be ready..."
 echo "======================================================"
 echo "The server will:"
 echo "  🏭 Start with temporary self-signed certificates"
-echo "  🔰 Request ACME certificate via TLS-ALPN-01 challenge"
+echo "  🌐 Serve HTTP-01 challenges on port 80"
+echo "  🔰 Request ACME certificate via HTTP-01 challenge"
 echo "  🔑 Generate JWT demo token"
 echo ""
 
@@ -259,9 +262,30 @@ JWT_TOKEN=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat 
 echo "✅ Demo data extracted successfully!"
 
 echo ""
-echo "🔍 Step 5: Waiting for ACME certificate provisioning..."
-echo "======================================================="
+echo "🔍 Step 5: Waiting for HTTP-01 ACME certificate provisioning..."
+echo "=============================================================="
 echo "⏳ Waiting for ACME certificate to be provisioned..."
+
+# Test HTTP-01 challenge endpoint
+echo "🌐 Testing HTTP-01 challenge endpoint availability..."
+timeout=60
+while [ $timeout -gt 0 ]; do
+  if curl -f -s "http://${LB_IP}/.well-known/acme-challenge/health" >/dev/null 2>&1; then
+    echo "✅ HTTP-01 challenge endpoint is accessible"
+    break
+  fi
+  echo "⏳ Waiting for HTTP-01 endpoint... ($timeout seconds remaining)"
+  sleep 5
+  timeout=$((timeout - 5))
+done
+
+if [ $timeout -le 0 ]; then
+  echo "❌ HTTP-01 challenge endpoint not accessible"
+  echo "🔍 Check service and pod status:"
+  kubectl get svc -n "${NAMESPACE}"
+  kubectl get pods -n "${NAMESPACE}"
+  exit 1
+fi
 
 # Wait for ACME certificate to be provisioned
 timeout=300
@@ -279,6 +303,9 @@ if [ $timeout -le 0 ]; then
   echo "❌ Timeout waiting for ACME certificate provisioning"
   echo "🔍 Check vibectl-server logs for ACME errors:"
   kubectl logs "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server --tail=20
+  echo ""
+  echo "🔍 Check HTTP-01 challenge availability:"
+  echo "   curl -v http://${LB_IP}/.well-known/acme-challenge/test"
   exit 1
 fi
 
@@ -288,7 +315,7 @@ echo "========================================"
 
 # Extract the intermediate CA certificate from the ACME certificate chain for client use
 # The server certificate was issued by an intermediate CA, so we need that CA for verification
-CA_BUNDLE_FILE="/tmp/vibectl-demo-pebble-ca.crt"
+CA_BUNDLE_FILE="/tmp/vibectl-demo-pebble-ca-http.crt"
 echo "🔍 Extracting intermediate CA certificate from ACME certificate chain..."
 
 # Extract the intermediate CA certificate inside the vibectl-server container
@@ -335,9 +362,12 @@ echo "==============================================="
 # Display connection info
 PROXY_HOST="$EXTERNAL_DOMAIN"
 PROXY_PORT="443"
-echo "🔍 ACME validation domain : $ACME_DOMAIN"
+echo "🔍 ACME validation domain : $ACME_DOMAIN (internal cluster DNS)"
 echo "🌐 External access domain : $EXTERNAL_DOMAIN"
 echo "🌐 External URL          : vibectl-server://$JWT_TOKEN@$PROXY_HOST:$PROXY_PORT"
+echo "🌐 HTTP-01 challenge URL : http://$LB_IP/.well-known/acme-challenge/"
+echo ""
+echo "ℹ️  Note: HTTP-01 validation uses internal cluster DNS for Pebble connectivity"
 
 echo ""
 echo "⚙️  Step 8: Configuring vibectl proxy with Pebble CA..."
@@ -356,16 +386,17 @@ echo "Testing connection with ACME certificate verification..."
 
 if vibectl setup-proxy test; then
     echo ""
-    echo "🎉 ACME Demo Complete!"
-    echo "==============================="
+    echo "🎉 HTTP-01 ACME Demo Complete!"
+    echo "================================="
     echo ""
     echo "📋 Technical Summary:"
-    echo "   • Server endpoint: ${PROXY_HOST}:${PROXY_PORT}"
-    echo "   • Token: ${JWT_TOKEN}"
-    echo "   • ACME Provider : Pebble (${PEBBLE_URL})"
-    echo "   • Challenge     : TLS-ALPN-01"
-    echo "   • Domain        : ${ACME_DOMAIN}"
-    echo "   • Email         : admin@vibectl.test"
+    echo "   • Server endpoint   : ${PROXY_HOST}:${PROXY_PORT}"
+    echo "   • Token            : ${JWT_TOKEN}"
+    echo "   • ACME Provider    : Pebble (${PEBBLE_URL})"
+    echo "   • Challenge        : HTTP-01"
+    echo "   • Challenge Port   : 80"
+    echo "   • Domain           : ${ACME_DOMAIN}"
+    echo "   • Email            : admin@vibectl.test"
     echo ""
     echo "(For logs, run: kubectl logs deployment/vibectl-server -n ${NAMESPACE})"
 else
@@ -383,7 +414,8 @@ else
     echo "🔍 Check ACME certificate provisioning:"
     echo "   kubectl exec deploy/vibectl-server -n ${NAMESPACE} -- ls -la /root/.config/vibectl/server/certs/"
     echo ""
-    # Manual connection test removed – use logs above for troubleshooting
+    echo "🔍 Check HTTP-01 challenge endpoint:"
+    echo "   curl -v http://${LB_IP}/.well-known/acme-challenge/health"
 fi
 
 echo ""
@@ -393,4 +425,4 @@ echo "To clean up this demo environment, run:"
 echo "   kubectl delete namespace ${NAMESPACE}"
 echo "   rm -f ${CA_BUNDLE_FILE}"
 echo ""
-echo "🏁 ACME Demo complete!"
+echo "🏁 HTTP-01 ACME Demo complete!"

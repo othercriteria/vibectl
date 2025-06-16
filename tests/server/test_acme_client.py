@@ -657,39 +657,54 @@ class TestACMEClient:
         # Verify default directory is used
         mock_path_class.assert_called_with(".well-known/acme-challenge")
 
-    @patch("vibectl.server.acme_client.Path")
     @patch("vibectl.server.acme_client.logger")
-    def test_complete_http01_challenge_cleanup_error(
-        self, mock_logger: Mock, mock_path_class: Mock
-    ) -> None:
-        """Test HTTP-01 challenge with cleanup error."""
-        mock_challenge_body = Mock()
-        mock_challenge = Mock()
-        mock_challenge.encode.return_value = "test_token"
-        mock_challenge.response_and_validation.return_value = (
-            Mock(),
-            b"test_validation",
-        )
-        mock_challenge_body.chall = mock_challenge
-
-        mock_challenge_path = Mock()
-        mock_challenge_file = Mock()
-        mock_challenge_file.unlink.side_effect = OSError("Cleanup failed")
-        mock_challenge_path.__truediv__ = Mock(return_value=mock_challenge_file)
-        mock_path_class.return_value = mock_challenge_path
-
+    def test_cleanup_http01_challenge_file_success(self, mock_logger: Mock) -> None:
+        """Test successful HTTP-01 challenge file cleanup."""
         client = ACMEClient()
-        client._client = Mock()
-        client._account_key = Mock()
 
-        with patch.object(client, "_wait_for_authorization_validation"):
-            # Should not raise an exception, just log a warning
-            client._complete_http01_challenge(
-                mock_challenge_body, "example.com", "/test/dir"
-            )
+        # Create mock file for cleanup
+        mock_file = Mock()
+
+        # Add the mock file to the client's http01 challenge files
+        client._http01_challenge_files["example.com"] = mock_file
+
+        # Execute cleanup
+        client._cleanup_http01_challenge_file("example.com")
+
+        # Verify file was unlinked
+        mock_file.unlink.assert_called_once()
+
+        # Verify info message was logged
+        mock_logger.info.assert_called_once()
+        info_call = mock_logger.info.call_args[0][0]
+        assert "Cleaned up HTTP-01 challenge file" in info_call
+
+        # Verify the file was removed from tracking
+        assert "example.com" not in client._http01_challenge_files
+
+    @patch("vibectl.server.acme_client.logger")
+    def test_cleanup_http01_challenge_file_error(self, mock_logger: Mock) -> None:
+        """Test HTTP-01 challenge file cleanup with cleanup error."""
+        client = ACMEClient()
+
+        # Create a mock file that will fail to unlink
+        mock_file = Mock()
+        mock_file.unlink.side_effect = OSError("Cleanup failed")
+
+        # Add the mock file to the client's http01 challenge files
+        client._http01_challenge_files["example.com"] = mock_file
+
+        # Execute cleanup
+        client._cleanup_http01_challenge_file("example.com")
 
         # Verify warning was logged
         mock_logger.warning.assert_called_once()
+        warning_call = mock_logger.warning.call_args[0][0]
+        assert "Failed to clean up HTTP-01 challenge file" in warning_call
+        assert "Cleanup failed" in warning_call
+
+        # Verify the file was still removed from tracking even after error
+        assert "example.com" not in client._http01_challenge_files
 
     @patch("vibectl.server.acme_client.input")
     @patch("vibectl.server.acme_client.logger")

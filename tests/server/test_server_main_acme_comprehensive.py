@@ -433,7 +433,7 @@ class TestComprehensiveACMETLSALPN01Flow:
             "domains": ["vibectl.test"],
             "directory_url": "https://pebble.test:14000/dir",
             "ca_cert_file": "/pebble-ca/ca.crt",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -528,7 +528,7 @@ class TestComprehensiveACMETLSALPN01Flow:
             "email": "admin@vibectl.test",
             "domains": ["vibectl.test"],
             "directory_url": "https://pebble.test:14000/dir",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -649,7 +649,7 @@ class TestComprehensiveACMETLSALPN01Flow:
             "domains": ["vibectl.test"],
             "directory_url": "https://pebble.test:14000/dir",
             "ca_cert_file": "/pebble-ca/ca.crt",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
         }
 
         # Mock ACME client methods to prevent network calls
@@ -925,7 +925,7 @@ class TestACMEDemoDebugging:
             "domains": ["vibectl.test"],
             "directory_url": "https://10.43.179.11:14000/dir",
             "ca_cert_file": "/pebble-ca/ca.crt",
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
         }
 
         # Mock ACME client methods to prevent network calls and hanging

@@ -1026,7 +1026,8 @@ async def _async_acme_server_main(server_config: dict) -> Result:
         from .acme_manager import ACMEManager
 
         acme_config = server_config["acme"]
-        challenge_type = acme_config.get("challenge_type", "http-01")
+        challenge_config = acme_config.get("challenge", {})
+        challenge_type = challenge_config.get("type", "tls-alpn-01")
 
         challenge_server = None
         tls_alpn_challenge_server = None
@@ -1035,10 +1036,9 @@ async def _async_acme_server_main(server_config: dict) -> Result:
         if challenge_type == "http-01":
             from .http_challenge_server import HTTPChallengeServer
 
-            # Check if HTTP configuration is enabled
-            http_config = server_config.get("http", {})
-            http_host = http_config.get("host", "0.0.0.0")
-            http_port = http_config.get("port", 80)
+            # Get HTTP-01 challenge configuration from acme.challenge section
+            http_host = challenge_config.get("http_host", "0.0.0.0")
+            http_port = challenge_config.get("http_port", 80)
 
             logger.info(
                 f"Starting HTTP challenge server on {http_host}:{http_port} "
@@ -1147,7 +1147,21 @@ async def _async_acme_server_main(server_config: dict) -> Result:
                     # (multiplexer handles connections)
                     await asyncio.Event().wait()
                 else:
-                    server.wait_for_termination()
+                    # For HTTP-01, we need to wait asynchronously to avoid blocking
+                    # the event loop that the HTTP challenge server depends on
+                    shutdown_event = asyncio.Event()
+
+                    def signal_shutdown() -> None:
+                        shutdown_event.set()
+
+                    # Set up signal handlers for graceful shutdown
+                    import signal
+
+                    for sig in [signal.SIGTERM, signal.SIGINT]:
+                        signal.signal(sig, lambda signum, frame: signal_shutdown())
+
+                    # Wait for shutdown signal while keeping event loop alive
+                    await shutdown_event.wait()
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt, shutting down...")
 
@@ -1194,7 +1208,8 @@ def _create_grpc_server_with_temp_certs(server_config: dict) -> Any:
     # This allows Pebble to connect during initial challenge validation
     if (
         server_config.get("acme", {}).get("enabled")
-        and server_config.get("acme", {}).get("challenge_type") == "tls-alpn-01"
+        and server_config.get("acme", {}).get("challenge", {}).get("type")
+        == "tls-alpn-01"
         and server_config.get("acme", {}).get("domains")
     ):
         logger.info("Generating self-signed certificate for development use")
@@ -1265,6 +1280,26 @@ def _reload_server_certificates(target: Any, cert_file: str, key_file: str) -> N
                 target.key_file = key_file
 
             logger.info("🔄 Hot certificate reload completed successfully")
+            return
+
+        # For GRPCServer, we need to restart it with new certificates
+        # since python-grpc doesn't support hot certificate reloading
+        from .grpc_server import GRPCServer
+
+        if isinstance(target, GRPCServer):
+            logger.info("🔄 Restarting gRPC server with new ACME certificates...")
+
+            # Stop the current server
+            target.stop(grace_period=2.0)
+
+            # Update certificate paths
+            target.cert_file = cert_file
+            target.key_file = key_file
+
+            # Restart the server with new certificates
+            target.start()
+
+            logger.info("✅ gRPC server restarted successfully with new certificates")
             return
 
         # Fallback / unsupported targets
@@ -1446,7 +1481,7 @@ def serve_ca(
 @click.option(
     "--challenge-type",
     type=click.Choice(["http-01", "dns-01", "tls-alpn-01"]),
-    default="http-01",
+    default="tls-alpn-01",
     help="Challenge type",
 )
 def serve_acme(
@@ -1472,7 +1507,7 @@ def serve_acme(
         "enabled": True,
         "email": email,
         "domains": list(domain),
-        "challenge_type": challenge_type,
+        "challenge": {"type": challenge_type},
     }
 
     # Add directory_url if provided
@@ -1623,21 +1658,10 @@ def serve(ctx: click.Context, config: str | None) -> None:
             validity_days=validity_days,
         )
     elif mode == ServeMode.ACME:
-        # Extract ACME configuration for serve_acme
-        acme_config = server_config.get("acme", {})
-        email = acme_config.get("email")
-        domains = acme_config.get("domains", [])
-        directory_url = acme_config.get("directory_url")
-        challenge_type = acme_config.get("challenge_type", "http-01")
-
-        ctx.invoke(
-            serve_acme,
-            config=config,
-            email=email,
-            domain=domains,
-            directory_url=directory_url,
-            challenge_type=challenge_type,
-        )
+        # For ACME mode, use the loaded config directly to avoid CLI override issues
+        # that can cause port 443 default to override config file port values
+        result = _create_and_start_server_common(server_config)
+        handle_result(result)
     elif mode == ServeMode.CUSTOM:
         # Extract certificate paths from config for serve-custom
         cert_file = server_config.get("tls", {}).get("cert_file")

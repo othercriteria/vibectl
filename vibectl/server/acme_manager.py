@@ -60,7 +60,8 @@ class ACMEManager:
         self.cert_reload_callback = cert_reload_callback
 
         # Validate configuration
-        challenge_type = acme_config.get("challenge_type", "http-01")
+        challenge_config = acme_config.get("challenge", {})
+        challenge_type = challenge_config.get("type", "tls-alpn-01")
         if challenge_type == "http-01" and challenge_server is None:
             raise ValueError("HTTP challenge server is required for HTTP-01 challenges")
         if challenge_type == "tls-alpn-01" and tls_alpn_challenge_server is None:
@@ -104,22 +105,19 @@ class ACMEManager:
             # Perform initial certificate provisioning
             initial_result = await self._provision_initial_certificates()
             if isinstance(initial_result, Error):
-                # For TLS-ALPN-01 challenges, continue running even if
-                # initial provisioning fails
-                # The server needs to stay up to handle subsequent challenge requests
-                challenge_type = self.acme_config.get("challenge_type", "http-01")
-                if challenge_type == "tls-alpn-01":
-                    logger.warning(
-                        "Initial certificate provisioning failed for TLS-ALPN-01: "
-                        f"{initial_result.error}"
-                    )
-                    logger.info(
-                        "Continuing server operation - certificate provisioning will "
-                        "be retried during renewal check"
-                    )
-                else:
-                    await self.stop()
-                    return initial_result
+                # Continue running even if initial provisioning fails
+                # The server needs to stay up to handle challenge requests
+                # and retry later
+                challenge_config = self.acme_config.get("challenge", {})
+                challenge_type = challenge_config.get("type", "tls-alpn-01")
+                logger.warning(
+                    f"Initial certificate provisioning failed for {challenge_type}: "
+                    f"{initial_result.error}"
+                )
+                logger.info(
+                    "Continuing server operation - certificate provisioning will "
+                    "be retried during renewal check"
+                )
 
             logger.info("ACME manager started successfully")
             return Success(message="ACME manager started")
@@ -166,6 +164,9 @@ class ACMEManager:
                 cert_file, days_before_expiry=self.renewal_threshold_days
             ):
                 logger.info("Certificates need provisioning or renewal")
+
+                # Wait for HTTP-01 readiness
+                await self._wait_for_http01_readiness()
 
                 # Provision new certificates
                 provision_result = await self._provision_certificates_async(
@@ -214,7 +215,8 @@ class ACMEManager:
                 f"{self.acme_config['domains']}"
             )
 
-            challenge_type = self.acme_config.get("challenge_type", "http-01")
+            challenge_config = self.acme_config.get("challenge", {})
+            challenge_type = challenge_config.get("type", "tls-alpn-01")
 
             # Only monkey-patch for HTTP-01 challenges
             if challenge_type == "http-01":
@@ -294,7 +296,8 @@ class ACMEManager:
             f"Created HTTP-01 challenge file: .well-known/acme-challenge/{token_str}"
         )
         logger.info(
-            f"Challenge must be accessible at: http://{domain}/.well-known/acme-challenge/{token_str}"
+            "Challenge must be accessible at: "
+            f"http://{domain}/.well-known/acme-challenge/{token_str}"
         )
 
         # Set challenge in our HTTP server
@@ -305,13 +308,17 @@ class ACMEManager:
             acme_client._client.answer_challenge(challenge_body, response)
         except Exception as e:
             logger.error(f"Error submitting challenge response: {e}")
-            raise
-        finally:
-            # Clean up challenge from server
+            # FIXED: Only clean up on submission error, not always in finally block
+            # This allows ACME server to validate the challenge token
             self.challenge_server.remove_challenge(token_str)
             logger.info(
-                f"Cleaned up challenge file: .well-known/acme-challenge/{token_str}"
+                "Cleaned up challenge file after error: "
+                f".well-known/acme-challenge/{token_str}"
             )
+            raise
+
+        # The challenge will be cleaned up later by the ACME client after
+        # validation completes
 
     async def _renewal_monitor(self) -> None:
         """Background task to monitor certificate renewal needs."""
@@ -396,7 +403,8 @@ class ACMEManager:
         from .acme_client import LETSENCRYPT_PRODUCTION
 
         # Determine if we need to pass a TLS-ALPN challenge server
-        challenge_type = self.acme_config.get("challenge_type", "http-01")
+        challenge_config = self.acme_config.get("challenge", {})
+        challenge_type = challenge_config.get("type", "tls-alpn-01")
         tls_alpn_server = (
             self.tls_alpn_challenge_server if challenge_type == "tls-alpn-01" else None
         )
@@ -424,6 +432,59 @@ class ACMEManager:
             Tuple of (cert_file, key_file), both may be None if not available
         """
         return self.cert_file, self.key_file
+
+    async def _wait_for_http01_readiness(self, timeout: float = 30.0) -> None:
+        """Wait until the in-cluster Service that fronts the HTTP-01 challenge
+        server is routable.
+
+        The ACME CA (Pebble, Let's Encrypt, …) connects to the service on
+        port 80. Right after the pod starts it can take a few seconds until the
+        pod is marked *Ready* and added to the Endpoint list. If we try to
+        complete the challenge before that happens the CA will receive
+        connection-refused errors and invalidate the order.  By waiting here we
+        make sure the Service is ready before we kick off the ACME flow.
+        """
+
+        # Only relevant for HTTP-01 and when we actually have a running
+        # in-process challenge server (i.e. in production).  Unit tests often
+        # construct an ACMEManager with ``challenge_server`` mocked out or set
+        # to ``None``; in that scenario we skip the readiness wait entirely so
+        # tests run instantly.
+
+        challenge_config = self.acme_config.get("challenge", {})
+        challenge_type = challenge_config.get("type", "tls-alpn-01")
+        if challenge_type != "http-01" or not isinstance(
+            self.challenge_server, HTTPChallengeServer
+        ):
+            return
+
+        host = self.acme_config["domains"][0]
+        port = int(self.acme_config.get("http_port", 80))
+
+        logger.debug(
+            "Waiting for HTTP-01 challenge service to accept connections at "
+            f"{host}:{port}"
+        )
+
+        start = asyncio.get_event_loop().time()
+        while (asyncio.get_event_loop().time() - start) < timeout:
+            try:
+                reader, writer = await asyncio.open_connection(host, port)
+                writer.close()
+                with contextlib.suppress(AttributeError):
+                    # For Python < 3.7 compatibility - ignore
+                    await writer.wait_closed()
+                logger.debug("HTTP-01 challenge service is reachable")
+                return
+            except Exception as e:
+                # Most likely connection-refused or DNS still propagating
+                logger.debug(f"HTTP-01 readiness probe failed: {e}")
+                await asyncio.sleep(1)
+
+        logger.warning(
+            "Timed out waiting for HTTP-01 service to become reachable; "
+            "proceeding with ACME anyway."
+        )
 
 
 class ACMEChallengeResponder:

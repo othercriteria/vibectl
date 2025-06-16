@@ -428,7 +428,7 @@ class TestACMEManagerSpecificEdgeCases:
         acme_config = {
             "email": "test@example.com",
             "domains": ["example.com"],
-            "challenge_type": "tls-alpn-01",
+            "challenge": {"type": "tls-alpn-01"},
         }
 
         manager = ACMEManager(
@@ -464,7 +464,7 @@ class TestACMEManagerSpecificEdgeCases:
         acme_config = {
             "email": "test@example.com",
             "domains": ["example.com"],
-            "challenge_type": "http-01",
+            "challenge": {"type": "http-01"},
         }
 
         manager = ACMEManager(

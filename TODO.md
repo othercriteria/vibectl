@@ -1,24 +1,6 @@
-# TODO: Remaining Model Key Management Work
+# TODO
 
 ## Plugin System Expansion
-
-### Continue Alphabetical Command Integration
-
-After successfully completing plugin integration for `patch` (2 prompts) and `apply` (6 prompts), continue converting remaining commands to use the plugin system:
-
-**Next Priority:**
-- **auto** - Analyze prompt structure and convert to plugin system
-
-**Subsequent Commands (alphabetical order):**
-- check, cluster_info, create, delete, describe, diff, edit, events, get, logs, memory_update, port_forward, rollout, scale, version, vibe, wait
-
-### Enhanced Plugin Examples
-
-Create comprehensive plugin examples for each command type as they're converted:
-- Command-specific demo plugins showing advanced features
-- Best practices plugins for different use cases
-- Security-focused plugins (like paranoid-security)
-- Performance optimization plugins
 
 ### Plugin System Enhancements
 
@@ -133,11 +115,7 @@ Consider implementing rich progress displays for the wait command in the future:
 
 ## Future MCP Integration
 
-While full [Model Context Protocol](https://github.com/modelcontextprotocol/python-sdk) implementation is out of scope currently, future work should:
-
-1. Fully adopt MCP interface concepts (tools, resources, prompts)
-2. Migrate existing adapter pattern to MCP compatibility layer
-3. Leverage MCP's built-in key management features
+Model Context Protocol (MCP) integration tasks have been moved to [TODO-SERVER.md](TODO-SERVER.md).
 
 ## Command Execution Safety & Confirmation
 
@@ -473,19 +451,6 @@ Rather than patch-specific history, implement a comprehensive undo system that w
 - Strategic merge patch with array merge strategies
 - Server-side apply integration for field management
 
-## vibectl-server CLI Enhancements
+## vibectl-server Tasks
 
-Track server configuration and debugging commands removed from the
-documentation but still desirable for a polished server experience.
-
-### Planned Commands
-
-- `vibectl-server config show [--section <name>] [--format yaml|json]`
-- `vibectl-server config set <key> <value>`
-- `vibectl-server config get <key>`
-- `vibectl-server config validate [--config-file path]`
-- `vibectl-server config generate-secret [--output-file path]`
-- `vibectl-server config reset [--section <name>]`
-- `vibectl-server status [--include-secrets]`
-- `vibectl-server test-jwt [--generate-token subject]`
-- `vibectl-server config precedence`
+Server-specific tasks have been moved to [TODO-SERVER.md](TODO-SERVER.md).

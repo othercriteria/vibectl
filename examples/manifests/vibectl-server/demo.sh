@@ -17,7 +17,13 @@ echo "   • Features: Pebble test server, TLS-ALPN-01 challenges, simplified de
 echo "   • Benefits: Single container, no HTTP port, secure challenge handling"
 echo "   • Namespace: vibectl-server-acme"
 echo ""
-echo "3. 🧹 Cleanup all demos"
+echo "3. 🌐 ACME Management Demo (HTTP-01, Let's Encrypt Compatible)"
+echo "   • Best for: Testing HTTP-01 challenge flow, traditional web deployments"
+echo "   • Features: Pebble test server, HTTP-01 challenges, dual-port deployment"
+echo "   • Benefits: Standard HTTP challenge, easier debugging, web-compatible"
+echo "   • Namespace: vibectl-server-acme-http"
+echo ""
+echo "4. 🧹 Cleanup all demos"
 echo ""
 echo "For detailed comparison, see docs/llm-proxy-server.md"
 echo ""
@@ -31,7 +37,7 @@ if [[ ! -f "pyproject.toml" || ! -d "vibectl" ]]; then
     exit 1
 fi
 
-read -p "Select option (1-3): " choice
+read -p "Select option (1-4): " choice
 
 case $choice in
     1)
@@ -48,6 +54,12 @@ case $choice in
         ;;
     3)
         echo ""
+        echo "🌐 Starting ACME Management Demo (HTTP-01)..."
+        echo "============================================"
+        exec ./examples/manifests/vibectl-server/demo-acme-http.sh
+        ;;
+    4)
+        echo ""
         echo "🧹 Cleaning up all demo environments..."
         echo "======================================"
         echo ""
@@ -62,13 +74,22 @@ case $choice in
             echo "ℹ️  No CA demo namespace found"
         fi
 
-        # Check for ACME demo
+        # Check for ACME demo (TLS-ALPN-01)
         if kubectl get namespace vibectl-server-acme >/dev/null 2>&1; then
-            echo "🗑️  Removing ACME demo namespace..."
+            echo "🗑️  Removing ACME (TLS-ALPN-01) demo namespace..."
             kubectl delete namespace vibectl-server-acme
-            echo "✅ ACME demo cleaned up"
+            echo "✅ ACME (TLS-ALPN-01) demo cleaned up"
         else
-            echo "ℹ️  No ACME demo namespace found"
+            echo "ℹ️  No ACME (TLS-ALPN-01) demo namespace found"
+        fi
+
+        # Check for ACME HTTP-01 demo
+        if kubectl get namespace vibectl-server-acme-http >/dev/null 2>&1; then
+            echo "🗑️  Removing ACME (HTTP-01) demo namespace..."
+            kubectl delete namespace vibectl-server-acme-http
+            echo "✅ ACME (HTTP-01) demo cleaned up"
+        else
+            echo "ℹ️  No ACME (HTTP-01) demo namespace found"
         fi
 
         # Clean up temporary files
@@ -76,6 +97,7 @@ case $choice in
         echo "🧹 Cleaning up temporary files..."
         rm -f /tmp/vibectl-demo-ca-bundle.crt
         rm -f /tmp/vibectl-demo-acme-cert.pem
+        rm -f /tmp/vibectl-demo-pebble-ca-http.crt
         echo "✅ Temporary files cleaned up"
 
         echo ""
@@ -84,7 +106,7 @@ case $choice in
         ;;
     *)
         echo ""
-        echo "❌ Invalid option. Please select 1-3."
+        echo "❌ Invalid option. Please select 1-4."
         echo ""
         exec "$0"
         ;;

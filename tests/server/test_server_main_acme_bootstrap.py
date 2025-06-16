@@ -57,7 +57,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": ["api.example.com", "www.example.com", "example.com"],
                 },
             }
@@ -190,7 +190,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "http-01",
+                    "challenge": {"type": "http-01"},
                     "domains": ["api.example.com", "www.example.com"],
                 },
             }
@@ -242,7 +242,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": [],  # Empty domains list
                 },
             }
@@ -297,7 +297,7 @@ class TestACMEBootstrapCertificates:
                     "tls": {"enabled": True},
                     "acme": {
                         "enabled": True,
-                        "challenge_type": "tls-alpn-01",
+                        "challenge": {"type": "tls-alpn-01"},
                         "domains": ["api.example.com"],
                     },
                 }
@@ -357,7 +357,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": ["api.example.com"],
                 },
             }
@@ -416,7 +416,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": ["api.example.com"],
                 },
             }
@@ -464,7 +464,7 @@ class TestACMEBootstrapCertificates:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": ["public.example.com", "api.example.com"],
                 },
             }
@@ -567,7 +567,7 @@ class TestACMEBootstrapCertificateIntegration:
                 "tls": {"enabled": True},
                 "acme": {
                     "enabled": True,
-                    "challenge_type": "tls-alpn-01",
+                    "challenge": {"type": "tls-alpn-01"},
                     "domains": acme_domains,
                 },
             }

@@ -297,7 +297,7 @@ class TestCLICommands:
                 "domains": [],
                 "directory_url": "https://acme-v02.api.letsencrypt.org/directory",
                 "staging": False,
-                "challenge_type": "http-01",
+                "challenge": {"type": "http-01"},
                 "challenge_dir": ".well-known/acme-challenge",
                 "auto_renew": True,
                 "renew_days_before_expiry": 30,
@@ -419,14 +419,14 @@ class TestCLICommands:
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.config.ServerConfig.validate")
-    @patch("vibectl.server.main.create_server")
+    @patch("vibectl.server.main._create_and_start_server_common")
     def test_serve_command_smart_routing_acme(
         self,
-        mock_create_server: Mock,
+        mock_create_server_common: Mock,
         mock_validate: Mock,
         mock_load_config: Mock,
     ) -> None:
-        """Test serve command routes to serve-acme for ACME config."""
+        """Test serve command routes to ACME mode using common server creation."""
         mock_config = get_default_server_config()
         # ACME enabled = ACME mode
         mock_config["tls"]["enabled"] = True
@@ -434,14 +434,12 @@ class TestCLICommands:
         mock_load_config.return_value = Success(data=mock_config)
         mock_validate.return_value = Success(data=mock_config)
 
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
+        mock_create_server_common.return_value = Success(data="Server started")
 
-        with patch("vibectl.server.main.serve_acme") as mock_serve_acme:
-            result = self.runner.invoke(serve)
+        result = self.runner.invoke(serve)
 
-            assert result.exit_code == 0
-            mock_serve_acme.assert_called_once()
+        assert result.exit_code == 0
+        mock_create_server_common.assert_called_once_with(mock_config)
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.config.ServerConfig.validate")

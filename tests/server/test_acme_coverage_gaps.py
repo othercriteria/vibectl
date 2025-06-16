@@ -108,7 +108,7 @@ class TestACMEManagerCoverageGaps:
         return {
             "email": "test@example.com",
             "domains": ["example.com"],
-            "challenge_type": "http-01",
+            "challenge": {"type": "http-01"},
             "directory_url": "https://acme-test.example.com/directory",
         }
 

@@ -46,7 +46,7 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -115,7 +115,7 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -146,7 +146,7 @@ class TestServerCreationAndStartup:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -835,7 +835,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -869,7 +869,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -907,7 +907,7 @@ class TestErrorHandlingPaths:
                 "enabled": True,
                 "email": "test@example.com",
                 "domains": ["example.com"],
-                "challenge_type": "tls-alpn-01",
+                "challenge": {"type": "tls-alpn-01"},
             },
             "jwt": {"enabled": False},
         }
@@ -1112,11 +1112,11 @@ class TestSmartServeCommandRouting:
         )
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.serve_acme")
+    @patch("vibectl.server.main._create_and_start_server_common")
     def test_serve_routes_to_acme_with_extracted_arguments(
-        self, mock_serve_acme: Mock, mock_load_config: Mock
+        self, mock_create_server_common: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serves ACME mode with extracted arguments from config."""
+        """Test serves ACME mode using common server creation with config."""
         config = get_default_server_config()
         config["tls"]["enabled"] = True
         config["acme"] = {
@@ -1124,27 +1124,22 @@ class TestSmartServeCommandRouting:
             "email": "test@example.com",
             "domains": ["example.com", "www.example.com"],
             "directory_url": "https://acme-staging-v02.api.letsencrypt.org/directory",
-            "challenge_type": "dns-01",
+            "challenge": {"type": "dns-01"},
         }
         mock_load_config.return_value = Success(data=config)
+        mock_create_server_common.return_value = Success(data="Server started")
 
         result = self.runner.invoke(cli, ["serve", "--config", "acme.yaml"])
 
         assert result.exit_code == 0
-        mock_serve_acme.assert_called_once_with(
-            config="acme.yaml",
-            email="test@example.com",
-            domain=["example.com", "www.example.com"],
-            directory_url="https://acme-staging-v02.api.letsencrypt.org/directory",
-            challenge_type="dns-01",
-        )
+        mock_create_server_common.assert_called_once_with(config)
 
     @patch("vibectl.server.main.load_server_config")
-    @patch("vibectl.server.main.serve_acme")
+    @patch("vibectl.server.main._create_and_start_server_common")
     def test_serve_routes_to_acme_with_defaults(
-        self, mock_serve_acme: Mock, mock_load_config: Mock
+        self, mock_create_server_common: Mock, mock_load_config: Mock
     ) -> None:
-        """Test serves ACME mode with minimal config (using defaults)."""
+        """Test serves ACME mode using common server creation with minimal config."""
         config = get_default_server_config()
         config["tls"]["enabled"] = True
         config["acme"] = {
@@ -1154,17 +1149,12 @@ class TestSmartServeCommandRouting:
             # directory_url and challenge_type will use defaults
         }
         mock_load_config.return_value = Success(data=config)
+        mock_create_server_common.return_value = Success(data="Server started")
 
         result = self.runner.invoke(cli, ["serve"])
 
         assert result.exit_code == 0
-        mock_serve_acme.assert_called_once_with(
-            config=None,
-            email="minimal@example.com",
-            domain=["minimal.com"],
-            directory_url=None,  # Default (Let's Encrypt production)
-            challenge_type="http-01",  # Default
-        )
+        mock_create_server_common.assert_called_once_with(config)
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.serve_custom")
