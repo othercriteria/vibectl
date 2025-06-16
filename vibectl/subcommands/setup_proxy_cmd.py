@@ -74,16 +74,26 @@ def validate_proxy_url(url: str) -> tuple[bool, str | None]:
         return False, f"URL validation failed: {e}"
 
 
-async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
+async def check_proxy_connection(
+    url: str,
+    timeout_seconds: int = 10,
+    jwt_path: str | None = None,
+    ca_bundle: str | None = None,
+) -> Result:
     """Test a proxy server connection.
 
     Args:
         url: The proxy server URL to test
         timeout_seconds: Connection timeout in seconds (default: 10)
+        jwt_path: Optional path to JWT token file (overrides config)
+        ca_bundle: Optional path to CA bundle file (overrides config and environment)
 
     Returns:
         Result indicating success or failure with connection details
     """
+    # Initialize channel variable at function scope for proper cleanup
+    channel = None
+
     try:
         # Parse the proxy URL
         try:
@@ -93,110 +103,118 @@ async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
         except ValueError as e:
             return Error(error=f"Invalid proxy URL: {e}")
 
-        # Create gRPC channel directly
-        channel = None
-        try:
-            if proxy_config.use_tls:
-                # Get CA bundle path from config/environment (same as ProxyModelAdapter)
-                config = Config()
-                ca_bundle_path = config.get_ca_bundle_path()
+        # Initialize config object for CA bundle and fallback JWT resolution
+        config = Config()
 
-                if ca_bundle_path:
-                    # Custom CA bundle TLS
-                    try:
-                        with open(ca_bundle_path, "rb") as f:
-                            ca_cert_data = f.read()
-                        credentials = grpc.ssl_channel_credentials(
-                            root_certificates=ca_cert_data
-                        )
-                        logger.debug(
-                            "Creating secure channel with custom "
-                            f"CA bundle ({ca_bundle_path}) for connection test "
-                            f"using TLS 1.3+"
-                        )
-                    except FileNotFoundError:
-                        return Error(
-                            error=f"CA bundle file not found: {ca_bundle_path}"
-                        )
-                    except Exception as e:
-                        return Error(
-                            error=f"Failed to read CA bundle file {ca_bundle_path}: {e}"
-                        )
+        # Get JWT token with precedence: jwt_path parameter > embedded in URL > config
+        jwt_token = None
+        if jwt_path:
+            # Read JWT token from provided file path
+            try:
+                jwt_file = Path(jwt_path).expanduser()
+                if jwt_file.exists() and jwt_file.is_file():
+                    jwt_token = jwt_file.read_text().strip()
                 else:
-                    # Production TLS with system trust store
-                    credentials = grpc.ssl_channel_credentials()
-                    logger.debug(
-                        "Creating secure channel with system trust store "
-                        "for connection test using TLS 1.3+"
+                    return Error(
+                        error=f"JWT file not found or not accessible: {jwt_path}"
                     )
+            except Exception as e:
+                return Error(error=f"Failed to read JWT file {jwt_path}: {e}")
+        else:
+            # Fall back to embedded token or config resolution
+            jwt_token = proxy_config.jwt_token or config.get_jwt_token()
 
-                # Configure TLS 1.3+ enforcement via gRPC channel options
-                channel_options = [
-                    # Enforce TLS 1.3+ for enhanced security
-                    ("grpc.ssl_min_tls_version", "TLSv1_3"),
-                    ("grpc.ssl_max_tls_version", "TLSv1_3"),
-                    # Additional security options
-                    ("grpc.keepalive_time_ms", 30000),
-                    ("grpc.keepalive_timeout_ms", 5000),
-                    ("grpc.keepalive_permit_without_calls", True),
-                ]
+        # Create gRPC channel directly
+        if proxy_config.use_tls:
+            # Get CA bundle path with precedence:
+            # ca_bundle parameter > environment > config
+            ca_bundle_path = ca_bundle or config.get_ca_bundle_path()
 
-                channel = grpc.secure_channel(
-                    f"{proxy_config.host}:{proxy_config.port}",
-                    credentials,
-                    options=channel_options,
-                )
+            if ca_bundle_path:
+                # Custom CA bundle TLS
+                try:
+                    with open(ca_bundle_path, "rb") as f:
+                        ca_cert_data = f.read()
+                    credentials = grpc.ssl_channel_credentials(
+                        root_certificates=ca_cert_data
+                    )
+                    logger.debug(
+                        "Creating secure channel with custom "
+                        f"CA bundle ({ca_bundle_path}) for connection test "
+                        f"using TLS 1.3+"
+                    )
+                except FileNotFoundError:
+                    return Error(error=f"CA bundle file not found: {ca_bundle_path}")
+                except Exception as e:
+                    return Error(
+                        error=f"Failed to read CA bundle file {ca_bundle_path}: {e}"
+                    )
             else:
-                channel = grpc.insecure_channel(
-                    f"{proxy_config.host}:{proxy_config.port}"
+                # Production TLS with system trust store
+                credentials = grpc.ssl_channel_credentials()
+                logger.debug(
+                    "Creating secure channel with system trust store "
+                    "for connection test using TLS 1.3+"
                 )
 
-            # Create stub
-            stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(channel)
-
-            # Create metadata for JWT token if provided
-            metadata = []
-            if proxy_config.jwt_token:
-                metadata.append(("authorization", f"Bearer {proxy_config.jwt_token}"))
-
-            # Create request
-            request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
-
-            # Make the call with timeout
-            server_info = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    None, lambda: stub.GetServerInfo(request, metadata=metadata)
-                ),
-                timeout=timeout_seconds,
-            )
-
-            # Extract server version and available models
-            server_version = server_info.server_version
-            available_models = [
-                model.model_id for model in server_info.available_models
+            # Configure TLS 1.3+ enforcement via gRPC channel options
+            channel_options = [
+                # Enforce TLS 1.3+ for enhanced security
+                ("grpc.ssl_min_tls_version", "TLSv1_3"),
+                ("grpc.ssl_max_tls_version", "TLSv1_3"),
+                # Additional security options
+                ("grpc.keepalive_time_ms", 30000),
+                ("grpc.keepalive_timeout_ms", 5000),
+                ("grpc.keepalive_permit_without_calls", True),
             ]
 
-            # Extract limits information
-            limits = {
-                "max_request_size": server_info.limits.max_input_length,
-                "max_concurrent_requests": server_info.limits.max_concurrent_requests,
-                "timeout_seconds": server_info.limits.request_timeout_seconds,
-            }
-
-            # Return the expected data structure format
-            return Success(
-                data={
-                    "version": server_version,
-                    "supported_models": available_models,
-                    "server_name": server_info.server_name,
-                    "limits": limits,
-                }
+            channel = grpc.secure_channel(
+                f"{proxy_config.host}:{proxy_config.port}",
+                credentials,
+                options=channel_options,
             )
+        else:
+            channel = grpc.insecure_channel(f"{proxy_config.host}:{proxy_config.port}")
 
-        finally:
-            # Always clean up the channel
-            if channel:
-                channel.close()
+        # Create stub
+        stub = llm_proxy_pb2_grpc.VibectlLLMProxyStub(channel)
+
+        # Create metadata for JWT token if provided
+        metadata = []
+        if jwt_token:
+            metadata.append(("authorization", f"Bearer {jwt_token}"))
+
+        # Create request
+        request = llm_proxy_pb2.GetServerInfoRequest()  # type: ignore[attr-defined]
+
+        # Make the call with timeout
+        server_info = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, lambda: stub.GetServerInfo(request, metadata=metadata)
+            ),
+            timeout=timeout_seconds,
+        )
+
+        # Extract server version and available models
+        server_version = server_info.server_version
+        available_models = [model.model_id for model in server_info.available_models]
+
+        # Extract limits information
+        limits = {
+            "max_request_size": server_info.limits.max_input_length,
+            "max_concurrent_requests": server_info.limits.max_concurrent_requests,
+            "timeout_seconds": server_info.limits.request_timeout_seconds,
+        }
+
+        # Return the expected data structure format
+        return Success(
+            data={
+                "version": server_version,
+                "supported_models": available_models,
+                "server_name": server_info.server_name,
+                "limits": limits,
+            }
+        )
 
     except TimeoutError:
         return Error(error=f"Connection timeout after {timeout_seconds} seconds")
@@ -251,14 +269,21 @@ async def check_proxy_connection(url: str, timeout_seconds: int = 10) -> Result:
             return Error(error="Connection test failed: Failed to create gRPC stub")
         logger.exception("Unexpected error during proxy connection test")
         return Error(error=f"Connection test failed: {e}")
+    finally:
+        # Always clean up the channel in function-level finally block
+        if channel:
+            channel.close()
 
 
-def configure_proxy_settings(proxy_url: str, ca_bundle: str | None = None) -> Result:
+def configure_proxy_settings(
+    proxy_url: str, ca_bundle: str | None = None, jwt_path: str | None = None
+) -> Result:
     """Configure proxy settings in the configuration.
 
     Args:
-        proxy_url: The proxy server URL
+        proxy_url: The proxy server URL (without JWT token embedded)
         ca_bundle: Optional path to CA bundle file for TLS verification
+        jwt_path: Optional path to JWT token file for authentication
 
     Returns:
         Result indicating success or failure
@@ -282,18 +307,39 @@ def configure_proxy_settings(proxy_url: str, ca_bundle: str | None = None) -> Re
             if not ca_bundle_path.is_file():
                 return Error(error=f"CA bundle path is not a file: {ca_bundle}")
 
+        # Validate JWT path if provided
+        if jwt_path:
+            jwt_file_path = Path(jwt_path).expanduser()
+            if not jwt_file_path.exists():
+                return Error(error=f"JWT file not found: {jwt_path}")
+            if not jwt_file_path.is_file():
+                return Error(error=f"JWT path is not a file: {jwt_path}")
+
         # Get configuration
         config = Config()
 
+        # Clean URL: remove any embedded JWT token to store clean URL
+        clean_url = proxy_url
+        if proxy_config.jwt_token:
+            # Rebuild URL without JWT token
+            scheme = (
+                "vibectl-server" if proxy_config.use_tls else "vibectl-server-insecure"
+            )
+            clean_url = f"{scheme}://{proxy_config.host}:{proxy_config.port}"
+
         # Set proxy configuration
         config.set("proxy.enabled", True)
-        config.set("proxy.server_url", proxy_url)
+        config.set("proxy.server_url", clean_url)
 
         # Set CA bundle path if provided
         if ca_bundle:
             config.set(
                 "proxy.ca_bundle_path", str(Path(ca_bundle).expanduser().absolute())
             )
+
+        # Set JWT path if provided
+        if jwt_path:
+            config.set("proxy.jwt_path", str(Path(jwt_path).expanduser().absolute()))
 
         return Success(message="✓ Proxy configured successfully")
 
@@ -320,9 +366,11 @@ def disable_proxy() -> Result:
         config.set("proxy.enabled", False)
         config.unset("proxy.server_url")
 
-        # Reset to defaults
+        # Reset to defaults - clear all proxy-related settings
         config.unset("proxy.timeout_seconds")
         config.unset("proxy.retry_attempts")
+        config.unset("proxy.ca_bundle_path")
+        config.unset("proxy.jwt_path")
 
         # Save configuration - this is the critical step that was missing
         config.save()
@@ -354,7 +402,7 @@ def show_proxy_status() -> None:
         table.add_row("Enabled", str(enabled))
 
         if enabled and server_url:
-            table.add_row("Server URL", server_url)
+            table.add_row("Server URL", redact_jwt_in_url(server_url))
             table.add_row("Timeout (seconds)", str(timeout))
             table.add_row("Retry attempts", str(retries))
 
@@ -376,6 +424,29 @@ def show_proxy_status() -> None:
                 )
             else:
                 table.add_row("CA Bundle Path", "None (system trust store)")
+
+            # Show JWT token configuration
+            env_jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
+            config_jwt_path = config.get("proxy.jwt_path")
+            embedded_jwt = None
+            try:
+                proxy_config = parse_proxy_url(server_url)
+                embedded_jwt = proxy_config.jwt_token
+            except Exception:
+                pass
+
+            if env_jwt_token:
+                table.add_row("JWT Token", "*** (from environment)")
+            elif config_jwt_path:
+                jwt_exists = Path(config_jwt_path).exists()
+                table.add_row("JWT Token Path", f"{config_jwt_path} (from config)")
+                table.add_row(
+                    "JWT Token Status", "✓ Found" if jwt_exists else "❌ Missing"
+                )
+            elif embedded_jwt:
+                table.add_row("JWT Token", "*** (embedded in URL)")
+            else:
+                table.add_row("JWT Token", "None (no authentication)")
 
             table.add_row("Skip TLS Verify", str(skip_tls_verify))
         else:
@@ -420,6 +491,36 @@ def show_proxy_status() -> None:
         handle_exception(e)
 
 
+def redact_jwt_in_url(url: str) -> str:
+    """Redact JWT token from URL for display purposes.
+
+    Args:
+        url: The URL to redact (e.g., vibectl-server://token@host:port)
+
+    Returns:
+        URL with JWT token redacted (e.g., vibectl-server://***@host:port)
+    """
+    if not url:
+        return url
+
+    try:
+        parsed = urlparse(url)
+        if parsed.username:
+            # Replace the JWT token part with asterisks
+            redacted_username = "***"
+            # Reconstruct URL with redacted token
+            if parsed.port:
+                netloc = f"{redacted_username}@{parsed.hostname}:{parsed.port}"
+            else:
+                netloc = f"{redacted_username}@{parsed.hostname}"
+            return f"{parsed.scheme}://{netloc}{parsed.path}"
+    except Exception:
+        # If parsing fails, just return original URL
+        pass
+
+    return url
+
+
 @click.group(name="setup-proxy")
 def setup_proxy_group() -> None:
     """Setup and manage proxy configuration for LLM requests.
@@ -454,8 +555,9 @@ def setup_proxy_group() -> None:
 @click.argument("proxy_url")
 @click.option("--no-test", is_flag=True, help="Skip connection test")
 @click.option("--ca-bundle", help="Path to custom CA bundle file for TLS verification")
+@click.option("--jwt-path", help="Path to JWT token file for authentication")
 async def setup_proxy_configure(
-    proxy_url: str, no_test: bool, ca_bundle: str | None
+    proxy_url: str, no_test: bool, ca_bundle: str | None, jwt_path: str | None
 ) -> None:
     """Configure proxy settings for LLM calls.
 
@@ -472,7 +574,9 @@ async def setup_proxy_configure(
 
         # Configure with custom CA bundle, then test separately
         vibectl setup-proxy configure vibectl-server://token@host:443 \\
-            --ca-bundle /path/to/ca-bundle.crt --no-test
+            --ca-bundle /path/to/ca-bundle.crt \\
+            --jwt-path /path/to/client-token.jwt \\
+            --no-test
         vibectl setup-proxy test
 
         # Insecure connection for local development
@@ -494,13 +598,19 @@ async def setup_proxy_configure(
         vibectl setup-proxy configure vibectl-server://host:443
 
     JWT Authentication:
-        For production servers, use JWT tokens generated by the server admin:
+        For production servers, use JWT tokens generated by the server admin.
 
-        # Server generates token
+        **Recommended approach (secure file-based):**
+        # Server generates token file
         vibectl-server generate-token my-client --expires-in 30d \\
             --output client-token.jwt
 
-        # Client uses token embedded in URL
+        # Client uses JWT file path (more secure, easier to manage)
+        vibectl setup-proxy configure vibectl-server://production.example.com:443 \\
+            --jwt-path ./client-token.jwt
+
+        **Alternative approach (embedded in URL):**
+        # Client embeds token in URL (less secure, but still supported)
         vibectl setup-proxy configure \\
             vibectl-server://$(cat client-token.jwt)@production.example.com:443
 
@@ -509,7 +619,7 @@ async def setup_proxy_configure(
 
         # 1. Configure without testing (saves CA bundle path)
         vibectl setup-proxy configure vibectl-server://token@host:443 \\
-            --ca-bundle /path/to/ca.pem --no-test
+            --ca-bundle /path/to/ca.pem --jwt-path /path/to/client-token.jwt --no-test
 
         # 2. Test connectivity separately
         vibectl setup-proxy test
@@ -544,7 +654,12 @@ async def setup_proxy_configure(
         if not no_test:
             console_manager.print("Testing connection to proxy server...")
 
-            test_result = await check_proxy_connection(proxy_url, timeout_seconds=30)
+            test_result = await check_proxy_connection(
+                proxy_url,
+                timeout_seconds=30,
+                jwt_path=jwt_path,
+                ca_bundle=final_ca_bundle,
+            )
 
             if isinstance(test_result, Error):
                 console_manager.print_error(
@@ -590,7 +705,9 @@ async def setup_proxy_configure(
                     console_manager.safe_print(console_manager.console, info_table)
 
         # Configure proxy settings
-        config_result = configure_proxy_settings(proxy_url, final_ca_bundle)
+        config_result = configure_proxy_settings(
+            proxy_url, ca_bundle=final_ca_bundle, jwt_path=jwt_path
+        )
 
         if isinstance(config_result, Error):
             console_manager.print_error(f"Configuration failed: {config_result.error}")
@@ -625,7 +742,10 @@ async def setup_proxy_configure(
 @click.option(
     "--timeout", "-t", default=10, help="Connection timeout in seconds (default: 10)"
 )
-async def test_proxy(server_url: str | None, timeout: int) -> None:
+@click.option("--jwt-path", help="Path to JWT token file for authentication")
+async def test_proxy(
+    server_url: str | None, timeout: int, jwt_path: str | None
+) -> None:
     """Test connection to a proxy server.
 
     If no SERVER_URL is provided, tests the currently configured proxy.
@@ -640,8 +760,9 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
         # Test current configuration
         vibectl setup-proxy test
 
-        # Test a specific server with JWT authentication
-        vibectl setup-proxy test vibectl-server://eyJ0eXAiOiJKV1Q...@myserver.com:443
+        # Test a specific server with JWT authentication from file
+        vibectl setup-proxy test vibectl-server://myserver.com:443 \\
+            --jwt-path /path/to/token.jwt
 
         # Test with longer timeout for slow networks
         vibectl setup-proxy test --timeout 30
@@ -662,12 +783,16 @@ async def test_proxy(server_url: str | None, timeout: int) -> None:
                 )
                 sys.exit(1)
 
-            console_manager.print(f"Testing configured proxy: {server_url}")
+            console_manager.print(
+                f"Testing configured proxy: {redact_jwt_in_url(server_url)}"
+            )
         else:
-            console_manager.print(f"Testing proxy: {server_url}")
+            console_manager.print(f"Testing proxy: {redact_jwt_in_url(server_url)}")
 
-        # Test connection
-        result = await check_proxy_connection(server_url, timeout_seconds=timeout)
+        # Test connection (use config-stored CA bundle if no explicit jwt_path provided)
+        result = await check_proxy_connection(
+            server_url, timeout_seconds=timeout, jwt_path=jwt_path
+        )
 
         if isinstance(result, Error):
             console_manager.print_error(f"Connection failed: {result.error}")

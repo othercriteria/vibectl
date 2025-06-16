@@ -91,6 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 30,  # Request timeout for proxy calls
         "retry_attempts": 3,  # Number of retry attempts for failed proxy calls
         "ca_bundle_path": None,  # Path to custom CA bundle for TLS verification
+        "jwt_path": None,  # Path to file containing JWT token for authentication
     },
     "system": {
         "log_level": "WARNING",  # Default log level for logging
@@ -175,6 +176,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
         "timeout_seconds": int,
         "retry_attempts": int,
         "ca_bundle_path": (str, type(None)),
+        "jwt_path": (str, type(None)),
     },
     "system": {
         "log_level": str,
@@ -554,16 +556,65 @@ class Config:
         self.set(f"providers.{provider}.key_file", str(path))
 
     def get_ca_bundle_path(self) -> str | None:
-        """Get CA bundle path from config or environment."""
-        # Check environment variable first
-        env_path = os.environ.get("VIBECTL_CA_BUNDLE")
-        if env_path:
-            return env_path
+        """Get the CA bundle path for TLS verification.
 
-        # Check config file
-        config_path = self.get("proxy.ca_bundle_path")
-        if config_path:
-            return str(config_path)
+        Checks environment variable first, then configuration value.
+
+        Returns:
+            Path to CA bundle file, or None if not configured
+        """
+        # Environment variable takes precedence
+        env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+        if env_ca_bundle:
+            return env_ca_bundle
+
+        # Fall back to configuration value
+        ca_bundle_path = self.get("proxy.ca_bundle_path")
+        if ca_bundle_path is None:
+            return None
+        return str(ca_bundle_path)
+
+    def get_jwt_token(self) -> str | None:
+        """Get the JWT token for proxy authentication.
+
+        Checks environment variable first, then JWT file path from config, then
+        embedded token in server URL.
+
+        Returns:
+            JWT token string, or None if not configured
+        """
+        # Environment variable takes precedence (useful for CI/CD)
+        env_jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
+        if env_jwt_token:
+            return env_jwt_token
+
+        # Try to read from JWT file path
+        jwt_path = self.get("proxy.jwt_path")
+        if jwt_path:
+            try:
+                jwt_file = Path(jwt_path).expanduser()
+                if jwt_file.exists() and jwt_file.is_file():
+                    jwt_token = jwt_file.read_text().strip()
+                    if jwt_token:
+                        return jwt_token
+                # Log warning but don't fail - fallback to embedded token
+                from vibectl.logutil import logger
+
+                logger.warning(f"JWT file not found or empty: {jwt_path}")
+            except Exception as e:
+                from vibectl.logutil import logger
+
+                logger.warning(f"Failed to read JWT file {jwt_path}: {e}")
+
+        # Fall back to embedded token in server URL
+        server_url = self.get("proxy.server_url")
+        if server_url:
+            try:
+                proxy_config = parse_proxy_url(server_url)
+                return proxy_config.jwt_token
+            except Exception:
+                # Invalid URL format, return None
+                return None
 
         return None
 

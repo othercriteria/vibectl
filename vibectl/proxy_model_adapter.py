@@ -82,13 +82,14 @@ class ProxyModelAdapter(ModelAdapter):
             config: Optional Config instance for client configuration
             host: Proxy server host (default: localhost)
             port: Proxy server port (default: 50051)
-            jwt_token: Optional JWT token for authentication
+            jwt_token: Optional JWT token for authentication (overrides config)
             use_tls: Whether to use TLS encryption (default: True)
         """
         self.config = config or Config()
         self.host = host
         self.port = port
-        self.jwt_token = jwt_token
+        # JWT token precedence: explicit parameter > config resolution
+        self.jwt_token = jwt_token or self.config.get_jwt_token()
         self.use_tls = use_tls
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
