@@ -8,9 +8,11 @@ delegation of LLM calls to a centralized service.
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import grpc
@@ -88,8 +90,29 @@ class ProxyModelAdapter(ModelAdapter):
         self.config = config or Config()
         self.host = host
         self.port = port
-        # JWT token precedence: explicit parameter > config resolution
-        self.jwt_token = jwt_token or self.config.get_jwt_token()
+        # JWT token precedence: explicit parameter > profile config resolution
+        self.jwt_token: str | None = None
+        if jwt_token:
+            self.jwt_token = jwt_token
+        else:
+            # Get JWT token from active proxy profile
+            profile_config = self.config.get_effective_proxy_config()
+            if profile_config and profile_config.get("jwt_path"):
+                try:
+                    jwt_path = Path(profile_config["jwt_path"]).expanduser()
+                    if jwt_path.exists() and jwt_path.is_file():
+                        self.jwt_token = jwt_path.read_text().strip()
+                    else:
+                        logger.warning(
+                            f"JWT file not found: {profile_config['jwt_path']}"
+                        )
+                        self.jwt_token = None
+                except Exception as e:
+                    logger.warning(f"Failed to read JWT file: {e}")
+                    self.jwt_token = None
+            else:
+                # Fall back to environment variable
+                self.jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
         self.use_tls = use_tls
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
@@ -112,8 +135,14 @@ class ProxyModelAdapter(ModelAdapter):
             target = f"{self.host}:{self.port}"
 
             if self.use_tls:
-                # Get CA bundle path from config/environment
-                ca_bundle_path = self.config.get_ca_bundle_path()
+                # Get CA bundle path from profile config or environment
+                ca_bundle_path = None
+                profile_config = self.config.get_effective_proxy_config()
+                if profile_config and profile_config.get("ca_bundle_path"):
+                    ca_bundle_path = profile_config["ca_bundle_path"]
+                else:
+                    # Fall back to environment variable
+                    ca_bundle_path = os.environ.get("VIBECTL_CA_BUNDLE")
 
                 if ca_bundle_path:
                     # Custom CA bundle TLS

@@ -159,17 +159,9 @@ class TestSetupProxyGroup:
                     }
                 )
 
-                # Mock the configure_proxy_settings to avoid actual config changes
-                with patch(
-                    "vibectl.subcommands.setup_proxy_cmd.configure_proxy_settings"
-                ) as mock_configure:
-                    mock_configure.return_value = Success(message="Configured")
-
-                    # This would normally be called from the CLI, but we're
-                    # testing the logic by checking our mock. The
-                    # check_proxy_connection call includes the ca_bundle
-                    # parameter This is verified by the implementation we
-                    # just added
+                # This test verifies that ca_bundle parameter is properly passed
+                # through the check_proxy_connection call which is used by
+                # the configure command
 
         finally:
             Path(ca_path).unlink()

@@ -1485,24 +1485,35 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
         if config is None:
             config = Config()
 
-        # Check if proxy mode is enabled
-        proxy_enabled = config.get("proxy.enabled", False)
+        # Check if proxy mode is enabled (has an active profile)
+        proxy_enabled = config.is_proxy_enabled()
 
         if proxy_enabled:
             # Import here to avoid circular imports
             from .config import parse_proxy_url
             from .proxy_model_adapter import ProxyModelAdapter
 
-            # Get proxy configuration
-            server_url = config.get("proxy.server_url")
+            # Get effective proxy configuration (merges global + profile settings)
+            effective_config = config.get_effective_proxy_config()
+
+            if not effective_config:
+                raise ValueError(
+                    "Proxy is enabled but no active profile is configured.\n"
+                    "Fix this by either:\n"
+                    "  1. Configure a proxy profile: "
+                    "vibectl setup-proxy configure <profile-name> <server-url>\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable\n"
+                )
+
+            server_url = effective_config.get("server_url")
 
             # Provide helpful error message if server_url is missing
             if not server_url:
                 raise ValueError(
                     "Proxy mode is enabled but no server URL is configured.\n"
                     "Fix this by either:\n"
-                    "  1. Configure a proxy server: "
-                    "vibectl setup-proxy configure <server-url>\n"
+                    "  1. Configure a proxy profile: "
+                    "vibectl setup-proxy configure <profile-name> <server-url>\n"
                     "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
                     "\nExample server URLs:\n"
                     "  - vibectl-server://myserver.com:443\n"
@@ -1521,7 +1532,7 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     f"Error: {e}\n\n"
                     "Fix this by either:\n"
                     "  1. Configure a valid proxy server: "
-                    "vibectl setup-proxy configure <server-url>\n"
+                    "vibectl setup-proxy configure <profile-name> <server-url>\n"
                     "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
                     "\nValid server URL formats:\n"
                     "  - vibectl-server://myserver.com:443 (secure)\n"

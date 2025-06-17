@@ -38,8 +38,14 @@ class TestModelAdapter:
         """Reset adapter between tests."""
         reset_model_adapter()
 
-    def test_get_model_adapter(self) -> None:
+    @patch("vibectl.model_adapter.Config")
+    def test_get_model_adapter(self, mock_config_class: Mock) -> None:
         """Test get_model_adapter creates a single instance."""
+        # Mock Config to return a config with no proxy enabled
+        mock_config = Mock()
+        mock_config.is_proxy_enabled.return_value = False
+        mock_config_class.return_value = mock_config
+
         adapter1 = get_model_adapter()
         adapter2 = get_model_adapter()
         assert adapter1 is adapter2
@@ -52,8 +58,14 @@ class TestModelAdapter:
         adapter = get_model_adapter()
         assert adapter is mock_adapter
 
-    def test_reset_model_adapter(self) -> None:
+    @patch("vibectl.model_adapter.Config")
+    def test_reset_model_adapter(self, mock_config_class: Mock) -> None:
         """Test resetting the adapter."""
+        # Mock Config to return a config with no proxy enabled
+        mock_config = Mock()
+        mock_config.is_proxy_enabled.return_value = False
+        mock_config_class.return_value = mock_config
+
         adapter1 = get_model_adapter()
         reset_model_adapter()
         adapter2 = get_model_adapter()

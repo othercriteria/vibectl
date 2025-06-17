@@ -8,12 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- Planned: Client-side security hardening for vibectl proxy servers (WIP)
-  - Named proxy configurations with individual security settings
-  - Request sanitization to detect and prevent secret leakage
-  - Structured audit logging for proxy interactions
-  - Per-command confirmation for destructive operations
-  - Support for semi-trusted proxy deployment scenarios
+- **Proxy Security Hardening System**: Complete client-side security infrastructure for vibectl proxy servers in semi-trusted environments
+  - **Named Proxy Profiles**: Full configuration system for multiple proxy profiles with individual security settings
+    - Profile-based configuration replacing legacy flat proxy settings
+    - `vibectl setup-proxy configure <profile> <url>` command with security options
+    - `vibectl setup-proxy list/set-active/remove` profile management commands
+    - Profile activation with `--activate` flag and mandatory connection testing for security
+  - **Request Sanitization Framework**: Comprehensive secret detection and redaction system
+    - Kubernetes secret pattern detection (Bearer tokens, JWT, service account tokens)
+    - Base64 encoded data detection with entropy analysis for secret likelihood
+    - PEM certificate detection and redaction
+    - Configurable sanitization with confidence scoring and redaction placeholders
+  - **Security Configuration**: Rich security settings per proxy profile
+    - Request sanitization controls (`sanitize_requests`)
+    - Audit logging enablement (`audit_logging`)
+    - Confirmation modes (`none`/`per-session`/`per-command`)
+    - Profile-specific CA bundle and JWT token configuration
+  - **Enhanced Setup Commands**: Complete redesign of proxy configuration workflow
+    - Security-first approach with mandatory testing before activation
+    - `--enable-sanitization` and `--enable-audit-logging` flags
+    - Improved error handling and connection validation
+    - JWT token and CA bundle path resolution from profiles
+
+### Changed
+- **Proxy Configuration Migration**: Removed legacy proxy configuration format in favor of named profiles
+  - Eliminated legacy `proxy.enabled`, `proxy.server_url` flat configuration keys
+  - All proxy configuration now uses profile-based system for consistency and security
+  - Updated `ProxyModelAdapter` to use profile-based JWT token and CA bundle resolution
+  - Updated setup-proxy commands to work exclusively with named profiles
+- **Configuration System**: Enhanced profile management capabilities
+  - Added `get_effective_proxy_config()`, `list_proxy_profiles()`, `set_active_proxy_profile()` methods
+  - Profile-based CA bundle and JWT token path resolution
+  - Improved proxy status display with profile information and security settings
 
 ### Fixed
 - Configuration system bug where string "none" was incorrectly converted to None value
@@ -21,6 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - String "none" is now treated as a literal string value for config fields
   - Added helpful error messages suggesting `vibectl config unset` for clearing values
   - Improved user experience with clearer validation messages
+- ProxyModelAdapter JWT token and CA bundle resolution bugs
+  - Fixed missing method errors in proxy adapter when using profile-based configuration
+  - Updated token resolution to use new profile-based configuration system
+  - Enhanced connection testing with proper CA bundle and JWT token handling
+
+### Removed
+- Legacy proxy configuration format support
+  - Removed `proxy.enabled`, `proxy.server_url` and related flat configuration keys
+  - Cleaned up legacy configuration handling code for simpler, more secure profile system
+  - Updated tests to use new profile-based configuration exclusively
 
 ## [0.11.0] - 2025-06-17
 

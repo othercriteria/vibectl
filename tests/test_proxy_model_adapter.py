@@ -229,14 +229,12 @@ class TestProxyModelAdapterInitialization:
         self, mock_logger: Mock
     ) -> None:
         """Test ProxyModelAdapter initialization with CA bundle from config."""
-        from vibectl.config import Config
-
-        # Create a config with CA bundle path
-        config = Config()
-        config.set("proxy.ca_bundle_path", "/path/to/custom/ca.pem")
+        # Create a mock config to avoid filesystem modifications
+        mock_config = Mock()
+        mock_config.get_ca_bundle_path.return_value = "/path/to/custom/ca.pem"
 
         adapter = ProxyModelAdapter(
-            config=config,
+            config=mock_config,
             host="proxy.example.com",
             port=9443,
             use_tls=True,
@@ -342,7 +340,9 @@ class TestProxyModelAdapterChannelCreation:
 
         # Create mock config with CA bundle to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/path/to/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/path/to/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -379,7 +379,9 @@ class TestProxyModelAdapterChannelCreation:
         """Test _get_channel with custom CA bundle file not found."""
         # Create mock config with CA bundle to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/nonexistent/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/nonexistent/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -406,7 +408,9 @@ class TestProxyModelAdapterChannelCreation:
 
         # Create mock config to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/env/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = (
+            None  # No profile config, so fallback to env
+        )
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -1999,7 +2003,9 @@ class TestProxyModelAdapterTLSEnforcement:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/custom/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2038,7 +2044,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test CA bundle file permission error handling."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/restricted/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/restricted/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2063,7 +2071,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test CA bundle file I/O error handling."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/corrupted/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/corrupted/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2089,7 +2099,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test environment CA bundle file not found error."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/env/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/env/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2112,7 +2124,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/empty/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/empty/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2242,7 +2256,9 @@ class TestProxyModelAdapterLogging:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/custom/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
