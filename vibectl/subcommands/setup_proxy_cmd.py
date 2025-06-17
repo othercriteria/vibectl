@@ -287,9 +287,8 @@ def disable_proxy() -> Result:
         if not currently_enabled:
             return Success(data="Proxy is already disabled")
 
-        # Disable proxy by clearing the active profile
+        # Disable proxy by clearing the active profile (Config.set already saves)
         config.set_active_proxy_profile(None)
-        config.save()
 
         return Success(data="Proxy disabled")
 
@@ -648,29 +647,7 @@ async def setup_proxy_configure(
                 data = test_result.data
                 if data:
                     console_manager.print_success("✓ Connection test successful!")
-
-                    info_table = Table(title="Server Information")
-                    info_table.add_column("Property")
-                    info_table.add_column("Value", style="green")
-
-                    info_table.add_row("Server Name", data["server_name"])
-                    info_table.add_row("Version", data["version"])
-                    info_table.add_row(
-                        "Supported Models", ", ".join(data["supported_models"])
-                    )
-                    info_table.add_row(
-                        "Max Request Size",
-                        f"{data['limits']['max_request_size']} bytes",
-                    )
-                    info_table.add_row(
-                        "Max Concurrent Requests",
-                        str(data["limits"]["max_concurrent_requests"]),
-                    )
-                    info_table.add_row(
-                        "Server Timeout", f"{data['limits']['timeout_seconds']} seconds"
-                    )
-
-                    console_manager.safe_print(console_manager.console, info_table)
+                    _print_server_info(data)
 
         # Configure proxy profile
         config = Config()
@@ -717,21 +694,10 @@ async def setup_proxy_configure(
                 "'vibectl setup-proxy set-active' to activate)"
             )
 
-        try:
-            config.save()
-        except Exception as e:
-            console_manager.print_error(f"Failed to save configuration: {e}")
-            sys.exit(1)
-
-        config_result = Success(
-            message=f"✓ Proxy profile '{profile_name}' configured successfully"
+        # Configuration changes are already persisted by individual set* calls
+        console_manager.print_success(
+            f"✓ Proxy profile '{profile_name}' configured successfully"
         )
-
-        if isinstance(config_result, Error):
-            console_manager.print_error(f"Configuration failed: {config_result.error}")
-            sys.exit(1)
-
-        console_manager.print_success("✓ Proxy configuration saved!")
         console_manager.print_success(activation_message)
 
         if final_ca_bundle:
@@ -843,16 +809,7 @@ async def test_proxy(
         data = result.data
         if data:
             console_manager.print_success("✓ Connection successful!")
-
-            info_table = Table(title="Server Information")
-            info_table.add_column("Property")
-            info_table.add_column("Value", style="green")
-
-            info_table.add_row("Server Name", data["server_name"])
-            info_table.add_row("Version", data["version"])
-            info_table.add_row("Supported Models", ", ".join(data["supported_models"]))
-
-            console_manager.safe_print(console_manager.console, info_table)
+            _print_server_info(data)
 
     except Exception as e:
         handle_exception(e)
@@ -1004,7 +961,6 @@ def set_active_profile(profile_name: str) -> None:
 
         # Set as active
         config.set_active_proxy_profile(profile_name)
-        config.save()
 
         console_manager.print_success(f"✓ Activated proxy profile: {profile_name}")
 
@@ -1042,7 +998,6 @@ def remove_profile(profile_name: str, yes: bool) -> None:
 
         # Remove the profile
         config.remove_proxy_profile(profile_name)
-        config.save()
 
         console_manager.print_success(f"✓ Removed proxy profile: {profile_name}")
 
@@ -1087,3 +1042,37 @@ def build_url(host: str, port: int, jwt_token: str | None, insecure: bool) -> No
 
     except Exception as e:
         handle_exception(e)
+
+
+def _print_server_info(data: dict[str, Any]) -> None:
+    """Render and print a rich table with server information.
+
+    Args:
+        data: Mapping returned from ``check_proxy_connection`` containing
+            keys ``server_name``, ``version``, ``supported_models`` and an
+            optional ``limits`` mapping.
+    """
+    info_table = Table(title="Server Information")
+    info_table.add_column("Property")
+    info_table.add_column("Value", style="green")
+
+    # Required fields
+    info_table.add_row("Server Name", data.get("server_name", "<unknown>"))
+    info_table.add_row("Version", data.get("version", "<unknown>"))
+    supported = ", ".join(data.get("supported_models", [])) or "<none>"
+    info_table.add_row("Supported Models", supported)
+
+    # Optional limits section for completeness
+    limits = data.get("limits")
+    if limits:
+        info_table.add_row(
+            "Max Request Size", f"{limits.get('max_request_size', '?')} bytes"
+        )
+        info_table.add_row(
+            "Max Concurrent Requests", str(limits.get("max_concurrent_requests", "?"))
+        )
+        info_table.add_row(
+            "Server Timeout", f"{limits.get('timeout_seconds', '?')} seconds"
+        )
+
+    console_manager.safe_print(console_manager.console, info_table)
