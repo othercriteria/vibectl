@@ -9,11 +9,15 @@ serve challenge responses during certificate provisioning and renewal.
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 from aiohttp.web import Application, Request, Response
+
+# Re-use _build_hsts_header helper from grpc_server to keep logic consistent
+from vibectl.server.grpc_server import _build_hsts_header
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ class HTTPChallengeServer:
         host: str = "0.0.0.0",
         port: int = 80,
         challenge_dir: str | None = None,
-    ):
+        *,
+        hsts_settings: dict | None = None,
+        redirect_http: bool = False,
+    ) -> None:
         """Initialize the HTTP challenge server.
 
         Args:
@@ -45,6 +52,8 @@ class HTTPChallengeServer:
             port: Port to bind to (default: 80)
             challenge_dir: Directory to serve challenges from. If None,
                           uses in-memory challenge storage.
+            hsts_settings: HSTS settings for the server
+            redirect_http: Whether to redirect HTTP requests to HTTPS
         """
         self.host = host
         self.port = port
@@ -61,6 +70,12 @@ class HTTPChallengeServer:
         self._running = False
         self._start_event = asyncio.Event()
 
+        # HSTS / redirect settings
+        self._hsts_settings = hsts_settings or {}
+        self._redirect_http = redirect_http and self._hsts_settings.get(
+            "enabled", False
+        )
+
     def _redact_token(self, token: str) -> str:
         """Redact token for logging while preserving usefulness."""
         if hasattr(token, "_mock_name") or not isinstance(token, str):
@@ -70,6 +85,33 @@ class HTTPChallengeServer:
     async def create_app(self) -> Application:
         """Create the aiohttp application with routes."""
         app = web.Application()
+
+        # ------------------------------------------------------------------
+        # Middleware for HSTS header injection and optional redirects
+
+        @web.middleware
+        async def hsts_middleware(request: Request, handler: Callable[[Request], Any]):  # type: ignore
+            # Optionally redirect before handling
+            if (
+                self._redirect_http
+                and not request.path.startswith("/.well-known/acme-challenge/")
+                and request.path != "/health"
+            ):
+                https_url = f"https://{request.host}{request.path_qs}"
+                raise web.HTTPPermanentRedirect(location=https_url)
+
+            # Proceed to handler
+            response: Response = await handler(request)  # type: ignore[arg-type]
+
+            # Inject HSTS header if enabled and TLS will be used downstream
+            if self._hsts_settings.get("enabled", False):
+                response.headers["Strict-Transport-Security"] = _build_hsts_header(
+                    self._hsts_settings
+                )
+
+            return response
+
+        app.middlewares.append(hsts_middleware)
 
         # ACME challenge endpoint
         app.router.add_get(

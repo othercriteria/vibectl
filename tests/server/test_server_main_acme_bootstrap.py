@@ -90,6 +90,7 @@ class TestACMEBootstrapCertificates:
                 use_tls=True,
                 cert_file=cert_file,
                 key_file=key_file,
+                hsts_settings={},
             )
 
             assert result == mock_server_instance
@@ -150,6 +151,7 @@ class TestACMEBootstrapCertificates:
                 use_tls=True,
                 cert_file=cert_file,
                 key_file=key_file,
+                hsts_settings={},
             )
 
             assert result == mock_server_instance
@@ -629,6 +631,7 @@ class TestACMEBootstrapCertificateIntegration:
                 use_tls=True,
                 cert_file=str(cert_file),
                 key_file=str(key_file),
+                hsts_settings={},
             )
 
     @patch("vibectl.server.grpc_server.GRPCServer")

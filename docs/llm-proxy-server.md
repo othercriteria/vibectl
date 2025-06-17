@@ -18,7 +18,8 @@ vibectl-server generate-token dev-user --expires-in 30d --output dev.jwt
 
 # 4. Point vibectl at the proxy
 vibectl setup-proxy configure \
-  vibectl-server://$(cat dev.jwt)@localhost
+  vibectl-server://localhost:50051 \
+  --jwt-path dev.jwt
 
 # 5. Use vibectl as normal
 vibectl vibe "explain kubernetes pods"
@@ -48,7 +49,8 @@ Then run `vibectl-server serve`. Clients connect with a URL like:
 
 ```bash
 vibectl setup-proxy configure \
-  vibectl-server://TOKEN@llm-proxy.company.com:443
+  vibectl-server://llm-proxy.company.com:443 \
+  --jwt-path ./client-token.jwt
 ```
 
 ## Authentication
@@ -103,7 +105,8 @@ Enable TLS with `--tls` or by setting `server.use_tls: true`. If `cert_file` and
 ```bash
 # Requires custom CA bundle for certificate verification
 vibectl setup-proxy configure \
-  vibectl-server://TOKEN@internal-server:443 \
+  vibectl-server://internal-server:443 \
+  --jwt-path ./client-token.jwt \
   --ca-bundle /path/to/ca-bundle.crt
 ```
 
@@ -194,7 +197,8 @@ exercise the full workflow end-to-end.
 ```bash
 # No custom CA bundle needed - uses system trust store
 vibectl setup-proxy configure \
-  vibectl-server://TOKEN@vibectl.company.com:443
+  vibectl-server://vibectl.company.com:443 \
+  --jwt-path ./client-token.jwt
 ```
 
 **Certificate Lifecycle:**
@@ -228,6 +232,43 @@ Both demos install a `Deployment`, `Service`, `ConfigMap` and `Secret` suitable 
 Run `vibectl setup-proxy test` to confirm connectivity. The command prints the server version and available models.
 
 Use `--log-level DEBUG` on the server for verbose output when troubleshooting.
+
+## Strict Transport Security (HSTS)
+
+vibectl-server can emit the HTTP Strict Transport Security (HSTS) header to ensure that compliant clients always upgrade to HTTPS and prevent protocol-downgrade attacks.  The feature is enabled in all example manifests (CA, ACME TLS-ALPN-01, HTTP-01) as of version 0.10.0.
+
+### Why enable HSTS?
+
+• Forces browsers and HTTP/2 clients to use TLS for every future request after the first successful connection.
+• Protects JWT tokens and gRPC traffic from accidental plain-text exposure.
+• Mitigates SSL-strip and cookie hijacking attacks.
+
+### Configuration
+
+Add an `hsts` subsection under `tls` in `config.yaml`:
+
+```yaml
+tls:
+  enabled: true
+  hsts:
+    enabled: true          # Turn HSTS on/off
+    max_age: 31536000      # Seconds – 1 year is typical
+    include_subdomains: true  # Also protect *.example.com (optional)
+    preload: false         # Only set true after submitting the domain to the preload list
+```
+
+With HSTS enabled, vibectl-server adds the header to all HTTP/2 (gRPC) and HTTP responses it serves:
+
+```text
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+### Deployment tips
+
+• **First test on a staging sub-domain** before enabling `preload`. Preload entries are effectively permanent.
+• Make sure your certificates auto-renew reliably (ACME or CA mode) before enforcing long `max_age` values.
+• For Kubernetes ingress setups you can alternatively let the ingress controller add HSTS, but keeping it in vibectl-server keeps the behaviour consistent in non-Kubernetes deployments.
+• If you serve ACME HTTP-01 challenges on port 80, ensure the challenge handler **exempts** those paths from the HTTP-to-HTTPS redirect so certificate provisioning still works.
 
 ## More information
 

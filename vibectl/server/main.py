@@ -960,6 +960,7 @@ def _create_and_start_server_common(server_config: dict) -> Result:
             use_tls=server_config["tls"]["enabled"],
             cert_file=cert_file,
             key_file=key_file,
+            hsts_settings=server_config["tls"].get("hsts", {}),
         )
 
         logger.info("Server created successfully")
@@ -1046,7 +1047,12 @@ async def _async_acme_server_main(server_config: dict) -> Result:
             )
 
             # Start HTTP challenge server
-            challenge_server = HTTPChallengeServer(host=http_host, port=http_port)
+            challenge_server = HTTPChallengeServer(
+                host=http_host,
+                port=http_port,
+                hsts_settings=server_config.get("tls", {}).get("hsts", {}),
+                redirect_http=True,
+            )
             await challenge_server.start()
 
             # Wait for challenge server to be ready
@@ -1249,6 +1255,7 @@ def _create_grpc_server_with_temp_certs(server_config: dict) -> Any:
         use_tls=server_config["tls"]["enabled"],
         cert_file=temp_cert_file,
         key_file=temp_key_file,
+        hsts_settings=server_config["tls"].get("hsts", {}),
     )
 
 

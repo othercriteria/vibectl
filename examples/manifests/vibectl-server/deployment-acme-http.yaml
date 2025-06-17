@@ -124,7 +124,7 @@ spec:
         # Health checks for HTTP-01 ACME mode
         startupProbe:
           httpGet:
-            path: /health
+            path: /.well-known/acme-challenge/health
             port: 8080
             scheme: HTTP
           initialDelaySeconds: 10
@@ -140,7 +140,7 @@ spec:
           failureThreshold: 5
         readinessProbe:
           httpGet:
-            path: /health
+            path: /.well-known/acme-challenge/health
             port: 8080
             scheme: HTTP
           initialDelaySeconds: 5

@@ -132,7 +132,7 @@ fi
 
 # Extract the data directly
 echo "🔑 Extracting JWT token and CA bundle..."
-JWT_TOKEN=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat /jwt-data/demo-token.jwt)
+JWT_TOKEN=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat /jwt-data/demo-token.jwt | tr -d '\n\r')
 CA_BUNDLE=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat /ca-data/ca-bundle.crt)
 
 echo "✅ Demo data extracted successfully!"
@@ -145,6 +145,11 @@ echo "========================================"
 CA_BUNDLE_FILE="/tmp/vibectl-demo-ca-bundle.crt"
 echo "$CA_BUNDLE" > "$CA_BUNDLE_FILE"
 echo "📁 CA bundle saved to: $CA_BUNDLE_FILE"
+
+# Save JWT token to a temporary file for client use (more secure than embedding in URL)
+JWT_TOKEN_FILE="/tmp/vibectl-demo-token.jwt"
+echo "$JWT_TOKEN" > "$JWT_TOKEN_FILE"
+echo "📁 JWT token saved to: $JWT_TOKEN_FILE"
 
 # Display the extracted credentials
 echo ""
@@ -163,7 +168,7 @@ NODE_PORT=$(kubectl get service vibectl-server -n "${NAMESPACE}" -o jsonpath='{.
 
 echo "📍 Node IP: $NODE_IP (using IP from certificate generation)"
 echo "🔌 Node Port: $NODE_PORT"
-echo "🌐 External URL: vibectl-server://$JWT_TOKEN@$NODE_IP:$NODE_PORT"
+echo "🌐 External URL: vibectl-server://$NODE_IP:$NODE_PORT"
 
 echo ""
 echo "⚙️  Step 7: Configuring vibectl proxy with CA bundle..."
@@ -171,7 +176,10 @@ echo "======================================================="
 echo "   (Using production TLS with CA certificate verification)"
 
 echo "📝 Saving proxy configuration..."
-vibectl setup-proxy configure "vibectl-server://$JWT_TOKEN@$NODE_IP:$NODE_PORT" --ca-bundle "$CA_BUNDLE_FILE" --no-test
+vibectl setup-proxy configure "vibectl-server://$NODE_IP:$NODE_PORT" \
+    --ca-bundle "$CA_BUNDLE_FILE" \
+    --jwt-path "$JWT_TOKEN_FILE" \
+    --no-test
 
 echo "✅ Proxy configuration saved with CA bundle"
 
@@ -215,6 +223,6 @@ echo "🧹 Cleanup Commands:"
 echo "==================="
 echo "To clean up this demo environment, run:"
 echo "   kubectl delete namespace ${NAMESPACE}"
-echo "   rm -f ${CA_BUNDLE_FILE}"
+echo "   rm -f ${CA_BUNDLE_FILE} ${JWT_TOKEN_FILE}"
 echo ""
 echo "🏁 Demo complete!"

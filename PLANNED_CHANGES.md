@@ -4,82 +4,52 @@
 
 ## Status
 
-**Phases 1-4 Complete ✅** - Full TLS infrastructure with CA management, CLI refactoring, ACME client/server integration, and TLS 1.3+ hardening are all implemented and working.
+**Core Implementation Complete ✅** - All TLS infrastructure, ACME protocol support, security hardening, and testing are implemented and working.
 
-## Remaining Work
+## Outstanding Work
 
-### Phase 5: Production Integration & Documentation (Est. 8 hours)
-
-#### cert-manager Integration Examples
+### cert-manager Integration Examples (Est. 2-3 hours)
 
 - [ ] ClusterIssuer configuration for Let's Encrypt
 - [ ] Certificate CRD for automatic certificate management
 - [ ] Integration with ingress controllers
 - [ ] Certificate monitoring and alerting
 
-#### Security Hardening
-
-- [x] **Modern TLS protocol support** - TLS 1.3 enforced for gRPC, TLS 1.2+ for ACME compatibility
-- [x] **Secure file permissions** - Certificate and private key files are written with explicit secure permissions (644 for certificates, 600 for private keys)
-- [x] **Debug logging redaction** - Sensitive ACME challenge data (key authorization data, challenge hashes, tokens) is redacted in debug logs while maintaining usefulness
-- [ ] Strong cipher suite configuration
-- [ ] Certificate transparency monitoring
-- [ ] HSTS header support
-
-#### Production Deployment Guide
+### Production Documentation (Est. 2-3 hours)
 
 - [ ] Step-by-step production setup with cert-manager
 - [ ] Public CA vs. private CA decision tree
 - [ ] Security best practices and hardening guide
 - [ ] Troubleshooting guide for certificate issues
 
-#### Additional Production Tasks
+### Final Security Hardening (Est. 1-2 hours)
 
-- Moved cloud provider examples and certificate renewal enhancements to [TODO-SERVER.md](TODO-SERVER.md)
+- [ ] Strong cipher suite configuration
+- [ ] Certificate transparency monitoring
 
-#### Testing and Validation
+### Recently Completed (Security)
 
-- [x] **HTTP-01 Challenge Demo** - Created `demo-acme-http.sh` for end-to-end testing of HTTP-01 challenge flow
-- [x] **Updated Demo Selector** - Added HTTP-01 option to main `demo.sh` selector with proper cleanup support
-- [ ] **HTTP-01 Challenge Bug Fix** - CRITICAL: Discovered race condition in HTTP-01 challenge implementation where challenge tokens are cleaned up immediately after creation, before ACME validation can occur. This prevents HTTP-01 challenges from working.
+- [x] HSTS header support
 
-## Implementation Priority
+## Success Criteria
 
-**Next Steps:**
-
-1. **cert-manager Examples** - Production Kubernetes patterns
-2. **Complete Documentation** - Production deployment guides
-3. **Additional server enhancements** - See [TODO-SERVER.md](TODO-SERVER.md) for certificate renewal automation and cloud provider examples
-
-## Success Criteria (Remaining)
-
-- [ ] **HTTP-01 challenge race condition fixed** - Challenge tokens must remain available during ACME validation
 - [ ] cert-manager integration provides seamless K8s certificate management
 - [ ] Documentation covers all major deployment scenarios
 - [ ] Security scanning shows no TLS vulnerabilities
 - [ ] Performance impact is negligible (< 5% overhead)
-- Additional server-specific criteria moved to [TODO-SERVER.md](TODO-SERVER.md)
 
-## Completed Architecture
+*Additional server-specific enhancements moved to [TODO-SERVER.md](TODO-SERVER.md)*
 
-**Foundation Complete:**
+## Recently Completed
 
-- Private CA Infrastructure with full lifecycle management
-- Init Container Architecture for Kubernetes-native certificate generation
-- Complete TLS integration with proper certificate verification
-- CLI Management with `vibectl-server ca` command suite and specialized serve modes
-- ACME Client with comprehensive protocol implementation and testing
-- ACME Server Integration with TLS-ALPN-01 challenge support
-- TLS 1.3+ Hardening with protocol-specific enforcement (gRPC requires 1.3+, ACME supports 1.2+)
+- **Core TLS Infrastructure**: Private CA, certificate generation, TLS 1.3+ hardening
+- **ACME Protocol**: Full client/server implementation with TLS-ALPN-01 and HTTP-01 challenges
+- **Security Fixes**: Secure file permissions, debug log redaction, race condition resolution
+- **CLI Integration**: Complete `vibectl-server ca` command suite and serve modes
+- **Testing & Demos**: Comprehensive test coverage and demo scripts
 
-## Security Considerations for Production
+## Notes
 
-Key areas to address in production deployment:
-
-- JWT tokens use HS256 with no revocation mechanism - consider asymmetric signing and rotation policies
+- JWT tokens use HS256 with no revocation mechanism - consider asymmetric signing for production
 - CA bundles should be distributed through trusted channels for client verification
 - Document secure token handling to prevent leakage in shell history/logs
-- ✅ **FIXED**: Certificate and private key files now written with explicit secure permissions (644 for certificates, 600 for private keys)
-- ✅ **FIXED**: Sensitive ACME challenge data (key authorization, challenge hashes, tokens) now redacted in debug logs while preserving usefulness
-- Implement strong cipher suite configuration and certificate transparency monitoring
-- Add HSTS header support for web interfaces

@@ -18,6 +18,13 @@ data:
       cert_file: "/ca-data/server_certs/localhost/localhost.crt"
       key_file: "/ca-data/server_certs/localhost/localhost.key"
 
+    # Enable HTTP Strict Transport Security (applies to gRPC metadata)
+    hsts:
+      enabled: true            # Emit Strict-Transport-Security header
+      max_age: 31536000        # 1 year in seconds
+      include_subdomains: false  # No sub-domain protection needed for demo
+      preload: false           # Do not request preload list inclusion for demo
+
     # ACME disabled (using CA mode instead)
     acme:
       enabled: false

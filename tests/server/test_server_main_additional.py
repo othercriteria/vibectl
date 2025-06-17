@@ -94,6 +94,7 @@ class TestServerCreationAndStartup:
             use_tls=False,
             cert_file=None,
             key_file=None,
+            hsts_settings={},
         )
 
     @patch("vibectl.server.main.init_logging")

@@ -51,6 +51,13 @@ class ServerConfig:
                 "enabled": False,
                 "cert_file": None,
                 "key_file": None,
+                "ca_bundle_file": None,
+                "hsts": {
+                    "enabled": False,
+                    "max_age": 31536000,  # 1 year by default
+                    "include_subdomains": True,
+                    "preload": False,
+                },
             },
             "acme": {
                 "enabled": False,
@@ -422,6 +429,12 @@ def get_default_server_config() -> dict[str, Any]:
             "cert_file": None,
             "key_file": None,
             "ca_bundle_file": None,
+            "hsts": {
+                "enabled": False,
+                "max_age": 31536000,  # 1 year by default
+                "include_subdomains": True,
+                "preload": False,
+            },
         },
         "acme": {
             "enabled": False,

@@ -332,6 +332,7 @@ class TestCLICommands:
             use_tls=False,
             cert_file=None,
             key_file=None,
+            hsts_settings={},
         )
 
         # Verify server.serve_forever was called

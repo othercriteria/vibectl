@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Certificate Lifecycle Management**: Automatic certificate generation, validation, and error handling
   - **Complete vibectl-server:// URL Scheme**: Full TLS encryption support with proper certificate validation
   - **Development-friendly Workflow**: Seamless certificate auto-generation with graceful fallbacks
-  - **Extensive Test Coverage**: Comprehensive test suite for certificate utilities and TLS integration
+  - **ACME Protocol Support**: Complete ACME client/server implementation with TLS-ALPN-01 and HTTP-01 challenge support
+  - **HTTP-01 Challenge Demo**: End-to-end testing with `demo-acme-http.sh` script
+  - **Security Hardening**: TLS 1.3+ enforcement, secure file permissions, debug log redaction, race condition fixes
+  - **Extensive Test Coverage**: Comprehensive test suite for certificate utilities, TLS integration, and ACME functionality
 
 ## [0.10.0] - 2025-06-05
 

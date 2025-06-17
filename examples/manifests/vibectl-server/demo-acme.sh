@@ -254,7 +254,12 @@ fi
 
 # Extract the JWT token
 echo "🔑 Extracting JWT token..."
-JWT_TOKEN=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat /jwt-data/demo-token.jwt)
+JWT_TOKEN=$(kubectl exec "$POD_NAME" -n "${NAMESPACE}" -c vibectl-server -- cat /jwt-data/demo-token.jwt | tr -d '\n\r')
+
+# Save JWT token to a temporary file
+JWT_TOKEN_FILE="/tmp/vibectl-demo-token.jwt"
+echo "$JWT_TOKEN" > "$JWT_TOKEN_FILE"
+echo "📁 JWT token saved to: $JWT_TOKEN_FILE"
 
 echo "✅ Demo data extracted successfully!"
 
@@ -337,7 +342,7 @@ PROXY_HOST="$EXTERNAL_DOMAIN"
 PROXY_PORT="443"
 echo "🔍 ACME validation domain : $ACME_DOMAIN"
 echo "🌐 External access domain : $EXTERNAL_DOMAIN"
-echo "🌐 External URL          : vibectl-server://$JWT_TOKEN@$PROXY_HOST:$PROXY_PORT"
+echo "🌐 External URL          : vibectl-server://$PROXY_HOST:$PROXY_PORT"
 
 echo ""
 echo "⚙️  Step 8: Configuring vibectl proxy with Pebble CA..."
@@ -345,7 +350,10 @@ echo "======================================================="
 echo "   (Using Pebble CA certificate for proper TLS verification)"
 
 echo "📝 Saving proxy configuration..."
-vibectl setup-proxy configure "vibectl-server://$JWT_TOKEN@$PROXY_HOST:$PROXY_PORT" --ca-bundle "$CA_BUNDLE_FILE" --no-test
+vibectl setup-proxy configure "vibectl-server://$PROXY_HOST:$PROXY_PORT" \
+    --ca-bundle "$CA_BUNDLE_FILE" \
+    --jwt-path "$JWT_TOKEN_FILE" \
+    --no-test
 
 echo "✅ Proxy configuration saved with Pebble CA bundle"
 
@@ -391,6 +399,6 @@ echo "🧹 Cleanup Commands:"
 echo "==================="
 echo "To clean up this demo environment, run:"
 echo "   kubectl delete namespace ${NAMESPACE}"
-echo "   rm -f ${CA_BUNDLE_FILE}"
+echo "   rm -f ${CA_BUNDLE_FILE} ${JWT_TOKEN_FILE}"
 echo ""
 echo "🏁 ACME Demo complete!"

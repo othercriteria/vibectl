@@ -7,7 +7,10 @@ the LLM proxy service over gRPC with optional JWT authentication.
 
 import logging
 import signal
+from collections.abc import Callable
 from concurrent import futures
+from types import FrameType
+from typing import Any, cast
 
 import grpc
 
@@ -42,6 +45,7 @@ class GRPCServer:
         use_tls: bool = False,
         cert_file: str | None = None,
         key_file: str | None = None,
+        hsts_settings: dict | None = None,
     ):
         """Initialize the gRPC server.
 
@@ -58,6 +62,7 @@ class GRPCServer:
                        and TLS enabled)
             key_file: Path to TLS private key file (auto-generated if None
                       and TLS enabled)
+            hsts_settings: HSTS settings for the server
         """
         self.host = host
         self.port = port
@@ -67,6 +72,7 @@ class GRPCServer:
         self.use_tls = use_tls
         self.cert_file = cert_file
         self.key_file = key_file
+        self.hsts_settings = hsts_settings or {}
         self.server: grpc.Server | None = None
         self._servicer = LLMProxyServicer(default_model=default_model)
 
@@ -95,6 +101,64 @@ class GRPCServer:
         interceptors: list[grpc.ServerInterceptor] = []
         if self.jwt_interceptor:
             interceptors.append(self.jwt_interceptor)
+
+        # Add HSTS interceptor if enabled and TLS is in use
+        if self.use_tls and self.hsts_settings.get("enabled", False):
+            header_value = _build_hsts_header(self.hsts_settings)
+
+            class _HSTSInterceptor(grpc.ServerInterceptor):
+                """Inject Strict-Transport-Security header into gRPC metadata."""
+
+                def __init__(self, hsts_header: str) -> None:
+                    self._hsts_header = hsts_header
+
+                def intercept_service(
+                    self,
+                    continuation: Callable[
+                        [grpc.HandlerCallDetails], grpc.RpcMethodHandler | None
+                    ],
+                    handler_call_details: grpc.HandlerCallDetails,
+                ) -> grpc.RpcMethodHandler | None:
+                    handler = continuation(handler_call_details)
+
+                    if handler is None:
+                        return None
+
+                    # At this point handler is a valid RpcMethodHandler
+                    handler = cast(grpc.RpcMethodHandler, handler)
+
+                    # Wrap unary_unary; for other handler types we simply
+                    # return original
+                    if handler.unary_unary:
+                        unary_fn = cast(
+                            Callable[[Any, grpc.ServicerContext], Any],
+                            handler.unary_unary,
+                        )
+
+                        def new_unary_unary(
+                            request: Any, context: grpc.ServicerContext
+                        ) -> Any:
+                            # Delegate to the original RPC implementation first
+                            result = unary_fn(request, context)
+
+                            # Inject HSTS as trailing metadata so it appears in
+                            # grpcurl's "Response trailers" section without
+                            # risking duplicate initial-metadata sends.
+                            context.set_trailing_metadata(
+                                (("strict-transport-security", self._hsts_header),)
+                            )
+
+                            return result
+
+                        return grpc.unary_unary_rpc_method_handler(
+                            new_unary_unary,
+                            request_deserializer=handler.request_deserializer,
+                            response_serializer=handler.response_serializer,
+                        )
+
+                    return handler
+
+            interceptors.append(_HSTSInterceptor(header_value))
 
         # Create server with interceptors
         self.server = grpc.server(
@@ -205,7 +269,7 @@ class GRPCServer:
         """
 
         # Set up signal handlers for graceful shutdown
-        def signal_handler(signum: int, frame) -> None:  # type: ignore
+        def signal_handler(signum: int, frame: FrameType | None) -> None:
             logger.info(f"Received signal {signum}, shutting down...")
             self.stop()
 
@@ -253,6 +317,7 @@ def create_server(
     use_tls: bool = False,
     cert_file: str | None = None,
     key_file: str | None = None,
+    hsts_settings: dict | None = None,
 ) -> GRPCServer:
     """Create a new gRPC server instance.
 
@@ -266,6 +331,7 @@ def create_server(
         use_tls: Whether to use TLS encryption
         cert_file: Path to TLS certificate file (auto-generated if None and TLS enabled)
         key_file: Path to TLS private key file (auto-generated if None and TLS enabled)
+        hsts_settings: HSTS settings for the server
 
     Returns:
         Configured GRPCServer instance
@@ -280,6 +346,7 @@ def create_server(
         use_tls=use_tls,
         cert_file=cert_file,
         key_file=key_file,
+        hsts_settings=hsts_settings,
     )
 
 
@@ -287,3 +354,18 @@ if __name__ == "__main__":
     # For testing - run the server directly
     logging.basicConfig(level=logging.INFO)
     create_server().serve_forever()
+
+
+def _build_hsts_header(settings: dict) -> str:
+    """Build Strict-Transport-Security header value from settings dict."""
+
+    max_age = settings.get("max_age", 31536000)
+    include_sub = settings.get("include_subdomains", False)
+    preload = settings.get("preload", False)
+
+    parts: list[str] = [f"max-age={int(max_age)}"]
+    if include_sub:
+        parts.append("includeSubDomains")
+    if preload:
+        parts.append("preload")
+    return "; ".join(parts)
