@@ -25,6 +25,7 @@ from .config import Config
 from .logutil import logger
 from .model_adapter import ModelAdapter, StreamingMetricsCollector
 from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc
+from .security import RequestSanitizer, SecurityConfig
 from .types import LLMMetrics, SystemFragments, UserFragments
 
 
@@ -114,6 +115,31 @@ class ProxyModelAdapter(ModelAdapter):
                 # Fall back to environment variable
                 self.jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
         self.use_tls = use_tls
+
+        # Initialize sanitizer with security config from profile
+        security_config = None
+        profile_config = self.config.get_effective_proxy_config()
+        if profile_config and profile_config.get("security"):
+            # Start with profile-specific security config
+            security_dict = profile_config["security"].copy()
+
+            # If warn_sanitization is not set in profile, use global setting
+            if "warn_sanitization" not in security_dict:
+                global_warn_sanitization = self.config.get(
+                    "warnings.warn_sanitization", True
+                )
+                security_dict["warn_sanitization"] = global_warn_sanitization
+
+            security_config = SecurityConfig.from_dict(security_dict)
+        else:
+            # No profile security config, use global warnings setting
+            global_warn_sanitization = self.config.get(
+                "warnings.warn_sanitization", True
+            )
+            security_config = SecurityConfig(warn_sanitization=global_warn_sanitization)
+
+        self.sanitizer = RequestSanitizer(security_config)
+
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
         self._model_cache: dict[str, ProxyModelWrapper] = {}
@@ -501,11 +527,52 @@ class ProxyModelAdapter(ModelAdapter):
         request.request_id = str(uuid.uuid4())
         request.model_name = model.model_name
 
-        # Convert fragments to strings
-        if system_fragments:
-            request.system_fragments.extend(system_fragments)
-        if user_fragments:
-            request.user_fragments.extend(user_fragments)
+        # Sanitize fragments before adding to request if sanitization is enabled
+        if self.sanitizer.enabled:
+            # Sanitize system fragments
+            sanitized_system_fragments = []
+            if system_fragments:
+                for fragment in system_fragments:
+                    sanitized_fragment, detected_secrets = (
+                        self.sanitizer.sanitize_request(fragment)
+                    )
+                    if detected_secrets:
+                        logger.info(
+                            f"Detected {len(detected_secrets)} secrets in system "
+                            "fragment"
+                        )
+                        for secret in detected_secrets:
+                            logger.debug(
+                                f"Detected secret type: {secret.secret_type} "
+                                f"(confidence: {secret.confidence:.2f})"
+                            )
+                    sanitized_system_fragments.append(sanitized_fragment)
+                request.system_fragments.extend(sanitized_system_fragments)
+
+            # Sanitize user fragments
+            sanitized_user_fragments = []
+            if user_fragments:
+                for fragment in user_fragments:
+                    sanitized_fragment, detected_secrets = (
+                        self.sanitizer.sanitize_request(fragment)
+                    )
+                    if detected_secrets:
+                        logger.info(
+                            f"Detected {len(detected_secrets)} secrets in user fragment"
+                        )
+                        for secret in detected_secrets:
+                            logger.debug(
+                                f"Detected secret type: {secret.secret_type} "
+                                f"(confidence: {secret.confidence:.2f})"
+                            )
+                    sanitized_user_fragments.append(sanitized_fragment)
+                request.user_fragments.extend(sanitized_user_fragments)
+        else:
+            # No sanitization - add fragments directly
+            if system_fragments:
+                request.system_fragments.extend(system_fragments)
+            if user_fragments:
+                request.user_fragments.extend(user_fragments)
 
         # Add response model schema if provided
         if response_model is not None:

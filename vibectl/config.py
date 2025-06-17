@@ -65,6 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "warnings": {
         "warn_no_output": True,
         "warn_no_proxy": True,  # Show warning when intermediate_port_range is not set
+        "warn_sanitization": True,  # Show warning when request sanitization occurs
     },
     "live_display": {
         "max_lines": 20,  # Default number of lines for live display
@@ -150,6 +151,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
     "warnings": {
         "warn_no_output": bool,
         "warn_no_proxy": bool,
+        "warn_sanitization": bool,
     },
     "live_display": {
         "max_lines": int,
@@ -365,6 +367,56 @@ class Config:
             max_val = constraint["max"]
             validate_numeric_range(value, min_val, max_val, path)
 
+    def _validate_proxy_security_config(self, security_config: dict[str, Any]) -> None:
+        """Validate security configuration for proxy profiles.
+
+        Args:
+            security_config: Security configuration dictionary
+
+        Raises:
+            ValueError: If security configuration is invalid
+        """
+        # Define valid security configuration keys and types
+        valid_security_keys: dict[str, type | tuple[type, ...]] = {
+            "sanitize_requests": bool,
+            "audit_logging": bool,
+            "confirmation_mode": str,
+            "audit_log_path": (str, type(None)),
+            "warn_sanitization": bool,
+        }
+
+        # Valid values for confirmation_mode
+        valid_confirmation_modes = ["none", "per-session", "per-command"]
+
+        for key, value in security_config.items():
+            if key not in valid_security_keys:
+                valid_keys = list(valid_security_keys.keys())
+                raise ValueError(
+                    f"Unknown security configuration key: {key}. "
+                    f"Valid keys: {valid_keys}"
+                )
+
+            expected_type = valid_security_keys[key]
+
+            # Check type
+            if not isinstance(value, expected_type):
+                if isinstance(expected_type, tuple):
+                    type_names = [getattr(t, "__name__", str(t)) for t in expected_type]
+                    type_desc = " or ".join(type_names)
+                else:
+                    type_desc = getattr(expected_type, "__name__", str(expected_type))
+                raise ValueError(
+                    f"Invalid type for security.{key}: expected {type_desc}, "
+                    f"got {type(value).__name__}"
+                )
+
+            # Special validation for confirmation_mode
+            if key == "confirmation_mode" and value not in valid_confirmation_modes:
+                raise ValueError(
+                    f"Invalid confirmation_mode: {value}. "
+                    f"Valid values: {valid_confirmation_modes}"
+                )
+
     def unset(self, key: str) -> None:
         """Unset a configuration key, resetting it to default."""
         if "." in key:
@@ -527,6 +579,10 @@ class Config:
             profile_name: Name of the profile
             profile_config: Profile configuration dictionary
         """
+        # Validate security configuration if present
+        if "security" in profile_config:
+            self._validate_proxy_security_config(profile_config["security"])
+
         profiles = self.get("proxy.profiles", {})
         profiles[profile_name] = profile_config
         self.set("proxy.profiles", profiles)

@@ -25,6 +25,7 @@ class SecurityConfig:
     audit_logging: bool = True
     confirmation_mode: ConfirmationMode = ConfirmationMode.PER_COMMAND
     audit_log_path: str | None = None
+    warn_sanitization: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SecurityConfig":
@@ -45,6 +46,7 @@ class SecurityConfig:
             audit_logging=data.get("audit_logging", True),
             confirmation_mode=confirmation_mode,
             audit_log_path=data.get("audit_log_path"),
+            warn_sanitization=data.get("warn_sanitization", True),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +60,7 @@ class SecurityConfig:
             "audit_logging": self.audit_logging,
             "confirmation_mode": self.confirmation_mode.value,
             "audit_log_path": self.audit_log_path,
+            "warn_sanitization": self.warn_sanitization,
         }
 
 

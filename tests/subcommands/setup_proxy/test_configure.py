@@ -61,6 +61,7 @@ async def test_setup_proxy_configure_success(monkeypatch: pytest.MonkeyPatch) ->
         jwt_path=None,
         enable_sanitization=True,
         enable_audit_logging=False,
+        no_sanitization_warnings=False,
         activate=True,
         no_activate=False,
     )
@@ -92,6 +93,7 @@ async def test_setup_proxy_configure_connection_failure_exits(
             jwt_path=None,
             enable_sanitization=False,
             enable_audit_logging=False,
+            no_sanitization_warnings=False,
             activate=False,
             no_activate=True,
         )

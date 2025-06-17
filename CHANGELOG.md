@@ -14,11 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `vibectl setup-proxy configure <profile> <url>` command with security options
     - `vibectl setup-proxy list/set-active/remove` profile management commands
     - Profile activation with `--activate` flag and mandatory connection testing for security
-  - **Request Sanitization Framework**: Comprehensive secret detection and redaction system
+  - **Request Sanitization Framework**: Complete secret detection and redaction system
     - Kubernetes secret pattern detection (Bearer tokens, JWT, service account tokens)
-    - Base64 encoded data detection with entropy analysis for secret likelihood
-    - PEM certificate detection and redaction
+    - Base64 encoded data detection with entropy analysis for secret likelihood scoring
+    - PEM certificate detection and redaction with multiline support
     - Configurable sanitization with confidence scoring and redaction placeholders
+    - Overlap detection to prevent duplicate redaction of the same secret data
+    - Comprehensive test coverage with edge cases (Unicode, long inputs, special characters)
+    - User-configurable warning system for detected secrets (`--no-sanitization-warnings` flag)
+    - Full integration with ProxyModelAdapter for automatic request sanitization
   - **Security Configuration**: Rich security settings per proxy profile
     - Request sanitization controls (`sanitize_requests`)
     - Audit logging enablement (`audit_logging`)

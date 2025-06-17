@@ -490,6 +490,11 @@ def setup_proxy_group() -> None:
 @click.option("--enable-sanitization", is_flag=True, help="Enable request sanitization")
 @click.option("--enable-audit-logging", is_flag=True, help="Enable audit logging")
 @click.option(
+    "--no-sanitization-warnings",
+    is_flag=True,
+    help="Disable warnings when sanitization occurs",
+)
+@click.option(
     "--activate", is_flag=True, help="Activate this profile after creating it"
 )
 @click.option(
@@ -505,6 +510,7 @@ async def setup_proxy_configure(
     jwt_path: str | None,
     enable_sanitization: bool,
     enable_audit_logging: bool,
+    no_sanitization_warnings: bool,
     activate: bool,
     no_activate: bool,
 ) -> None:
@@ -666,12 +672,14 @@ async def setup_proxy_configure(
             profile_config["jwt_path"] = str(Path(jwt_path).expanduser().absolute())
 
         # Add security settings if specified
-        if enable_sanitization or enable_audit_logging:
+        if enable_sanitization or enable_audit_logging or no_sanitization_warnings:
             security_config: dict[str, bool] = {}
             if enable_sanitization:
                 security_config["sanitize_requests"] = True
             if enable_audit_logging:
                 security_config["audit_logging"] = True
+            if no_sanitization_warnings:
+                security_config["warn_sanitization"] = False
             profile_config["security"] = security_config
 
         # Save the profile

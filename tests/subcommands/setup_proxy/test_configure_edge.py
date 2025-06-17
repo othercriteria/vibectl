@@ -40,6 +40,7 @@ async def test_activate_with_no_test_exits(monkeypatch: pytest.MonkeyPatch) -> N
             jwt_path=None,
             enable_sanitization=False,
             enable_audit_logging=False,
+            no_sanitization_warnings=False,
             activate=True,  # invalid with no_test
             no_activate=False,
         )
@@ -71,6 +72,7 @@ async def test_missing_ca_bundle_file_exits(
             jwt_path=None,
             enable_sanitization=False,
             enable_audit_logging=False,
+            no_sanitization_warnings=False,
             activate=False,
             no_activate=True,
         )
