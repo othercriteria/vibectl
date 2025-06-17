@@ -454,3 +454,15 @@ Rather than patch-specific history, implement a comprehensive undo system that w
 ## vibectl-server Tasks
 
 Server-specific tasks have been moved to [TODO-SERVER.md](TODO-SERVER.md).
+
+## Packaging & Release Improvements
+
+### Dynamic Versioning with Hatch
+
+- Switch `pyproject.toml` to use `dynamic = ["version"]`, letting Hatchling populate the version at build time.
+- Add a `[tool.hatch.version]` table pointing to `vibectl/__init__.py` or `vibectl/version.py` to keep a single source of truth.
+- Replace manual regex in `bump_version.py` with Hatch's CLI (`hatch version patch|minor|major`) or its Python API.
+- Ensure `vibectl.utils.get_package_version()` continues to resolve the version via `importlib.metadata` (unchanged).
+- Update release workflows (Makefile targets, pypi-dist) to rely on Hatch for version bumps.
+- Document the new process in CONTRIBUTING.md and README (version bump now: `make bump-patch` → internally calls `hatch version patch`).
+- Advantage: eliminates duplicate version strings, reduces release errors.

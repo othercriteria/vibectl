@@ -13,6 +13,9 @@ gets the version from package metadata.
 import argparse
 import re
 import sys
+
+# Std-lib TOML parser (Python ≥3.11)
+import tomllib
 from enum import Enum
 from pathlib import Path
 
@@ -26,23 +29,19 @@ class BumpType(str, Enum):
 
 
 def get_current_version(pyproject_path: Path) -> tuple[int, int, int] | None:
-    """Extract the current version from pyproject.toml."""
+    """Extract the current version from pyproject.toml using tomllib."""
     if not pyproject_path.exists():
         print(f"Error: {pyproject_path} not found.")
         return None
 
-    content = pyproject_path.read_text()
-    version_match = re.search(r'version\s*=\s*"(\d+)\.(\d+)\.(\d+)"', content)
-
-    if not version_match:
-        print("Error: Could not find version in pyproject.toml.")
+    try:
+        data = tomllib.loads(pyproject_path.read_text())
+        version_str: str = data["project"]["version"]
+        major, minor, patch = (int(part) for part in version_str.split("."))
+        return major, minor, patch
+    except (KeyError, ValueError) as exc:
+        print(f"Error: Could not parse version from {pyproject_path}: {exc}")
         return None
-
-    return (
-        int(version_match.group(1)),
-        int(version_match.group(2)),
-        int(version_match.group(3)),
-    )
 
 
 def bump_version(

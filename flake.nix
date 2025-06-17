@@ -265,12 +265,14 @@
             # Activate virtualenv
             source .venv/bin/activate
 
-            # Always install latest development dependencies
-            echo "Installing development dependencies..."
-            pip install -e ".[dev]"
+            # Install development dependencies only the first time to speed up shell startup
+            if [ ! -f .venv/.dev-installed ]; then
+              echo "Installing development dependencies (first-run only)..."
+              pip install -e ".[dev]"
+              touch .venv/.dev-installed
+            fi
 
-            # Install Anthropic models for `llm`
-            llm install llm-anthropic
+            # Anthropic plugin is already part of dev dependencies; skip re-installing each time
 
             # Show help for distribution tools
             echo ""

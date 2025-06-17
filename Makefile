@@ -52,6 +52,10 @@ test-coverage:  ## Run tests with coverage report
 test-fast:  ## Run tests marked as 'fast' (quick feedback during development)
 	pytest -m fast -v
 
+# Even quicker: run all tests except ones marked "slow" and skip coverage collection
+test-quick:  ## Ultra-fast feedback – run pytest quietly excluding slow tests, no coverage
+	pytest -q -m "not slow"
+
 ##@ Quality and Verification
 
 check: install-dev format lint typecheck test  ## Run all code quality checks and tests
@@ -165,9 +169,9 @@ pypi-release: clean pypi-check pypi-build pypi-test pypi-upload  ## Run all chec
 grpc-gen: ## Generate gRPC Python stubs from proto definitions
 	@echo "Generating gRPC Python stubs..."
 	python -m grpc_tools.protoc \
-		--python_out=. \
-		--grpc_python_out=. \
-		--proto_path=. \
+		--proto_path=vibectl/proto \
+		--python_out=vibectl/proto \
+		--grpc_python_out=vibectl/proto \
 		vibectl/proto/llm_proxy.proto
 	@echo "gRPC stubs generated successfully"
 
