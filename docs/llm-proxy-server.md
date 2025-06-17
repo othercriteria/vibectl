@@ -1,10 +1,22 @@
 # vibectl LLM Proxy Server
 
-The optional *vibectl-server* lets multiple vibectl clients share a single set of LLM credentials. It speaks gRPC and supports JWT authentication, TLS encryption and streaming responses.
+The optional *vibectl-server* lets multiple vibectl clients share a single set of LLM credentials through a high-performance gRPC proxy.  It supports **JWT authentication**, **TLS (private CA or ACME)**, **streaming responses**, and integrates cleanly with the vibectl CLI.
 
-Use it when you want a central service to handle LLM access for a team or to test vibectl in a controlled environment.
+---
+## 📑 Table of Contents
+1. Quick-start (local development)
+2. Production overview
+3. Authentication
+4. TLS certificate management
+   1. Private CA workflow
+   2. ACME / Let's Encrypt workflow
+5. Demo scripts (Kubernetes)
+6. Checking the server
+7. Strict-Transport-Security (HSTS)
+8. More information
 
-## Quick start (development)
+---
+## 1  Quick Start – Local Development
 
 ```bash
 # 1. Create a default configuration
@@ -27,7 +39,8 @@ vibectl vibe "explain kubernetes pods"
 
 Self-signed certificates are stored under `~/.config/vibectl/server/certs/`.
 
-## Production overview
+---
+## 2  Production Overview
 
 Edit `~/.config/vibectl/server/config.yaml` and set:
 
@@ -53,7 +66,8 @@ vibectl setup-proxy configure \
   --jwt-path ./client-token.jwt
 ```
 
-## Authentication
+---
+## 3  Authentication
 
 Authentication uses JWT tokens. The secret key is looked up in this order:
 
@@ -69,7 +83,8 @@ Create tokens with:
 vibectl-server generate-token <subject> --expires-in <duration>
 ```
 
-## TLS Certificate Management
+---
+## 4  TLS Certificate Management
 
 vibectl-server supports two primary approaches for TLS certificate management, each suited to different deployment scenarios:
 
@@ -95,6 +110,7 @@ vibectl-server supports two primary approaches for TLS certificate management, e
 Enable TLS with `--tls` or by setting `server.use_tls: true`. If `cert_file` and `key_file` are missing the server will generate self‑signed certificates. Use `vibectl-server generate-certs` to generate them manually.
 
 **Use Cases:**
+
 - Corporate environments with existing PKI infrastructure
 - Air-gapped or restricted network environments
 - Internal services where you control certificate trust
@@ -102,6 +118,7 @@ Enable TLS with `--tls` or by setting `server.use_tls: true`. If `cert_file` and
 - High-security environments requiring custom CA validation
 
 **Client Configuration:**
+
 ```bash
 # Requires custom CA bundle for certificate verification
 vibectl setup-proxy configure \
@@ -111,10 +128,11 @@ vibectl setup-proxy configure \
 ```
 
 Client URLs determine whether TLS is used:
+
 - `vibectl-server://host:port` → TLS
 - `vibectl-server-insecure://host:port` → plain text
 
-## ACME / Let's Encrypt Integration
+### ACME / Let's Encrypt Integration
 
 vibectl-server includes built in support for obtaining TLS certificates from Let's Encrypt or any other ACME compatible certificate authority. This is useful for public deployments where you want trusted certificates without manually managing them.
 
@@ -123,16 +141,19 @@ vibectl-server includes built in support for obtaining TLS certificates from Let
 ### Why Let's Encrypt?
 
 **Eliminates Certificate Management Overhead:**
+
 - No manual certificate purchasing, renewal, or deployment
 - Automatic 90-day renewal cycle prevents expiration outages
 - Trusted by all major browsers and clients by default
 
 **Production-Grade Security:**
+
 - Industry-standard certificates with full browser trust
 - Modern TLS protocols (TLS 1.2+) with strong cipher suites
-- Certificate Transparency logging for enhanced security monitoring
+- Certificate Transparency logging for enhanced security monitoring (implementation roadmap in `TODO-SERVER.md`)
 
 **Cost-Effective:**
+
 - Free certificates for public domains
 - Reduces operational complexity compared to traditional CAs
 - Integrates seamlessly with Kubernetes cert-manager
@@ -173,6 +194,7 @@ vibectl-server serve-acme \
 ```
 
 **Kubernetes Integration:**
+
 ```yaml
 # Automatic certificate management via cert-manager
 apiVersion: cert-manager.io/v1
@@ -194,6 +216,7 @@ Point `--directory-url` at the Pebble service when running `serve-acme` to
 exercise the full workflow end-to-end.
 
 **Client Configuration:**
+
 ```bash
 # No custom CA bundle needed - uses system trust store
 vibectl setup-proxy configure \
@@ -202,6 +225,7 @@ vibectl setup-proxy configure \
 ```
 
 **Certificate Lifecycle:**
+
 - Initial provisioning: ~30 seconds for HTTP-01 validation
 - Automatic renewal: 30 days before expiration
 - Zero-downtime certificate updates via graceful reload
@@ -209,39 +233,36 @@ vibectl setup-proxy configure \
 
 This approach provides the **security of private CAs** for internal deployments and the **convenience of public CAs** for internet-facing services.
 
-## Kubernetes example
+---
+## 5  Demo scripts (Kubernetes)
 
-For comprehensive demonstration setups see the manifests under `examples/manifests/vibectl-server/`. They provide two complete scenarios:
+For comprehensive demonstration setups see the manifests under `examples/manifests/vibectl-server/`. **Three ready-to-run scripts are provided:**
 
-### CA Management Demo
-- Private Certificate Authority setup
-- Self-contained deployment for internal networks
-- Complete certificate lifecycle management
-- Run with: `./examples/manifests/vibectl-server/demo-ca.sh`
+| Script | What it shows | Notes |
+|--------|---------------|-------|
+| `demo-ca.sh` | Private-CA certificate workflow (no internet required) | Uses an init-container to generate a root CA and sign the server certificate. |
+| `demo-acme.sh` | ACME via **TLS-ALPN-01** (port 443 only) | Pebble test CA by default; can be pointed at Let's Encrypt staging/production. |
+| `demo-acme-http.sh` | ACME via **HTTP-01** (requires port 80 + LoadBalancer) | Automatically uses `nip.io` for dynamic DNS; needs MetalLB on kind/k3s. |
 
-### ACME Management Demo
-- Pebble ACME test server integration
-- Let's Encrypt-compatible certificate workflow
-- Automatic domain validation and renewal
-- Run with: `./examples/manifests/vibectl-server/demo-acme.sh`
+Each script builds the `vibectl-server:local` image, creates its own namespace, waits for certificates, prints connection info, and stores a demo JWT + CA bundle in `/tmp`.
 
-Both demos install a `Deployment`, `Service`, `ConfigMap` and `Secret` suitable for local testing. The interactive demo selector at `./examples/manifests/vibectl-server/demo.sh` helps choose the appropriate approach for your use case.
-
-## Checking the server
+---
+## 6  Checking the server
 
 Run `vibectl setup-proxy test` to confirm connectivity. The command prints the server version and available models.
 
 Use `--log-level DEBUG` on the server for verbose output when troubleshooting.
 
-## Strict Transport Security (HSTS)
+---
+## 7  Strict Transport Security (HSTS)
 
-vibectl-server can emit the HTTP Strict Transport Security (HSTS) header to ensure that compliant clients always upgrade to HTTPS and prevent protocol-downgrade attacks.  The feature is enabled in all example manifests (CA, ACME TLS-ALPN-01, HTTP-01) as of version 0.10.0.
+vibectl-server can emit the HTTP Strict Transport Security (HSTS) header to ensure that compliant clients always upgrade to HTTPS and prevent protocol-downgrade attacks.  The feature is enabled in all example manifests (CA, ACME TLS-ALPN-01, HTTP-01).
 
 ### Why enable HSTS?
 
 • Forces browsers and HTTP/2 clients to use TLS for every future request after the first successful connection.
 • Protects JWT tokens and gRPC traffic from accidental plain-text exposure.
-• Mitigates SSL-strip and cookie hijacking attacks.
+• Mitigates SSL-strip and cookie-hijacking attacks.
 
 ### Configuration
 
@@ -265,12 +286,14 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains
 
 ### Deployment tips
 
-• **First test on a staging sub-domain** before enabling `preload`. Preload entries are effectively permanent.
-• Make sure your certificates auto-renew reliably (ACME or CA mode) before enforcing long `max_age` values.
-• For Kubernetes ingress setups you can alternatively let the ingress controller add HSTS, but keeping it in vibectl-server keeps the behaviour consistent in non-Kubernetes deployments.
-• If you serve ACME HTTP-01 challenges on port 80, ensure the challenge handler **exempts** those paths from the HTTP-to-HTTPS redirect so certificate provisioning still works.
+• **Test on a staging domain** before enabling `preload`. Preload entries are effectively permanent.
+• Ensure certificates auto-renew reliably (ACME or CA mode) before enforcing long `max_age` values.
+• In Kubernetes ingress setups you can let the ingress controller add HSTS, but keeping it in vibectl-server ensures consistent behaviour elsewhere.
+• If you serve ACME HTTP-01 challenges on port 80, make sure the challenge handler **exempts** those paths from the HTTP-to-HTTPS redirect so certificate provisioning still works.
 
-## More information
+---
+## 8  More information
 
-- [docs/CONFIG.md](CONFIG.md) lists all configuration options.
-- [vibectl/server/STRUCTURE.md](../vibectl/server/STRUCTURE.md) describes the server architecture.
+• [docs/CONFIG.md](CONFIG.md) – full configuration reference.
+• [vibectl/server/STRUCTURE.md](../vibectl/server/STRUCTURE.md) – detailed server architecture.
+• Roadmap for advanced hardening (CT monitoring, mTLS, etc.) lives in [`TODO-SERVER.md`](../TODO-SERVER.md).

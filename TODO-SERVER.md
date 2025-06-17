@@ -19,6 +19,37 @@ Server-specific development tasks and enhancements for vibectl-server.
 - [ ] Certificate pinning for client connections
 - [ ] Mutual TLS (mTLS) support for enhanced security
 
+#### Certificate Transparency Monitoring Details
+Certificate Transparency (CT) monitoring acts as an early-warning system that watches public CT logs for certificates issued for any vibectl-controlled domains.
+
+1. **Purpose**
+   - Detect rogue or mis-issued certificates (typos, unauthorized wildcards, etc.)
+   - Provide an auditable record of all public certificates
+   - Meet compliance requirements that mandate CT monitoring
+
+2. **Data Source**
+   - Public CT logs such as Google Argon, Cloudflare Nimbus, Let's Encrypt Oak, Sectigo Sabre, etc.
+
+3. **Workflow**
+   1. Enumerate domain patterns (`*.example.com`, `*.svc.cluster.local`, etc.)
+   2. Subscribe to a CT feed (e.g., `certstream`) or poll logs via API
+   3. For each matching log entry:
+      - Download the leaf certificate
+      - Parse Subject, SANs, issuer, validity, SCTs
+      - Classify as *expected* or *unexpected* based on an allow-list of issuers and SAN patterns
+   4. Emit alerts (Slack / PagerDuty) for unexpected certificates
+
+4. **MVP Implementation**
+   - Lightweight Go or Python Deployment named **`ct-watcher`**
+   - ConfigMap-driven allow-list (domains & issuers)
+   - Export Prometheus metric `certificate_transparency_events{status="unexpected"}`
+   - Alert rule: `unexpected > 0 for 5m`
+
+5. **Hardening & Next Steps**
+   - Merge CT alerts into central SIEM
+   - Add playbook for incident response (revoke, rotate, preload HSTS)
+   - Periodic job to verify SCTs are embedded in vibectl-served leaf certificates
+
 ### ACME Enhancements
 - [ ] Switch from Pebble to production Let's Encrypt
 - [ ] Support for DNS-01 challenge (in addition to TLS-ALPN-01)
@@ -151,3 +182,10 @@ Server-specific development tasks and enhancements for vibectl-server.
 - [ ] Certificate lifecycle audit trails
 - [ ] Policy engine integration
 - [ ] Regulatory compliance features (FIPS, Common Criteria)
+
+## Success Criteria
+
+- [ ] cert-manager integration provides **seamless** Kubernetes certificate management
+- [ ] Documentation covers **all** major deployment scenarios
+- [ ] Security scanning shows **zero** TLS vulnerabilities
+- [ ] Performance overhead remains **< 5 %** after TLS+proxy features

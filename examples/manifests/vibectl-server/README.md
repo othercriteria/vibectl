@@ -1,244 +1,110 @@
-# vibectl-server Kubernetes Demos
+# vibectl-server • Kubernetes Demo Suite
 
-This directory contains comprehensive demonstration setups for `vibectl-server` deployment in Kubernetes, showcasing different certificate management approaches suitable for various deployment scenarios.
+Easily explore three certificate-management strategies for **vibectl-server** on Kubernetes.  All demos build the same Docker image and differ only in how TLS certificates are issued and renewed.
 
-## Available Demos
+| Demo | TLS Source | Challenge Type | External Port 80? | Best For |
+|------|------------|----------------|------------------|----------|
+| **CA Demo** (`demo-ca.sh`) | Private, in-cluster CA | N/A | No | Air-gapped or internal clusters where you control trust |
+| **ACME TLS-ALPN-01** (`demo-acme.sh`) | Pebble / Let's Encrypt | TLS-ALPN-01 on gRPC port | No | Public clusters without an HTTP load-balancer |
+| **ACME HTTP-01** (`demo-acme-http.sh`) | Pebble / Let's Encrypt | HTTP-01 on port 80 | **Yes** | Environments that already expose port 80 or terminate TLS upstream |
 
-### 1. CA Management Demo (`demo-ca.sh`)
+---
 
-**Purpose**: Demonstrates vibectl-server with **private Certificate Authority (CA)** management.
+## Prerequisites
 
-**Use Case**:
-- **Production internal networks** where you control certificate trust
-- **Air-gapped environments** without internet access
-- **Corporate environments** with existing PKI infrastructure
-- **Local development** with full certificate control
+1. **Kubernetes cluster** with `kubectl` context (kind, k3s, minikube, Docker Desktop, EKS, etc.).
+2. **Docker Engine** for building the `vibectl-server:local` image.
+3. **MetalLB** (or cloud LB) only for the HTTP-01 demo – it needs a LoadBalancer Service on ports 80/443.
 
-**Features**:
-- 🏭 **Private CA Generation**: Creates a custom Certificate Authority
-- 🔐 **Server Certificate Issuance**: Generates TLS certificates signed by the private CA
-- 🔑 **JWT Authentication**: Secure API access with JSON Web Tokens
-- 📦 **Self-contained**: No external dependencies or internet access required
-- 🧪 **Certificate Management**: Complete lifecycle including renewal workflows
+> **Tip 🪄** Each script auto-detects the cluster type and imports the Docker image if needed.
 
-**Namespace**: `vibectl-server-ca`
+---
 
-**Quick Start**:
-```bash
-# From project root
-./examples/manifests/vibectl-server/demo-ca.sh
-```
-
-### 2. ACME Management Demo (`demo-acme.sh`)
-
-**Purpose**: Demonstrates vibectl-server with **ACME certificate management** using TLS-ALPN-01 challenges and Pebble test server.
-
-**Use Case**:
-- **Production internet-facing deployments** with Let's Encrypt
-- **Automatic certificate renewal** workflows
-- **Testing ACME integration** before production deployment
-- **Simplified certificate management** without HTTP infrastructure
-
-**Features**:
-- 🔰 **Pebble ACME Server**: Local Let's Encrypt-compatible test server
-- 🔄 **TLS-ALPN-01 Challenges**: Secure domain validation directly on the gRPC port
-- ✨ **Simplified Deployment**: Single container (no nginx sidecar required)
-- 🔐 **Enhanced Security**: No HTTP port exposure required
-- 🔄 **Certificate Renewal**: Infrastructure for automatic certificate updates
-- 🧪 **ACME Integration Testing**: Complete ACME client workflow validation
-
-**Namespace**: `vibectl-server-acme`
-
-**Quick Start**:
-```bash
-# From project root
-./examples/manifests/vibectl-server/demo-acme.sh
-```
-
-## Comparison Matrix
-
-| Feature | CA Demo | ACME Demo |
-|---------|---------|-----------|
-| **Certificate Source** | Private CA | ACME Server (Pebble/Let's Encrypt) |
-| **Internet Dependency** | None | Required for real Let's Encrypt |
-| **Trust Model** | Custom CA bundle | Public/ACME CA |
-| **Renewal** | Manual regeneration | Automatic ACME renewal |
-| **Challenge Method** | N/A | TLS-ALPN-01 (secure, direct) |
-| **Deployment Complexity** | Medium | Low (single container) |
-| **HTTP Port Required** | No | No (TLS-ALPN-01 advantage) |
-| **Best For** | Internal/Private networks | Public internet deployments |
-| **Security Model** | Trust custom CA | Trust public CA |
-
-## TLS-ALPN-01 Advantages
-
-The ACME demo uses **TLS-ALPN-01** challenges instead of the traditional HTTP-01 approach, providing significant benefits:
-
-✅ **Simplified Architecture**: Single container deployment without nginx sidecar
-✅ **Enhanced Security**: No HTTP port (80) exposure required
-✅ **Direct Challenge Handling**: Challenges processed on the main gRPC port
-✅ **Reduced Resource Usage**: Fewer containers, volumes, and configurations
-✅ **Automatic Management**: Challenge handling integrated into the main server process
-
-## Parallel Operation
-
-Both demos can run simultaneously:
-
-- **CA Demo**: Uses namespace `vibectl-server-ca` on ports 30443/30080
-- **ACME Demo**: Uses namespace `vibectl-server-acme` on port 30443
-
-The demos share the same NodePort numbers but operate in different namespaces, so they won't conflict if run on different clusters or at different times.
-
-## Technical Details
-
-### Common Infrastructure
-
-Both demos share:
-- **Docker Image Building**: Consistent `vibectl-server:local` image
-- **Multi-cluster Support**: Auto-detection for kind, k3s, minikube, Docker Desktop
-- **JWT Authentication**: Secure API access with configurable tokens
-- **Health Monitoring**: Readiness and liveness probes
-- **Volume Management**: Persistent certificate and key storage
-
-### CA Demo Specifics
-
-```yaml
-# Certificate generation flow
-ca-init container:
-  1. Generate root CA private key
-  2. Create CA certificate
-  3. Generate server private key
-  4. Create certificate signing request (CSR)
-  5. Sign server certificate with CA
-  6. Bundle certificates for client verification
-```
-
-### ACME Demo Specifics (TLS-ALPN-01)
-
-```yaml
-# ACME certificate acquisition flow
-acme-init container:
-  1. Connect to Pebble ACME server
-  2. Create ACME account
-  3. Request domain validation
-  4. Complete TLS-ALPN-01 challenge (directly on gRPC port)
-  5. Acquire signed certificate
-  6. Store certificate for server use
-
-# Single container deployment:
-vibectl-server container:
-  - Handles gRPC API requests
-  - Processes TLS-ALPN-01 challenges automatically
-  - No separate HTTP server needed
-  - Simplified volume and networking configuration
-
-# Pebble ACME server provides:
-pebble service:
-  - ACME directory at https://pebble:14000/dir
-  - TLS-ALPN-01 challenge validation
-  - Certificate issuance simulation
-  - Let's Encrypt protocol compatibility
-```
-
-## Cleanup
-
-Each demo provides its own cleanup commands:
+## One-Command Quick Start
 
 ```bash
-# Clean up CA demo
-kubectl delete namespace vibectl-server-ca
-rm -f /tmp/vibectl-demo-ca-bundle.crt
+# From repository root – pick ONE of the following:
 
-# Clean up ACME demo
-kubectl delete namespace vibectl-server-acme
-rm -f /tmp/vibectl-demo-pebble-ca.crt
+./examples/manifests/vibectl-server/demo-ca.sh           # Private-CA workflow
+./examples/manifests/vibectl-server/demo-acme.sh         # ACME via TLS-ALPN-01
+./examples/manifests/vibectl-server/demo-acme-http.sh    # ACME via HTTP-01 (needs port 80)
 ```
 
-## Troubleshooting
+Each script:
 
-### Common Issues
+1. Builds (or reuses) `vibectl-server:local`.
+2. Creates a dedicated namespace.
+3. Deploys any helper services (Pebble, challenge side-cars).
+4. Waits for vibectl-server to obtain certificates.
+5. Prints connection details *and* saves a demo JWT to `/tmp`.
 
-1. **Image Loading Failures**
-   ```bash
-   # Verify cluster type
-   kubectl version --short
-   kubectl config current-context
+---
 
-   # Manual image loading for kind
-   kind load docker-image vibectl-server:local
-   ```
+## Demo Details
 
-2. **Certificate Generation Timeouts**
-   ```bash
-   # Check init container logs
-   kubectl logs deploy/vibectl-server -c ca-init    # CA demo
-   kubectl logs deploy/vibectl-server -c acme-init  # ACME demo (pebble-ca-init)
-   ```
+### 1 ▪ CA Demo (`demo-ca.sh`)
 
-3. **Connection Test Failures**
-   ```bash
-   # Verify certificate files
-   kubectl exec deploy/vibectl-server -- ls -la /ca-data/     # CA demo
-   kubectl exec deploy/vibectl-server -- ls -la /root/.config/vibectl/server/certs/   # ACME demo
+* **Certificates:** Generated by an init-container that creates a private root CA and signs the server cert.
+* **Security:** Ideal for internal traffic – clients trust a small custom CA bundle.
+* **Renewal:** Manual (init-container can be re-run or rotated via `vibectl-server ca renew`).
+* **Namespace:** `vibectl-server-ca`
+* **Clean-up:**
 
-   # Test certificate manually
-   openssl s_client -connect NODE_IP:NODE_PORT -CAfile /tmp/cert-file.pem
-   ```
+  ```bash
+  kubectl delete ns vibectl-server-ca
+  rm -f /tmp/vibectl-demo-ca-bundle.crt
+  ```
 
-### ACME-Specific Issues
+### 2 ▪ ACME TLS-ALPN-01 Demo (`demo-acme.sh`)
 
-1. **Pebble Server Not Ready**
-   ```bash
-   # Check Pebble deployment
-   kubectl logs deploy/pebble -n vibectl-server-acme
-   kubectl get svc pebble -n vibectl-server-acme
-   ```
+* **Certificates:** Issued automatically by Pebble (or Let's Encrypt in prod) using TLS-ALPN-01.
+* **Ports:** Only 443 (`NodePort` 30443 in kind/k3s).  No HTTP port needed.
+* **Workflow:** An init-container requests a cert; the gRPC server multiplexes ACME challenges and normal traffic over the same TLS port.
+* **Namespace:** `vibectl-server-acme`
+* **Clean-up:**
 
-2. **TLS-ALPN-01 Challenge Failures**
-   ```bash
-   # Check server logs for challenge processing
-   kubectl logs deploy/vibectl-server -n vibectl-server-acme -c vibectl-server
+  ```bash
+  kubectl delete ns vibectl-server-acme
+  rm -f /tmp/vibectl-demo-pebble-ca.crt
+  ```
 
-   # Verify TLS configuration
-   kubectl port-forward svc/vibectl-server 30443:50051 -n vibectl-server-acme &
-   openssl s_client -connect localhost:30443 -alpn acme-tls/1
-   ```
+### 3 ▪ ACME HTTP-01 Demo (`demo-acme-http.sh`)
 
-## Next Steps
+* **Certificates:** Same as above but validated via HTTP-01 on port 80.
+* **Load Balancer:** Requires a Service of type `LoadBalancer`; the script waits for an external IP and leverages `nip.io` for dynamic DNS.
+* **Namespace:** `vibectl-server-acme-http`
+* **Clean-up:**
 
-- **Production CA Deployment**: Use `demo-ca.sh` as a template for private networks
-- **Let's Encrypt Integration**: Adapt `demo-acme.sh` for real Let's Encrypt servers
-- **Certificate Monitoring**: Implement certificate expiration monitoring
-- **Automated Renewal**: Set up cron jobs or operators for certificate renewal
-- **High Availability**: Deploy multiple replicas with shared certificate storage
+  ```bash
+  kubectl delete ns vibectl-server-acme-http
+  rm -f /tmp/vibectl-demo-pebble-ca-http.crt /tmp/vibectl-demo-token.jwt
+  ```
 
-## Development
+---
 
-To modify or extend these demos:
+## Common Features
 
-1. **Test Changes**: Run demos in clean environments
-2. **Validate Certificates**: Verify certificate generation and validation
-3. **Check Integration**: Ensure vibectl client compatibility
-4. **Document Changes**: Update this README with new features or requirements
+* 🏗 **Single Docker build** reused across demos.
+* 🔐 **JWT authentication** – each script stores a ready-to-use token in `/tmp` and configures the vibectl client.
+* 📈 **Readiness checks & helpful logs** – the scripts exit early with guidance if prerequisites are missing.
 
-## File Structure
+---
 
-The following files make up the vibectl-server Kubernetes demo:
+## Troubleshooting Cheat-Sheet
 
-### Core Manifests (CA-based)
-- `Dockerfile` - Multi-stage Docker build for vibectl-server
-- `jwt-secret.yaml` - JWT signing secret (base64 encoded)
-- `configmap.yaml` - Server configuration for CA-based deployment
-- `deployment-ca.yaml` - CA-based certificate generation deployment
-- `service.yaml` - NodePort service for external access
-- `demo-ca.sh` - Demo script for CA-based TLS setup
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| *Pebble pod Pending* | No storage-class on cluster | Edit `pebble.yaml` to use `emptyDir` or install a default storage-class |
+| *Timeout waiting for LoadBalancer IP* (HTTP-01) | MetalLB/controller not ready | `kubectl -n metallb-system rollout status deployment/controller` |
+| *ACME certificate not provisioned* | Pebble unreachable / DNS wrong | Verify Pebble service URL & ACME domains in `vibectl-server-acme-config` |
+| *Connection test fails* | Client CA bundle or JWT token not set | Check the paths printed at script end and re-run `vibectl setup-proxy configure …` |
 
-### ACME Manifests (TLS-ALPN-01)
-- `pebble.yaml` - Pebble ACME test server deployment
-- `configmap-acme.yaml` - Server configuration for ACME-based deployment
-- `deployment-acme.yaml` - ACME-based certificate deployment (TLS-ALPN-01)
-- `service-acme.yaml` - NodePort service for ACME deployment
-- `demo-acme.sh` - Demo script for ACME-based TLS setup with TLS-ALPN-01
+---
 
-### Shared Components
-- `configmap-jwt.yaml` - Shared JWT configuration (planned)
-- `README.md` - This documentation file
+## Extending the Demos
+
+* Swap Pebble for **Let's Encrypt staging** by patching the `directory-url` in the ConfigMap.
+* Replace `NodePort` with **Ingress/Nginx** and update the service accordingly.
+* Wire metrics to Prometheus; each deployment exposes `/metrics` when enabled.
+
+For deep-dive documentation see [`docs/llm-proxy-server.md`](../../../docs/llm-proxy-server.md) and the server roadmap in [`TODO-SERVER.md`](../../../TODO-SERVER.md).

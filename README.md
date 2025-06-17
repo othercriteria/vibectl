@@ -183,6 +183,9 @@ Full schema in [docs/CONFIG.md](docs/CONFIG.md).
 | **CTF Sandbox**      | vibectl autonomously solves staged flags | `examples/k8s-sandbox/ctf/`              |
 | **Chaos Monkey**     | Red vs Blue vibectl agents battle        | `examples/k8s-sandbox/chaos-monkey/`     |
 | **Kafka Throughput** | vibectl tunes Kafka via agent loop       | `examples/k8s-sandbox/kafka-throughput/` |
+| **vibectl-server CA TLS** | Private-CA certificate workflow for vibectl-server | `examples/manifests/vibectl-server/demo-ca.sh` |
+| **vibectl-server ACME (TLS-ALPN-01)** | Automatic ACME provisioning via TLS-ALPN-01 | `examples/manifests/vibectl-server/demo-acme.sh` |
+| **vibectl-server ACME (HTTP-01)** | Automatic ACME provisioning via HTTP-01 (port 80) | `examples/manifests/vibectl-server/demo-acme-http.sh` |
 
 Each demo has its own `README.md` with step‑by‑step instructions.
 
@@ -194,6 +197,8 @@ make check        # ruff + mypy + pytest
 make test-fast    # quick subset
 make bump-patch   # bump version with changelog guard
 ```
+
+*Server-side roadmap:* see **`TODO-SERVER.md`** for detailed vibectl-server tasks and security hardening goals (e.g., certificate transparency monitoring).
 
 Pre‑commit hooks enforce Ruff lint/format; CI targets 100 % coverage (see [TESTING.md](TESTING.md)).
 

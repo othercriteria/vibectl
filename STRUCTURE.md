@@ -133,6 +133,7 @@ This document provides an overview of the project's structure and organization.
 - `DISTRIBUTION.md` - Guide for publishing to PyPI
 - `TESTING.md` - Documentation for testing practices
 - `TODO.md` - Task tracker and planned work
+- `TODO-SERVER.md` - Server-specific roadmap and outstanding tasks
 - `UPDATES.md` - Recent updates and changes tracking
 - `bump_version.py` - Script for semantic version management
 

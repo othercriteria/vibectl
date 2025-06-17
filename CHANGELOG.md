@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- **Documentation / Planning**: Outstanding TLS-proxy work has been consolidated – `PLANNED_CHANGES.md` is now merged into `TODO-SERVER.md`, which also contains a detailed plan for **Certificate Transparency monitoring**.
 - **TLS Support for vibectl LLM Proxy Server**: Complete implementation enabling secure connections for development environments
   - **Server-side TLS Integration**: Full TLS certificate handling and secure port binding in gRPC server
   - **Self-signed Certificate Generation**: Automatic certificate generation for development with cryptography library
