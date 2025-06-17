@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Per-command confirmation for destructive operations
   - Support for semi-trusted proxy deployment scenarios
 
+### Fixed
+- Configuration system bug where string "none" was incorrectly converted to None value
+  - Removed magic string-to-None conversion that caused validation errors
+  - String "none" is now treated as a literal string value for config fields
+  - Added helpful error messages suggesting `vibectl config unset` for clearing values
+  - Improved user experience with clearer validation messages
+
 ## [0.11.0] - 2025-06-17
 
 ### Added

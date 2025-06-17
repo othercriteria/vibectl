@@ -399,9 +399,14 @@ class TestConvertStringToType:
     """Test convert_string_to_type function."""
 
     def test_convert_string_to_type_none(self) -> None:
-        """Test converting 'none' string to None."""
+        """Test that 'none' string is treated as a regular string value."""
+        # "none" should always be treated as a string, not converted to None
         result = convert_string_to_type("none", str)
-        assert result is None
+        assert result == "none"
+
+        # Even when None is allowed, "none" should remain a string
+        result = convert_string_to_type("none", (str, type(None)))
+        assert result == "none"
 
     def test_convert_string_to_type_bool(self) -> None:
         """Test converting string to bool."""

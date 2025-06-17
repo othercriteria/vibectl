@@ -223,89 +223,6 @@ ENV_KEY_MAPPINGS = {
 }
 
 
-def _get_nested_value(config: dict[str, Any], path: str) -> Any:
-    """Get a value from nested config using dotted path notation.
-
-    Args:
-        config: The config dictionary
-        path: Dotted path like 'display.theme' or 'llm.model_keys'
-
-    Returns:
-        The value at the specified path
-
-    Raises:
-        KeyError: If the path doesn't exist
-    """
-    parts = path.split(".")
-    current = config
-
-    for part in parts:
-        if not isinstance(current, dict) or part not in current:
-            raise KeyError(f"Config path not found: {path}")
-        current = current[part]
-
-    return current
-
-
-def _set_nested_value(config: dict[str, Any], path: str, value: Any) -> None:
-    """Set a value in nested config using dotted path notation.
-
-    Args:
-        config: The config dictionary to modify
-        path: Dotted path like 'display.theme' or 'llm.model_keys'
-        value: The value to set
-    """
-    parts = path.split(".")
-    current = config
-
-    # Navigate to the parent of the final key
-    for part in parts[:-1]:
-        if part not in current:
-            current[part] = {}
-        elif not isinstance(current[part], dict):
-            raise ValueError(f"Cannot set nested value: {part} is not a dictionary")
-        current = current[part]
-
-    # Set the final key
-    current[parts[-1]] = value
-
-
-def _validate_hierarchical_key(path: str) -> None:
-    """Validate that a hierarchical path exists in the schema.
-
-    Args:
-        path: Dotted path like 'display.theme'
-
-    Raises:
-        ValueError: If the path is invalid
-    """
-    parts = path.split(".")
-    current_schema = CONFIG_SCHEMA
-
-    for i, part in enumerate(parts):
-        if not isinstance(current_schema, dict) or part not in current_schema:
-            # Generate helpful error message
-            current_path = ".".join(parts[:i])
-            if current_path:
-                available_keys = (
-                    list(current_schema.keys())
-                    if isinstance(current_schema, dict)
-                    else []
-                )
-                raise ValueError(
-                    f"Invalid config path: {path}. "
-                    f"'{part}' not found in section '{current_path}'. "
-                    f"Available keys: {available_keys}"
-                )
-            else:
-                available_sections = list(CONFIG_SCHEMA.keys())
-                raise ValueError(
-                    f"Invalid config section: {part}. "
-                    f"Available sections: {available_sections}"
-                )
-        current_schema = current_schema[part]
-
-
 class Config:
     """Manages vibectl configuration"""
 
@@ -391,7 +308,11 @@ class Config:
             if isinstance(expected_type, tuple) and type(None) in expected_type:
                 return  # None is allowed
             else:
-                raise ValueError(f"None is not a valid value for {path}")
+                # This field doesn't allow None - suggest unset which resets to default
+                error_msg = f"None is not a valid value for {path}"
+                error_msg += "\n\nTo reset this setting to its default, use: "
+                error_msg += f"vibectl config unset {path}"
+                raise ValueError(error_msg)
 
         # Extract the key name for validation lookup
         key_name = parts[-1]  # Last part is the actual key name
@@ -406,16 +327,25 @@ class Config:
 
             # Special handling for model validation with LLM interface
             if key_name == "model":
-                is_valid, error_msg = is_valid_llm_model_name(str(value))
+                is_valid, validation_error = is_valid_llm_model_name(str(value))
                 if not is_valid:
-                    raise ValueError(error_msg or f"Invalid model: {value}")
+                    error_msg = validation_error or f"Invalid model: {value}"
+                    raise ValueError(error_msg)
             else:
                 # Standard validation against allowed values
                 if value not in valid_values:
-                    raise ValueError(
+                    # Check if this field allows None values to suggest using unset
+                    allows_none = (
+                        isinstance(expected_type, tuple) and type(None) in expected_type
+                    )
+                    error_msg = (
                         f"Invalid value for {path}: {value}. "
                         f"Valid values are: {valid_values}"
                     )
+                    if allows_none:
+                        error_msg += "\n\nTo clear this setting, use: "
+                        error_msg += f"vibectl config unset {path}"
+                    raise ValueError(error_msg)
 
     def _validate_proxy_value(self, path: str, key_name: str, value: Any) -> None:
         """Validate proxy-specific configuration values."""

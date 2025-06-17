@@ -575,14 +575,59 @@ async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
 
 
 def test_config_handle_none_value_full(test_config: MockConfig) -> None:
-    """Test handling of 'none' string as None value when it's allowed."""
-    # The kubeconfig config field allows None values
+    """Test that 'none' string is treated as a regular string value."""
+    # "none" should be treated as a string, not converted to None
     test_config.set("core.kubeconfig", "none")
-    assert test_config.get("core.kubeconfig") is None
+    assert test_config.get("core.kubeconfig") == "none"
 
-    # Setting 'none' value for a field that doesn't allow None should raise ValueError
-    with pytest.raises(ValueError, match="None is not a valid value for display.theme"):
+    # Setting 'none' should fail validation if it's not a valid value for the field
+    # Now expect the more detailed error message without the unset suggestion
+    # (since display.theme doesn't allow None values)
+    with pytest.raises(
+        ValueError, match="Invalid value for display.theme: none.*Valid values are"
+    ):
         test_config.set("display.theme", "none")
+
+
+def test_config_helpful_unset_message_for_nullable_fields(
+    test_config: MockConfig,
+) -> None:
+    """Test unset message is shown for nullable fields with enumerated values."""
+    import vibectl.config
+
+    # Temporarily add a test field that is nullable and has enumerated values
+    original_schema = vibectl.config.CONFIG_SCHEMA.copy()
+    original_valid_values = vibectl.config.CONFIG_VALID_VALUES.copy()
+
+    try:
+        # Add test field to schema and valid values
+        vibectl.config.CONFIG_SCHEMA = {
+            **original_schema,
+            "test_section": {"nullable_enum": (str, type(None))},
+        }
+        vibectl.config.CONFIG_VALID_VALUES = {
+            **original_valid_values,
+            "nullable_enum": ["option1", "option2", "option3"],
+        }
+
+        # Create a new config instance to pick up the modified schema
+        with TemporaryDirectory() as temp_dir:
+            test_cfg = Config(Path(temp_dir))
+
+            # Test that invalid value shows helpful message with unset suggestion
+            # Use re.DOTALL flag to match newlines in the error message
+            expected_pattern = (
+                r"(?s)Invalid value for test_section\.nullable_enum: invalid.*"
+                r"Valid values are.*To clear this setting, use: vibectl config "
+                r"unset test_section\.nullable_enum"
+            )
+            with pytest.raises(ValueError, match=expected_pattern):
+                test_cfg.set("test_section.nullable_enum", "invalid")
+
+    finally:
+        # Restore original schema and valid values
+        vibectl.config.CONFIG_SCHEMA = original_schema
+        vibectl.config.CONFIG_VALID_VALUES = original_valid_values
 
 
 def test_config_convert_type_first_non_none_full(test_config: MockConfig) -> None:
@@ -915,9 +960,10 @@ def test_proxy_server_url_none_allowed(test_config: MockConfig) -> None:
     test_config.set("proxy.server_url", None)
     assert test_config.get("proxy.server_url") is None
 
-    # Test string "none" also converts to None
-    test_config.set("proxy.server_url", "none")
-    assert test_config.get("proxy.server_url") is None
+    # Test string "none" is treated as a string but fails validation since
+    # it's not a valid proxy URL
+    with pytest.raises(ValueError, match="Invalid proxy URL for proxy.server_url"):
+        test_config.set("proxy.server_url", "none")
 
 
 def test_proxy_timeout_seconds_validation_valid_values(test_config: MockConfig) -> None:
