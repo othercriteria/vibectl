@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Client-side security hardening for vibectl proxy servers (WIP)
+  - Named proxy configurations with individual security settings
+  - Request sanitization to detect and prevent secret leakage
+  - Structured audit logging for proxy interactions
+  - Per-command confirmation for destructive operations
+  - Support for semi-trusted proxy deployment scenarios
+
 ## [0.11.0] - 2025-06-17
 
 ### Added
