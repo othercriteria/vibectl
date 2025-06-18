@@ -518,7 +518,9 @@ def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> 
             # When there is a request, show the request
             request = parts[1].strip()
             console_manager.print_processing(f"Planning how to: {request}")
-    # Skip other cases as they're now handled in _process_and_execute_kubectl_command
+    else:
+        # For all other commands, display the kubectl command
+        console_manager.print_processing(f"kubectl {command}")
 
 
 def _check_output_visibility(output_flags: OutputFlags) -> None:
@@ -854,9 +856,6 @@ def configure_output_flags(
 ) -> OutputFlags:
     """Configure OutputFlags with the given parameters."""
     # Use OutputFlags.from_args which handles all the config logic
-
-    cfg = Config()
-    model = cfg.get("llm.model") if model is None else model
 
     return OutputFlags.from_args(
         model=model,

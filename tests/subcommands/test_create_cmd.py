@@ -8,44 +8,33 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from vibectl.cli import create  # Keep create for vibe tests
-
-# Import OutputFlags and the prompt func for assertions
+from vibectl.cli import create
 from vibectl.command_handler import OutputFlags
 from vibectl.prompts.create import create_resource_prompt
-
-# Add CliRunner back
-# Import cli for vibe tests, and the helper for standard tests
-# Also import the specific create command function for direct calls
-from vibectl.subcommands.create_cmd import run_create_command  # Updated import
-from vibectl.types import Error, Success  # Import necessary types
-
-# --- Tests for run_create_command --- #
+from vibectl.subcommands.create_cmd import run_create_command
+from vibectl.types import Error, Success
 
 
 # Patch run_kubectl where it's used by run_create_command
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
-@pytest.mark.asyncio  # Mark as async
-async def test_create_logic_basic(mock_run_kubectl: Mock) -> None:  # Mark as async
+@pytest.mark.asyncio
+async def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
     """Test basic run_create_command functionality."""
     mock_run_kubectl.return_value = Success(data="test output")
 
     # Mock handle_command_output
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output", new_callable=AsyncMock
-    ) as mock_handle_cmd_output:  # handle_command_output is now async
+    ) as mock_handle_cmd_output:
         mock_handle_cmd_output.return_value = Success(message="handled")
 
-        result_from_logic = await run_create_command(  # await and updated name
+        result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
             show_raw_output=None,
             show_vibe=None,
-            model=None,
-            show_kubectl=None,
-            freeze_memory=False,  # Added
-            unfreeze_memory=False,  # Added
-            show_metrics=None,  # Added
+            freeze_memory=False,
+            unfreeze_memory=False,
             show_streaming=True,
         )
 
@@ -66,8 +55,8 @@ async def test_create_logic_basic(mock_run_kubectl: Mock) -> None:  # Mark as as
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
-@pytest.mark.asyncio  # Mark as async
-async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:  # Mark as async
+@pytest.mark.asyncio
+async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:
     """Test run_create_command with additional arguments."""
     mock_run_kubectl.return_value = Success(data="test output with args")
 
@@ -75,16 +64,13 @@ async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:  # Mark a
         "vibectl.subcommands.create_cmd.handle_command_output", new_callable=AsyncMock
     ) as mock_handle_cmd_output:
         mock_handle_cmd_output.return_value = Success(message="handled")
-        result_from_logic = await run_create_command(  # await and updated name
+        result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod", "--", "-n", "default"),
             show_raw_output=None,
             show_vibe=None,
-            model=None,
-            show_kubectl=None,
-            freeze_memory=False,  # Added
-            unfreeze_memory=False,  # Added
-            show_metrics=None,  # Added
+            freeze_memory=False,
+            unfreeze_memory=False,
             show_streaming=True,
         )
 
@@ -103,8 +89,8 @@ async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:  # Mark a
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
-@pytest.mark.asyncio  # Mark as async
-async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:  # Mark as async
+@pytest.mark.asyncio
+async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
     """Test run_create_command with output flags."""
     mock_run_kubectl.return_value = Success(data="test output with flags")
 
@@ -112,16 +98,13 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:  # Mark 
         "vibectl.subcommands.create_cmd.handle_command_output", new_callable=AsyncMock
     ) as mock_handle_cmd_output:
         mock_handle_cmd_output.return_value = Success(message="handled")
-        result_from_logic = await run_create_command(  # await and updated name
+        result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
             show_raw_output=True,
             show_vibe=False,
-            model="test-model",
-            show_kubectl=True,
-            freeze_memory=False,  # Added
-            unfreeze_memory=False,  # Added
-            show_metrics=None,  # Added
+            freeze_memory=False,
+            unfreeze_memory=False,
             show_streaming=True,
         )
 
@@ -140,13 +123,11 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:  # Mark 
     output_flags = call_kwargs["output_flags"]
     assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
-    assert output_flags.model_name == "test-model"
-    assert output_flags.show_kubectl is True
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
-@pytest.mark.asyncio  # Mark as async
-async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:  # Mark as async
+@pytest.mark.asyncio
+async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:
     """Test run_create_command when kubectl returns no output."""
     mock_run_kubectl.return_value = Success(
         data=None
@@ -155,16 +136,13 @@ async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:  # Mark a
     with patch(
         "vibectl.subcommands.create_cmd.handle_command_output", new_callable=AsyncMock
     ) as mock_handle_cmd_output:
-        result_from_logic = await run_create_command(  # await and updated name
+        result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
             show_raw_output=None,
             show_vibe=None,
-            model=None,
-            show_kubectl=None,
-            freeze_memory=False,  # Added
-            unfreeze_memory=False,  # Added
-            show_metrics=None,  # Added
+            freeze_memory=False,
+            unfreeze_memory=False,
             show_streaming=True,
         )
 
@@ -178,25 +156,22 @@ async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:  # Mark a
 
 
 @patch("vibectl.subcommands.create_cmd.run_kubectl")
-@pytest.mark.asyncio  # Mark as async
+@pytest.mark.asyncio
 async def test_create_logic_error_handling(
     mock_run_kubectl: Mock,
-) -> None:  # Mark as async
+) -> None:
     """Test run_create_command error handling when run_kubectl raises an exception."""
     test_exception = ValueError("Kubectl execution failed badly")
     mock_run_kubectl.side_effect = test_exception  # run_kubectl raises an exception
 
     # No need to mock handle_command_output as it won't be reached if run_kubectl fails
-    result_from_logic = await run_create_command(  # await and updated name
+    result_from_logic = await run_create_command(
         resource="pod",
         args=("my-pod",),
         show_raw_output=None,
         show_vibe=None,
-        model=None,
-        show_kubectl=None,
-        freeze_memory=False,  # Added
-        unfreeze_memory=False,  # Added
-        show_metrics=None,  # Added
+        freeze_memory=False,
+        unfreeze_memory=False,
         show_streaming=True,
     )
 
@@ -208,20 +183,12 @@ async def test_create_logic_error_handling(
     mock_run_kubectl.assert_called_once_with(["create", "pod", "my-pod"])
 
 
-# --- Tests for vibe functionality using create --- #
-# These tests seem to be using the Click command `create` directly, which is good.
-# They are already async.
-
-
-@pytest.mark.asyncio  # Mark test as async
-# Patch handle_vibe_request where it's imported in the create_cmd module
-@patch(
-    "vibectl.subcommands.create_cmd.handle_vibe_request", new_callable=AsyncMock
-)  # handle_vibe_request is async
-@patch("vibectl.cli.handle_result")  # Keep patch for handle_result
+@pytest.mark.asyncio
+@patch("vibectl.subcommands.create_cmd.handle_vibe_request", new_callable=AsyncMock)
+@patch("vibectl.cli.handle_result")
 async def test_create_vibe_request(
     mock_handle_result: Mock,
-    mock_handle_vibe: AsyncMock,  # mock_handle_vibe is AsyncMock
+    mock_handle_vibe: AsyncMock,
 ) -> None:
     """Test create command with vibe request (direct call)."""
     mock_handle_vibe.return_value = Success(data="vibe output")
@@ -240,9 +207,9 @@ async def test_create_vibe_request(
     mock_handle_result.assert_called_once_with(mock_handle_vibe.return_value)
 
 
-@pytest.mark.asyncio  # Mark test as async
-@patch("sys.exit")  # Keep patch for sys.exit
-@patch("vibectl.cli.console_manager")  # Keep patch for console
+@pytest.mark.asyncio
+@patch("sys.exit")
+@patch("vibectl.cli.console_manager")
 async def test_create_vibe_no_request(mock_console: Mock, mock_exit: Mock) -> None:
     """Test create vibe command without a request (direct call)."""
     # Use main() for async command invocation

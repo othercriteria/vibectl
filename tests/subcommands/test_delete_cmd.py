@@ -95,8 +95,6 @@ async def test_run_delete_command_passes_success_object_to_handle_output(
             args=args_tuple,
             show_raw_output=default_delete_output_flags.show_raw_output,
             show_vibe=default_delete_output_flags.show_vibe,
-            model=default_delete_output_flags.model_name,
-            show_kubectl=default_delete_output_flags.show_kubectl,
         )
 
         assert isinstance(result, Success), (

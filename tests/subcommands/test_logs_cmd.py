@@ -71,20 +71,19 @@ async def test_logs_with_flags(
     mock_configure_flags: Mock,
     cli_runner: CliRunner,
 ) -> None:
-    """Test logs command with output flags."""
+    """Test logs command with output flags (model handled globally via ContextVar)."""
     from vibectl.command_handler import OutputFlags
     from vibectl.types import Success
 
     mock_flags = OutputFlags(
         show_raw_output=True,
         show_vibe=False,
-        model_name="test-model-foo",
+        model_name="test-model-foo",  # This comes from Config/ContextVar now
         warn_no_output=True,
         show_kubectl=False,
         show_metrics=MetricsDisplayMode.ALL,
     )
     mock_configure_flags.return_value = mock_flags
-    mock_configure_flags.model_name_check = "test-model-bar"
 
     mock_run_kubectl.return_value = Success(data="test output")
 
@@ -96,8 +95,6 @@ async def test_logs_with_flags(
                 "my-pod",
                 "--show-raw-output",
                 "--no-show-vibe",
-                "--model",
-                "test-model-foo",
             ]
         )
 
@@ -106,17 +103,12 @@ async def test_logs_with_flags(
     mock_handle_output.assert_called_once()
 
     # Verify configure_output_flags called correctly by the subcommand's run function
-    # (assuming run_logs_command calls it like run_get_command does)
+    # Model and show_kubectl are now handled via Config/ContextVar, not as parameters
     mock_configure_flags.assert_called_once_with(
         show_raw_output=True,
         show_vibe=False,
-        model="test-model-foo",
-        show_kubectl=None,
-        show_metrics=None,
         show_streaming=None,
     )
-    # Verify the original mock object attribute wasn't changed
-    assert mock_configure_flags.model_name_check == "test-model-bar"
 
 
 @patch("vibectl.subcommands.logs_cmd.run_kubectl")
@@ -352,9 +344,6 @@ async def test_logs_follow_with_show_vibe_flag(
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=None,  # CLI passes None if not specified
         show_vibe=True,  # Explicitly passed by --show-vibe
-        model=None,  # CLI passes None if not specified
-        show_kubectl=None,  # Default from common_command_options
-        show_metrics=None,  # Default from common_command_options
         show_streaming=None,  # CLI passes None if not specified
     )
 

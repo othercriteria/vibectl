@@ -359,6 +359,23 @@ class TestDisplayFunctions:
         )
 
     @patch("vibectl.command_handler.console_manager")
+    def test_display_kubectl_command_regular_command(self, mock_console: Mock) -> None:
+        """Test _display_kubectl_command with regular kubectl command."""
+        output_flags = OutputFlags(
+            model_name="test-model",
+            show_raw_output=False,
+            show_vibe=True,
+            show_kubectl=True,
+        )
+        _display_kubectl_command(
+            output_flags, "logs nginx-demo-6c96b5cbcf-8vpx2 -n sandbox"
+        )
+
+        mock_console.print_processing.assert_called_once_with(
+            "kubectl logs nginx-demo-6c96b5cbcf-8vpx2 -n sandbox"
+        )
+
+    @patch("vibectl.command_handler.console_manager")
     @patch("vibectl.command_handler.logger")
     def test_check_output_visibility_warning(
         self, mock_logger: Mock, mock_console: Mock

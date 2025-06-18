@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.prompts.describe import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
-from vibectl.types import Error, MetricsDisplayMode, Success
+from vibectl.types import Error, Success
 
 
 @pytest.mark.asyncio
@@ -28,10 +28,8 @@ async def test_describe_basic(
         args=("my-pod",),
         show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -79,10 +77,8 @@ async def test_describe_args_variants(
         args=func_args,
         show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -121,10 +117,8 @@ async def test_describe_with_flags(
         args=("my-pod",),  # Flags are handled by configure_output_flags
         show_raw_output=True,
         show_vibe=True,
-        show_kubectl=True,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -133,8 +127,6 @@ async def test_describe_with_flags(
     mock_configure_output.assert_called_once_with(
         show_raw_output=True,
         show_vibe=True,
-        show_kubectl=True,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
@@ -161,10 +153,8 @@ async def test_describe_error_handling(
         args=("my-pod",),
         show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -195,10 +185,8 @@ async def test_describe_vibe_request(
         args=("show", "me", "the", "nginx", "pod"),
         show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -232,10 +220,8 @@ async def test_describe_vibe_no_request(
         args=(),
         show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
     )
 
@@ -268,10 +254,8 @@ async def test_run_describe_command_normal() -> None:
             args=("test-pod",),
             show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -309,10 +293,8 @@ async def test_run_describe_command_vibe() -> None:
             args=("show", "pods"),
             show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -347,10 +329,8 @@ async def test_run_describe_command_vibe_no_args() -> None:
             args=(),
             show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -383,10 +363,8 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
                 args=("test", "request"),
                 show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -416,10 +394,8 @@ async def test_run_describe_command_standard_command_exception() -> None:
                 args=("test-pod",),
                 show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.NONE,
                 show_streaming=False,
             )
 
@@ -439,10 +415,8 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
                 args=("test",),
                 show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )
 
@@ -469,9 +443,7 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
                 args=("test",),
                 show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.ALL,
                 show_streaming=True,
             )

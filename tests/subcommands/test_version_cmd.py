@@ -48,11 +48,8 @@ class TestRunVersionCommand:
             args=(),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=False,
-            model="default-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=True,
         )
 
@@ -62,9 +59,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=False,
             show_vibe=True,
-            model="default-model",
-            show_kubectl=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=True,
         )
         mock_configure_memory.assert_called_once_with(False, False)
@@ -97,11 +91,8 @@ class TestRunVersionCommand:
             args=("--output=json", "--client"),
             show_raw_output=True,
             show_vibe=False,
-            show_kubectl=True,
-            model="test-model",
             freeze_memory=True,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
 
@@ -111,9 +102,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=True,
             show_vibe=False,
-            model="test-model",
-            show_kubectl=True,
-            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(True, False)
@@ -145,11 +133,8 @@ class TestRunVersionCommand:
             args=(),
             show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=None,
             show_streaming=None,
         )
 
@@ -176,11 +161,8 @@ class TestRunVersionCommand:
             args=("vibe", "what version of kubernetes am I running?"),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=True,
-            model="claude-3.5-sonnet",
             freeze_memory=False,
             unfreeze_memory=True,
-            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
 
@@ -190,9 +172,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=False,
             show_vibe=True,
-            model="claude-3.5-sonnet",
-            show_kubectl=True,
-            show_metrics=MetricsDisplayMode.ALL,
             show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(False, True)
@@ -225,11 +204,8 @@ class TestRunVersionCommand:
             args=("vibe", "check", "kubernetes", "version", "compatibility"),
             show_raw_output=True,
             show_vibe=False,
-            show_kubectl=False,
-            model="test-model",
             freeze_memory=True,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=True,
         )
 
@@ -260,11 +236,8 @@ class TestRunVersionCommand:
             args=("vibe",),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=False,
-            model="test-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -291,11 +264,8 @@ class TestRunVersionCommand:
             args=("vibe", "check kubernetes version"),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=False,
-            model="test-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -324,11 +294,8 @@ class TestRunVersionCommand:
             args=(),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=False,
-            model="test-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -358,11 +325,8 @@ class TestRunVersionCommand:
             args=("vibe", "test request"),
             show_raw_output=False,
             show_vibe=True,
-            show_kubectl=False,
-            model="test-model",
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
             show_streaming=False,
         )
 
@@ -394,11 +358,8 @@ class TestRunVersionCommand:
             args=(),
             show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=None,
             show_streaming=None,
         )
 
@@ -408,8 +369,5 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=None,
             show_vibe=None,
-            model=None,
-            show_kubectl=None,
-            show_metrics=None,
             show_streaming=None,
         )

@@ -12,18 +12,15 @@ from vibectl.prompts.events import (
     events_plan_prompt,
     events_prompt,
 )
-from vibectl.types import MetricsDisplayMode, Result
+from vibectl.types import Result
 
 
 async def run_events_command(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> Result:
     """
@@ -34,9 +31,6 @@ async def run_events_command(
     output_flags = configure_output_flags(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
-        show_kubectl=show_kubectl,
-        show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)

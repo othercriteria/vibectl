@@ -6,18 +6,15 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.version import version_plan_prompt, version_prompt
-from vibectl.types import Error, MetricsDisplayMode, Result
+from vibectl.types import Error, Result
 
 
 async def run_version_command(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_kubectl: bool | None,
-    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """Executes the version command logic."""
@@ -27,9 +24,6 @@ async def run_version_command(
     output_flags = configure_output_flags(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
-        show_kubectl=show_kubectl,
-        show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)

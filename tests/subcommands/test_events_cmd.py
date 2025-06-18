@@ -57,21 +57,8 @@ async def test_events_output_processing(
     # cli_runner: CliRunner, # No longer needed
 ) -> None:
     """Test events command output processing."""
-    # from vibectl.types import OutputFlags, Success # Moved to top
 
     mock_run_kubectl.return_value = Success(data="Event data")
-
-    # This OutputFlags object is an example of what configure_output_flags might return.
-    # The actual assertion will be on the mock_handle_output call.
-    # expected_output_flags = OutputFlags(
-    #     show_raw_output=False,
-    #     show_vibe=True,
-    #     model_name=str(DEFAULT_CONFIG.get("model")),
-    #     warn_no_output=True,
-    #     show_kubectl=False,
-    #     show_metrics=MetricsDisplayMode.NONE,
-    #     show_streaming=True,
-    # )
 
     events_command = cli.commands.get("events")
     assert events_command is not None, "'events' command not found in CLI"
@@ -227,7 +214,3 @@ async def test_events_watch_path(
     )  # e.g. ("--watch", "pods", "a-specific-pod")
     assert hwd_call_kwargs.get("output_flags") == dummy_output_flags
     assert hwd_call_kwargs.get("summary_prompt_func") == events_prompt
-
-
-# Mock DEFAULT_CONFIG for tests in this file if needed, or ensure it's available.
-# from vibectl.config import DEFAULT_CONFIG (if not already imported for the whole file)

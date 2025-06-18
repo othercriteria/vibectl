@@ -10,7 +10,7 @@ from vibectl.prompts.get import (
     get_plan_prompt,
     get_resource_prompt,
 )
-from vibectl.types import Error, MetricsDisplayMode, Result
+from vibectl.types import Error, Result
 
 
 async def run_get_command(
@@ -18,10 +18,8 @@ async def run_get_command(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
     """
@@ -33,8 +31,6 @@ async def run_get_command(
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            show_kubectl=show_kubectl,
-            show_metrics=show_metrics,
             show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
