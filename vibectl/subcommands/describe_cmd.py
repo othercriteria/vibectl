@@ -9,16 +9,16 @@ from vibectl.prompts.describe import (
     describe_plan_prompt,
     describe_resource_prompt,
 )
-from vibectl.types import Error, Result
+from vibectl.types import Error, Result, determine_execution_mode
 
 
 async def run_describe_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
+    show_raw_output: bool | None = None,
+    show_vibe: bool | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> Result:
     """Executes the describe command logic."""
 
@@ -44,14 +44,16 @@ async def run_describe_command(
         request = " ".join(args)
         logger.info(f"Planning how to describe: {request}")
 
+        exec_mode = determine_execution_mode(yes=False, semiauto=False)
+
         result = await handle_vibe_request(
             request=request,
             command="describe",
             plan_prompt_func=describe_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=describe_resource_prompt,
-            semiauto=False,
-            config=None,
+            execution_mode=exec_mode,
+            yes=False,
         )
         logger.info("Completed 'describe' command for vibe request.")
         return result

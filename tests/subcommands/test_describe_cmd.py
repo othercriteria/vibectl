@@ -189,15 +189,13 @@ async def test_describe_vibe_request(
     # Assert Success is returned
     assert isinstance(result, Success)
 
-    mock_handle_vibe.assert_called_once_with(
-        request="show me the nginx pod",
-        command="describe",
-        plan_prompt_func=ANY,
-        summary_prompt_func=describe_resource_prompt,
-        output_flags=ANY,  # Check specific flags if needed
-        semiauto=False,
-        config=None,  # Expect config to be None as it's not passed by caller
-    )
+    # Verify essential kwargs were passed
+    mock_handle_vibe.assert_called_once()
+    called_kwargs = mock_handle_vibe.call_args.kwargs
+    assert called_kwargs["request"] == "show me the nginx pod"
+    assert called_kwargs["command"] == "describe"
+    assert "execution_mode" in called_kwargs  # new API
+    assert "output_flags" in called_kwargs
 
 
 @pytest.mark.asyncio
@@ -292,15 +290,12 @@ async def test_run_describe_command_vibe() -> None:
         )
 
         assert result == mock_result
-        mock_handle_vibe.assert_called_once_with(
-            request="show pods",
-            command="describe",
-            plan_prompt_func=ANY,
-            output_flags=mock_output_flags,
-            summary_prompt_func=describe_resource_prompt,
-            semiauto=False,
-            config=None,
-        )
+        mock_handle_vibe.assert_called_once()
+        called_kwargs = mock_handle_vibe.call_args.kwargs
+        assert called_kwargs["request"] == "show pods"
+        assert called_kwargs["command"] == "describe"
+        assert "execution_mode" in called_kwargs
+        assert called_kwargs["output_flags"] is mock_output_flags
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from vibectl.prompts.get import (
     get_plan_prompt,
     get_resource_prompt,
 )
-from vibectl.types import Error, Result
+from vibectl.types import Error, Result, determine_execution_mode
 
 
 async def run_get_command(
@@ -44,6 +44,8 @@ async def run_get_command(
             request = " ".join(args)
             logger.info(f"Planning how to: {request}")
 
+            exec_mode = determine_execution_mode(yes=False, semiauto=False)
+
             # Await the async handler
             result = await handle_vibe_request(
                 request=request,
@@ -51,6 +53,7 @@ async def run_get_command(
                 plan_prompt_func=get_plan_prompt,
                 summary_prompt_func=get_resource_prompt,
                 output_flags=output_flags,
+                execution_mode=exec_mode,
                 yes=False,
             )
 

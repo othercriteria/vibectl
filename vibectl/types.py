@@ -509,6 +509,25 @@ def determine_execution_mode(*, yes: bool, semiauto: bool) -> ExecutionMode:
     Returns:
         The corresponding :class:`ExecutionMode`.
     """
+    # First honour a process-local override coming from CLI --mode.
+    try:
+        from vibectl.overrides import get_override  # Local import to avoid cycles
+
+        overridden, value = get_override("execution.mode")
+        if overridden and value is not None:
+            lowered = str(value).lower()
+            if lowered == "auto":
+                return ExecutionMode.AUTO
+            if lowered == "semiauto":
+                return ExecutionMode.SEMIAUTO
+            if lowered == "manual":
+                return ExecutionMode.MANUAL
+            # Fall through for any unexpected value - treat as MANUAL to be safe
+    except Exception:  # pragma: no cover - defensive, should never fail
+        # If overrides infrastructure is unavailable for some reason just ignore
+        pass
+
+    # Fallback to legacy flag logic
     if semiauto:
         # Semiauto always prompts; ``--yes`` is ignored by design in that loop.
         return ExecutionMode.SEMIAUTO

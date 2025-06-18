@@ -65,6 +65,7 @@ def common_command_options(
     include_show_kubectl: bool = False,
     include_live_display: bool = False,
     include_yes: bool = False,
+    include_mode: bool = False,
     include_show_metrics: bool = True,
     include_show_streaming: bool = True,
     include_freeze_memory: bool = True,
@@ -122,6 +123,22 @@ def common_command_options(
             options.append(
                 click.option(
                     "--yes", "-y", is_flag=True, help="Skip confirmation prompt"
+                )
+            )
+        if include_mode:
+            options.append(
+                click.option(
+                    "--mode",
+                    type=click.Choice(
+                        ["manual", "auto", "semiauto"], case_sensitive=False
+                    ),
+                    default=None,
+                    help=(
+                        "Execution mode: "
+                        "manual (confirmations enabled); "
+                        "auto (no confirmations); "
+                        "semiauto (confirm per iteration)"
+                    ),
                 )
             )
         if include_show_metrics:
@@ -304,6 +321,7 @@ cli.add_command(audit_group)
     include_model=False,
     include_show_metrics=False,
     include_show_streaming=False,
+    include_mode=True,
 )
 async def get(
     resource: str,
@@ -312,8 +330,15 @@ async def get(
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
+    mode: str | None = None,
 ) -> None:
     """Get resources in a concise format."""
+    # Apply execution mode override early so downstream code sees it via Config helpers
+    if mode is not None:
+        from vibectl.overrides import set_override
+
+        set_override("execution.mode", mode)
+
     result = await run_get_command(
         resource=resource,
         args=args,
@@ -791,6 +816,11 @@ async def auto(
     mode: str | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
+    if mode is not None:
+        from vibectl.overrides import set_override
+
+        set_override("execution.mode", mode)
+
     try:
         # Await run_auto_command
         result = await run_auto_command(
@@ -949,6 +979,11 @@ async def vibe(
     show_streaming: bool | None = None,
 ) -> None:
     """LLM interprets natural language request and runs fitting kubectl command."""
+    if mode is not None:
+        from vibectl.overrides import set_override
+
+        set_override("execution.mode", mode)
+
     # Call run_vibe_command instead of handle_vibe_request directly
     result = await run_vibe_command(
         request=request,
@@ -1631,7 +1666,9 @@ async def port_forward(
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(
-    include_show_kubectl=True, include_show_metrics=True, include_show_streaming=True
+    include_show_kubectl=True,
+    include_show_metrics=True,
+    include_show_streaming=True,
 )
 async def diff(
     resource: str,

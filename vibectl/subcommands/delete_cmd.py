@@ -6,7 +6,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.delete import delete_plan_prompt, delete_resource_prompt
-from vibectl.types import Error, Result
+from vibectl.types import Error, Result, determine_execution_mode
 
 
 async def run_delete_command(
@@ -46,12 +46,15 @@ async def run_delete_command(
             request = " ".join(args)
             logger.info("Planning how to: delete %s", request)
             try:
+                exec_mode = determine_execution_mode(yes=yes, semiauto=False)
+
                 result = await handle_vibe_request(
                     request=request,
                     command="delete",
                     plan_prompt_func=delete_plan_prompt,
                     summary_prompt_func=delete_resource_prompt,
                     output_flags=output_flags,
+                    execution_mode=exec_mode,
                     yes=yes,
                 )
                 return result
