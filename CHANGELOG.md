@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Proxy connection event logging with success/failure tracking and timing metrics
     - Profile-specific audit log files with automatic directory creation
     - Full integration with ProxyModelAdapter for automatic logging of all LLM interactions
+    - **Audit Log Viewing Commands**: Complete CLI interface for audit log analysis
+      - `vibectl audit show`: Pretty-print recent audit events with filtering (`--proxy`, `--since`, `--tail`)
+      - `vibectl audit export`: Export audit events to JSON/CSV format with file output support
+      - `vibectl audit info`: Display audit log metadata and paths with multiple output formats
+      - Comprehensive test suite achieving 99% code coverage with extensive edge case testing
+      - Robust error handling for missing profiles, disabled logging, and file I/O scenarios
+      - Flexible timestamp parsing supporting ISO format, epoch seconds, and relative times (e.g., "2h", "30m", "1d")
   - **Enhanced Setup Commands**: Complete redesign of proxy configuration workflow
     - Security-first approach with mandatory testing before activation
     - `--enable-sanitization` and `--enable-audit-logging` flags

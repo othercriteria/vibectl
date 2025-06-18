@@ -22,6 +22,7 @@ from vibectl.memory import (
     set_memory,
 )
 from vibectl.subcommands.apply_cmd import run_apply_command
+from vibectl.subcommands.audit_cmd import audit_group
 from vibectl.subcommands.auto_cmd import run_auto_command, run_semiauto_command
 from vibectl.subcommands.check_cmd import run_check_command
 from vibectl.subcommands.cluster_info_cmd import run_cluster_info_command
@@ -263,6 +264,7 @@ async def cli(
 
 cli.add_command(plugin_group)
 cli.add_command(setup_proxy_group)
+cli.add_command(audit_group)
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
