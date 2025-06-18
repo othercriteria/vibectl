@@ -14,7 +14,6 @@ from vibectl.types import Error, MetricsDisplayMode, OutputFlags, Success
 async def test_events_error_handling(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    # cli_runner: CliRunner, # No longer needed
 ) -> None:
     """Test error handling in events command."""
     mock_run_kubectl.return_value = Error(error="Test error")
@@ -27,21 +26,19 @@ async def test_events_error_handling(
     assert events_command is not None, "'events' command not found in CLI"
 
     with pytest.raises(SystemExit) as exc_info:
-        # Call main directly, ensure standalone_mode=False if main uses it
-        await events_command.main(["pods", "--show-streaming"], standalone_mode=False)
+        # Remove --show-streaming since it's now a global flag
+        await events_command.main(["pods"], standalone_mode=False)
 
     assert exc_info.value.code != 0
 
     mock_run_kubectl.assert_called_once()
     # Args check can be tricky due to how click processes them.
-    # A simple check that "pods" and "--show-streaming" are in the command list.
+    # A simple check that "pods" is in the command list.
     called_args, _ = mock_run_kubectl.call_args
     assert "events" in called_args[0]  # Base command
     assert "pods" in called_args[0]
-    # --show-streaming is a vibectl flag, not passed to kubectl events
-    # So, it should NOT be in called_args[0] for run_kubectl
-    # This was an error in my previous reasoning for this test.
-    # The run_events_command itself forms the kubectl command.
+    # Verify that the kubectl command doesn't contain vibectl-specific flags
+    assert called_args[0] == ["events", "pods"]
 
     # Now expect handle_command_output to be called since show_vibe=True by default
     # and errors go through recovery suggestion flow
@@ -54,7 +51,6 @@ async def test_events_error_handling(
 async def test_events_output_processing(
     mock_handle_output: Mock,
     mock_run_kubectl: Mock,
-    # cli_runner: CliRunner, # No longer needed
 ) -> None:
     """Test events command output processing."""
 
@@ -64,7 +60,8 @@ async def test_events_output_processing(
     assert events_command is not None, "'events' command not found in CLI"
 
     with pytest.raises(SystemExit) as exc_info:
-        await events_command.main(["pods", "--show-streaming"], standalone_mode=False)
+        # Remove --show-streaming since it's now a global flag
+        await events_command.main(["pods"], standalone_mode=False)
 
     assert exc_info.value.code == 0
 
@@ -72,7 +69,7 @@ async def test_events_output_processing(
     called_args, _ = mock_run_kubectl.call_args
     assert "events" in called_args[0]  # Base command
     assert "pods" in called_args[0]
-    # --show-streaming is a vibectl flag, should not be in kubectl args.
+    # Verify vibectl flags don't leak into kubectl command
     assert called_args[0] == ["events", "pods"]
 
     mock_handle_output.assert_called_once()
@@ -81,10 +78,9 @@ async def test_events_output_processing(
     assert len(ho_args) > 1, "handle_command_output not called with enough arguments"
     actual_output_flags = ho_args[1]  # output_flags is the second positional argument
     assert actual_output_flags is not None
-    assert (
-        actual_output_flags.show_streaming is True
-    )  # Since --show-streaming was passed
-    assert actual_output_flags.show_vibe is True  # Default or from --show-streaming
+    # Since --show-streaming is no longer passed as a parameter, streaming behavior
+    # is controlled by ContextVar overrides set at the CLI level
+    assert actual_output_flags.show_vibe is True  # Default or from CLI setup
     assert actual_output_flags.model_name == str(DEFAULT_CONFIG["llm"]["model"])
 
 
@@ -130,10 +126,8 @@ async def test_events_vibe_path(
     cof_kwargs = mock_configure_output_flags.call_args.kwargs
     assert cof_kwargs.get("show_raw_output") is None
     assert cof_kwargs.get("show_vibe") is None
-    assert cof_kwargs.get("model") is None
-    assert cof_kwargs.get("show_kubectl") is None
-    assert cof_kwargs.get("show_metrics") is None
-    assert cof_kwargs.get("show_streaming") is None
+    # show_streaming is no longer a parameter passed to configure_output_flags
+    # since it's handled via ContextVar overrides at the CLI level
 
     mock_configure_memory_flags.assert_called_once_with(
         expected_freeze_memory_arg, expected_unfreeze_memory_arg
@@ -196,10 +190,7 @@ async def test_events_watch_path(
     cof_kwargs = mock_configure_output_flags.call_args.kwargs
     assert cof_kwargs.get("show_raw_output") is None
     assert cof_kwargs.get("show_vibe") is None
-    assert cof_kwargs.get("model") is None
-    assert cof_kwargs.get("show_kubectl") is None
-    assert cof_kwargs.get("show_metrics") is None
-    assert cof_kwargs.get("show_streaming") is None
+    # show_streaming is no longer a parameter since it's handled via ContextVar
 
     mock_configure_memory_flags.assert_called_once_with(
         expected_freeze_memory_arg, expected_unfreeze_memory_arg
@@ -214,3 +205,68 @@ async def test_events_watch_path(
     )  # e.g. ("--watch", "pods", "a-specific-pod")
     assert hwd_call_kwargs.get("output_flags") == dummy_output_flags
     assert hwd_call_kwargs.get("summary_prompt_func") == events_prompt
+
+
+@patch("vibectl.subcommands.events_cmd.configure_output_flags")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
+@pytest.mark.asyncio
+async def test_events_with_streaming_contextvar(
+    mock_handle_output: Mock,
+    mock_run_kubectl: Mock,
+    mock_configure_output_flags: Mock,
+) -> None:
+    """Test events command with streaming enabled via ContextVar override.
+
+    This test demonstrates how vibectl flags (like --show-streaming) are handled
+    properly via ContextVar overrides and don't leak into kubectl commands.
+    """
+    from vibectl.overrides import set_override
+
+    # Set up streaming via ContextVar override (simulating global --show-streaming flag)
+    set_override("display.show_streaming", True)
+
+    # Configure mocks
+    mock_run_kubectl.return_value = Success(data="Event data")
+    mock_handle_output.return_value = Success(data="Processed event data")
+
+    streaming_output_flags = OutputFlags(
+        show_raw_output=False,
+        show_vibe=True,
+        model_name="default",
+        warn_no_output=False,
+        show_kubectl=False,
+        show_metrics=MetricsDisplayMode.NONE,
+        show_streaming=True,  # Should reflect the ContextVar override
+    )
+    mock_configure_output_flags.return_value = streaming_output_flags
+
+    events_command = cli.commands.get("events")
+    assert events_command is not None, "'events' command not found in CLI"
+
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            await events_command.main(["pods"], standalone_mode=False)
+
+        assert exc_info.value.code == 0
+
+        # Verify kubectl doesn't receive vibectl-specific flags
+        mock_run_kubectl.assert_called_once()
+        called_args, _ = mock_run_kubectl.call_args
+        kubectl_command = called_args[0]
+        assert kubectl_command == ["events", "pods"]
+        # Critical: ensure no vibectl flags leak into kubectl command
+        assert "--show-streaming" not in kubectl_command
+        assert "--streaming" not in kubectl_command
+
+        # Verify output processing received the correct flags
+        mock_handle_output.assert_called_once()
+        ho_args, _ = mock_handle_output.call_args
+        actual_output_flags = ho_args[1]
+        assert actual_output_flags.show_streaming is True
+
+    finally:
+        # Clean up ContextVar override
+        from vibectl.overrides import clear_overrides
+
+        clear_overrides()

@@ -50,7 +50,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
         assert isinstance(result, Success)
@@ -59,7 +58,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=False,
             show_vibe=True,
-            show_streaming=True,
         )
         mock_configure_memory.assert_called_once_with(False, False)
         mock_handle_standard.assert_called_once_with(
@@ -93,7 +91,6 @@ class TestRunVersionCommand:
             show_vibe=False,
             freeze_memory=True,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Success)
@@ -102,7 +99,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=True,
             show_vibe=False,
-            show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(True, False)
         mock_handle_standard.assert_called_once_with(
@@ -135,7 +131,6 @@ class TestRunVersionCommand:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=None,
         )
 
         assert isinstance(result, Error)
@@ -163,7 +158,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=True,
-            show_streaming=False,
         )
 
         assert isinstance(result, Success)
@@ -172,7 +166,6 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=False,
             show_vibe=True,
-            show_streaming=False,
         )
         mock_configure_memory.assert_called_once_with(False, True)
         mock_handle_vibe.assert_called_once_with(
@@ -206,7 +199,6 @@ class TestRunVersionCommand:
             show_vibe=False,
             freeze_memory=True,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
         assert isinstance(result, Success)
@@ -238,7 +230,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Error)
@@ -266,7 +257,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Error)
@@ -296,7 +286,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Success)
@@ -327,7 +316,6 @@ class TestRunVersionCommand:
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Success)
@@ -360,7 +348,6 @@ class TestRunVersionCommand:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=None,
         )
 
         assert isinstance(result, Success)
@@ -369,5 +356,4 @@ class TestRunVersionCommand:
         mock_configure_output.assert_called_once_with(
             show_raw_output=None,
             show_vibe=None,
-            show_streaming=None,
         )

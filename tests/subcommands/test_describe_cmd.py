@@ -30,7 +30,6 @@ async def test_describe_basic(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     # Assert the result and mock calls
@@ -79,7 +78,6 @@ async def test_describe_args_variants(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     if should_succeed:
@@ -119,15 +117,15 @@ async def test_describe_with_flags(
         show_vibe=True,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Success)
     mock_handle_standard.assert_called_once()
+    # show_streaming is no longer a parameter passed to configure_output_flags
+    # since it's handled via ContextVar overrides at the CLI level
     mock_configure_output.assert_called_once_with(
         show_raw_output=True,
         show_vibe=True,
-        show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
 
@@ -155,7 +153,6 @@ async def test_describe_error_handling(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     # Assert Error is returned and mock was called
@@ -187,7 +184,6 @@ async def test_describe_vibe_request(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     # Assert Success is returned
@@ -222,7 +218,6 @@ async def test_describe_vibe_no_request(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     # Assert an Error is returned with the correct message
@@ -256,7 +251,6 @@ async def test_run_describe_command_normal() -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert result == mock_result
@@ -295,7 +289,6 @@ async def test_run_describe_command_vibe() -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert result == mock_result
@@ -331,7 +324,6 @@ async def test_run_describe_command_vibe_no_args() -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=False,
         )
 
         assert isinstance(result, Error)
@@ -365,7 +357,6 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_streaming=False,
             )
 
 
@@ -396,7 +387,6 @@ async def test_run_describe_command_standard_command_exception() -> None:
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_streaming=False,
             )
 
 
@@ -417,7 +407,6 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_streaming=True,
             )
 
 
@@ -445,5 +434,4 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_streaming=True,
             )

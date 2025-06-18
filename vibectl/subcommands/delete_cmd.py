@@ -17,7 +17,6 @@ async def run_delete_command(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     yes: bool = False,
-    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -31,7 +30,6 @@ async def run_delete_command(
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            show_streaming=show_streaming,
         )
         # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)

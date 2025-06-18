@@ -107,7 +107,6 @@ async def test_logs_with_flags(
     mock_configure_flags.assert_called_once_with(
         show_raw_output=True,
         show_vibe=False,
-        show_streaming=None,
     )
 
 
@@ -344,7 +343,6 @@ async def test_logs_follow_with_show_vibe_flag(
     mock_configure_output_flags.assert_called_once_with(
         show_raw_output=None,  # CLI passes None if not specified
         show_vibe=True,  # Explicitly passed by --show-vibe
-        show_streaming=None,  # CLI passes None if not specified
     )
 
     # Verify handle_watch_with_live_display was called correctly

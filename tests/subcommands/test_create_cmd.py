@@ -35,7 +35,6 @@ async def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
     assert isinstance(result_from_logic, Success)
@@ -71,7 +70,6 @@ async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
     assert isinstance(result_from_logic, Success)
@@ -105,7 +103,6 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
             show_vibe=False,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
     assert isinstance(result_from_logic, Success)
@@ -143,7 +140,6 @@ async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_streaming=True,
         )
 
     assert isinstance(result_from_logic, Success)
@@ -172,7 +168,6 @@ async def test_create_logic_error_handling(
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result_from_logic, Error)

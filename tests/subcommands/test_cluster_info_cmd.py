@@ -45,12 +45,8 @@ async def test_cluster_info_basic(
         args=(),
         show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
-        model=default_cluster_info_output_flags.model_name,
-        show_kubectl=default_cluster_info_output_flags.show_kubectl,
-        show_metrics=default_cluster_info_output_flags.show_metrics,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     # Assert
@@ -65,7 +61,7 @@ async def test_cluster_info_basic(
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 async def test_cluster_info_with_args(
     mock_handle_output: Mock,
-    mock_run_kubectl: Mock,  # Now a standard Mock
+    mock_run_kubectl: Mock,
     default_cluster_info_output_flags: OutputFlags,
 ) -> None:
     """Test cluster-info command with additional arguments."""
@@ -76,12 +72,8 @@ async def test_cluster_info_with_args(
         args=("dump",),
         show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
-        model=default_cluster_info_output_flags.model_name,
-        show_kubectl=default_cluster_info_output_flags.show_kubectl,
-        show_metrics=default_cluster_info_output_flags.show_metrics,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -95,8 +87,8 @@ async def test_cluster_info_with_args(
 @patch("vibectl.subcommands.cluster_info_cmd.handle_command_output")
 async def test_cluster_info_with_flags(
     mock_handle_output: Mock,
-    mock_run_kubectl: Mock,  # Now a standard Mock
-    mock_configure_flags: Mock,  # This mock is for configure_output_flags
+    mock_run_kubectl: Mock,
+    mock_configure_flags: Mock,
 ) -> None:
     """Test with specific output flags passed to run_cluster_info_command."""
     configured_flags = OutputFlags(
@@ -119,12 +111,8 @@ async def test_cluster_info_with_flags(
         args=(),
         show_raw_output=True,
         show_vibe=False,
-        model="custom-model",
-        show_kubectl=True,
-        show_metrics=MetricsDisplayMode.ALL,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -134,10 +122,6 @@ async def test_cluster_info_with_flags(
     mock_configure_flags.assert_called_once_with(
         show_raw_output=True,
         show_vibe=False,
-        model="custom-model",
-        show_kubectl=True,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
     # Also check that handle_command_output received the flags from mock_configure_flags
     handle_output_call_kwargs = mock_handle_output.call_args.kwargs
@@ -159,12 +143,8 @@ async def test_cluster_info_no_output(
         args=(),
         show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
-        model=default_cluster_info_output_flags.model_name,
-        show_kubectl=default_cluster_info_output_flags.show_kubectl,
-        show_metrics=default_cluster_info_output_flags.show_metrics,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Success)
@@ -191,8 +171,8 @@ async def test_cluster_info_no_output(
 @patch(
     "vibectl.subcommands.cluster_info_cmd.handle_vibe_request", new_callable=AsyncMock
 )
-async def test_cluster_info_vibe_no_request_direct(  # Renamed for clarity
-    mock_handle_vibe_request: AsyncMock,  # Mock for handle_vibe_request
+async def test_cluster_info_vibe_no_request_direct(
+    mock_handle_vibe_request: AsyncMock,
     default_cluster_info_output_flags: OutputFlags,
 ) -> None:
     """Test cluster-info vibe command without a request."""
@@ -201,12 +181,8 @@ async def test_cluster_info_vibe_no_request_direct(  # Renamed for clarity
         args=("vibe",),  # Only 'vibe', no request
         show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
-        model=default_cluster_info_output_flags.model_name,
-        show_kubectl=default_cluster_info_output_flags.show_kubectl,
-        show_metrics=default_cluster_info_output_flags.show_metrics,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Error)
@@ -238,12 +214,8 @@ async def test_cluster_info_error_handling_direct(
         args=(),
         show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
-        model=default_cluster_info_output_flags.model_name,
-        show_kubectl=default_cluster_info_output_flags.show_kubectl,
-        show_metrics=default_cluster_info_output_flags.show_metrics,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_streaming=True,
     )
 
     assert isinstance(result, Error)

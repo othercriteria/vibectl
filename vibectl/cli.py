@@ -160,7 +160,6 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
     """
     if ctx.invoked_subcommand is None:
         logger.info("No subcommand invoked; showing welcome message.")
-        console_manager.print("Checking cluster vibes...")
         console_manager.print_vibe_welcome()
 
 
@@ -212,6 +211,12 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
     default=None,
     help="Show LLM latency and token usage metrics (none, total, sub, all)",
 )
+@click.option(
+    "--show-streaming/--no-show-streaming",
+    is_flag=True,
+    default=None,
+    help="Show intermediate streaming output for LLM summary",
+)
 @click.pass_context
 async def cli(
     ctx: click.Context,
@@ -222,6 +227,7 @@ async def cli(
     model_override: str | None,
     show_kubectl: bool | None,
     show_metrics: MetricsDisplayMode | None,
+    show_streaming: bool | None,
 ) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
@@ -261,6 +267,9 @@ async def cli(
     if show_metrics is not None:
         set_override("display.show_metrics", show_metrics)
 
+    if show_streaming is not None:
+        set_override("display.show_streaming", show_streaming)
+
     # Initialize the console manager with the configured theme
     try:
         cfg = Config()
@@ -291,7 +300,11 @@ cli.add_command(audit_group)
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_metrics=False)
+@common_command_options(
+    include_model=False,
+    include_show_metrics=False,
+    include_show_streaming=False,
+)
 async def get(
     resource: str,
     args: tuple,
@@ -299,7 +312,6 @@ async def get(
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_streaming: bool | None = None,
 ) -> None:
     """Get resources in a concise format."""
     result = await run_get_command(
@@ -309,7 +321,6 @@ async def get(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -317,7 +328,11 @@ async def get(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_metrics=False)
+@common_command_options(
+    include_model=False,
+    include_show_metrics=False,
+    include_show_streaming=False,
+)
 async def describe(
     resource: str,
     args: tuple,
@@ -325,7 +340,6 @@ async def describe(
     show_vibe: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Show details of a specific resource or group of resources."""
     result = await run_describe_command(
@@ -335,7 +349,6 @@ async def describe(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -343,7 +356,11 @@ async def describe(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_metrics=False)
+@common_command_options(
+    include_model=False,
+    include_show_metrics=False,
+    include_show_streaming=False,
+)
 async def logs(
     resource: str,
     args: tuple,
@@ -351,7 +368,6 @@ async def logs(
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Show logs for a container in a pod."""
     result = await run_logs_command(
@@ -361,7 +377,6 @@ async def logs(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -369,7 +384,11 @@ async def logs(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_metrics=False)
+@common_command_options(
+    include_model=False,
+    include_show_metrics=False,
+    include_show_streaming=False,
+)
 async def create(
     resource: str,
     args: tuple,
@@ -377,7 +396,6 @@ async def create(
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Create resources from a file or stdin."""
     result = await run_create_command(
@@ -387,7 +405,6 @@ async def create(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -399,6 +416,7 @@ async def create(
     include_model=False,
     include_show_metrics=False,
     include_yes=True,
+    include_show_streaming=False,
 )
 async def delete(
     resource: str,
@@ -408,7 +426,6 @@ async def delete(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     yes: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Delete a resource."""
     result = await run_delete_command(
@@ -419,7 +436,6 @@ async def delete(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         yes=yes,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -837,14 +853,17 @@ async def semiauto(
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_metrics=False)
+@common_command_options(
+    include_model=False,
+    include_show_metrics=False,
+    include_show_streaming=False,
+)
 async def events(
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """List events in the cluster."""
     result = await run_events_command(
@@ -853,7 +872,6 @@ async def events(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
@@ -931,14 +949,17 @@ async def vibe(
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_model=False, include_show_kubectl=False)
+@common_command_options(
+    include_model=False,
+    include_show_kubectl=False,
+    include_show_streaming=False,
+)
 async def version(
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Show client and server versions."""
     result = await run_version_command(
@@ -947,37 +968,31 @@ async def version(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True, include_yes=True)
+@common_command_options(
+    include_model=False,
+    include_show_kubectl=True,
+    include_show_streaming=False,
+)
 async def cluster_info(
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
-    model: str | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_kubectl: bool | None = None,
-    show_metrics: MetricsDisplayMode | None = None,
-    yes: bool = False,
-    show_streaming: bool | None = None,
 ) -> None:
     """Get cluster information."""
     result = await run_cluster_info_command(
         args=args,
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        show_kubectl=show_kubectl,
-        show_metrics=show_metrics,
-        show_streaming=show_streaming,
     )
     handle_result(result)
 

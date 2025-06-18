@@ -5,13 +5,8 @@ from vibectl.command_handler import (
 )
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
-from vibectl.memory import (
-    configure_memory_flags,
-)
-from vibectl.prompts.events import (
-    events_plan_prompt,
-    events_prompt,
-)
+from vibectl.memory import configure_memory_flags
+from vibectl.prompts.events import events_plan_prompt, events_prompt
 from vibectl.types import Result
 
 
@@ -21,7 +16,6 @@ async def run_events_command(
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    show_streaming: bool | None = None,
 ) -> Result:
     """
     Implements the 'events' subcommand logic, including logging and error handling.
@@ -31,7 +25,6 @@ async def run_events_command(
     output_flags = configure_output_flags(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        show_streaming=show_streaming,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)
 

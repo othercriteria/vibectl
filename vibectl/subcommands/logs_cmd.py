@@ -21,7 +21,6 @@ async def run_logs_command(
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_streaming: bool | None,
 ) -> Result:
     """
     Implements the 'logs' subcommand logic, including logging and error handling.
@@ -32,7 +31,6 @@ async def run_logs_command(
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
