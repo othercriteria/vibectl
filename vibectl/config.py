@@ -249,7 +249,28 @@ class Config:
         save_yaml_config(self._config, self.config_file)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value using either flat key or dotted path."""
+        """Get configuration value.
+
+        The lookup order is:
+        1. **CLI override** set via :pymod:`vibectl.overrides` (ContextVar)
+        2. Persisted configuration file (self._config)
+        3. Explicit *default* parameter
+        """
+
+        # 1. Check for runtime override first
+        try:
+            from .overrides import (
+                get_override,  # Local import to avoid cycles during tests
+            )
+
+            overridden, value = get_override(key)
+            if overridden:
+                return value
+        except Exception:
+            # If overrides module is not available for some reason, fall through.
+            pass
+
+        # 2. Fall back to persisted configuration
         if "." in key:
             # Hierarchical path like 'display.theme'
             try:

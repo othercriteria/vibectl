@@ -29,7 +29,6 @@ async def test_describe_basic(
         show_raw_output=None,
         show_vibe=None,
         show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -81,7 +80,6 @@ async def test_describe_args_variants(
         show_raw_output=None,
         show_vibe=None,
         show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -124,7 +122,6 @@ async def test_describe_with_flags(
         show_raw_output=True,
         show_vibe=True,
         show_kubectl=True,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -136,7 +133,6 @@ async def test_describe_with_flags(
     mock_configure_output.assert_called_once_with(
         show_raw_output=True,
         show_vibe=True,
-        model=None,
         show_kubectl=True,
         show_metrics=MetricsDisplayMode.ALL,
         show_streaming=True,
@@ -166,7 +162,6 @@ async def test_describe_error_handling(
         show_raw_output=None,
         show_vibe=None,
         show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -201,7 +196,6 @@ async def test_describe_vibe_request(
         show_raw_output=None,
         show_vibe=None,
         show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -239,7 +233,6 @@ async def test_describe_vibe_no_request(
         show_raw_output=None,
         show_vibe=None,
         show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
@@ -249,9 +242,6 @@ async def test_describe_vibe_no_request(
     # Assert an Error is returned with the correct message
     assert isinstance(result, Error)
     assert "Missing request after 'vibe'" in result.error
-
-
-# --- Unit tests for run_describe_command for 100% coverage ---
 
 
 @pytest.mark.asyncio
@@ -279,7 +269,6 @@ async def test_run_describe_command_normal() -> None:
             show_raw_output=None,
             show_vibe=None,
             show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
             show_metrics=MetricsDisplayMode.NONE,
@@ -321,7 +310,6 @@ async def test_run_describe_command_vibe() -> None:
             show_raw_output=None,
             show_vibe=None,
             show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
             show_metrics=MetricsDisplayMode.NONE,
@@ -360,7 +348,6 @@ async def test_run_describe_command_vibe_no_args() -> None:
             show_raw_output=None,
             show_vibe=None,
             show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
             show_metrics=MetricsDisplayMode.NONE,
@@ -397,7 +384,6 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
                 show_raw_output=None,
                 show_vibe=None,
                 show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
                 show_metrics=MetricsDisplayMode.NONE,
@@ -431,7 +417,6 @@ async def test_run_describe_command_standard_command_exception() -> None:
                 show_raw_output=None,
                 show_vibe=None,
                 show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
                 show_metrics=MetricsDisplayMode.NONE,
@@ -455,7 +440,6 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
                 show_raw_output=None,
                 show_vibe=None,
                 show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
                 show_metrics=MetricsDisplayMode.ALL,
@@ -486,7 +470,6 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
                 show_raw_output=None,
                 show_vibe=None,
                 show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
                 show_metrics=MetricsDisplayMode.ALL,

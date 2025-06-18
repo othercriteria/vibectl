@@ -849,12 +849,15 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
-    show_metrics: MetricsDisplayMode
-    | None = None,  # Only support MetricsDisplayMode now
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> OutputFlags:
     """Configure OutputFlags with the given parameters."""
     # Use OutputFlags.from_args which handles all the config logic
+
+    cfg = Config()
+    model = cfg.get("llm.model") if model is None else model
+
     return OutputFlags.from_args(
         model=model,
         show_raw_output=show_raw_output,

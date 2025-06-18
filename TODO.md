@@ -466,3 +466,52 @@ Server-specific tasks have been moved to [TODO-SERVER.md](TODO-SERVER.md).
 - Update release workflows (Makefile targets, pypi-dist) to rely on Hatch for version bumps.
 - Document the new process in CONTRIBUTING.md and README (version bump now: `make bump-patch` → internally calls `hatch version patch`).
 - Advantage: eliminates duplicate version strings, reduces release errors.
+
+## CLI Flag Migration to ContextVar Overrides (In-Progress)
+
+We are replacing the old pattern of **threading dozens of flags through every Click
+sub-command** with a lightweight ContextVar-based override layer.  The
+high-level steps completed so far:
+
+1. **Runtime override helper**
+   * Added `vibectl/overrides.py` implementing `set_override()`, `get_override()`
+     (ContextVar holding a dict of dotted-path keys).
+2. **Config lookup order**
+   * Patched `Config.get()` to return an override if present before falling back
+     to the stored config file / defaults.
+3. **Root-level CLI options**
+   * Added global flags to `cli()`:
+     * `--proxy <profile>` – temporarily set `proxy.active`.
+     * `--no-proxy` – temporarily disable proxy.
+     * `--model <name>` – temporarily override `llm.model`.
+   * Each flag calls `set_override()` immediately, so downstream code sees the
+     effective value via `Config()` with **zero additional plumbing**.
+4. **Sub-command clean-up pattern**
+   * Keep existing per-command `--model` for backward compatibility.
+   * Internally, helpers such as `configure_output_flags()` now do:
+     ```python
+     cfg = Config()
+     model = cfg.get("llm.model") if model is None else model
+     ```
+   * This lets us delete `model` (and eventually other flags like
+     `show_raw_output`) from function signatures incrementally.
+5. **Test-suite adjustments**
+   * Added an autouse fixture in `tests/subcommands/test_get_cmd.py` to swallow
+     the now-unused `model` kwarg until each Click callback is fully migrated.
+
+Next actions
+------------
+* Add global overrides for `show_raw_output`, `show_vibe`, `show_metrics`, etc.
+* Remove corresponding kwargs from `common_command_options()` and runner
+  signatures as each command is updated.
+* Delete temporary test shims once no sub-command callback expects the old
+  parameters.
+* Document new usage in CLI help/README.
+
+Benefits
+--------
+* Hundreds of LOC deleted (parameter plumbing, repetitive config lookups).
+* New global flags can be added with **one line** (hook into overrides) instead
+  of touching ~40 files.
+* Overrides are per-process only—no env-var leakage—and trivial to test via
+  ContextVar patching.

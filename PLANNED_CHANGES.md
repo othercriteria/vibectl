@@ -125,7 +125,7 @@ vibectl setup-proxy remove corporate-llm
 # Disable proxy (set active to null)
 vibectl setup-proxy disable
 
-# Use specific proxy profile (temporary override - TODO: needs --proxy flag)
+# Use specific proxy profile (temporary override via --proxy flag)
 vibectl --proxy corporate-llm vibe "show me all pods"
 ```
 
@@ -282,7 +282,7 @@ Executing: kubectl delete pods --field-selector=status.phase=Failed
    - ✅ Robust audit log file management with profile-specific paths and automatic directory creation
    - ✅ Comprehensive test suite achieving 100% code coverage with edge case handling
 
-2. **📋 TODO: Add `--proxy` flag support to main CLI**:
+2. **✅ Added `--proxy` and `--no-proxy` flags to main CLI**:
    - Allow temporary profile override: `vibectl --proxy profile-name vibe "..."`
    - Update argument parsing in main CLI entry point
 
@@ -457,7 +457,7 @@ vibectl security test-patterns [--input-file file]
 - ✅ All test files - Updated to use new profile-based configuration system, comprehensive sanitization testing, and audit logging integration
 
 ### 🚧 Modified Files TODO
-- 🚧 `vibectl/cli.py` - TODO: Add `--proxy` flag for temporary profile override
+- ✅ `vibectl/cli.py` - Added `--proxy` and `--no-proxy` flags for temporary profile override
 - 📋 `pyproject.toml` - TODO: New dependencies if needed for sanitization patterns
 
 ## Success Criteria

@@ -67,6 +67,7 @@ def common_command_options(
     include_show_metrics: bool = True,
     include_show_streaming: bool = True,
     include_freeze_memory: bool = True,
+    include_model: bool = True,
 ) -> Callable:
     """Decorator to DRY out common CLI options for subcommands."""
 
@@ -76,8 +77,11 @@ def common_command_options(
                 "--show-raw-output/--no-show-raw-output", is_flag=True, default=None
             ),
             click.option("--show-vibe/--no-show-vibe", is_flag=True, default=None),
-            click.option("--model", default=None, help="The LLM model to use"),
         ]
+        if include_model:
+            options.append(
+                click.option("--model", default=None, help="The LLM model to use")
+            )
         if include_freeze_memory:
             options.append(
                 click.option(
@@ -177,14 +181,32 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
     help="Shortcut for --log-level=DEBUG.",
 )
 @click.option(
-    "--ca-bundle",
-    type=click.Path(exists=True),
+    "--no-proxy",
+    is_flag=True,
+    default=False,
+    help="Temporarily disable proxy for this invocation (overrides --proxy).",
+)
+@click.option(
+    "--proxy",
+    type=str,
     default=None,
-    help="Path to CA bundle file for TLS verification when using proxy mode.",
+    help="Temporarily override the active proxy profile for this invocation.",
+)
+@click.option(
+    "--model",
+    "model_override",
+    type=str,
+    default=None,
+    help="Temporarily override the LLM model for this invocation.",
 )
 @click.pass_context
 async def cli(
-    ctx: click.Context, log_level: str | None, verbose: bool, ca_bundle: str | None
+    ctx: click.Context,
+    log_level: str | None,
+    verbose: bool,
+    proxy: str | None,
+    no_proxy: bool,
+    model_override: str | None,
 ) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
@@ -194,9 +216,26 @@ async def cli(
     elif log_level:
         os.environ["VIBECTL_LOG_LEVEL"] = log_level.upper()
 
-    # Set CA bundle from CLI flag if provided
-    if ca_bundle:
-        os.environ["VIBECTL_CA_BUNDLE"] = ca_bundle
+    # Apply CLI overrides via ContextVar
+    from vibectl.overrides import set_override
+
+    # Handle mutually exclusive proxy flags
+    if proxy is not None and no_proxy:
+        raise click.BadOptionUsage(
+            "--proxy",
+            "--proxy and --no-proxy cannot be used together.",
+        )
+
+    # Apply proxy override
+    if no_proxy:
+        set_override("proxy.active", None)
+    elif proxy is not None:
+        set_override("proxy.active", proxy)
+
+    # Apply model override (takes precedence over subcommand flags if
+    # they leave --model unset)
+    if model_override is not None:
+        set_override("llm.model", model_override)
 
     init_logging()
     logger.info("vibectl CLI started")
@@ -229,13 +268,12 @@ cli.add_command(setup_proxy_group)
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(include_show_kubectl=True, include_model=False)
 async def get(
     resource: str,
     args: tuple,
     show_raw_output: bool | None,
     show_vibe: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None = None,
@@ -250,7 +288,6 @@ async def get(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
         show_kubectl=show_kubectl,
-        model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,
@@ -262,13 +299,12 @@ async def get(
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@common_command_options(include_show_kubectl=True)
+@common_command_options(include_show_kubectl=True, include_model=False)
 async def describe(
     resource: str,
     args: tuple,
     show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
-    model: str | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
@@ -282,7 +318,6 @@ async def describe(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
         show_kubectl=show_kubectl,
-        model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_metrics=show_metrics,

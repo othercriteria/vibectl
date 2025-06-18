@@ -18,7 +18,6 @@ async def run_describe_command(
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: MetricsDisplayMode | None,
@@ -33,7 +32,6 @@ async def run_describe_command(
     output_flags = configure_output_flags(
         show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
         show_kubectl=show_kubectl,
         show_metrics=show_metrics,
         show_streaming=show_streaming,

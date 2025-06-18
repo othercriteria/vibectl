@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `--enable-sanitization` and `--enable-audit-logging` flags
     - Improved error handling and connection validation
     - JWT token and CA bundle path resolution from profiles
+  - **CLI Override Layer**: Added root-level `--proxy`, `--no-proxy`, and `--model` flags backed by a ContextVar-based override system (`vibectl/overrides.py`) for temporary overrides without threading parameters through sub-commands.
 
 ### Changed
 - **Proxy Configuration Migration**: Removed legacy proxy configuration format in favor of named profiles
@@ -50,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `get_effective_proxy_config()`, `list_proxy_profiles()`, `set_active_proxy_profile()` methods
   - Profile-based CA bundle and JWT token path resolution
   - Improved proxy status display with profile information and security settings
+  - **CLI Options Cleanup**: Removed obsolete `--ca-bundle` root option; certificate bundle is now determined via proxy profile configuration.
 
 ### Fixed
 - **Rich Streaming Display Issues**: Fixed multiple display rendering bugs in the live streaming vibe panel system
@@ -66,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed missing method errors in proxy adapter when using profile-based configuration
   - Updated token resolution to use new profile-based configuration system
   - Enhanced connection testing with proper CA bundle and JWT token handling
+  - Prevented tests and runtime code from creating `./.well-known/` directories by relocating the default ACME HTTP-01 challenge directory to `~/.config/vibectl/server/acme-challenges/` and updating tests accordingly.
+  - Resolved linter warning about mutable default values in `vibectl/overrides.py`.
 
 ### Removed
 - Legacy proxy configuration format support

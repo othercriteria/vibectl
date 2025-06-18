@@ -5,9 +5,7 @@ from vibectl.command_handler import (
 )
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
-from vibectl.memory import (
-    configure_memory_flags,
-)
+from vibectl.memory import configure_memory_flags
 from vibectl.prompts.get import (
     get_plan_prompt,
     get_resource_prompt,
@@ -21,7 +19,6 @@ async def run_get_command(
     show_raw_output: bool | None,
     show_vibe: bool | None,
     show_kubectl: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_metrics: MetricsDisplayMode | None,
@@ -36,7 +33,6 @@ async def run_get_command(
         output_flags = configure_output_flags(
             show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            model=model,
             show_kubectl=show_kubectl,
             show_metrics=show_metrics,
             show_streaming=show_streaming,
