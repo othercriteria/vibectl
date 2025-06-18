@@ -6,7 +6,7 @@ Contains common type definitions used across the application.
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import Enum, auto
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -480,3 +480,64 @@ class ACMEValidationError(ACMEError):
     """Exception raised when ACME validation fails."""
 
     pass
+
+
+class ExecutionMode(Enum):
+    """Represents the high-level execution style chosen for a vibectl run.
+
+    MANUAL     - default behaviour, ask for confirmation on destructive actions.
+    AUTO       - fully autonomous, no confirmations at all (legacy: ``--yes``).
+    SEMIAUTO   - prompt once per iteration in the *semiauto* loop.
+
+    This abstraction is part of the planned clean-up that removes the
+    entanglement of three separate booleans (``yes``, ``semiauto``,
+    ``autonomous_mode``) that currently flow through the call-stack.
+    """
+
+    MANUAL = auto()
+    AUTO = auto()
+    SEMIAUTO = auto()
+
+
+def determine_execution_mode(*, yes: bool, semiauto: bool) -> ExecutionMode:
+    """Derive :class:`ExecutionMode` from the legacy boolean flags.
+
+    Args:
+        yes:     Former ``--yes`` flag - skip confirmation.
+        semiauto:Running inside the *semiauto* loop.
+
+    Returns:
+        The corresponding :class:`ExecutionMode`.
+    """
+    if semiauto:
+        # Semiauto always prompts; ``--yes`` is ignored by design in that loop.
+        return ExecutionMode.SEMIAUTO
+    if yes:
+        return ExecutionMode.AUTO
+    return ExecutionMode.MANUAL
+
+
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
+
+
+def execution_mode_from_cli(choice: str | None) -> ExecutionMode | None:
+    """Translate the ``--mode`` CLI option into :class:`ExecutionMode`.
+
+    Returns ``None`` if *choice* is ``None`` so that callers can fall back to
+    legacy flags (``--yes`` / semiauto loop) when the option wasn't supplied.
+    """
+
+    if choice is None:
+        return None
+
+    lowered = choice.lower()
+    if lowered == "auto":
+        return ExecutionMode.AUTO
+    if lowered == "semiauto":
+        return ExecutionMode.SEMIAUTO
+    if lowered == "manual":
+        return ExecutionMode.MANUAL
+    # Defensive fallback - let the caller handle unexpected value.
+    return None

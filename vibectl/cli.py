@@ -766,6 +766,15 @@ def theme_set(theme_name: str) -> None:
     default=5,
     help="Seconds to wait between iterations (default: 5)",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
+    default=None,
+    help=(
+        "Execution mode: manual (default, confirmations enabled); "
+        "auto (no confirmations); semiauto (confirm each iteration)"
+    ),
+)
 async def auto(
     request: str | None,
     show_raw_output: bool | None,
@@ -779,6 +788,7 @@ async def auto(
     yes: bool = False,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
+    mode: str | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     try:
@@ -916,6 +926,15 @@ async def check(
     default=None,
     help="Show LLM latency and token usage metrics (none, total, sub, all)",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
+    default=None,
+    help=(
+        "Execution mode: manual (default, confirmations enabled); "
+        "auto (no confirmations); semiauto (confirm each iteration)"
+    ),
+)
 async def vibe(
     request: str | None,
     show_raw_output: bool | None,
@@ -925,6 +944,7 @@ async def vibe(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     yes: bool = False,
+    mode: str | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
@@ -939,8 +959,9 @@ async def vibe(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         yes=yes,
-        semiauto=False,  # Vibe command is never called in semiauto loop directly
-        exit_on_error=False,  # Let handle_result manage exit
+        mode_choice=mode,
+        semiauto=False,
+        exit_on_error=False,
         show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
@@ -951,7 +972,7 @@ async def vibe(
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(
     include_model=False,
-    include_show_kubectl=False,
+    include_show_metrics=False,
     include_show_streaming=False,
 )
 async def version(
@@ -976,7 +997,7 @@ async def version(
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(
     include_model=False,
-    include_show_kubectl=True,
+    include_show_metrics=False,
     include_show_streaming=False,
 )
 async def cluster_info(
