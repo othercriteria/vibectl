@@ -25,7 +25,7 @@ from .config import Config
 from .logutil import logger
 from .model_adapter import ModelAdapter, StreamingMetricsCollector
 from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc
-from .security import RequestSanitizer, SecurityConfig
+from .security import AuditLogger, DetectedSecret, RequestSanitizer, SecurityConfig
 from .types import LLMMetrics, SystemFragments, UserFragments
 
 
@@ -139,6 +139,17 @@ class ProxyModelAdapter(ModelAdapter):
             security_config = SecurityConfig(warn_sanitization=global_warn_sanitization)
 
         self.sanitizer = RequestSanitizer(security_config)
+
+        # Initialize audit logger with security config and active profile name
+        profile_name = None
+        profile_config = self.config.get_effective_proxy_config()
+        if profile_config:
+            # Get the active profile name
+            active_profile = self.config.get("proxy.active")
+            if active_profile:
+                profile_name = active_profile
+
+        self.audit_logger = AuditLogger(security_config, proxy_profile=profile_name)
 
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
@@ -441,57 +452,7 @@ class ProxyModelAdapter(ModelAdapter):
                 )
                 return str(model_info.model_id)  # Explicitly cast to str
 
-        # Third, try legacy fallback for backward compatibility
-        # This ensures existing clients continue to work if server doesn't
-        # have aliases configured yet
-        legacy_result = self._resolve_model_alias_legacy_fallback(
-            alias, available_models
-        )
-        if legacy_result is not None:
-            logger.debug(
-                "Resolved alias '%s' to '%s' using legacy fallback",
-                alias,
-                legacy_result,
-            )
-            return legacy_result
-
         logger.debug("No alias resolution found for '%s'", alias)
-        return None
-
-    def _resolve_model_alias_legacy_fallback(
-        self, alias: str, available_models: list[str]
-    ) -> str | None:
-        """Legacy fallback alias resolution for backward compatibility.
-
-        This method provides basic alias resolution when the server
-        doesn't have aliases configured yet. Should be removed once
-        all servers are updated with proper alias configuration.
-
-        Args:
-            alias: The alias to resolve
-            available_models: List of model names available on the server
-
-        Returns:
-            The resolved model name, or None if no match found
-        """
-        # Minimal fallback mappings for common aliases
-        fallback_mappings = {
-            # Claude models - most common aliases only
-            "claude-4-sonnet": "anthropic/claude-sonnet-4-0",
-            "claude-3.5-sonnet": "anthropic/claude-3-5-sonnet-latest",
-            "claude-3-opus": "anthropic/claude-3-opus-latest",
-        }
-
-        if alias in fallback_mappings:
-            mapped_name = fallback_mappings[alias]
-            if mapped_name in available_models:
-                logger.debug(
-                    "Resolved alias '%s' to '%s' using legacy fallback",
-                    alias,
-                    mapped_name,
-                )
-                return mapped_name
-
         return None
 
     def _convert_metrics(self, pb_metrics: Any) -> LLMMetrics | None:
@@ -518,14 +479,21 @@ class ProxyModelAdapter(ModelAdapter):
         system_fragments: SystemFragments,
         user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
-    ) -> Any:  # type: ignore[misc]  # Protobuf type not available at type check time
-        """Create an ExecuteRequest protobuf message."""
+    ) -> tuple[Any, list["DetectedSecret"]]:  # type: ignore[misc]  # Protobuf type not available at type check time
+        """Create an ExecuteRequest protobuf message.
+
+        Returns:
+            tuple[ExecuteRequest, list[DetectedSecret]]
+        """
         if not isinstance(model, ProxyModelWrapper):
             raise ValueError(f"Expected ProxyModelWrapper, got {type(model)}")
 
         request = llm_proxy_pb2.ExecuteRequest()  # type: ignore[attr-defined]
         request.request_id = str(uuid.uuid4())
         request.model_name = model.model_name
+
+        # Track all detected secrets across fragments
+        all_detected_secrets: list[DetectedSecret] = []
 
         # Sanitize fragments before adding to request if sanitization is enabled
         if self.sanitizer.enabled:
@@ -537,6 +505,7 @@ class ProxyModelAdapter(ModelAdapter):
                         self.sanitizer.sanitize_request(fragment)
                     )
                     if detected_secrets:
+                        all_detected_secrets.extend(detected_secrets)
                         logger.info(
                             f"Detected {len(detected_secrets)} secrets in system "
                             "fragment"
@@ -557,6 +526,7 @@ class ProxyModelAdapter(ModelAdapter):
                         self.sanitizer.sanitize_request(fragment)
                     )
                     if detected_secrets:
+                        all_detected_secrets.extend(detected_secrets)
                         logger.info(
                             f"Detected {len(detected_secrets)} secrets in user fragment"
                         )
@@ -582,7 +552,7 @@ class ProxyModelAdapter(ModelAdapter):
             except Exception as e:
                 logger.warning("Failed to serialize response model schema: %s", e)
 
-        return request
+        return request, all_detected_secrets
 
     async def execute(
         self,
@@ -607,7 +577,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 
@@ -632,6 +602,23 @@ class ProxyModelAdapter(ModelAdapter):
                     response.request_id,
                     success.actual_model_used,
                 )
+
+                # Log the request/response to audit log
+                all_fragments: list[str] = []
+                if system_fragments:
+                    all_fragments.extend(system_fragments)
+                if user_fragments:
+                    all_fragments.extend(user_fragments)
+                request_content = " ".join(all_fragments)
+
+                self.audit_logger.log_llm_request(
+                    request_id=request.request_id,
+                    request_content=request_content,
+                    response_content=success.response_text,
+                    secrets_detected=detected_secrets,
+                    model_used=success.actual_model_used,
+                )
+
                 return success.response_text, metrics
             elif response.HasField("error"):
                 error = response.error
@@ -641,6 +628,24 @@ class ProxyModelAdapter(ModelAdapter):
                 if error.HasField("error_details"):
                     error_msg += f" - {error.error_details}"
                 logger.error("Request %s failed: %s", response.request_id, error_msg)
+
+                # Log the failed request to audit log
+                error_fragments: list[str] = []
+                if system_fragments:
+                    error_fragments.extend(system_fragments)
+                if user_fragments:
+                    error_fragments.extend(user_fragments)
+                request_content = " ".join(error_fragments)
+
+                self.audit_logger.log_llm_request(
+                    request_id=request.request_id,
+                    request_content=request_content,
+                    response_content=f"ERROR: {error_msg}",
+                    secrets_detected=detected_secrets,
+                    model_used=model.model_name,
+                    additional_metadata={"error": True, "error_code": error.error_code},
+                )
+
                 raise ValueError(error_msg)
             else:
                 raise ValueError("Invalid response from proxy server")
@@ -691,7 +696,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 
@@ -763,7 +768,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 

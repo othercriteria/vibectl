@@ -562,8 +562,7 @@ class TestProxyModelAdapterAliasResolution:
     def test_resolve_alias_using_legacy_fallback(
         self, proxy_adapter: ProxyModelAdapter, mock_server_info: Mock
     ) -> None:
-        """Test alias resolution using legacy fallback when server doesn't
-        provide aliases."""
+        """Test alias resolution when server doesn't provide aliases."""
         # Remove both global and model-specific aliases
         mock_server_info.model_aliases = {}
         for model in mock_server_info.available_models:
@@ -572,7 +571,7 @@ class TestProxyModelAdapterAliasResolution:
         result = proxy_adapter._resolve_model_alias_from_server(
             "claude-3-opus", mock_server_info
         )
-        assert result == "anthropic/claude-3-opus-latest"
+        assert result is None
 
     def test_alias_resolution_no_match(
         self, proxy_adapter: ProxyModelAdapter, mock_server_info: Mock
@@ -746,24 +745,6 @@ class TestProxyModelAdapterAliasResolution:
         # Verify that debug logging happened
         mock_logger.debug.assert_called()
 
-    def test_legacy_fallback_minimal_mappings(
-        self, proxy_adapter: ProxyModelAdapter
-    ) -> None:
-        """Test legacy alias fallback with minimal available models."""
-        available_models = ["anthropic/claude-3-opus-latest", "gpt-4o"]
-
-        # Test exact match
-        result = proxy_adapter._resolve_model_alias_legacy_fallback(
-            "claude-3-opus", available_models
-        )
-        assert result == "anthropic/claude-3-opus-latest"
-
-        # Test no match
-        result = proxy_adapter._resolve_model_alias_legacy_fallback(
-            "nonexistent", available_models
-        )
-        assert result is None
-
 
 class TestProxyModelAdapterGetModelErrorHandling:
     """Test error handling in ProxyModelAdapter.get_model()."""
@@ -875,7 +856,10 @@ class TestProxyModelAdapterExecuteRequest:
             model, system_fragments, user_fragments
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         mock_request.request_id = "12345678-1234-5678-9012-123456789012"
         mock_request.model_name = "test-model"
         mock_request.system_fragments.extend.assert_called_once_with(system_fragments)
@@ -899,7 +883,10 @@ class TestProxyModelAdapterExecuteRequest:
             SampleResponseModel,
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         # Verify that response_model_schema was set with JSON schema
         assert hasattr(mock_request, "response_model_schema")
 
@@ -937,7 +924,10 @@ class TestProxyModelAdapterExecuteRequest:
             mock_response_model,
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         mock_logger.warning.assert_called_once()
 
 
@@ -968,7 +958,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1006,7 +998,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1038,7 +1032,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1143,7 +1139,9 @@ class TestProxyModelAdapterStreamExecute:
             mock_get_stub.return_value = mock_stub
 
             with (
-                patch.object(proxy_adapter, "_create_execute_request"),
+                patch.object(
+                    proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+                ),
                 patch.object(proxy_adapter, "_get_metadata", return_value=[]),
             ):
                 model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1184,7 +1182,9 @@ class TestProxyModelAdapterStreamExecute:
             mock_get_stub.return_value = mock_stub
 
             with (
-                patch.object(proxy_adapter, "_create_execute_request"),
+                patch.object(
+                    proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+                ),
                 patch.object(proxy_adapter, "_get_metadata", return_value=[]),
             ):
                 model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1253,7 +1253,7 @@ class TestProxyModelAdapterStreamExecute:
             ) as mock_create_req:
                 mock_request = Mock()
                 mock_request.request_id = "test-request-id"
-                mock_create_req.return_value = mock_request
+                mock_create_req.return_value = (mock_request, [])
 
                 with patch.object(proxy_adapter, "_get_metadata", return_value=[]):
                     model = ProxyModelWrapper("test-model", proxy_adapter)

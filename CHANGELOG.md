@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Audit logging enablement (`audit_logging`)
     - Confirmation modes (`none`/`per-session`/`per-command`)
     - Profile-specific CA bundle and JWT token configuration
+  - **Audit Logging System**: Complete structured audit logging for all proxy interactions
+    - Comprehensive `AuditLogger` class with JSON event logging for request/response tracking
+    - Secret detection event logging with content hashing and metadata
+    - Proxy connection event logging with success/failure tracking and timing metrics
+    - Profile-specific audit log files with automatic directory creation
+    - Full integration with ProxyModelAdapter for automatic logging of all LLM interactions
   - **Enhanced Setup Commands**: Complete redesign of proxy configuration workflow
     - Security-first approach with mandatory testing before activation
     - `--enable-sanitization` and `--enable-audit-logging` flags
