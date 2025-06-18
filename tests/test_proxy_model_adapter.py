@@ -71,15 +71,39 @@ def mock_server_info() -> Mock:
 @pytest.fixture
 def proxy_adapter() -> ProxyModelAdapter:
     """Create a ProxyModelAdapter instance for testing."""
-    return ProxyModelAdapter(host="localhost", port=50051, use_tls=False)
+    # Create a mock config to avoid writing to real audit logs
+    mock_config = Mock()
+    mock_config.get_effective_proxy_config.return_value = None
+    mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+    with patch("vibectl.proxy_model_adapter.AuditLogger") as mock_audit_logger:
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="localhost", port=50051, use_tls=False
+        )
+        # Ensure the mock audit logger was used
+        assert mock_audit_logger.called
+        return adapter
 
 
 @pytest.fixture
 def proxy_adapter_with_auth() -> ProxyModelAdapter:
     """Create a ProxyModelAdapter instance with JWT authentication for testing."""
-    return ProxyModelAdapter(
-        host="localhost", port=50051, use_tls=True, jwt_token="test-jwt-token"
-    )
+    # Create a mock config to avoid writing to real audit logs
+    mock_config = Mock()
+    mock_config.get_effective_proxy_config.return_value = None
+    mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+    with patch("vibectl.proxy_model_adapter.AuditLogger") as mock_audit_logger:
+        adapter = ProxyModelAdapter(
+            config=mock_config,
+            host="localhost",
+            port=50051,
+            use_tls=True,
+            jwt_token="test-jwt-token",
+        )
+        # Ensure the mock audit logger was used
+        assert mock_audit_logger.called
+        return adapter
 
 
 @pytest.fixture
@@ -187,7 +211,13 @@ class TestProxyModelAdapterInitialization:
     @patch("vibectl.proxy_model_adapter.logger")
     def test_adapter_initialization_defaults(self, mock_logger: Mock) -> None:
         """Test adapter initialization with default values."""
-        adapter = ProxyModelAdapter()
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(config=mock_config)
 
         assert adapter.host == "localhost"
         assert adapter.port == 50051
@@ -203,9 +233,19 @@ class TestProxyModelAdapterInitialization:
     @patch("vibectl.proxy_model_adapter.logger")
     def test_adapter_initialization_with_auth(self, mock_logger: Mock) -> None:
         """Test ProxyModelAdapter initialization with authentication."""
-        adapter = ProxyModelAdapter(
-            host="proxy.example.com", port=9443, use_tls=True, jwt_token="test-token"
-        )
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config,
+                host="proxy.example.com",
+                port=9443,
+                use_tls=True,
+                jwt_token="test-token",
+            )
 
         assert adapter.host == "proxy.example.com"
         assert adapter.port == 9443
@@ -300,7 +340,15 @@ class TestProxyModelAdapterChannelCreation:
         mock_channel = Mock()
         mock_insecure_channel.return_value = mock_channel
 
-        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config, host="test-host", port=8080, use_tls=False
+            )
 
         result = adapter._get_channel()
 
@@ -321,7 +369,15 @@ class TestProxyModelAdapterChannelCreation:
         mock_channel = Mock()
         mock_secure_channel.return_value = mock_channel
 
-        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config, host="test-host", port=8080, use_tls=True
+            )
 
         result = adapter._get_channel()
 
