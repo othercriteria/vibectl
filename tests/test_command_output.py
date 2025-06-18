@@ -245,6 +245,17 @@ async def test_handle_command_output_empty_response(
         original="test output", truncated="test output"
     )
 
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = expected_llm_response_text
+
+    # Mock update_memory to return actual metrics instead of AsyncMock objects
+    mock_update_memory.return_value = LLMMetrics(
+        token_input=25,
+        token_output=30,
+        latency_ms=100.0,
+        total_processing_duration_ms=150.0,
+    )
+
     # Create output flags
     output_flags = OutputFlags(
         show_raw_output=False,
@@ -330,6 +341,17 @@ async def test_handle_command_output_with_command(
 
     mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="processed test output"
+    )
+
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = expected_llm_response_text
+
+    # Mock update_memory to return actual metrics instead of AsyncMock objects
+    mock_update_memory.return_value = LLMMetrics(
+        token_input=25,
+        token_output=30,
+        latency_ms=100.0,
+        total_processing_duration_ms=150.0,
     )
 
     output_flags = OutputFlags(
@@ -531,6 +553,9 @@ async def test_handle_command_output_model_name_from_default(
         original="test output", truncated="processed test output"
     )
 
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = expected_llm_response_text
+
     # OutputFlags should represent the state where no specific model was requested,
     # so it defaults to DEFAULT_MODEL (as configure_output_flags would do).
     output_flags = OutputFlags(
@@ -621,6 +646,10 @@ async def test_handle_command_output_basic(
     mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="processed test output"
     )
+
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = expected_llm_response_text
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -802,6 +831,9 @@ async def test_process_vibe_output_with_autonomous_prompt_no_index_error(
         truncated=original_output_data,  # No truncation
     )
 
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = expected_llm_response_text
+
     output_flags = OutputFlags(
         show_raw_output=False,
         show_vibe=True,
@@ -905,6 +937,9 @@ async def test_handle_command_output_llm_error(
     mock_output_processor.process_auto.return_value = Truncation(
         original="test output", truncated="processed test output"
     )
+
+    # Mock stop_live_vibe_panel to return the expected content
+    mock_console_manager.stop_live_vibe_panel.return_value = error_message_from_llm
 
     output_flags = OutputFlags(
         show_raw_output=True,  # Keep raw output for context if Vibe fails

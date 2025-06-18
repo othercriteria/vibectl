@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved proxy status display with profile information and security settings
 
 ### Fixed
+- **Rich Streaming Display Issues**: Fixed multiple display rendering bugs in the live streaming vibe panel system
+  - Fixed duplicate "top of the box" artifact where initial "(streaming...)" panel appeared alongside final result
+  - Fixed missing Rich markup rendering in final display - `[bold]`, `[green]`, etc. are now properly rendered instead of shown as raw text
+  - Improved Live display initialization to prevent premature rendering during stream setup
+  - Enhanced test coverage with proper mock configurations for streaming scenarios
 - Configuration system bug where string "none" was incorrectly converted to None value
   - Removed magic string-to-None conversion that caused validation errors
   - String "none" is now treated as a literal string value for config fields
