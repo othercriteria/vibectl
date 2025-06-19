@@ -1358,8 +1358,8 @@ async def test_cli_auto_command_with_mode_flag(monkeypatch: pytest.MonkeyPatch) 
     mock_run_auto_cmd = AsyncMock(return_value=Success(message="Auto ran"))
     monkeypatch.setattr("vibectl.cli.run_auto_command", mock_run_auto_cmd)
 
-    # Invoke the 'auto' command with the '--mode auto' flag and a dummy request
-    result = await runner.invoke(cli, ["auto", "--mode", "auto", "dummy request"])
+    # Invoke with global --mode flag before subcommand
+    result = await runner.invoke(cli, ["--mode", "auto", "auto", "dummy request"])
 
     # Check that the command exited successfully
     assert result.exit_code == 0, f"CLI command failed: {result.output}"
@@ -1367,7 +1367,10 @@ async def test_cli_auto_command_with_mode_flag(monkeypatch: pytest.MonkeyPatch) 
     # Verify that the mocked run_auto_command was called
     mock_run_auto_cmd.assert_called_once()
 
-    # Verify that the mode_choice parameter was forwarded to run_auto_command
+    # Even though mode is now set globally via ContextVar, run_auto_command should
+    # still observe it through its Config/override lookup. For backward-compat the
+    # CLI no longer forwards "mode_choice", so we simply check that the param is
+    # absent and rely on the function being called.
     call_kwargs = mock_run_auto_cmd.call_args.kwargs
     assert call_kwargs.get("request") == "dummy request"
-    assert call_kwargs.get("mode_choice") == "auto"
+    assert "mode_choice" not in call_kwargs

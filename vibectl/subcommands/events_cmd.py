@@ -7,7 +7,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.events import events_plan_prompt, events_prompt
-from vibectl.types import Result, determine_execution_mode
+from vibectl.types import Result
 
 
 async def run_events_command(
@@ -29,14 +29,12 @@ async def run_events_command(
     if args and args[0] == "vibe":
         request = " ".join(args[1:])
         logger.info(f"Planning how to: get events for '{request}'")
-        exec_mode = determine_execution_mode()
         result = await handle_vibe_request(
             request=request,
             command="events",
             plan_prompt_func=events_plan_prompt,
             summary_prompt_func=events_prompt,
             output_flags=output_flags,
-            execution_mode=exec_mode,
         )
         logger.info("Completed 'events' subcommand for vibe request.")
 

@@ -64,7 +64,6 @@ from .utils import handle_exception
 def common_command_options(
     include_show_kubectl: bool = False,
     include_live_display: bool = False,
-    include_mode: bool = False,
     include_show_metrics: bool = True,
     include_show_streaming: bool = True,
     include_freeze_memory: bool = True,
@@ -114,22 +113,6 @@ def common_command_options(
                     is_flag=True,
                     default=True,
                     help="Show a live spinner with elapsed time during waiting",
-                )
-            )
-        if include_mode:
-            options.append(
-                click.option(
-                    "--mode",
-                    type=click.Choice(
-                        ["manual", "auto", "semiauto"], case_sensitive=False
-                    ),
-                    default=None,
-                    help=(
-                        "Execution mode: "
-                        "manual (confirmations enabled); "
-                        "auto (no confirmations); "
-                        "semiauto (confirm per iteration)"
-                    ),
                 )
             )
         if include_show_metrics:
@@ -237,6 +220,12 @@ def show_welcome_if_no_subcommand(ctx: click.Context) -> None:
     default=None,
     help="Show the raw output from the LLM",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
+    default=None,
+    help="Temporarily override the execution mode (manual / auto / semiauto).",
+)
 @click.pass_context
 async def cli(
     ctx: click.Context,
@@ -249,6 +238,7 @@ async def cli(
     show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
     show_raw_output: bool | None,
+    mode: str | None,
 ) -> None:
     """vibectl - A vibes-based alternative to kubectl"""
     # Set logging level from CLI flags
@@ -294,6 +284,10 @@ async def cli(
     if show_raw_output is not None:
         set_override("display.show_raw_output", show_raw_output)
 
+    # Apply global execution-mode override early so downstream code can resolve it
+    if mode is not None:
+        set_override("execution.mode", mode)
+
     # Initialize the console manager with the configured theme
     try:
         cfg = Config()
@@ -328,7 +322,6 @@ cli.add_command(audit_group)
     include_model=False,
     include_show_metrics=False,
     include_show_streaming=False,
-    include_mode=True,
     include_show_raw_output=False,
 )
 async def get(
@@ -337,15 +330,8 @@ async def get(
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    mode: str | None = None,
 ) -> None:
     """Get resources in a concise format."""
-    # Apply execution mode override early so downstream code sees it via Config helpers
-    if mode is not None:
-        from vibectl.overrides import set_override
-
-        set_override("execution.mode", mode)
-
     result = await run_get_command(
         resource=resource,
         args=args,
@@ -789,15 +775,6 @@ def theme_set(theme_name: str) -> None:
     default=5,
     help="Seconds to wait between iterations (default: 5)",
 )
-@click.option(
-    "--mode",
-    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
-    default=None,
-    help=(
-        "Execution mode: manual (default, confirmations enabled); "
-        "auto (no confirmations); semiauto (confirm each iteration)"
-    ),
-)
 async def auto(
     request: str | None,
     show_raw_output: bool | None,
@@ -808,16 +785,10 @@ async def auto(
     unfreeze_memory: bool = False,
     interval: int = 5,
     limit: int | None = None,
-    mode: str | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
-    if mode is not None:
-        from vibectl.overrides import set_override
-
-        set_override("execution.mode", mode)
-
     try:
         # Await run_auto_command
         result = await run_auto_command(
@@ -830,10 +801,10 @@ async def auto(
             unfreeze_memory=unfreeze_memory,
             interval=interval,
             limit=limit,
-            mode_choice=mode,
             exit_on_error=True,  # Auto command should exit on error by default
             show_metrics=show_metrics,
             show_streaming=show_streaming,
+            semiauto=False,
         )
         handle_result(result)
     except Exception as e:
@@ -944,15 +915,6 @@ async def check(
     default=None,
     help="Show LLM latency and token usage metrics (none, total, sub, all)",
 )
-@click.option(
-    "--mode",
-    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
-    default=None,
-    help=(
-        "Execution mode: manual (default, confirmations enabled); "
-        "auto (no confirmations); semiauto (confirm each iteration)"
-    ),
-)
 async def vibe(
     request: str | None,
     show_raw_output: bool | None,
@@ -961,17 +923,10 @@ async def vibe(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    mode: str | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> None:
     """LLM interprets natural language request and runs fitting kubectl command."""
-    if mode is not None:
-        from vibectl.overrides import set_override
-
-        set_override("execution.mode", mode)
-
-    # Call run_vibe_command instead of handle_vibe_request directly
     result = await run_vibe_command(
         request=request,
         show_raw_output=show_raw_output,
@@ -980,7 +935,6 @@ async def vibe(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        mode_choice=mode,
         semiauto=False,
         exit_on_error=False,
         show_metrics=show_metrics,

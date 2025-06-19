@@ -164,13 +164,17 @@ async def test_delete_vibe_request_with_mode_auto() -> None:
             message="Vibe delete with mode auto success"
         )
 
-        # Directly invoke the Click command object for 'delete'
-        # This means we are testing the vibectl.cli.delete function
-        cmd_obj = cli.commands["delete"]
-        with pytest.raises(SystemExit) as exc_info:
-            await cmd_obj.main(["vibe", "delete the nginx pod", "--mode", "auto"])
+        from asyncclick.testing import CliRunner
 
-        assert exc_info.value.code == 0
+        from vibectl.cli import cli as root_cli
+
+        runner = CliRunner()
+        result = await runner.invoke(
+            root_cli,
+            ["--mode", "auto", "delete", "vibe", "delete the nginx pod"],
+        )
+
+        assert result.exit_code == 0
         mock_handle_vibe_request.assert_called_once()
         _args, kwargs = mock_handle_vibe_request.call_args
         # The mode flag is handled via execution mode override; no direct

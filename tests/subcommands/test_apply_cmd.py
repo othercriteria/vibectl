@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -397,14 +397,11 @@ async def test_run_apply_command_vibe_success(
     mock_config_cls.assert_called_once()
     mock_config_instance.get_typed.assert_called_once_with("intelligent_apply", True)
 
-    mock_handle_vibe_request.assert_called_once_with(
-        request="deploy this thing",
-        command="apply",
-        plan_prompt_func=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_output_flags,
-        execution_mode=ANY,
-    )
+    mock_handle_vibe_request.assert_called_once()
+    called_kwargs = mock_handle_vibe_request.call_args.kwargs
+    assert called_kwargs["request"] == "deploy this thing"
+    assert called_kwargs["command"] == "apply"
+    assert called_kwargs["output_flags"] is mock_output_flags
 
 
 @pytest.mark.asyncio
@@ -482,14 +479,11 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_config_cls.assert_called_once()
     mock_config_instance.get_typed.assert_called_once_with("intelligent_apply", True)
 
-    mock_handle_vibe_request.assert_called_once_with(
-        request="do something that fails",
-        command="apply",
-        plan_prompt_func=ANY,
-        summary_prompt_func=ANY,
-        output_flags=mock_output_flags,
-        execution_mode=ANY,
-    )
+    mock_handle_vibe_request.assert_called_once()
+    called_kwargs = mock_handle_vibe_request.call_args.kwargs
+    assert called_kwargs["request"] == "do something that fails"
+    assert called_kwargs["command"] == "apply"
+    assert called_kwargs["output_flags"] is mock_output_flags
 
 
 @patch("vibectl.execution.apply.get_model_adapter")

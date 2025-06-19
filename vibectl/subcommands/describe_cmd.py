@@ -9,7 +9,7 @@ from vibectl.prompts.describe import (
     describe_plan_prompt,
     describe_resource_prompt,
 )
-from vibectl.types import Error, Result, determine_execution_mode
+from vibectl.types import Error, Result
 
 
 async def run_describe_command(
@@ -42,15 +42,12 @@ async def run_describe_command(
         request = " ".join(args)
         logger.info(f"Planning how to describe: {request}")
 
-        exec_mode = determine_execution_mode()
-
         result = await handle_vibe_request(
             request=request,
             command="describe",
             plan_prompt_func=describe_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=describe_resource_prompt,
-            execution_mode=exec_mode,
         )
         logger.info("Completed 'describe' command for vibe request.")
         return result

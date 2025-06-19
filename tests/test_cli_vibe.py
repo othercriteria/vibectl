@@ -3,8 +3,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from asyncclick.testing import CliRunner
 
-from vibectl.cli import cli
+from vibectl.cli import cli as root_cli
 from vibectl.command_handler import OutputFlags
 from vibectl.model_adapter import LLMModelAdapter
 from vibectl.schema import (
@@ -85,14 +86,13 @@ async def test_vibe_command_with_request(
 
     mock_execute_command.return_value = Success(data="deployment created")
 
-    cmd_obj = cli.commands["vibe"]
-    with pytest.raises(SystemExit) as exc_info:
-        # Use --mode auto to bypass confirmation prompts under new execution-mode logic
-        await cmd_obj.main(
-            ["Create a deployment", "--show-raw-output", "--mode", "auto"]
-        )
+    runner = CliRunner()
+    result = await runner.invoke(
+        root_cli,
+        ["--mode", "auto", "vibe", "Create a deployment", "--show-raw-output"],
+    )
 
-    assert exc_info.value.code == 0
+    assert result.exit_code == 0
     # Assert _execute_command was called with the planned commands
     mock_execute_command.assert_called_once_with(
         planned_commands[0], planned_commands[1:], None, allowed_exit_codes=(0,)
@@ -204,14 +204,13 @@ async def test_vibe_command_auto_mode(
     # Simulate kubectl failure so the CLI exits non-zero even in auto mode
     mock_execute_command.return_value = Error(error="kubectl create failed")
 
-    cmd_obj = cli.commands["vibe"]
-    with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(
-            ["Create a deployment", "--mode", "auto", "--show-raw-output"]
-        )
+    runner = CliRunner()
+    result = await runner.invoke(
+        root_cli,
+        ["--mode", "auto", "vibe", "Create a deployment", "--show-raw-output"],
+    )
 
-    # Non-zero exit code expected because _execute_command failed
-    assert exc_info.value.code != 0
+    assert result.exit_code != 0
 
     # Verify core interactions
     mock_execute_command.assert_called_once_with(
@@ -516,7 +515,7 @@ async def test_handle_vibe_with_unknown_model(
     mock_actual_handle_vibe_request_call.side_effect = side_effect_handle_vibe_request
 
     # Call the CLI command entry point directly
-    cmd_obj = cli.commands["vibe"]
+    cmd_obj = root_cli.commands["vibe"]
     with pytest.raises(SystemExit) as exc_info:
         await cmd_obj.main(["show me pods", "--model", "invalid-model-name"])
 
@@ -581,12 +580,14 @@ async def test_vibe_command_with_yaml_input(
     mock_execute_command.return_value = Success(data="configmap/my-cm created")
 
     # --- Execute Command ---
-    cmd_obj = cli.commands["vibe"]
-    with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(["Apply a configmap", "--mode", "auto"])
+    runner = CliRunner()
+    result = await runner.invoke(
+        root_cli,
+        ["--mode", "auto", "vibe", "Apply a configmap"],
+    )
 
     # --- Assertions ---
-    assert exc_info.value.code == 0
+    assert result.exit_code == 0
     mock_execute_command.assert_called_once_with(
         planned_commands[0],
         planned_commands[1:],
@@ -660,11 +661,13 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
         error="kubectl delete failed miserably"
     )  # Changed
 
-    cmd_obj = cli.commands["vibe"]
-    with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(["delete the pod my-pod", "--mode", "auto"])
+    runner = CliRunner()
+    result = await runner.invoke(
+        root_cli,
+        ["--mode", "auto", "vibe", "delete the pod my-pod"],
+    )
 
-    assert exc_info.value.code != 0  # Should exit with error
+    assert result.exit_code != 0  # Should exit with error
 
     # Assertions
     mock_execute_command.assert_called_once_with(  # Changed

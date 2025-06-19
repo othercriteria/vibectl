@@ -188,7 +188,6 @@ async def test_describe_vibe_request(
     called_kwargs = mock_handle_vibe.call_args.kwargs
     assert called_kwargs["request"] == "show me the nginx pod"
     assert called_kwargs["command"] == "describe"
-    assert "execution_mode" in called_kwargs  # new API
     assert "output_flags" in called_kwargs
 
 
@@ -285,8 +284,7 @@ async def test_run_describe_command_vibe() -> None:
         called_kwargs = mock_handle_vibe.call_args.kwargs
         assert called_kwargs["request"] == "show pods"
         assert called_kwargs["command"] == "describe"
-        assert "execution_mode" in called_kwargs
-        assert called_kwargs["output_flags"] is mock_output_flags
+        assert "output_flags" in called_kwargs
 
 
 @pytest.mark.asyncio

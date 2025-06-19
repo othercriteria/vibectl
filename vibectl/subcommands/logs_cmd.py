@@ -11,7 +11,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.logs import logs_plan_prompt, logs_prompt
-from vibectl.types import Error, Result, Success, determine_execution_mode
+from vibectl.types import Error, Result, Success
 
 
 async def run_logs_command(
@@ -45,15 +45,12 @@ async def run_logs_command(
             logger.info("Planning how to: logs %s", request)
             try:
                 # Await the potentially async vibe handler
-                exec_mode = determine_execution_mode()
-
                 result_vibe = await handle_vibe_request(
                     request=request,
                     command="logs",
                     plan_prompt_func=logs_plan_prompt,
                     summary_prompt_func=logs_prompt,
                     output_flags=output_flags,
-                    execution_mode=exec_mode,
                 )
                 # Return result directly if handle_vibe_request provides one
                 if isinstance(result_vibe, Error):

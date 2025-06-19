@@ -8,7 +8,7 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.create import create_plan_prompt, create_resource_prompt
-from vibectl.types import Error, Result, Success, determine_execution_mode
+from vibectl.types import Error, Result, Success
 
 
 async def run_create_command(
@@ -45,15 +45,12 @@ async def run_create_command(
             request = " ".join(args)
             logger.info("Planning how to: create %s", request)
             try:
-                exec_mode = determine_execution_mode()
-
                 result = await handle_vibe_request(
                     request=request,
                     command="create",
                     plan_prompt_func=create_plan_prompt,
                     summary_prompt_func=create_resource_prompt,
                     output_flags=output_flags,
-                    execution_mode=exec_mode,
                 )
                 return result
             except Exception as e:
