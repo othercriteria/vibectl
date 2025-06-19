@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Improved error handling and connection validation
     - JWT token and CA bundle path resolution from profiles
   - **CLI Override Layer**: Added root-level `--proxy`, `--no-proxy`, and `--model` flags backed by a ContextVar-based override system (`vibectl/overrides.py`) for temporary overrides without threading parameters through sub-commands.
+  - **Action Confirmation Prerequisites**: Implemented core groundwork for per-command confirmation and risk assessment
+    - Refactored all kubectl subcommand handlers to supply operation metadata (`operation_type`, `resource_scope`) to the execution layer
+    - Added `is_destructive_kubectl_command()` and `should_confirm_action()` helpers in `vibectl/execution/vibe.py`
+    - Extended `OutputFlags` and `vibectl/types.py` to consistently propagate confirmation requirements
+    - Updated and expanded tests across subcommand suites to cover the new confirmation flow (20+ test files modified)
+    - Lays foundation for Phase 4 "Response Validation & Confirmation" implementation
 
 ### Changed
 - **Proxy Configuration Migration**: Removed legacy proxy configuration format in favor of named profiles

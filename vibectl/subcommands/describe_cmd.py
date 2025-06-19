@@ -44,7 +44,7 @@ async def run_describe_command(
         request = " ".join(args)
         logger.info(f"Planning how to describe: {request}")
 
-        exec_mode = determine_execution_mode(yes=False, semiauto=False)
+        exec_mode = determine_execution_mode()
 
         result = await handle_vibe_request(
             request=request,
@@ -53,7 +53,6 @@ async def run_describe_command(
             output_flags=output_flags,
             summary_prompt_func=describe_resource_prompt,
             execution_mode=exec_mode,
-            yes=False,
         )
         logger.info("Completed 'describe' command for vibe request.")
         return result

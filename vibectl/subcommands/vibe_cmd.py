@@ -25,7 +25,6 @@ async def run_vibe_command(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = False,
     semiauto: bool = False,
     mode_choice: str | None = None,
     exit_on_error: bool = True,
@@ -38,7 +37,6 @@ async def run_vibe_command(
 
     Args:
         ...
-        yes: Whether to bypass confirmation prompts
         semiauto: Whether this call is part of a semiauto loop
         exit_on_error: If True (default), errors will terminate the process.
             If False, errors are returned as Error objects for programmatic handling
@@ -69,7 +67,7 @@ async def run_vibe_command(
             exec_mode = (
                 cli_mode
                 if cli_mode is not None
-                else determine_execution_mode(yes=yes, semiauto=semiauto)
+                else determine_execution_mode(semiauto=semiauto)
             )
 
             result = await handle_vibe_request(
@@ -79,8 +77,6 @@ async def run_vibe_command(
                 summary_prompt_func=vibe_autonomous_prompt,
                 output_flags=output_flags,
                 execution_mode=exec_mode,
-                # Keep legacy flags for internal back-compat (to be removed later)
-                yes=yes,
                 semiauto=semiauto,
             )
 

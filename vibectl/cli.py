@@ -64,7 +64,6 @@ from .utils import handle_exception
 def common_command_options(
     include_show_kubectl: bool = False,
     include_live_display: bool = False,
-    include_yes: bool = False,
     include_mode: bool = False,
     include_show_metrics: bool = True,
     include_show_streaming: bool = True,
@@ -117,12 +116,6 @@ def common_command_options(
                     is_flag=True,
                     default=True,
                     help="Show a live spinner with elapsed time during waiting",
-                )
-            )
-        if include_yes:
-            options.append(
-                click.option(
-                    "--yes", "-y", is_flag=True, help="Skip confirmation prompt"
                 )
             )
         if include_mode:
@@ -440,7 +433,6 @@ async def create(
 @common_command_options(
     include_model=False,
     include_show_metrics=False,
-    include_yes=True,
     include_show_streaming=False,
 )
 async def delete(
@@ -450,7 +442,6 @@ async def delete(
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = False,
 ) -> None:
     """Delete a resource."""
     result = await run_delete_command(
@@ -460,7 +451,6 @@ async def delete(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        yes=yes,
     )
     handle_result(result)
 
@@ -777,7 +767,6 @@ def theme_set(theme_name: str) -> None:
 @click.argument("request", required=False)
 @common_command_options(
     include_show_kubectl=True,
-    include_yes=True,
     include_show_metrics=True,
     include_show_streaming=True,
 )
@@ -810,10 +799,9 @@ async def auto(
     unfreeze_memory: bool = False,
     interval: int = 5,
     limit: int | None = None,
-    yes: bool = False,
+    mode: str | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
-    mode: str | None = None,
 ) -> None:
     """Loop vibectl vibe commands automatically."""
     if mode is not None:
@@ -833,11 +821,10 @@ async def auto(
             unfreeze_memory=unfreeze_memory,
             interval=interval,
             limit=limit,
-            yes=yes,
+            mode_choice=mode,
+            exit_on_error=True,  # Auto command should exit on error by default
             show_metrics=show_metrics,
             show_streaming=show_streaming,
-            semiauto=False,  # Auto command is not in semiauto mode
-            exit_on_error=True,  # Auto command should exit on error by default
         )
         handle_result(result)
     except Exception as e:
@@ -918,7 +905,7 @@ async def events(
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("predicate", nargs=-1, type=click.UNPROCESSED, required=True)
-@common_command_options(include_show_kubectl=True, include_yes=True)
+@common_command_options(include_show_kubectl=True)
 async def check(
     predicate: tuple[str, ...],
     show_raw_output: bool | None,
@@ -927,7 +914,6 @@ async def check(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    yes: bool,
     show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> None:
@@ -940,7 +926,6 @@ async def check(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        yes=yes,
         show_metrics=show_metrics,
         show_streaming=show_streaming,
     )
@@ -949,7 +934,7 @@ async def check(
 
 @cli.command()
 @click.argument("request", required=False)
-@common_command_options(include_show_kubectl=True, include_yes=True)
+@common_command_options(include_show_kubectl=True)
 @click.option(
     "--show-metrics",
     type=click.Choice(["none", "total", "sub", "all"], case_sensitive=False),
@@ -973,7 +958,6 @@ async def vibe(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = False,
     mode: str | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
@@ -993,7 +977,6 @@ async def vibe(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        yes=yes,
         mode_choice=mode,
         semiauto=False,
         exit_on_error=False,
@@ -1381,9 +1364,7 @@ async def _rollout_common(
     freeze_memory: bool,
     unfreeze_memory: bool,
     show_kubectl: bool | None,
-    yes: bool = False,
     show_metrics: MetricsDisplayMode | None = None,
-    show_streaming: bool | None = None,
 ) -> None:
     # Await run_rollout_command
     result = await run_rollout_command(
@@ -1396,7 +1377,6 @@ async def _rollout_common(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        yes=yes,
         show_metrics=show_metrics,
     )
     handle_result(result)
@@ -1427,7 +1407,6 @@ async def status(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=False,
         show_metrics=show_metrics,
     )
 
@@ -1457,7 +1436,6 @@ async def history(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=False,
         show_metrics=show_metrics,
     )
 
@@ -1466,7 +1444,6 @@ async def history(
 @click.argument("resource", required=True)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @common_command_options(include_show_kubectl=True)
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 async def undo(
     resource: str,
     args: tuple,
@@ -1476,7 +1453,6 @@ async def undo(
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     show_kubectl: bool | None = None,
-    yes: bool = False,
     show_metrics: MetricsDisplayMode | None = None,
 ) -> None:
     await _rollout_common(
@@ -1489,7 +1465,6 @@ async def undo(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=yes,
         show_metrics=show_metrics,
     )
 
@@ -1519,7 +1494,6 @@ async def restart(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=False,
         show_metrics=show_metrics,
     )
 
@@ -1549,7 +1523,6 @@ async def pause(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=False,
         show_metrics=show_metrics,
     )
 
@@ -1579,7 +1552,6 @@ async def resume(
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         show_kubectl=show_kubectl,
-        yes=False,
         show_metrics=show_metrics,
     )
 

@@ -312,12 +312,19 @@ Implementation should prioritize commands that provide the most value to users w
 
 ## Kubeconfig Handling
 
-## Auto and Semiauto Command Behavior Clarification
+## Execution Modes Clarification
 
-- **`vibectl auto`**: Designed for fully non-interactive execution. It implies `yes=True` for all internal command confirmations, regardless of the `--yes` flag passed to `vibectl auto` itself. The `--yes` flag on `vibectl auto` is primarily for future use if `auto` mode itself were to have its own direct interactive prompts (which it currently doesn't).
-- **`vibectl semiauto`**: Designed for interactive execution where each step planned by the LLM is presented to the user for confirmation. It implies `yes=False` for internal command confirmations, requiring explicit user input (`y/n/a/b/m/e`).
-- **Confirmation Logic**: The `_needs_confirmation` helper in `command_handler.py` determines if a command verb is dangerous. This, combined with the effective `yes` status (always `True` for full auto, always `False` for semiauto initial prompt) dictates whether `_handle_command_confirmation` shows a prompt or bypasses it.
-- **Error Handling**: Both modes have mechanisms to continue or halt on errors, with `exit_on_error` controlling the loop's behavior. Non-halting errors allow the loop to proceed, often with recovery suggestions.
+- **`vibectl auto`** – Fully non-interactive execution.  Destructive operations run without confirmation.
+- **`vibectl semiauto`** – Interactive loop: each generated command is shown once per iteration for confirmation.
+
+Confirmation behaviour is implemented via the `ExecutionMode` enum (`AUTO`, `SEMIAUTO`, `MANUAL`).  The legacy `--yes` flag has been removed; callers should select the desired mode with `--mode auto|semiauto|manual`.
+
+`_needs_confirmation` in `command_handler.py` still determines whether a kubectl verb is potentially dangerous; combined with the resolved `ExecutionMode`, it decides if a prompt is shown.
+
+Error handling: as before, `exit_on_error` dictates whether loops halt on recoverable errors, independent of confirmation logic.
+
+**Safe operations**: `get`, `describe`, `logs` (no confirmation needed in any mode)
+**Destructive operations**: `delete`, `drain` (confirmation required unless running in AUTO mode)
 
 ## `vibectl check` Future Enhancements
 

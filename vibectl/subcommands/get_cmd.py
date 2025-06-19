@@ -44,7 +44,8 @@ async def run_get_command(
             request = " ".join(args)
             logger.info(f"Planning how to: {request}")
 
-            exec_mode = determine_execution_mode(yes=False, semiauto=False)
+            # Derive execution mode from overrides/config; legacy flags removed.
+            exec_mode = determine_execution_mode()
 
             # Await the async handler
             result = await handle_vibe_request(
@@ -54,7 +55,6 @@ async def run_get_command(
                 summary_prompt_func=get_resource_prompt,
                 output_flags=output_flags,
                 execution_mode=exec_mode,
-                yes=False,
             )
 
             # Forward the Result from handle_vibe_request

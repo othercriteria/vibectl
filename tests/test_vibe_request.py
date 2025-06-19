@@ -38,6 +38,7 @@ from vibectl.schema import (
 from vibectl.types import (
     ActionType,
     Error,
+    ExecutionMode,
     Fragment,
     MetricsDisplayMode,
     PromptFragments,
@@ -160,7 +161,7 @@ async def test_handle_vibe_request_success(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=True,  # Pass yes=True to bypass confirmation for this test
+            execution_mode=ExecutionMode.AUTO,
         )
 
     assert isinstance(result, Success)
@@ -194,7 +195,7 @@ async def test_handle_vibe_request_command_execution(
                 plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,
-                yes=True,  # Bypass confirmation for COMMAND action
+                execution_mode=ExecutionMode.AUTO,
             )
             mock_execute_cmd.assert_called_once_with(
                 "version", command_to_execute, None, allowed_exit_codes=(0,)
@@ -229,12 +230,14 @@ async def test_handle_vibe_request_yaml_execution(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.AUTO,
         )
         mock_execute_cmd.assert_called_once_with(
             "apply", ["-f", "-"], yaml_manifest_content, allowed_exit_codes=(0,)
         )
-        mock_prompt.assert_called_once()
+        # In ExecutionMode.AUTO, confirmation prompts are bypassed, so no prompt
+        # should be shown.
+        mock_prompt.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -258,6 +261,7 @@ async def test_handle_vibe_request_llm_planning_error(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=default_output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
     assert isinstance(result, Error)
     assert llm_api_error_message in result.error
@@ -288,6 +292,7 @@ async def test_handle_vibe_request_llm_wait(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
+            execution_mode=ExecutionMode.AUTO,
         )
         assert isinstance(result, Success)
         assert result.message == f"Waited for {wait_duration} seconds."
@@ -335,14 +340,14 @@ async def test_handle_vibe_request_llm_feedback(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=default_output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
     assert isinstance(result, Success)
     assert result.message == f"Applied AI feedback: {feedback_suggestion_str}"
 
     mock_console.print_vibe.assert_called_once_with(feedback_message)
-    # When yes=True, _handle_command_confirmation returns early, so it
-    # doesn't print the note.
+    # When execution_mode=ExecutionMode.AUTO, _handle_command_confirmation returns
+    # early, so it doesn't print the note.
     # The proposal is printed directly by the FEEDBACK action block.
     mock_console.print_note.assert_not_called()
     mock_console.print_proposal.assert_called_once_with(
@@ -398,7 +403,7 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=default_output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Success)
@@ -409,7 +414,8 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
 
     # Verify console output
     mock_console.print_vibe.assert_called_once_with(feedback_message)
-    # When yes=True, _handle_command_confirmation does not print the explanation note.
+    # When execution_mode=ExecutionMode.AUTO, _handle_command_confirmation does
+    # not print the explanation note.
     mock_console.print_note.assert_not_called()
     # The proposal for memory update is printed directly by the FEEDBACK block.
     mock_console.print_proposal.assert_called_once_with(
@@ -475,7 +481,7 @@ async def test_handle_vibe_request_command_error(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=True,
+            execution_mode=ExecutionMode.AUTO,
         )
 
     assert isinstance(result, Error)
@@ -550,12 +556,14 @@ async def test_handle_vibe_request_yaml_response(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.AUTO,
         )
         mock_execute_cmd.assert_called_once_with(
             "apply", ["-f", "-"], yaml_manifest_content, allowed_exit_codes=(0,)
         )
-        mock_prompt.assert_called_once()
+        # In ExecutionMode.AUTO, confirmation prompts are bypassed, so no
+        # prompt should be shown.
+        mock_prompt.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -603,7 +611,7 @@ async def test_handle_vibe_request_summary_for_memory_no_vibe_output(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=True,
+            execution_mode=ExecutionMode.AUTO,
         )
 
     mock_console.print_vibe.assert_not_called()  # Vibe output should be suppressed
@@ -717,6 +725,7 @@ async def test_handle_vibe_request_empty_response(  # Added async
                 plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,
+                execution_mode=ExecutionMode.AUTO,
             )
 
         # Assert that the specific error for empty response was returned
@@ -768,6 +777,7 @@ async def test_handle_vibe_request_error_response(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=default_output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     # Assert handle_vibe_request returned an Error object
@@ -826,6 +836,7 @@ async def test_handle_vibe_request_invalid_format(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
+            execution_mode=ExecutionMode.AUTO,
         )
 
         assert isinstance(result, Error)
@@ -886,6 +897,7 @@ async def test_handle_vibe_request_no_output(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=no_output_flags,
+            execution_mode=ExecutionMode.AUTO,
         )
 
         # Verify warning was printed by the real
@@ -968,8 +980,7 @@ async def test_show_kubectl_flag_controls_command_display(
                 plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=get_test_summary_fragments,
                 output_flags=output_flags,
-                autonomous_mode=False,
-                yes=True,  # Bypass confirmation
+                execution_mode=ExecutionMode.AUTO,
             )
 
             # --- Assertions ---
@@ -1140,7 +1151,7 @@ async def test_handle_vibe_request_recoverable_api_error_during_summary(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
-            yes=True,
+            execution_mode=ExecutionMode.AUTO,
         )
 
         # Verify _execute_command was called
@@ -1244,7 +1255,7 @@ async def test_handle_vibe_request_general_exception_during_recovery(
                 plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=get_test_summary_fragments,
                 output_flags=default_output_flags,  # Assumes show_vibe=True
-                yes=True,  # Bypass confirmation
+                execution_mode=ExecutionMode.AUTO,
             )
 
             # Verify the LLM execute was called twice (plan + recovery attempt)

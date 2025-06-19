@@ -15,6 +15,7 @@ from vibectl.types import (
     MetricsDisplayMode,
     Result,
     Success,
+    determine_execution_mode,
 )
 
 
@@ -59,13 +60,15 @@ async def run_diff_command(
         request = " ".join(args)
         logger.info(f"Planning how to: {request}")
 
+        exec_mode = determine_execution_mode()
+
         result = await handle_vibe_request(
             request=request,
             command="diff",
             plan_prompt_func=diff_plan_prompt,
             summary_prompt_func=diff_output_prompt,
             output_flags=output_flags,
-            yes=False,
+            execution_mode=exec_mode,
         )
 
         if isinstance(result, Error):

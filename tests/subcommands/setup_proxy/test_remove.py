@@ -63,7 +63,7 @@ def test_remove_profile(monkeypatch: pytest.MonkeyPatch, exists: bool) -> None:
     # Allow console output for debugging
 
     # Execute command via underlying callback (sync function)
-    spc.remove_profile.callback("to-remove", yes=True)  # type: ignore[misc]
+    spc.remove_profile.callback("to-remove", mode="auto")  # type: ignore[misc]
 
     if exists:
         assert dummy_cfg.removed is True

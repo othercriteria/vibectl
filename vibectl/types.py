@@ -486,12 +486,11 @@ class ExecutionMode(Enum):
     """Represents the high-level execution style chosen for a vibectl run.
 
     MANUAL     - default behaviour, ask for confirmation on destructive actions.
-    AUTO       - fully autonomous, no confirmations at all (legacy: ``--yes``).
+    AUTO       - fully autonomous, no confirmations at all.
     SEMIAUTO   - prompt once per iteration in the *semiauto* loop.
 
-    This abstraction is part of the planned clean-up that removes the
-    entanglement of three separate booleans (``yes``, ``semiauto``,
-    ``autonomous_mode``) that currently flow through the call-stack.
+    This abstraction replaced the previous mixture of boolean flags that
+    controlled confirmation behaviour.
     """
 
     MANUAL = auto()
@@ -499,40 +498,82 @@ class ExecutionMode(Enum):
     SEMIAUTO = auto()
 
 
-def determine_execution_mode(*, yes: bool, semiauto: bool) -> ExecutionMode:
-    """Derive :class:`ExecutionMode` from the legacy boolean flags.
+_MODE_ALIASES: dict[str, ExecutionMode] = {
+    # Direct mode names
+    "auto": ExecutionMode.AUTO,
+    "semiauto": ExecutionMode.SEMIAUTO,
+    "manual": ExecutionMode.MANUAL,
+    # Confirmation-mode strings from config
+    "none": ExecutionMode.AUTO,
+    "per-session": ExecutionMode.SEMIAUTO,
+    "per-command": ExecutionMode.MANUAL,
+}
 
-    Args:
-        yes:     Former ``--yes`` flag - skip confirmation.
-        semiauto:Running inside the *semiauto* loop.
 
-    Returns:
-        The corresponding :class:`ExecutionMode`.
+def _mode_from_string(value: str | None) -> ExecutionMode | None:
+    """Translate a config / override string into :class:`ExecutionMode`."""
+    if not value:
+        return None
+    return _MODE_ALIASES.get(str(value).lower())
+
+
+def determine_execution_mode(*, semiauto: bool = False) -> ExecutionMode:
+    """Resolve the :class:`ExecutionMode` for the current invocation.
+
+    Precedence (highest first):
+    1. Process-local override via :pyfunc:`vibectl.overrides.set_override`
+       (CLI ``--mode``).
+    2. ``security.confirmation_mode`` configuration - first on the active proxy profile,
+       then global config.
+    3. Runtime context: the *semiauto* loop sets ``semiauto=True``.
+    4. Default → :pyattr:`ExecutionMode.MANUAL`.
     """
-    # First honour a process-local override coming from CLI --mode.
+
+    # 1. Process-local override (CLI --mode)
     try:
-        from vibectl.overrides import get_override  # Local import to avoid cycles
+        from vibectl.overrides import get_override  # Local import - avoids cycles
 
         overridden, value = get_override("execution.mode")
-        if overridden and value is not None:
-            lowered = str(value).lower()
-            if lowered == "auto":
-                return ExecutionMode.AUTO
-            if lowered == "semiauto":
-                return ExecutionMode.SEMIAUTO
-            if lowered == "manual":
-                return ExecutionMode.MANUAL
-            # Fall through for any unexpected value - treat as MANUAL to be safe
-    except Exception:  # pragma: no cover - defensive, should never fail
-        # If overrides infrastructure is unavailable for some reason just ignore
+        override_mode = _mode_from_string(value) if overridden else None
+        if override_mode is not None:
+            return override_mode
+    except Exception:  # pragma: no cover - overrides system unavailable
         pass
 
-    # Fallback to legacy flag logic
+    # 2. Configuration-based confirmation mode
+    try:
+        from vibectl.config import Config  # Late import to avoid heavy dependency
+
+        cfg = Config()
+
+        # Look at active proxy profile first
+        proxy_cfg = cfg.get("proxy", {})
+        confirmation_mode: str | None = None
+
+        active_profile = proxy_cfg.get("active")
+        if active_profile:
+            profiles = proxy_cfg.get("profiles", {})
+            confirmation_mode = (
+                profiles.get(active_profile, {})
+                .get("security", {})
+                .get("confirmation_mode")
+            )
+
+        # Fall back to global config
+        if confirmation_mode is None:
+            confirmation_mode = cfg.get("security.confirmation_mode")
+
+        cfg_mode = _mode_from_string(confirmation_mode)
+        if cfg_mode is not None:
+            return cfg_mode
+    except Exception:  # pragma: no cover - config errors should not abort flow
+        pass
+
+    # 3. Runtime flag from the semiauto loop
     if semiauto:
-        # Semiauto always prompts; ``--yes`` is ignored by design in that loop.
         return ExecutionMode.SEMIAUTO
-    if yes:
-        return ExecutionMode.AUTO
+
+    # 4. Default
     return ExecutionMode.MANUAL
 
 
@@ -545,7 +586,7 @@ def execution_mode_from_cli(choice: str | None) -> ExecutionMode | None:
     """Translate the ``--mode`` CLI option into :class:`ExecutionMode`.
 
     Returns ``None`` if *choice* is ``None`` so that callers can fall back to
-    legacy flags (``--yes`` / semiauto loop) when the option wasn't supplied.
+    SEMIAUTO/MANUAL selection when the option wasn't supplied.
     """
 
     if choice is None:

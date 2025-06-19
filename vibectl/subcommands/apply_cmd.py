@@ -20,6 +20,7 @@ from vibectl.types import (
     Error,
     MetricsDisplayMode,
     Result,
+    determine_execution_mode,
 )
 
 
@@ -68,14 +69,16 @@ async def run_apply_command(
             return await run_intelligent_apply_workflow(request, cfg, output_flags)
         else:  # Not intelligent_apply
             logger.info("Using standard vibe request handler for apply.")
-            # Ensure result is awaited if handle_vibe_request is async
+
+            exec_mode = determine_execution_mode()
+
             result_standard_vibe = await handle_vibe_request(
                 request=request,
                 command="apply",
                 plan_prompt_func=apply_plan_prompt,
                 summary_prompt_func=apply_output_prompt,
                 output_flags=output_flags,
-                yes=False,
+                execution_mode=exec_mode,
             )
 
             if isinstance(result_standard_vibe, Error):

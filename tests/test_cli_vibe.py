@@ -87,8 +87,10 @@ async def test_vibe_command_with_request(
 
     cmd_obj = cli.commands["vibe"]
     with pytest.raises(SystemExit) as exc_info:
-        # Add --yes to bypass potential confirmation prompts
-        await cmd_obj.main(["Create a deployment", "--show-raw-output", "--yes"])
+        # Use --mode auto to bypass confirmation prompts under new execution-mode logic
+        await cmd_obj.main(
+            ["Create a deployment", "--show-raw-output", "--mode", "auto"]
+        )
 
     assert exc_info.value.code == 0
     # Assert _execute_command was called with the planned commands
@@ -152,7 +154,7 @@ async def test_vibe_command_without_request(
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.execution.vibe._execute_command")
 @pytest.mark.asyncio
-async def test_vibe_command_with_yes_flag(
+async def test_vibe_command_auto_mode(
     mock_execute_command: Mock,
     mock_ch_get_model_adapter: Mock,
     mock_mem_get_model_adapter: Mock,
@@ -161,20 +163,22 @@ async def test_vibe_command_with_yes_flag(
     mock_configure_flags: Mock,
     default_output_flags: OutputFlags,
 ) -> None:
-    """Test the main vibe command with the yes flag, mocking network calls."""
+    """Test the main vibe command in AUTO execution mode (fully non-interactive)."""
     mock_configure_flags.return_value = default_output_flags
     mock_global_get_memory.return_value = ""
 
-    # 1. Mock get_model_adapter factory
+    # 1. Mock get_model_adapter factory to return our mock adapter instance
     mock_adapter_instance = MagicMock(spec=LLMModelAdapter)
     mock_exec_vibe_get_model_adapter.return_value = mock_adapter_instance
     mock_mem_get_model_adapter.return_value = mock_adapter_instance
     mock_ch_get_model_adapter.return_value = mock_adapter_instance
 
-    # 2. Mock adapter's get_model
+    # 2. The adapter's get_model method will be called to get a model object.
+    #    This model object is passed to adapter.execute(), but our mocked execute
+    #    won't use it. We just need get_model() to not fail.
     mock_adapter_instance.get_model.return_value = MagicMock()
 
-    # 3. Mock adapter's execute_and_log_metrics method for sequential plan and feedback
+    # Mock execute_and_log_metrics for plan and feedback
     planned_commands = ["create", "deployment", "my-deploy", "--image=nginx"]
     plan_json = LLMPlannerResponse(
         action=CommandAction(
@@ -192,36 +196,34 @@ async def test_vibe_command_with_yes_flag(
                 )
             ).model_dump_json(),
             None,
-        ),  # For recovery
-        ("Memory updated after initial plan.", None),  # For first update_memory
-        ("Memory updated after recovery feedback.", None),  # For second update_memory
+        ),  # For recovery feedback
+        ("Memory updated after initial plan.", None),  # First update_memory
+        ("Memory updated after recovery feedback.", None),  # Second update_memory
     ]
 
-    # 4. Mock _execute_command to simulate failure
+    # Simulate kubectl failure so the CLI exits non-zero even in auto mode
     mock_execute_command.return_value = Error(error="kubectl create failed")
-
-    # Let the actual handle_vibe_request run, relying on inner mocks
 
     cmd_obj = cli.commands["vibe"]
     with pytest.raises(SystemExit) as exc_info:
-        # Run with --yes
-        await cmd_obj.main(["Create a deployment", "--yes", "--show-raw-output"])
+        await cmd_obj.main(
+            ["Create a deployment", "--mode", "auto", "--show-raw-output"]
+        )
 
-    # We expect it to fail because _execute_command (simulating kubectl)
-    # failed, even with --yes
+    # Non-zero exit code expected because _execute_command failed
     assert exc_info.value.code != 0
 
-    # Verify mocks were called
+    # Verify core interactions
+    mock_execute_command.assert_called_once_with(
+        planned_commands[0], planned_commands[1:], None, allowed_exit_codes=(0,)
+    )
     assert mock_exec_vibe_get_model_adapter.call_count >= 1
     assert mock_mem_get_model_adapter.call_count >= 1
     assert mock_ch_get_model_adapter.call_count >= 1
     assert mock_adapter_instance.get_model.call_count >= 1
     assert (
         mock_adapter_instance.execute_and_log_metrics.call_count >= 2
-    )  # Plan + recovery feedback
-    mock_execute_command.assert_called_once_with(
-        planned_commands[0], planned_commands[1:], None, allowed_exit_codes=(0,)
-    )
+    )  # plan + feedback
 
 
 @patch("vibectl.memory.get_memory")
@@ -581,7 +583,7 @@ async def test_vibe_command_with_yaml_input(
     # --- Execute Command ---
     cmd_obj = cli.commands["vibe"]
     with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(["Apply a configmap", "--yes"])
+        await cmd_obj.main(["Apply a configmap", "--mode", "auto"])
 
     # --- Assertions ---
     assert exc_info.value.code == 0
@@ -660,7 +662,7 @@ async def test_vibe_command_kubectl_failure_no_recovery_plan(
 
     cmd_obj = cli.commands["vibe"]
     with pytest.raises(SystemExit) as exc_info:
-        await cmd_obj.main(["delete the pod my-pod", "--yes"])
+        await cmd_obj.main(["delete the pod my-pod", "--mode", "auto"])
 
     assert exc_info.value.code != 0  # Should exit with error
 

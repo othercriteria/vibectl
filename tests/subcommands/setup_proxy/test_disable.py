@@ -114,8 +114,8 @@ class TestSetupProxyDisableCLI:
             mock_status.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_disable_with_yes_flag(self) -> None:
-        """Test disable command with --yes flag."""
+    async def test_disable_with_auto_mode(self) -> None:
+        """Test disable command with --mode auto (skip confirmation)."""
         with (
             patch("vibectl.subcommands.setup_proxy_cmd.disable_proxy") as mock_disable,
             patch(
@@ -131,7 +131,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -159,7 +159,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -207,7 +207,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -230,7 +230,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             _result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=True,
             )
 

@@ -138,6 +138,7 @@ vibectl --proxy corporate-llm vibe "show me all pods"
 
 ---
 
+### 🚧 Phase 2: Request Sanitization (IN PROGRESS)
 ### ✅ Phase 2: Request Sanitization (COMPLETED)
 
 **✅ Full Implementation Completed**: `vibectl/security/sanitizer.py`
@@ -186,7 +187,7 @@ class RequestSanitizer:
 
 ---
 
-### ✅ Phase 3: Audit Logging (COMPLETED)
+### 📋 Phase 3: Audit Logging (PLANNED)
 
 **✅ Full Implementation Completed**: `vibectl/security/audit.py`
 **✅ Status**: Complete implementation with full integration and comprehensive testing
@@ -225,7 +226,7 @@ class RequestSanitizer:
 
 ---
 
-### 📋 Phase 4: Basic Response Validation & Confirmation (PLANNED)
+### 📋 Phase 4: Response Validation (PLANNED)
 
 **Per-command confirmation** (V1 approach):
 ```bash
@@ -238,9 +239,14 @@ Executing: kubectl delete pods --field-selector=status.phase=Failed
 ```
 
 **Planned command risk assessment**:
-- **Safe operations**: `get`, `describe`, `logs` (no confirmation needed with `--yes`)
-- **Moderate operations**: `apply`, `patch`, `scale` (confirm once per session in semiauto)
-- **Destructive operations**: `delete`, `drain` (always confirm unless `--yes`)
+- **Safe operations**: `get`, `describe`, `logs` – confirmation not required.
+- **Destructive operations**: `delete`, `drain` – confirmation required unless running in AUTO mode.
+
+**✅ Completed prerequisites**:
+- Refactored CLI subcommand handlers to supply operation metadata for centralized confirmation.
+- Implemented `is_destructive_kubectl_command` and `should_confirm_action` helpers in `vibectl/execution/vibe.py`.
+- Extended `OutputFlags` and `vibectl/types.py` to thread confirmation requirements consistently.
+- Added initial unit tests across representative subcommands covering confirmation flow.
 
 ---
 

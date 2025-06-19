@@ -269,7 +269,6 @@ async def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -
         model=None,
         interval=1,
         semiauto=True,
-        yes=False,
     )
 
     # Verify no sleep was called (semiauto's natural user confirmation provides pausing)
@@ -308,7 +307,6 @@ async def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -
         model=None,
         interval=1,
         semiauto=True,
-        yes=False,
         exit_on_error=False,
     )
 
@@ -365,7 +363,6 @@ async def test_auto_command_semiauto_behavior(monkeypatch: pytest.MonkeyPatch) -
         model=None,
         interval=1,
         semiauto=True,
-        yes=False,
     )
 
     # Verify the result indicates user exit
@@ -479,13 +476,13 @@ async def test_run_semiauto_command(monkeypatch: pytest.MonkeyPatch) -> None:
         model=None,
         freeze_memory=True,  # Should pass through
         unfreeze_memory=True,  # Should pass through
-        yes=False,  # Should be False for semiauto
+        mode_choice="manual",  # run_semiauto_command sets manual mode_choice
         interval=0,  # Should use 0 interval for semiauto
-        semiauto=True,  # Should be True for semiauto
         exit_on_error=False,  # Should be False by default now
         limit=None,  # Should pass through as None by default
         show_metrics=None,  # Add missing show_metrics expectation
         show_streaming=None,  # Expect show_streaming=None as it's passed down as None
+        semiauto=True,  # Should be True for semiauto
     )
 
     # Test with exit_on_error explicitly set to True
@@ -1352,8 +1349,8 @@ async def test_auto_command_exits_nonzero_on_llm_missing_verb_error(
 
 
 @pytest.mark.asyncio
-async def test_cli_auto_command_with_yes_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that 'vibectl auto --yes' runs without TypeError and 'yes' is passed."""
+async def test_cli_auto_command_with_mode_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that 'vibectl auto --mode auto' runs without error and mode is forwarded."""
     runner = CliRunner()
     # Mock the underlying function that 'auto' calls in cli.py
     # to isolate the CLI parsing and parameter forwarding.
@@ -1361,8 +1358,8 @@ async def test_cli_auto_command_with_yes_flag(monkeypatch: pytest.MonkeyPatch) -
     mock_run_auto_cmd = AsyncMock(return_value=Success(message="Auto ran"))
     monkeypatch.setattr("vibectl.cli.run_auto_command", mock_run_auto_cmd)
 
-    # Invoke the 'auto' command with the '--yes' flag and a dummy request
-    result = await runner.invoke(cli, ["auto", "--yes", "dummy request"])
+    # Invoke the 'auto' command with the '--mode auto' flag and a dummy request
+    result = await runner.invoke(cli, ["auto", "--mode", "auto", "dummy request"])
 
     # Check that the command exited successfully
     assert result.exit_code == 0, f"CLI command failed: {result.output}"
@@ -1370,9 +1367,7 @@ async def test_cli_auto_command_with_yes_flag(monkeypatch: pytest.MonkeyPatch) -
     # Verify that the mocked run_auto_command was called
     mock_run_auto_cmd.assert_called_once()
 
-    # Verify that 'yes=True' was passed to run_auto_command due to the --yes flag
+    # Verify that the mode_choice parameter was forwarded to run_auto_command
     call_kwargs = mock_run_auto_cmd.call_args.kwargs
     assert call_kwargs.get("request") == "dummy request"
-    assert call_kwargs.get("yes") is True, "The 'yes' flag was not passed as True"
-    # Check other default or expected parameters if necessary, e.g.
-    assert call_kwargs.get("semiauto") is False
+    assert call_kwargs.get("mode_choice") == "auto"

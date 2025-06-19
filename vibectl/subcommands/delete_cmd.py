@@ -16,7 +16,6 @@ async def run_delete_command(
     show_vibe: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = False,
 ) -> Result:
     """
     Implements the 'delete' subcommand logic, including vibe handling, confirmation,
@@ -46,7 +45,7 @@ async def run_delete_command(
             request = " ".join(args)
             logger.info("Planning how to: delete %s", request)
             try:
-                exec_mode = determine_execution_mode(yes=yes, semiauto=False)
+                exec_mode = determine_execution_mode()
 
                 result = await handle_vibe_request(
                     request=request,
@@ -55,7 +54,6 @@ async def run_delete_command(
                     summary_prompt_func=delete_resource_prompt,
                     output_flags=output_flags,
                     execution_mode=exec_mode,
-                    yes=yes,
                 )
                 return result
             except Exception as e:

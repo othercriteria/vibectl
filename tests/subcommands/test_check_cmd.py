@@ -51,7 +51,6 @@ async def test_run_check_command_success(
         freeze_memory=False,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.NONE,
-        yes=False,
         show_streaming=True,
     )
 
@@ -105,7 +104,6 @@ async def test_run_check_command_error_from_vibe(
         freeze_memory=True,
         unfreeze_memory=False,
         show_metrics=MetricsDisplayMode.ALL,
-        yes=False,
         show_streaming=True,
     )
 
@@ -133,7 +131,6 @@ async def test_run_check_command_empty_predicate() -> None:
             freeze_memory=False,
             unfreeze_memory=False,
             show_metrics=MetricsDisplayMode.NONE,
-            yes=False,
             show_streaming=True,
         )
 

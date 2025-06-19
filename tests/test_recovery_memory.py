@@ -22,6 +22,7 @@ from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import ActionType, CommandAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
+    ExecutionMode,
     Fragment,
     MetricsDisplayMode,
     OutputFlags,
@@ -336,7 +337,7 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=output_flags,
-        yes=False,  # yes=False, but initial confirmation skipped for "vibe" command
+        execution_mode=ExecutionMode.MANUAL,  # Implies confirmation when applicable
     )
 
     # Assertions to verify the current behavior

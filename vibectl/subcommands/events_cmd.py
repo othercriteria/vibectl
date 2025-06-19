@@ -31,7 +31,7 @@ async def run_events_command(
     if args and args[0] == "vibe":
         request = " ".join(args[1:])
         logger.info(f"Planning how to: get events for '{request}'")
-        exec_mode = determine_execution_mode(yes=False, semiauto=False)
+        exec_mode = determine_execution_mode()
         result = await handle_vibe_request(
             request=request,
             command="events",
@@ -39,7 +39,6 @@ async def run_events_command(
             summary_prompt_func=events_prompt,
             output_flags=output_flags,
             execution_mode=exec_mode,
-            yes=False,
         )
         logger.info("Completed 'events' subcommand for vibe request.")
 

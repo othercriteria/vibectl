@@ -151,31 +151,31 @@ async def test_delete_vibe_request() -> None:
         _args, kwargs = mock_handle_vibe_request.call_args
         assert kwargs["request"] == "delete the nginx pod"
         assert kwargs["command"] == "delete"
-        assert kwargs["yes"] is False  # Default for 'yes' in handle_vibe_request
 
 
 @pytest.mark.asyncio
-async def test_delete_vibe_request_with_yes_flag() -> None:
-    """Test delete vibe request with yes flag."""
+async def test_delete_vibe_request_with_mode_auto() -> None:
+    """Test delete vibe request with --mode auto to bypass confirmation."""
     with patch(
         "vibectl.subcommands.delete_cmd.handle_vibe_request", new_callable=AsyncMock
     ) as mock_handle_vibe_request:
         from vibectl.types import Success
 
         mock_handle_vibe_request.return_value = Success(
-            message="Vibe delete with yes success"
+            message="Vibe delete with mode auto success"
         )
 
         # Directly invoke the Click command object for 'delete'
         # This means we are testing the vibectl.cli.delete function
         cmd_obj = cli.commands["delete"]
         with pytest.raises(SystemExit) as exc_info:
-            await cmd_obj.main(["vibe", "delete the nginx pod", "--yes"])
+            await cmd_obj.main(["vibe", "delete the nginx pod", "--mode", "auto"])
 
         assert exc_info.value.code == 0
         mock_handle_vibe_request.assert_called_once()
         _args, kwargs = mock_handle_vibe_request.call_args
-        assert kwargs["yes"] is True  # 'yes' should be True when --yes is passed
+        # The mode flag is handled via execution mode override; no direct
+        # parameter forwarded.
 
 
 @pytest.mark.asyncio

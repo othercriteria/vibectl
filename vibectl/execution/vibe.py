@@ -66,8 +66,7 @@ async def handle_vibe_request(
     summary_prompt_func: SummaryPromptFragmentFunc,
     output_flags: OutputFlags,
     *,
-    # Legacy booleans kept for now - will be removed once callers migrate
-    yes: bool = False,
+    # semiauto flag indicates confirmation-once loop
     semiauto: bool = False,
     live_display: bool = True,
     autonomous_mode: bool | None = None,  # Deprecated - inferred from ExecutionMode
@@ -82,7 +81,6 @@ async def handle_vibe_request(
         plan_prompt_func: Function returning system/user fragments for planning.
         summary_prompt_func: Function returning system/user fragments for summary.
         output_flags: Flags controlling output format and verbosity.
-        yes: Bypass confirmation prompts.
         semiauto: Enable semi-autonomous mode (confirm once).
         live_display: Show live output for background tasks.
         autonomous_mode: Enable fully autonomous mode (no confirmations).
@@ -106,7 +104,7 @@ async def handle_vibe_request(
     exec_mode: ExecutionMode = (
         execution_mode
         if execution_mode is not None
-        else determine_execution_mode(yes=yes, semiauto=semiauto)
+        else determine_execution_mode(semiauto=semiauto)
     )
 
     plan_system_fragments, plan_user_fragments_base = plan_prompt_func()

@@ -495,4 +495,3 @@ async def test_run_diff_command_vibe_error_from_handler(
     assert call_args_hvr["plan_prompt_func"] is mock_diff_plan_prompt
     assert call_args_hvr["summary_prompt_func"] == diff_output_prompt
     assert call_args_hvr["output_flags"] is mock_output_flags
-    assert call_args_hvr["yes"] is False

@@ -47,7 +47,7 @@ async def run_logs_command(
             logger.info("Planning how to: logs %s", request)
             try:
                 # Await the potentially async vibe handler
-                exec_mode = determine_execution_mode(yes=False, semiauto=False)
+                exec_mode = determine_execution_mode()
 
                 result_vibe = await handle_vibe_request(
                     request=request,
@@ -56,7 +56,6 @@ async def run_logs_command(
                     summary_prompt_func=logs_prompt,
                     output_flags=output_flags,
                     execution_mode=exec_mode,
-                    yes=False,
                 )
                 # Return result directly if handle_vibe_request provides one
                 if isinstance(result_vibe, Error):

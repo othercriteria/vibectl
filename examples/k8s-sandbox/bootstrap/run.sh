@@ -191,33 +191,6 @@ if [ $attempt -gt $max_attempts ]; then
     exit 1
 fi
 
-# Now demonstrate some commands
-echo
-echo "==== Running demo commands ===="
-echo
-
-echo "1. Checking vibectl environment"
-docker exec -it vibectl-k3d-demo vibectl config show
-echo
-
-echo "2. Basic LLM-powered Kubernetes commands"
-docker exec -it vibectl-k3d-demo vibectl get pods
-docker exec -it vibectl-k3d-demo vibectl describe deployment
-echo
-
-echo "3. Natural language and AI-powered commands"
-docker exec -it vibectl-k3d-demo vibectl vibe --yes "How can I optimize my Kubernetes deployments?"
-docker exec -it vibectl-k3d-demo vibectl vibe --yes "Show me pods with high restarts"
-echo
-
-echo "4. Memory features"
-docker exec -it vibectl-k3d-demo vibectl memory show
-docker exec -it vibectl-k3d-demo vibectl memory set "Running backend deployment in staging namespace"
-docker exec -it vibectl-k3d-demo vibectl memory show
-docker exec -it vibectl-k3d-demo vibectl vibe --yes
-docker exec -it vibectl-k3d-demo vibectl memory show
-echo
-
 # Check available models and warn if the requested model is not present
 if command -v llm &> /dev/null; then
     echo "Checking available models in llm..."

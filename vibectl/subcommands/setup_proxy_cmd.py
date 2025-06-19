@@ -24,7 +24,7 @@ from vibectl.proto import (
     llm_proxy_pb2,  # type: ignore[import-not-found]
     llm_proxy_pb2_grpc,  # type: ignore[import-not-found]
 )
-from vibectl.types import Error, Result, Success
+from vibectl.types import Error, ExecutionMode, Result, Success, execution_mode_from_cli
 from vibectl.utils import handle_exception
 
 
@@ -842,8 +842,13 @@ def proxy_status() -> None:
 
 
 @setup_proxy_group.command(name="disable")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def disable_proxy_cmd(yes: bool) -> None:
+@click.option(
+    "--mode",
+    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
+    default=None,
+    help=("Execution mode: manual (confirmations enabled); auto (no confirmations)"),
+)
+def disable_proxy_cmd(mode: str | None = None) -> None:
     """Disable proxy mode and switch back to direct LLM calls.
 
     This command will:
@@ -860,10 +865,16 @@ def disable_proxy_cmd(yes: bool) -> None:
         vibectl setup-proxy disable
 
         # Disable without confirmation (useful for scripts)
-        vibectl setup-proxy disable --yes
+        vibectl setup-proxy disable --mode auto
     """
     try:
-        if not yes:
+        exec_mode = execution_mode_from_cli(mode)
+        if exec_mode is None:
+            exec_mode = ExecutionMode.MANUAL
+
+        skip_confirmation = exec_mode == ExecutionMode.AUTO
+
+        if not skip_confirmation:
             config = Config()
             enabled = config.is_proxy_enabled()
 
@@ -981,10 +992,21 @@ def set_active_profile(profile_name: str) -> None:
 
 @setup_proxy_group.command("remove")
 @click.argument("profile_name")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def remove_profile(profile_name: str, yes: bool) -> None:
+@click.option(
+    "--mode",
+    type=click.Choice(["manual", "auto", "semiauto"], case_sensitive=False),
+    default=None,
+    help="Execution mode: manual (confirmations enabled); auto (no confirmations)",
+)
+def remove_profile(profile_name: str, mode: str | None = None) -> None:
     """Remove a proxy profile."""
     try:
+        exec_mode = execution_mode_from_cli(mode)
+        if exec_mode is None:
+            exec_mode = ExecutionMode.MANUAL
+
+        skip_confirmation = exec_mode == ExecutionMode.AUTO
+
         config = Config()
 
         # Check if profile exists
@@ -992,8 +1014,8 @@ def remove_profile(profile_name: str, yes: bool) -> None:
             console_manager.print_error(f"Profile '{profile_name}' not found.")
             return
 
-        # Confirm removal unless --yes was specified
-        if not yes:
+        # Confirm removal unless in AUTO mode
+        if not skip_confirmation:
             active_profile = config.get_active_proxy_profile()
             warning = f"Remove proxy profile '{profile_name}'?"
             if profile_name == active_profile:

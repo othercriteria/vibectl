@@ -403,7 +403,7 @@ async def test_run_apply_command_vibe_success(
         plan_prompt_func=ANY,
         summary_prompt_func=ANY,
         output_flags=mock_output_flags,
-        yes=False,
+        execution_mode=ANY,
     )
 
 
@@ -488,7 +488,7 @@ async def test_run_apply_command_vibe_error_from_handler(
         plan_prompt_func=ANY,
         summary_prompt_func=ANY,
         output_flags=mock_output_flags,
-        yes=False,
+        execution_mode=ANY,
     )
 
 

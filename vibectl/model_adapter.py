@@ -1502,7 +1502,7 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     "Fix this by either:\n"
                     "  1. Configure a proxy profile: "
                     "vibectl setup-proxy configure <profile-name> <server-url>\n"
-                    "  2. Disable proxy mode: vibectl setup-proxy disable\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable --mode auto\n"
                 )
 
             server_url = effective_config.get("server_url")
@@ -1514,7 +1514,7 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     "Fix this by either:\n"
                     "  1. Configure a proxy profile: "
                     "vibectl setup-proxy configure <profile-name> <server-url>\n"
-                    "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable --mode auto\n"
                     "\nExample server URLs:\n"
                     "  - vibectl-server://myserver.com:443\n"
                     "  - vibectl-server://jwt-token@myserver.com:443 (with JWT auth)\n"
@@ -1533,7 +1533,7 @@ def get_model_adapter(config: Config | None = None) -> ModelAdapter:
                     "Fix this by either:\n"
                     "  1. Configure a valid proxy server: "
                     "vibectl setup-proxy configure <profile-name> <server-url>\n"
-                    "  2. Disable proxy mode: vibectl setup-proxy disable --yes\n"
+                    "  2. Disable proxy mode: vibectl setup-proxy disable --mode auto\n"
                     "\nValid server URL formats:\n"
                     "  - vibectl-server://myserver.com:443 (secure)\n"
                     "  - vibectl-server://jwt-token@myserver.com:443 "

@@ -20,7 +20,6 @@ async def run_check_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    yes: bool,
     show_metrics: MetricsDisplayMode | None,
     show_streaming: bool | None,
 ) -> Result:
