@@ -26,7 +26,6 @@ async def test_describe_basic(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -74,7 +73,6 @@ async def test_describe_args_variants(
     result = await run_describe_command(
         resource=resource,
         args=func_args,
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -113,7 +111,6 @@ async def test_describe_with_flags(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),  # Flags are handled by configure_output_flags
-        show_raw_output=True,
         show_vibe=True,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -124,7 +121,6 @@ async def test_describe_with_flags(
     # show_streaming is no longer a parameter passed to configure_output_flags
     # since it's handled via ContextVar overrides at the CLI level
     mock_configure_output.assert_called_once_with(
-        show_raw_output=True,
         show_vibe=True,
     )
     mock_configure_memory.assert_called_once()
@@ -149,7 +145,6 @@ async def test_describe_error_handling(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -180,7 +175,6 @@ async def test_describe_vibe_request(
     result = await run_describe_command(
         resource="vibe",
         args=("show", "me", "the", "nginx", "pod"),
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -212,7 +206,6 @@ async def test_describe_vibe_no_request(
     result = await run_describe_command(
         resource="vibe",
         args=(),
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -245,7 +238,6 @@ async def test_run_describe_command_normal() -> None:
         result = await run_describe_command(
             resource="pod",
             args=("test-pod",),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -283,7 +275,6 @@ async def test_run_describe_command_vibe() -> None:
         result = await run_describe_command(
             resource="vibe",
             args=("show", "pods"),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -315,7 +306,6 @@ async def test_run_describe_command_vibe_no_args() -> None:
         result = await run_describe_command(
             resource="vibe",
             args=(),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -348,7 +338,6 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
             await run_describe_command(
                 resource="vibe",
                 args=("test", "request"),
-                show_raw_output=None,
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
@@ -378,7 +367,6 @@ async def test_run_describe_command_standard_command_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test-pod",),
-                show_raw_output=None,
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
@@ -398,7 +386,6 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test",),
-                show_raw_output=None,
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
@@ -425,7 +412,6 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test",),
-                show_raw_output=None,
                 show_vibe=None,
                 freeze_memory=False,
                 unfreeze_memory=False,

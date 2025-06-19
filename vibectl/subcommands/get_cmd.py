@@ -16,7 +16,6 @@ from vibectl.types import Error, Result, determine_execution_mode
 async def run_get_command(
     resource: str,
     args: tuple,
-    show_raw_output: bool | None,
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
@@ -28,7 +27,6 @@ async def run_get_command(
     logger.info(f"Invoking 'get' subcommand with resource: {resource}, args: {args}")
     try:
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
@@ -44,7 +42,7 @@ async def run_get_command(
             request = " ".join(args)
             logger.info(f"Planning how to: {request}")
 
-            # Derive execution mode from overrides/config; legacy flags removed.
+            # Derive execution mode from overrides/config
             exec_mode = determine_execution_mode()
 
             # Await the async handler

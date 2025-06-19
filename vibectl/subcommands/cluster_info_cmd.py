@@ -11,7 +11,6 @@ from vibectl.types import Error, Result, Success
 
 async def run_cluster_info_command(
     args: tuple,
-    show_raw_output: bool | None,
     show_vibe: bool | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
@@ -21,7 +20,6 @@ async def run_cluster_info_command(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
         )
         # Configure memory flags (for consistency, even if not used)

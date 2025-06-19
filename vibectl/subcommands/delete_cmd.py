@@ -12,7 +12,6 @@ from vibectl.types import Error, Result, determine_execution_mode
 async def run_delete_command(
     resource: str,
     args: tuple,
-    show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -27,7 +26,6 @@ async def run_delete_command(
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
         )
         # Configure memory flags

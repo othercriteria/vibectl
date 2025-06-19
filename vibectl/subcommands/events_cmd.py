@@ -12,7 +12,6 @@ from vibectl.types import Result, determine_execution_mode
 
 async def run_events_command(
     args: tuple,
-    show_raw_output: bool | None,
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -23,7 +22,6 @@ async def run_events_command(
     logger.info(f"Invoking 'events' subcommand with args: {args}")
 
     output_flags = configure_output_flags(
-        show_raw_output=show_raw_output,
         show_vibe=show_vibe,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)

@@ -46,7 +46,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=(),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -56,7 +55,6 @@ class TestRunVersionCommand:
         assert result.data == '{"clientVersion": {"gitVersion": "v1.2.3"}}'
 
         mock_configure_output.assert_called_once_with(
-            show_raw_output=False,
             show_vibe=True,
         )
         mock_configure_memory.assert_called_once_with(False, False)
@@ -87,7 +85,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("--output=json", "--client"),
-            show_raw_output=True,
             show_vibe=False,
             freeze_memory=True,
             unfreeze_memory=False,
@@ -97,7 +94,6 @@ class TestRunVersionCommand:
         assert result.data == '{"clientVersion": {"gitVersion": "v1.2.3"}}'
 
         mock_configure_output.assert_called_once_with(
-            show_raw_output=True,
             show_vibe=False,
         )
         mock_configure_memory.assert_called_once_with(True, False)
@@ -127,7 +123,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=(),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -154,7 +149,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("vibe", "what version of kubernetes am I running?"),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=True,
@@ -164,7 +158,6 @@ class TestRunVersionCommand:
         assert result.data == "version vibe completed"
 
         mock_configure_output.assert_called_once_with(
-            show_raw_output=False,
             show_vibe=True,
         )
         mock_configure_memory.assert_called_once_with(False, True)
@@ -195,7 +188,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("vibe", "check", "kubernetes", "version", "compatibility"),
-            show_raw_output=True,
             show_vibe=False,
             freeze_memory=True,
             unfreeze_memory=False,
@@ -226,7 +218,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("vibe",),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -253,7 +244,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("vibe", "check kubernetes version"),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -282,7 +272,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=(),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -312,7 +301,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=("vibe", "test request"),
-            show_raw_output=False,
             show_vibe=True,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -344,7 +332,6 @@ class TestRunVersionCommand:
 
         result = await run_version_command(
             args=(),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -354,6 +341,5 @@ class TestRunVersionCommand:
         assert result.data == "version output"
 
         mock_configure_output.assert_called_once_with(
-            show_raw_output=None,
             show_vibe=None,
         )

@@ -14,7 +14,6 @@ from vibectl.types import Error, Result, Success, determine_execution_mode
 async def run_create_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -27,7 +26,6 @@ async def run_create_command(
     try:
         # Configure outputs
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
         )
         # Configure memory flags

@@ -31,7 +31,6 @@ async def test_create_logic_basic(mock_run_kubectl: Mock) -> None:
         result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -66,7 +65,6 @@ async def test_create_logic_with_args(mock_run_kubectl: Mock) -> None:
         result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod", "--", "-n", "default"),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -99,7 +97,6 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
         result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
-            show_raw_output=True,
             show_vibe=False,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -118,7 +115,6 @@ async def test_create_logic_with_flags(mock_run_kubectl: Mock) -> None:
     assert isinstance(passed_output_to_handler, Success)
     assert passed_output_to_handler.data == "test output with flags"
     output_flags = call_kwargs["output_flags"]
-    assert output_flags.show_raw_output is True
     assert output_flags.show_vibe is False
 
 
@@ -136,7 +132,6 @@ async def test_create_logic_no_output(mock_run_kubectl: Mock) -> None:
         result_from_logic = await run_create_command(
             resource="pod",
             args=("my-pod",),
-            show_raw_output=None,
             show_vibe=None,
             freeze_memory=False,
             unfreeze_memory=False,
@@ -164,7 +159,6 @@ async def test_create_logic_error_handling(
     result_from_logic = await run_create_command(
         resource="pod",
         args=("my-pod",),
-        show_raw_output=None,
         show_vibe=None,
         freeze_memory=False,
         unfreeze_memory=False,

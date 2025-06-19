@@ -93,7 +93,6 @@ async def test_run_delete_command_passes_success_object_to_handle_output(
         result = await run_delete_command(
             resource=resource_type,
             args=args_tuple,
-            show_raw_output=default_delete_output_flags.show_raw_output,
             show_vibe=default_delete_output_flags.show_vibe,
         )
 

@@ -43,7 +43,6 @@ async def test_cluster_info_basic(
     # Execute directly
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -70,7 +69,6 @@ async def test_cluster_info_with_args(
 
     result = await run_cluster_info_command(
         args=("dump",),
-        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -109,7 +107,6 @@ async def test_cluster_info_with_flags(
 
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=True,
         show_vibe=False,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -120,7 +117,6 @@ async def test_cluster_info_with_flags(
     mock_handle_output.assert_called_once()
 
     mock_configure_flags.assert_called_once_with(
-        show_raw_output=True,
         show_vibe=False,
     )
     # Also check that handle_command_output received the flags from mock_configure_flags
@@ -141,7 +137,6 @@ async def test_cluster_info_no_output(
 
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -179,7 +174,6 @@ async def test_cluster_info_vibe_no_request_direct(
 
     result = await run_cluster_info_command(
         args=("vibe",),  # Only 'vibe', no request
-        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         freeze_memory=False,
         unfreeze_memory=False,
@@ -212,7 +206,6 @@ async def test_cluster_info_error_handling_direct(
 
     result = await run_cluster_info_command(
         args=(),
-        show_raw_output=default_cluster_info_output_flags.show_raw_output,
         show_vibe=default_cluster_info_output_flags.show_vibe,
         freeze_memory=False,
         unfreeze_memory=False,

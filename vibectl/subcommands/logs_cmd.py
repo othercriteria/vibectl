@@ -17,10 +17,9 @@ from vibectl.types import Error, Result, Success, determine_execution_mode
 async def run_logs_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
+    show_vibe: bool | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> Result:
     """
     Implements the 'logs' subcommand logic, including logging and error handling.
@@ -29,7 +28,6 @@ async def run_logs_command(
     logger.info(f"Invoking 'logs' subcommand with resource: {resource}, args: {args}")
     try:
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)

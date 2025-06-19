@@ -76,6 +76,10 @@ async def test_logs_with_flags(
     from vibectl.types import Success
 
     mock_flags = OutputFlags(
+        # show_raw_output now comes from global ContextVar overrides handled at the
+        # top-level CLI group. We still construct a custom OutputFlags instance
+        # to verify it is propagated, but we no longer pass the flag directly to
+        # the sub-command below.
         show_raw_output=True,
         show_vibe=False,
         model_name="test-model-foo",  # This comes from Config/ContextVar now
@@ -93,8 +97,6 @@ async def test_logs_with_flags(
             [
                 "pod",
                 "my-pod",
-                "--show-raw-output",
-                "--no-show-vibe",
             ]
         )
 
@@ -102,11 +104,10 @@ async def test_logs_with_flags(
     mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
     mock_handle_output.assert_called_once()
 
-    # Verify configure_output_flags called correctly by the subcommand's run function
-    # Model and show_kubectl are now handled via Config/ContextVar, not as parameters
+    # Verify configure_output_flags called with no explicit per-subcommand
+    # overrides.
     mock_configure_flags.assert_called_once_with(
-        show_raw_output=True,
-        show_vibe=False,
+        show_vibe=None,
     )
 
 
@@ -339,10 +340,9 @@ async def test_logs_follow_with_show_vibe_flag(
 
     assert exc_info.value.code == 0
 
-    # Verify configure_output_flags was called correctly
+    # Verify configure_output_flags was called correctly with explicit show_vibe
     mock_configure_output_flags.assert_called_once_with(
-        show_raw_output=None,  # CLI passes None if not specified
-        show_vibe=True,  # Explicitly passed by --show-vibe
+        show_vibe=True,
     )
 
     # Verify handle_watch_with_live_display was called correctly
