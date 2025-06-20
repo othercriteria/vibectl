@@ -57,12 +57,12 @@ repos:
           - pytest-mock
           # Add other specific type stubs as needed for your project
 
-# Re-add the local pytest hook
+# Re-add the local pytest hook with parallel execution
   - repo: local
     hooks:
       - id: pytest
         name: pytest
-        entry: pytest
+        entry: ./scripts/run_parallel_tests.sh
         language: system
         pass_filenames: false
         always_run: true
