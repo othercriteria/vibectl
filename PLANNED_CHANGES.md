@@ -12,14 +12,14 @@ The baseline config-naming work and the planner-schema update are ✅ **complete
 • Test suite updated – removed obsolete "rich.Console() markup" expectations; all tests green again.
 • Optional `presentation_hints` field added to `LLMPlannerResponse` (+ round-trip schema tests).
 • `create_planning_prompt` docs updated to reference `presentation_hints`.
+• **Execution pipeline wired** – `presentation_hints` now flows from planner → execution → summary helpers. Refactored `handle_command_output` with guard-clauses and helper functions (`_vibe_recovery_result`, `_vibe_summary_result`, etc.) to cut nesting and E501 violations; all unit-tests updated and pass.
 
 ### Remaining (high-level)
 1. **Prompt Modules** – Continue migrating remaining prompt builders (`get`, `describe`, `logs`, `events`, `scale`, `wait`, rollout helpers, etc.) to `build_context_fragments`, then delete `get_formatting_fragments`.
-2. **Execution Pipeline** – Thread `presentation_hints` from planners through `vibectl.execution.*` and into summary prompt helpers.
-3. **Prompt Template Updates** – Ensure every *_plan_prompt includes the new field in its schema/example block.
-4. **Exotic Workflows** – Migrate `check`, `edit`, `auto`, `audit`, etc. to the new pattern.
-5. **Refactor Runtime Path** – Introduce `vibectl.execution.common.run_llm()` helper to DRY repeated logic.
-6. **Test & Docs Sweep** – Remove obsolete tests, add integration tests for planner→summary round-trip, update docs (`STRUCTURE.md`, README).
+2. **Prompt Template Updates** – Ensure every *_plan_prompt includes the new `presentation_hints` field in its schema/example block.
+3. **Exotic Workflows** – Migrate `check`, `edit`, `auto`, `audit`, etc. to the new pattern.
+4. **Refactor Runtime Path (remaining)** – Extract `run_llm()` helper to remove remaining duplication across execution modules.
+5. **Test & Docs Sweep** – Remove obsolete tests, add integration tests for planner→summary round-trip, update docs (`STRUCTURE.md`, README).
 
 ## Implementation Roadmap (high-level)
 

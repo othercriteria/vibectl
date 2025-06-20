@@ -324,6 +324,8 @@ async def handle_vibe_request(
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
             )
         else:
+            # Pass through any presentation hints from the planner so that summary
+            # prompts can leverage them when building their context fragments.
             result = await _confirm_and_execute_plan(
                 kubectl_verb=kubectl_verb,
                 kubectl_args=kubectl_args,
@@ -335,6 +337,7 @@ async def handle_vibe_request(
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
+                presentation_hints=llm_planner_response.presentation_hints,
                 llm_metrics_accumulator=llm_metrics_accumulator,
             )
 
@@ -366,6 +369,7 @@ async def _confirm_and_execute_plan(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...],
+    presentation_hints: str | None = None,
     llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
 ) -> Result:
     """Confirm and execute the kubectl command plan."""
@@ -461,6 +465,7 @@ async def _confirm_and_execute_plan(
             output_flags,
             summary_prompt_func,
             command=kubectl_verb,
+            presentation_hints=presentation_hints,
             llm_metrics_accumulator=llm_metrics_accumulator,
             suppress_total_metrics=True,
         )
