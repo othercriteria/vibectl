@@ -14,8 +14,8 @@ import pytest
 
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_global_flag_contextvar_transduction(
     mock_handle_output: Mock,
@@ -68,7 +68,9 @@ async def test_global_flag_contextvar_transduction(
 
     # Ensure run_kubectl received the expected clean argument list (flags have
     # been stripped before the sub-command builds its kubectl invocation).
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
 
     # We captured exactly one OutputFlags instance via the side-effect.
     assert "flags" in captured_flags, "configure_output_flags was not called"

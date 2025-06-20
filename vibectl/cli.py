@@ -377,6 +377,7 @@ async def describe(
     include_show_metrics=False,
     include_show_streaming=False,
     include_show_raw_output=False,
+    include_live_display=True,
 )
 async def logs(
     resource: str,
@@ -384,6 +385,7 @@ async def logs(
     show_vibe: bool | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
+    live_display: bool = True,
 ) -> None:
     """Show logs for a container in a pod."""
     result = await run_logs_command(
@@ -392,6 +394,7 @@ async def logs(
         show_vibe=show_vibe,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
+        live_display=live_display,
     )
     handle_result(result)
 

@@ -322,6 +322,7 @@ async def handle_vibe_request(
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
                 allowed_exit_codes=tuple(allowed_exit_codes_list),
+                presentation_hints=llm_planner_response.presentation_hints,
             )
         else:
             # Pass through any presentation hints from the planner so that summary

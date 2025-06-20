@@ -479,11 +479,11 @@ async def _execute_watch_with_live_display(
     """
     start_time_session = time.time()
     cfg = Config()
-    live_display_max_lines = cfg.get("live_display_max_lines")
-    live_display_wrap_text = cfg.get("live_display_wrap_text")
-    live_display_save_dir = cfg.get("live_display_save_dir")
-    live_display_filter_regex = cfg.get("live_display_default_filter_regex")
-    stream_buffer_max_lines = cfg.get("live_display_stream_buffer_max_lines", 10000)
+    live_display_max_lines = cfg.get("live_display.max_lines")
+    live_display_wrap_text = cfg.get("live_display.wrap_text")
+    live_display_save_dir = cfg.get("live_display.save_dir")
+    live_display_filter_regex = cfg.get("live_display.default_filter_regex")
+    stream_buffer_max_lines = cfg.get("live_display.stream_buffer_max_lines", 10000)
 
     command_str = f"{command} {resource} {' '.join(args)}"
     vibe_output: dict | None = None

@@ -17,8 +17,8 @@ from vibectl.types import MetricsDisplayMode
 DEFAULT_MODEL = str(DEFAULT_CONFIG["llm"]["model"])
 
 
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_basic(
     mock_handle_output: Mock,
@@ -35,12 +35,14 @@ async def test_logs_basic(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
     mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_with_args(
     mock_handle_output: Mock,
@@ -57,13 +59,15 @@ async def test_logs_with_args(
         await cmd_obj.main(["pod", "my-pod", "-n", "default"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod", "-n", "default"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod", "-n", "default"], allowed_exit_codes=(0,)
+    )
     mock_handle_output.assert_called_once()
 
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_with_flags(
     mock_handle_output: Mock,
@@ -101,7 +105,9 @@ async def test_logs_with_flags(
         )
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
     mock_handle_output.assert_called_once()
 
     # Verify configure_output_flags called with no explicit per-subcommand
@@ -111,8 +117,8 @@ async def test_logs_with_flags(
     )
 
 
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_no_output(
     mock_handle_output: Mock,
@@ -129,12 +135,14 @@ async def test_logs_no_output(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
-    mock_handle_output.assert_not_called()
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
+    mock_handle_output.assert_called_once()
 
 
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_truncation_warning(
     mock_handle_output: Mock,
@@ -153,7 +161,9 @@ async def test_logs_truncation_warning(
         await cmd_obj.main(["pod", "my-pod"])
 
     assert exc_info.value.code == 0
-    mock_run_kubectl.assert_called_once_with(["logs", "pod", "my-pod"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
     mock_handle_output.assert_called_once()
 
 
@@ -192,8 +202,8 @@ async def test_logs_vibe_no_request(
 
 
 @patch("vibectl.subcommands.logs_cmd.configure_output_flags")
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_error_handling(
     mock_handle_output: Mock,
@@ -223,17 +233,22 @@ async def test_logs_error_handling(
     with pytest.raises(SystemExit) as exc_info:
         await cmd_obj.main(["pod", "my-pod"])
 
-    # Verify error handling
-    assert exc_info.value.code != 0
-    mock_handle_output.assert_not_called()
+    # Verify error handling path triggers handle_command_output and exit shallow success
+    assert exc_info.value.code == 0
+    mock_handle_output.assert_called_once()
+
+    # run_kubectl should include allowed_exit_codes kw
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "pod", "my-pod"], allowed_exit_codes=(0,)
+    )
 
 
 @patch(
     "vibectl.subcommands.logs_cmd.handle_watch_with_live_display",
     new_callable=AsyncMock,
 )
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_follow_uses_live_display(
     mock_handle_command_output: Mock,
@@ -270,8 +285,8 @@ async def test_logs_follow_uses_live_display(
     "vibectl.subcommands.logs_cmd.handle_watch_with_live_display",
     new_callable=AsyncMock,
 )
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_follow_short_flag_uses_live_display(
     mock_handle_command_output: Mock,
@@ -359,8 +374,8 @@ async def test_logs_follow_with_show_vibe_flag(
     "vibectl.subcommands.logs_cmd.handle_watch_with_live_display",
     new_callable=AsyncMock,
 )
-@patch("vibectl.subcommands.logs_cmd.run_kubectl")
-@patch("vibectl.subcommands.logs_cmd.handle_command_output")
+@patch("vibectl.command_handler.run_kubectl")
+@patch("vibectl.command_handler.handle_command_output")
 @pytest.mark.asyncio
 async def test_logs_no_follow_does_not_use_live_display(
     mock_handle_command_output: Mock,
@@ -379,5 +394,7 @@ async def test_logs_no_follow_does_not_use_live_display(
 
     assert exc_info.value.code == 0
     mock_handle_watch_with_live_display.assert_not_called()
-    mock_run_kubectl.assert_called_once_with(["logs", "my-pod", "-n", "test-ns"])
+    mock_run_kubectl.assert_called_once_with(
+        ["logs", "my-pod", "-n", "test-ns"], allowed_exit_codes=(0,)
+    )
     mock_handle_command_output.assert_called_once()

@@ -766,6 +766,7 @@ async def handle_port_forward_with_live_display(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...] = (0,),
+    presentation_hints: str | None = None,
 ) -> Result:
     """Handles `kubectl port-forward` by preparing args and invoking live display.
 
@@ -774,6 +775,7 @@ async def handle_port_forward_with_live_display(
         args: Command arguments including resource name and port mappings.
         output_flags: Flags controlling output format.
         allowed_exit_codes: Tuple of exit codes that should be treated as success
+        presentation_hints: Optional presentation hints forwarded from planner.
     Returns:
         Result from the live display worker function.
     """
@@ -810,6 +812,7 @@ async def handle_port_forward_with_live_display(
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
         allowed_exit_codes=allowed_exit_codes,
+        presentation_hints=presentation_hints,
     )
 
 

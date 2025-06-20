@@ -1,6 +1,6 @@
 # Consistent Prompt-Injection Refactor – High-Level Plan
 
-_Updated after completing core plumbing & test fixes ({{date}})._
+_Updated after completing core plumbing & test fixes (2025-06-20)._
 This document tracks **only what still needs doing**. Finished items and low-level implementation notes have been archived in the PR description.
 
 ---
@@ -56,7 +56,7 @@ This document tracks **only what still needs doing**. Finished items and low-lev
 
 ### 7. Follow-ups identified during typing pass
 
-- [ ] **live_display.py** – port-forward summary path still assembles context manually.  Refactor to use `build_context_fragments` and propagate any `presentation_hints`.
+- [x] **live_display.py** – port-forward summary path refactored to pass through `presentation_hints` and delegate context injection entirely to prompt helpers.
 
 ---
 
@@ -92,6 +92,15 @@ def summary_prompt(config: Config | None, current_memory: str | None, presentati
 - Updated `vibe_autonomous_prompt` to use `build_context_fragments` with `presentation_hints`.
 - All summary-prompt test helpers updated; unit tests & `make typecheck` now clean.
 - Fixed failing unit tests caused by the scaffold and typing mismatch.
+- Migrated majority of *summary* prompt creators to the new three-argument signature and unified context injection via `build_context_fragments`.
+- live_display.py updated to propagate `presentation_hints` and rely exclusively on prompt helpers for context injection.
+- Updated `tests/subcommands/test_logs_cmd.py` and `tests/test_cli_global_flag_transduction.py` to reflect the
+  new `allowed_exit_codes=(0,)` keyword-argument passed to `run_kubectl` by `command_handler`.
+- Corrected patch targets in the same tests so they patch `vibectl.command_handler` (or
+  `vibectl.subcommands.logs_cmd`) rather than stale module paths.
+- Fixed expectations around the empty-output path: `handle_command_output` is now invoked even
+  when kubectl returns no data, and tests have been updated accordingly.
+- All unit tests now pass cleanly (`pytest -n auto` → 2158 ✓, 0 ✗).
 
 ---
 
