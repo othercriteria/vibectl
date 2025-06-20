@@ -23,8 +23,6 @@ from .schemas import _SCHEMA_DEFINITION_JSON
 from .shared import (
     create_planning_prompt,
     format_ml_examples,
-    fragment_memory_context,
-    get_formatting_fragments,
     with_custom_prompt_override,
     with_summary_prompt_override,
 )
@@ -295,8 +293,12 @@ def vibe_autonomous_prompt(
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])
 
-    if current_memory and current_memory.strip():
-        system_fragments.append(fragment_memory_context(current_memory))
+    cfg = config or Config()
+
+    from .context import build_context_fragments  # Local import to avoid cycles
+
+    # Standard context fragments (memory, custom instructions, timestamp, etc.)
+    system_fragments.extend(build_context_fragments(cfg, current_memory=current_memory))
 
     # System: Core instructions
     system_fragments.append(
@@ -313,16 +315,6 @@ For resources with complex data:
 - For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
 - Avoid suggesting command line arguments with quoted content""")
     )
-
-    # System: Formatting instructions
-    formatting_system_fragments, formatting_user_fragments = get_formatting_fragments(
-        config  # Pass original config parameter
-    )
-    system_fragments.extend(formatting_system_fragments)
-    # User fragments from get_formatting_fragments might include dynamic time notes.
-    # These should come after general instructions but before specific
-    # output placeholders.
-    user_fragments.extend(formatting_user_fragments)
 
     # System: Example format
     system_fragments.append(

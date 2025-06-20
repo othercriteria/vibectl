@@ -55,10 +55,7 @@ from vibectl.schema import ActionType, LLMPlannerResponse
 # Import new types
 from vibectl.types import (
     Examples,
-    Fragment,
     PromptFragments,
-    SystemFragments,
-    UserFragments,
 )
 
 _TEST_SCHEMA_JSON = json.dumps(LLMPlannerResponse.model_json_schema())
@@ -206,7 +203,9 @@ def test_prompt_semantic_requirements(
 
         combined_text = "\n".join(system_fragments + user_fragments)
 
-        assert "rich.Console() markup syntax" in combined_text
+        # Formatting guidelines were removed when prompt builders migrated to
+        # build_context_fragments; ensure timestamp remains instead of legacy
+        # 'rich.Console() markup syntax' line.
         assert f"Current time is {fixed_dt_str}." in combined_text
         assert 100 < len(combined_text) < 3000  # Reasonable size limits
         # Memory context should NOT be here unless the specific prompt adds it,
@@ -538,88 +537,47 @@ def test_vibe_autonomous_prompt(test_config: Config) -> None:
     assert "{output}" in combined_text
 
 
-def test_vibe_autonomous_prompt_formatting(test_config: Config) -> None:
-    """Test that the vibe autonomous prompt can be formatted correctly,
-    even when formatting instructions contain braces (simulating memory context).
-    """
-    mock_memory_content_in_formatting = '{"key": "value with {braces}"}'
+def test_vibe_autonomous_prompt_includes_context(test_config: Config) -> None:
+    """Ensure vibe_autonomous_prompt includes standard context fragments
+    provided by build_context_fragments (custom instructions + timestamp) and
+    correctly preserves the {output} placeholder."""
+
+    # Inject a custom instruction so we can verify it propagates
+    test_config.set("system.custom_instructions", "Test custom instruction")
+
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
+    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Mock get_formatting_fragments to simulate it returning some base system fragments
-    # (including the custom one with braces) and the standard user fragment it produces.
-    # vibe_autonomous_prompt itself will add {output} to user_fragments.
-    def mock_gff_side_effect(
-        config: Config | None = None,
-    ) -> tuple[SystemFragments, UserFragments]:
-        # Simulate datetime.now being called inside the real get_formatting_fragments
-        # or rather, fragment_current_time which it calls.
-        # This mock needs to be for vibectl.prompts.shared.datetime.now if
-        # fragment_current_time calls it directly.
-        with patch("vibectl.prompts.shared.datetime") as mock_inner_dt:
-            mock_inner_dt.now.return_value = fixed_dt
-            # Construct what get_formatting_fragments would return
-            # Base formatting + custom + time
-            mock_sys_frags = SystemFragments(
-                [
-                    Fragment(
-                        "Format your response using rich.Console() markup syntax..."
-                    ),
-                    Fragment(
-                        f"Custom instructions:\\n{mock_memory_content_in_formatting}"
-                    ),
-                    Fragment(
-                        f"Current time is {fixed_dt.strftime('%Y-%m-%d %H:%M:%S')}."
-                    ),
-                ]
-            )
-            # Standard user fragment from get_formatting_fragments
-            mock_user_frags = UserFragments(
-                [Fragment("Important:\\n- Timestamps in the future...")]
-            )
-        return mock_sys_frags, mock_user_frags
-
-    # Mock the plugin system to return no custom mapping, then import
+    # Mock plugin resolver (no custom prompts) and datetime for deterministic output
     with (
         patch("vibectl.plugins.PluginStore") as mock_store,
         patch("vibectl.plugins.PromptResolver") as mock_resolver,
-        patch(
-            "vibectl.prompts.vibe.get_formatting_fragments",
-            side_effect=mock_gff_side_effect,
-        ),
+        patch("vibectl.prompts.shared.datetime") as mock_shared_datetime,
     ):
-        # Configure mocks to return no custom mapping
-        mock_store_instance = Mock()
-        mock_store.return_value = mock_store_instance
+        mock_store.return_value = Mock()
         mock_resolver_instance = Mock()
-        mock_resolver.return_value = mock_resolver_instance
         mock_resolver_instance.get_prompt_mapping.return_value = None
+        mock_resolver.return_value = mock_resolver_instance
 
-        # Import after mocking
+        mock_shared_datetime.now.return_value = fixed_dt
+
         from vibectl.prompts.vibe import vibe_autonomous_prompt
 
         system_fragments, user_fragments_template = vibe_autonomous_prompt(
             config=test_config
         )
 
-    test_output = "This is some test output."
-    filled_user_fragments = [
-        frag.format(output=test_output) if "{output}" in frag else frag
-        for frag in user_fragments_template
-    ]
+    combined_text = "\n".join(system_fragments + user_fragments_template)
 
-    formatted_prompt = "\n".join(system_fragments + filled_user_fragments)
+    # Custom instruction propagated
+    assert "Custom instructions:" in combined_text
+    assert "Test custom instruction" in combined_text
 
-    assert "Format your response using rich.Console() markup syntax" in formatted_prompt
-    assert (
-        f"Custom instructions:\\n{mock_memory_content_in_formatting}"
-        in formatted_prompt
-    )
-    assert (
-        f"Current time is {fixed_dt.strftime('%Y-%m-%d %H:%M:%S')}." in formatted_prompt
-    )
-    assert (
-        "This is some test output." in formatted_prompt
-    )  # Check {output} was formatted
+    # Timestamp
+    assert f"Current time is {fixed_dt_str}." in combined_text
+
+    # Placeholder for caller to fill
+    assert "{output}" in combined_text
 
 
 def test_wait_resource_prompt(

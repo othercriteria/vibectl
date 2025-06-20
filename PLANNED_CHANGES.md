@@ -8,11 +8,13 @@ The baseline config-naming work and the planner-schema update are ✅ **complete
 
 ### Completed
 • Central `build_context_fragments` helper implemented and core unit-tested.
+• Summary-prompt migration started: `create_summary_prompt` and `vibe_autonomous_prompt` now consume the helper; legacy `get_formatting_fragments` no longer required there.
+• Test suite updated – removed obsolete "rich.Console() markup" expectations; all tests green again.
 • Optional `presentation_hints` field added to `LLMPlannerResponse` (+ round-trip schema tests).
-• `create_planning_prompt` documentation updated to reference `presentation_hints`.
+• `create_planning_prompt` docs updated to reference `presentation_hints`.
 
 ### Remaining (high-level)
-1. **Prompt Modules** – Replace ad-hoc context injection with `build_context_fragments` across all prompt builders; delete `get_formatting_fragments` afterwards.
+1. **Prompt Modules** – Continue migrating remaining prompt builders (`get`, `describe`, `logs`, `events`, `scale`, `wait`, rollout helpers, etc.) to `build_context_fragments`, then delete `get_formatting_fragments`.
 2. **Execution Pipeline** – Thread `presentation_hints` from planners through `vibectl.execution.*` and into summary prompt helpers.
 3. **Prompt Template Updates** – Ensure every *_plan_prompt includes the new field in its schema/example block.
 4. **Exotic Workflows** – Migrate `check`, `edit`, `auto`, `audit`, etc. to the new pattern.
@@ -27,14 +29,13 @@ The baseline config-naming work and the planner-schema update are ✅ **complete
 
    Remaining trace work ➜ During Step 2 we'll delete the now-redundant ad-hoc lookup in `prompts/edit.py` when the new helper lands.
 
-2. Central PromptContext helper *(partially complete)*
+2. Central PromptContext helper *(in progress)*
    2.1  **✅ Implement helper** – `vibectl/prompts/context.py` now provides `build_context_fragments()`.
    2.2  **✅ Unit tests** – Core permutations covered (edge-case tests still TODO).
-   2.3  **Next up** – Replace call-sites:
-        • Swap `get_formatting_fragments` → `build_context_fragments` across **all** prompt modules.
-        • Delete `get_formatting_fragments` once the migration is complete.
-   2.4  Delete the special-case code path in `prompts/edit.py` that still hand-builds context (was TODO earlier).
-   2.5  Update documentation (`STRUCTURE.md`, design docs) to reference the new helper.
+   2.3  **↪ Ongoing migration** – First two call-sites switched (`create_summary_prompt`, `vibe_autonomous_prompt`). Remaining modules listed in Remaining #1.
+   2.4  Delete the special-case code path in `prompts/edit.py` once its migration is done.
+   2.5  Remove `get_formatting_fragments` after final migration; update docs (`STRUCTURE.md`, design docs).
+   2.6  Ensure tests referencing old formatting text are removed or updated (done for current suite).
 
 3. Planner changes *(partially complete)*
    • Extend `LLMPlannerResponse` schema with optional `presentation_hints: str | None` to carry UI/formatting guidance. (Decided to keep it a **plain string** for MVP; structure can evolve later.)

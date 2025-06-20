@@ -213,9 +213,12 @@ def create_summary_prompt(
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])  # Base user fragments
 
-    # Add memory context if provided and not empty
-    if current_memory and current_memory.strip():
-        system_fragments.append(fragment_memory_context(current_memory))
+    cfg = config or Config()
+
+    # Standard context fragments (memory, custom instructions, timestamp, etc.)
+    from .context import build_context_fragments  # Local import to avoid cycles
+
+    system_fragments.extend(build_context_fragments(cfg, current_memory=current_memory))
 
     # System: Core task description and focus points
     task_description = f"""Summarize kubectl output. {description}
@@ -223,13 +226,6 @@ def create_summary_prompt(
 Focus on:
 {chr(10).join(f"- {point}" for point in focus_points)}"""
     system_fragments.append(Fragment(task_description))
-
-    # Add formatting fragments from config
-    formatting_fragments = get_formatting_fragments(config)
-    # Destructure the PromptFragments tuple properly
-    format_sys_fragments, format_user_fragments = formatting_fragments
-    system_fragments.extend(format_sys_fragments)
-    user_fragments.extend(format_user_fragments)
 
     # System: Example format section
     if example_format:
