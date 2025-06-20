@@ -52,6 +52,7 @@ htmlcov/
 .ruff_cache/
 .hypothesis/
 prof/
+.dmypy.json
 
 # Ignore coverage annotated files
 *.cover

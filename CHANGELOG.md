@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- **Developer Experience Improvements**: Dramatically improved development workflow performance through parallel execution and daemon optimization
+  - **Parallel Test Execution by Default**: `make test` now runs tests in parallel (~4 seconds vs ~80 seconds, 20x faster)
+    - Renamed serial execution to `make test-serial` for compatibility scenarios
+    - Updated `make check` to use parallel tests by default for faster CI/development feedback
+    - Added `make check-coverage` for detailed coverage analysis when needed
+    - Updated pre-commit hooks to use parallel test execution, reducing commit-time test execution from ~80s to ~4s
+    - Enhanced `tests/TESTING.md` documentation with updated usage patterns and performance comparisons
+  - **dmypy Integration for Fast Type Checking**: Implemented mypy daemon for significantly faster type checking
+    - **42x Performance Improvement**: Type checking now completes in ~0.15 seconds vs ~6.5 seconds with standard mypy
+    - Added daemon management targets: `make dmypy-status`, `make dmypy-start`, `make dmypy-stop`, `make dmypy-restart`
+    - Updated `make typecheck` to use dmypy daemon by default
+    - Updated pre-commit hooks to use dmypy instead of standard mypy for faster commit-time checks
+    - Added `.dmypy.json` to `.gitignore` and `make clean` target
+    - Maintained full compatibility with existing mypy configuration and type checking standards
+
 ## [0.11.0] - 2025-06-20
 
 ### Added

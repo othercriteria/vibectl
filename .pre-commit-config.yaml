@@ -39,23 +39,17 @@ repos:
               vibectl/proto/llm_proxy_pb2_grpc\.py
           )$
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
+  # dmypy (mypy daemon) for faster type checking
+  - repo: local
     hooks:
-      - id: mypy
+      - id: dmypy
+        name: dmypy
+        entry: dmypy run --
+        language: system
+        types: [python]
         pass_filenames: false
         args: [vibectl, tests]
-        additional_dependencies:
-          - pydantic
-          - types-PyYAML
-          - types-setuptools
-          - grpc-stubs
-          - types-protobuf
-          - pytest
-          - types-click
-          - asyncclick
-          - pytest-mock
-          # Add other specific type stubs as needed for your project
+        require_serial: true
 
 # Re-add the local pytest hook with parallel execution
   - repo: local

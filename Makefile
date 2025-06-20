@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -35,8 +35,22 @@ format:  ## Format code using ruff
 lint:  ## Lint and fix code using ruff and all pre-commit hooks
 	pre-commit run --all-files
 
-typecheck:  ## Run static type checking using mypy
-	mypy $(PYTHON_FILES)
+typecheck:  ## Run static type checking using mypy daemon
+	dmypy run -- $(PYTHON_FILES)
+
+##@ Type Checking Daemon Management
+
+dmypy-status:  ## Show mypy daemon status
+	dmypy status
+
+dmypy-start:  ## Start mypy daemon
+	dmypy status || dmypy start
+
+dmypy-stop:  ## Stop mypy daemon
+	dmypy stop
+
+dmypy-restart:  ## Restart mypy daemon
+	dmypy restart
 
 ##@ Testing
 
@@ -84,6 +98,7 @@ clean:  ## Clean up python cache files and build artifacts
 	find . -type d -name "build" -exec rm -rf {} +
 	rm -rf htmlcov/
 	rm -f coverage.xml
+	rm -f .dmypy.json
 	@echo "Cleaned up build artifacts and cache files"
 
 ##@ Version Management
