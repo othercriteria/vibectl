@@ -147,8 +147,11 @@ This means your output should have syntax that aligns with this:
     "action_type": "COMMAND",
     "commands": ["<arg1>", "<arg2>", ...],
     "yaml_manifest": "<yaml_string_if_applicable>",
-    "allowed_exit_codes": [0]
-    "explanation": "Optional string."
+    "allowed_exit_codes": [0],
+    "explanation": "Optional string.",
+    "presentation_hints": "Optional. Free-form string carrying formatting or UI hints
+    for downstream prompts. Leave it `null` if no specific presentation guidance is
+    required."
   }}
 }}
 
@@ -161,7 +164,10 @@ Key fields within the nested "COMMAND" action object:
 - `yaml_manifest`: YAML content as a string (for actions like `create` that use stdin).
 - `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
   for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
-- `explanation`: Optional. A brief string explaining why this command was chosen.""")
+- `explanation`: Optional. A brief string explaining why this command was chosen.
+- `presentation_hints`: Optional. Free-form string carrying formatting or UI hints
+  for downstream prompts. Leave it `null` if no specific presentation guidance is
+  required.""")
     )
 
     # System: Formatted examples

@@ -140,6 +140,17 @@ class LLMPlannerResponse(BaseModel):
         ..., description="The single action for vibectl to perform."
     )
 
+    # New optional field to carry UI/formatting guidance downstream
+    presentation_hints: str | None = Field(
+        None,
+        description=(
+            "Formatting or UI hints that can be leveraged by downstream prompts "
+            "to improve the presentation of summaries or other responses. When "
+            "provided, this string will be threaded through the execution "
+            "pipeline and surfaced via build_context_fragments()."
+        ),
+    )
+
     model_config = {
         "use_enum_values": True,
         "extra": "forbid",  # Forbid extra fields to ensure strict adherence
