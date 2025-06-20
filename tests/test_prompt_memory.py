@@ -25,7 +25,7 @@ def mock_config() -> Mock:
     config.get.side_effect = lambda key, default=None: {
         "memory_enabled": True,
         "memory": TEST_MEMORY_CONTENT,
-        "custom_instructions": None,
+        "system.custom_instructions": None,
     }.get(key, default)
     return config
 
@@ -126,7 +126,7 @@ def test_formatting_respects_config_memory_disabled(mock_config: Mock) -> None:
     """Test that get_formatting_fragments respects memory_enabled=False from config."""
     mock_config.get.side_effect = lambda key, default=None: {
         "memory_enabled": False,
-        "custom_instructions": None,
+        "system.custom_instructions": None,
     }.get(key, default)
     system_fragments, user_fragments = get_formatting_fragments(mock_config)
     combined_text = "\n".join(system_fragments + user_fragments)

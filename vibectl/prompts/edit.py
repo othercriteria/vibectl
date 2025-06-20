@@ -377,7 +377,7 @@ def plan_edit_scope(
     )
 
     # Add custom instructions if available
-    custom_instructions = cfg.get("custom_instructions")
+    custom_instructions = cfg.get("system.custom_instructions")
     if custom_instructions:
         system_frags.append(Fragment(f"Custom instructions:\n{custom_instructions}"))
 

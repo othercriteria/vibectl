@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Consistent prompt injection mechanism for custom instructions and memory across all prompt types (WIP)
+
 ### Changed
 - **Developer Experience Improvements**: Dramatically improved development workflow performance through parallel execution and daemon optimization
   - **Parallel Test Execution by Default**: `make test` now runs tests in parallel (~4 seconds vs ~80 seconds, 20x faster)
@@ -23,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added `.dmypy.json` to `.gitignore` and `make clean` target
     - Maintained full compatibility with existing mypy configuration and type checking standards
 
-## [0.11.0] - 2025-06-20
+## [0.11.1] - 2025-06-20
 
 ### Added
 - **Client-side Proxy Security Hardening (V1)**
