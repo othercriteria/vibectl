@@ -244,7 +244,7 @@ async def test_recovery_suggestions_in_auto_mode(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=get_test_summary_fragments,
         output_flags=output_flags_mock,
-        autonomous_mode=True,
+        semiauto=True,
     )
 
     assert isinstance(result1, Error)

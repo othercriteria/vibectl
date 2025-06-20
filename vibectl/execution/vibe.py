@@ -38,6 +38,7 @@ from vibectl.schema import (
     ActionType,
     LLMPlannerResponse,
 )
+from vibectl.security.response_validation import ValidationOutcome, validate_action
 from vibectl.types import (
     Error,
     ExecutionMode,
@@ -69,27 +70,10 @@ async def handle_vibe_request(
     # semiauto flag indicates confirmation-once loop
     semiauto: bool = False,
     live_display: bool = True,
-    autonomous_mode: bool | None = None,  # Deprecated - inferred from ExecutionMode
     execution_mode: ExecutionMode | None = None,
     config: Config | None = None,
 ) -> Result:
-    """Handle a request that requires LLM interaction for command planning.
-
-    Args:
-        request: The user's natural language request.
-        command: The base kubectl command (e.g., 'get', 'describe').
-        plan_prompt_func: Function returning system/user fragments for planning.
-        summary_prompt_func: Function returning system/user fragments for summary.
-        output_flags: Flags controlling output format and verbosity.
-        semiauto: Enable semi-autonomous mode (confirm once).
-        live_display: Show live output for background tasks.
-        autonomous_mode: Enable fully autonomous mode (no confirmations).
-        execution_mode: Execution mode for the command.
-        config: Optional Config instance.
-
-    Returns:
-        Result object with the outcome of the operation.
-    """
+    """Handle a request that requires LLM interaction for command planning."""
     cfg = config or Config()
     model_name = output_flags.model_name
 
@@ -98,9 +82,6 @@ async def handle_vibe_request(
 
     memory_context_str = get_memory(cfg)
 
-    # ---------------------------------------------------------------------
-    # Derive the unified execution mode *once* for the entire request.
-    # ---------------------------------------------------------------------
     exec_mode: ExecutionMode = (
         execution_mode
         if execution_mode is not None
@@ -146,6 +127,28 @@ async def handle_vibe_request(
         f"Matching action_type: {response_action.action_type} "
         f"(Type: {type(response_action.action_type)})"
     )
+
+    validation_result = validate_action(response_action, exec_mode)
+
+    if validation_result.outcome is ValidationOutcome.REJECT:
+        logger.warning(
+            "Response action rejected by validator: %s", validation_result.message
+        )
+        return Error(
+            error=f"Action rejected by safety validator: {validation_result.message}",
+            recovery_suggestions="Revise request or run in manual mode for details.",
+        )
+
+    # Force confirmation by downgrading execution mode when validator requests it.
+    if validation_result.outcome is ValidationOutcome.CONFIRM and exec_mode in (
+        ExecutionMode.AUTO,
+        ExecutionMode.SEMIAUTO,
+    ):
+        logger.debug(
+            "Validator requires confirmation - overriding execution_mode %s -> MANUAL",
+            exec_mode,
+        )
+        exec_mode = ExecutionMode.MANUAL
 
     action = response_action.action_type
     if action == ActionType.ERROR:

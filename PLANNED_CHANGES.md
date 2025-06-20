@@ -1,5 +1,9 @@
 # Planned Changes for vibectl Proxy Security Hardening
 
+> **Heads-up 📝** – The full description of everything completed in **V1** has been migrated to **`docs/proxy-client-security.md`** (companion to `docs/llm-proxy-server.md`).
+>
+> This file now focuses on **ongoing work** and **future enhancements**.  Feel free to prune or rewrite sections marked ✅ as they are folded into formal documentation.
+
 ## Overview
 
 Implement client-side security protections for vibectl when using proxy servers in "semi-trusted" environments. The threat model assumes the proxy operator has reasonable but not complete trust - they may be compromised now or in the future, TLS may be misconfigured, etc.
@@ -7,12 +11,14 @@ Implement client-side security protections for vibectl when using proxy servers 
 ## Threat Model
 
 **Semi-trusted proxy scenario**:
+
 - Proxy operator is generally trustworthy but may be compromised
 - Risk of credential/secret exfiltration through LLM requests
 - Risk of malicious responses leading to destructive actions
 - Risk of data collection over time building intelligence profile
 
 **Attack vectors addressed**:
+
 - Secrets leaked in natural language requests to LLM
 - Malicious LLM responses containing destructive commands
 - Gradual information gathering through request/response analysis
@@ -39,302 +45,29 @@ Implement client-side security protections for vibectl when using proxy servers 
 ```
 
 ## V1 Implementation Status
+## Remaining V1 Tasks (pre-release)
 
-### ✅ Phase 1: Core Infrastructure (COMPLETED with fixes)
+- ✅ Core infrastructure, sanitization, audit logging, and confirmation flows are implemented and documented (see `docs/proxy-client-security.md`).
+- 🚧 **Manual validation**
+  * Configure a profile → activate → run a sample proxied `vibe` command.
+  * Verify JWT loading, CA bundle resolution, request sanitization, and audit-log entry creation.
+- 🧪 **Automated integration tests**
+  * Implement high-level tests that spin up a stub proxy and exercise the full round-trip.
+  * Wire these into the CI pipeline.
 
-**Named Proxy Configurations** - Successfully implemented with clean profile-only design.
-
-**🎯 Key Plan Adjustment: Removed Legacy Compatibility**
-- **Decision**: Removed legacy `proxy.enabled`, `proxy.server_url`, etc. fields entirely
-- **Rationale**: Minimal deployed usage + preference for simplicity over complex migration
-- **Result**: Clean profile-only system with no confusion or legacy baggage
-
-**🐛 Bug Fixes Applied (Dec 2024)**:
-- **Fixed ProxyModelAdapter JWT token resolution**: Updated to use new profile-based `get_effective_proxy_config()` instead of non-existent `get_jwt_token()` method
-- **Fixed ProxyModelAdapter CA bundle resolution**: Updated to use profile-based config instead of non-existent `get_ca_bundle_path()` method
-- **Enhanced configure command**: Added `--activate` flag with security validation (blocks activation with `--no-test`)
-
-**✅ Implemented Configuration Structure**:
-```yaml
-proxy:
-  # Active profile (None = proxy disabled, no legacy enabled field)
-  active: "corporate-llm"
-
-  # Global proxy defaults (can be overridden by individual profiles)
-  timeout_seconds: 30
-  retry_attempts: 3
-
-  # Named profiles with individual settings
-  profiles:
-    corporate-llm:
-      server_url: "vibectl-server://llm.corp.com:443"
-      jwt_path: "~/.config/vibectl/corp.jwt"
-      ca_bundle_path: "~/.config/vibectl/corp-ca.pem"
-      timeout_seconds: 45  # Override global setting
-      security:
-        sanitize_requests: true
-        audit_logging: true
-        confirmation_mode: "per-command"
-
-    public-demo:
-      server_url: "vibectl-server://demo.example.com:443"
-      jwt_path: "~/.config/vibectl/demo.jwt"
-      security:
-        sanitize_requests: true
-        confirmation_mode: "per-command"
-        audit_logging: false  # Less sensitive
-
-    local-dev:
-      server_url: "vibectl-server://localhost:50051"
-      jwt_path: "~/.config/vibectl/dev.jwt"
-      security:
-        sanitize_requests: false  # Trust local server
-        confirmation_mode: "none"
-```
-
-**✅ Completed CLI Implementation**:
-```bash
-# Setup named proxy (creates profile + activates it by default)
-vibectl setup-proxy configure corporate-llm \
-  vibectl-server://llm.corp.com:443 \
-  --jwt-path corp.jwt \
-  --enable-sanitization \
-  --enable-audit-logging
-
-# Setup profile without activating it
-vibectl setup-proxy configure staging-llm \
-  vibectl-server://staging.example.com:443 \
-  --jwt-path staging.jwt \
-  --no-activate
-
-# Setup profile and explicitly activate (with connection test)
-vibectl setup-proxy configure prod-llm \
-  vibectl-server://prod.example.com:443 \
-  --jwt-path prod.jwt \
-  --activate  # Requires connection test (--no-test blocked for security)
-
-# List all configured profiles
-vibectl setup-proxy list
-
-# Set active profile
-vibectl setup-proxy set-active corporate-llm
-
-# Remove profile
-vibectl setup-proxy remove corporate-llm
-
-# Disable proxy (set active to null)
-vibectl setup-proxy disable
-
-# Use specific proxy profile (temporary override via --proxy flag)
-vibectl --proxy corporate-llm vibe "show me all pods"
-```
-
-**✅ Completed Infrastructure Components**:
-- `vibectl/security/` module structure created
-- `SecurityConfig` and `ProxyProfile` classes implemented
-- Config class extended with proxy profile management methods
-- Model adapter updated to use new profile system (no more legacy fallbacks)
-- All setup-proxy commands updated to work with profiles
-
----
-
-### 🚧 Phase 2: Request Sanitization (IN PROGRESS)
-### ✅ Phase 2: Request Sanitization (COMPLETED)
-
-**✅ Full Implementation Completed**: `vibectl/security/sanitizer.py`
-**✅ Status**: Complete implementation with full integration and comprehensive testing
-
-**✅ Implemented Kubernetes secrets detection patterns**:
-- ✅ Base64 encoded data (with length/pattern heuristics and entropy analysis)
-- ✅ Bearer tokens (`Authorization: Bearer ...`)
-- ✅ Kubernetes service account tokens (JWT pattern detection)
-- ✅ API server URLs with embedded tokens
-- ✅ Certificate data (PEM format detection with multiline support)
-- 📋 Docker registry credentials (TODO: future enhancement)
-
-**✅ Completed Implementation**:
-```python
-class RequestSanitizer:
-    """Client-side request sanitization before proxy transmission."""
-
-    def __init__(self, config: SecurityConfig):
-        self.patterns = self._load_patterns(config)
-        self.enabled = config.sanitize_requests
-
-    def sanitize_request(self, request: str | None) -> tuple[str, list[DetectedSecret]]:
-        """Sanitize request and return cleaned version + detected secrets."""
-
-    def _detect_k8s_secrets(self, text: str) -> list[DetectedSecret]:
-        """Detect Kubernetes-specific secret patterns."""
-
-    def _detect_base64_secrets(self, text: str) -> list[DetectedSecret]:
-        """Detect base64 patterns that might be secrets."""
-
-    def _remove_overlapping_secrets(self, secrets: list[DetectedSecret]) -> list[DetectedSecret]:
-        """Remove overlapping secret detections, keeping the most specific ones."""
-```
-
-**✅ Completed Features**:
-- ✅ Complete secret detection with confidence scoring and overlap removal
-- ✅ Multiple detection methods (K8s patterns, base64 analysis, certificates)
-- ✅ Advanced entropy-based analysis for base64 secret likelihood with false positive reduction
-- ✅ Configurable sanitization through SecurityConfig with warning controls
-- ✅ Redaction with informative placeholders showing secret type and length
-- ✅ Comprehensive test suite covering edge cases (Unicode, long inputs, overlapping secrets)
-- ✅ Full integration with ProxyModelAdapter for automatic request sanitization
-- ✅ User-configurable warnings for detected secrets with `--no-sanitization-warnings` flag
-- ✅ Robust error handling for None inputs, empty strings, and malformed data
-
----
-
-### 📋 Phase 3: Audit Logging (PLANNED)
-
-**✅ Full Implementation Completed**: `vibectl/security/audit.py`
-**✅ Status**: Complete implementation with full integration and comprehensive testing
-
-**✅ Implemented structured audit logging**:
-```json
-{
-  "timestamp": "2024-01-15T10:30:45Z",
-  "proxy_profile": "corporate-llm",
-  "request_id": "uuid-here",
-  "event_type": "llm_request",
-  "request_hash": "sha256-of-sanitized-request",
-  "response_hash": "sha256-of-response",
-  "secrets_detected": 2,
-  "secrets_types": ["k8s-token", "base64-data"],
-  "command_generated": "kubectl get pods -n production",
-  "user_approved": true,
-  "model_used": "claude-3-sonnet"
-}
-```
-
-**✅ Completed Features**:
-- ✅ `AuditLogger` class with structured JSON logging for all proxy interactions
-- ✅ Request/response hashing using SHA256 for content integrity verification
-- ✅ Multiple event types: `llm_request`, `sanitization`, `proxy_connection`
-- ✅ Profile-specific audit log files (`~/.config/vibectl/audit-<profile>.log`)
-- ✅ Configurable audit log paths through SecurityConfig
-- ✅ Automatic directory creation for audit log storage
-- ✅ Full integration with ProxyModelAdapter for automatic request/response logging
-- ✅ Secret detection event logging with type and count information
-- ✅ Connection event logging with success/failure and timing information
-- ✅ Comprehensive audit log reading with filtering by event type, timestamp, and limits
-- ✅ Robust error handling for file I/O operations and JSON parsing
-- ✅ Unicode and large content support with efficient hashing
-- ✅ Complete test suite with 100% code coverage including edge cases
-
----
-
-### 📋 Phase 4: Response Validation (PLANNED)
-
-**Per-command confirmation** (V1 approach):
-```bash
-$ vibectl vibe "delete all failed pods"
-🤖 AI Response: I'll delete failed pods in the current namespace.
-
-Generated command: kubectl delete pods --field-selector=status.phase=Failed
-⚠️  This command will DELETE resources. Continue? [y/N]: y
-Executing: kubectl delete pods --field-selector=status.phase=Failed
-```
-
-**Planned command risk assessment**:
-- **Safe operations**: `get`, `describe`, `logs` – confirmation not required.
-- **Destructive operations**: `delete`, `drain` – confirmation required unless running in AUTO mode.
-
-**✅ Completed prerequisites**:
-- Refactored CLI subcommand handlers to supply operation metadata for centralized confirmation.
-- Implemented `is_destructive_kubectl_command` and `should_confirm_action` helpers in `vibectl/execution/vibe.py`.
-- Extended `OutputFlags` and `vibectl/types.py` to thread confirmation requirements consistently.
-- Added initial unit tests across representative subcommands covering confirmation flow.
-
----
-
-## 🎯 Immediate Next Steps
-
-### Priority 1: Validate Current Implementation
-1. **✅ FIXED: Core infrastructure bugs**:
-   - ✅ Fixed `setup-proxy list` error (get_jwt_token method missing)
-   - ✅ Fixed ProxyModelAdapter JWT token resolution using profiles
-   - ✅ Fixed ProxyModelAdapter CA bundle path resolution using profiles
-   - ✅ Added `--activate` flag with security validation
-
-2. **⚠️ NEEDS TESTING: End-to-end proxy functionality**:
-   - Test that profile configuration works with actual vibe requests
-   - Verify JWT token is correctly loaded from profile config
-   - Confirm CA bundle path resolution works in real connections
-
-### ✅ Priority 2: Request Sanitization (COMPLETED)
-1. **✅ COMPLETED: Pattern detection in RequestSanitizer**:
-   - ✅ Implemented robust K8s secret detection patterns with overlap detection
-   - ✅ Added advanced base64 validation with entropy analysis and false positive reduction
-   - ✅ Added comprehensive certificate detection with multiline support
-   - ✅ Added confidence scoring and overlap removal for detected secrets
-   - ✅ Comprehensive test coverage including edge cases and Unicode handling
-
-2. **✅ COMPLETED: Integrate sanitization into ProxyModelAdapter**:
-   - ✅ Full integration with automatic sanitization before proxy requests
-   - ✅ Configurable warnings for detected secrets (`warn_sanitization`)
-   - ✅ User control via `--no-sanitization-warnings` flag in setup-proxy configure
-   - ✅ Detailed logging of sanitization events with secret type and confidence info
-   - ✅ Proper handling of both system and user fragments in sanitization
-
-### ✅ Priority 3: Audit Logging (COMPLETED)
-1. **✅ COMPLETED: Complete audit logging implementation**:
-   - ✅ Created comprehensive `AuditLogger` class with structured JSON event logging
-   - ✅ Full integration with ProxyModelAdapter for automatic request/response audit logging
-   - ✅ Sanitization event logging with secret detection details and content hashing
-   - ✅ Proxy connection event logging with success/failure tracking and timing metrics
-   - ✅ Robust audit log file management with profile-specific paths and automatic directory creation
-   - ✅ Comprehensive test suite achieving 100% code coverage with edge case handling
-
-2. **✅ Added `--proxy` and `--no-proxy` flags to main CLI**:
-   - Allow temporary profile override: `vibectl --proxy profile-name vibe "..."`
-   - Update argument parsing in main CLI entry point
-
-### ✅ Priority 2: Testing Infrastructure (COMPLETED)
-1. **✅ COMPLETED: Comprehensive test suite for sanitization system**:
-   - ✅ Complete test coverage for `RequestSanitizer` class with 100% code coverage
-   - ✅ Edge case testing: Unicode handling, very long inputs, special characters
-   - ✅ Overlap detection testing: JWT tokens with embedded base64 segments
-   - ✅ False positive prevention: low entropy base64, short strings, common patterns
-   - ✅ Configuration integration testing: SecurityConfig validation and usage
-   - ✅ Error handling: None inputs, empty strings, malformed data
-
-2. **✅ COMPLETED: Security configuration validation tests**:
-   - ✅ Complete test coverage for SecurityConfig class and validation logic
-   - ✅ Profile-based security configuration testing
-   - ✅ Type validation and error handling for security settings
-   - ✅ Integration with Config class proxy profile management
-
-3. **📋 TODO: End-to-end integration tests**:
-   - Test complete flow: configure profile → activate → use with vibe command
-   - Validate security settings are properly passed through the system
-   - Test actual sanitization during proxy requests
-
-### ✅ Priority 4: Audit Log Viewing Commands (COMPLETED)
-1. **✅ COMPLETED: Comprehensive audit log convenience commands implemented**:
-   - ✅ `vibectl audit show`: Pretty-print recent audit events with optional filters (`--proxy`, `--since`, `--tail`)
-   - ✅ `vibectl audit export`: Dump raw JSON/CSV audit events to stdout or file (`--output`, `--format`)
-   - ✅ `vibectl audit info`: Display audit log paths, sizes, and other metadata in a table similar to `vibectl config info`. Supports `--paths-only` or `--json` for scripting-friendly output
-   - ✅ Full integration with existing proxy profile system and security configuration
-   - ✅ Comprehensive test suite achieving 99% code coverage with extensive edge case testing
-   - ✅ Robust error handling for missing profiles, disabled logging, and file I/O errors
-   - ✅ Support for multiple output formats (table, JSON, CSV) with proper validation
-   - ✅ Time-based filtering with flexible timestamp parsing (ISO, epoch, relative)
-2. **✅ IMPLEMENTATION COMPLETE**: Advanced filtering and analysis are intentionally delegated to external tools (e.g., `jq`, SIEM pipelines). The CLI focuses on simple retrieval and export operations with excellent test coverage and user experience.
-
----
+> When these tasks are complete we can tag **V1** and archive this section.
 
 ## Future Enhancements (Post-V1)
 
 ### 1. Advanced Pattern Detection
+
 - Cloud provider credentials (AWS, GCP, Azure)
 - Application-specific secrets (configurable regex patterns)
 - Network topology information (IP ranges, hostnames)
 - File system paths and sensitive directories
 
 ### 2. Security Profiles & Paranoia Levels
+
 ```yaml
 security_profiles:
   minimal:
@@ -355,6 +88,7 @@ security_profiles:
 ```
 
 ### 3. Plugin System Integration
+
 ```python
 # Custom sanitizer plugins
 class CompanySecretsPlugin(SanitizerPlugin):
@@ -364,17 +98,20 @@ class CompanySecretsPlugin(SanitizerPlugin):
 ```
 
 ### 4. Advanced Response Analysis
+
 - Parse kubectl commands for resource scope analysis
 - Detect unusual response patterns (potential data gathering)
 - Validate response consistency with request intent
 
 ### 5. Enhanced Audit & Monitoring
+
 - Structured metrics export (Prometheus/OpenTelemetry)
 - Anomaly detection (unusual request patterns)
 - Integration with SIEM systems
 - Certificate transparency monitoring
 
 ### 6. Integrity & Anti-Tampering
+
 - Request/response signing for integrity verification
 - Fallback to direct LLM if proxy behaves suspiciously
 - Client-side rate limiting and circuit breaker patterns
@@ -384,16 +121,19 @@ class CompanySecretsPlugin(SanitizerPlugin):
 ### With Existing Systems
 
 **Preserve current behavior**:
+
 - `--yes` flag bypasses all confirmations (user explicitly trusts)
 - `semiauto` mode behavior unchanged (user explicitly chose semi-autonomous)
 - Direct LLM usage (non-proxy) unchanged
 
 **Proxy adapter integration**:
+
 - `ProxyModelAdapter` gains sanitization hooks
 - Request/response pipeline gains audit logging
 - Error handling for sanitization failures
 
 **Configuration integration**:
+
 - Extends existing `Config` system with security settings
 - Integrates with current `setup-proxy` commands
 
@@ -418,79 +158,4 @@ vibectl security test-patterns [--input-file file]
 ```
 
 ## Implementation Plan
-
-### ✅ Phase 1: Core Infrastructure (COMPLETED)
-1. ✅ Create `vibectl/security/` module structure
-2. ✅ Implement named proxy configuration system (clean profile-only design)
-3. ✅ Extend `setup-proxy` commands for named profiles
-4. ✅ Basic configuration loading/validation
-5. ✅ Remove legacy proxy fields entirely
-
-### 🚧 Phase 2: Request Sanitization (IN PROGRESS)
-1. ⚠️ Implement `RequestSanitizer` with K8s secret detection (stub completed)
-2. 🚧 Integration with `ProxyModelAdapter`
-3. 🚧 User interaction flows for detected secrets
-4. 📋 Unit tests for pattern detection
-
-### 📋 Phase 3: Audit Logging (PLANNED)
-1. 📋 Implement structured audit logging
-2. 📋 Request/response hashing and storage
-3. 📋 CLI commands for audit log viewing
-4. 📋 Log rotation and cleanup
-
-### 📋 Phase 4: Response Validation (PLANNED)
-1. 📋 Basic command parsing and risk assessment
-2. 📋 Per-command confirmation flows
-3. 📋 Integration with existing `--yes`/semiauto logic
-4. 📋 Safe operation allowlisting
-
-### 📋 Phase 5: Polish & Documentation (PLANNED)
-1. 📋 Comprehensive testing
-2. 📋 Documentation updates
-3. 📋 Example configurations
-4. 📋 Security best practices guide
-
-## Files Created/Modified Status
-
-### ✅ New Files Created
-- ✅ `vibectl/security/__init__.py` - Security module exports
-- ✅ `vibectl/security/config.py` - SecurityConfig and ProxyProfile classes with full implementation and validation
-- ✅ `vibectl/security/sanitizer.py` - Complete RequestSanitizer implementation with comprehensive pattern detection
-- ✅ `vibectl/security/audit.py` - Complete AuditLogger implementation with structured JSON logging
-- ✅ `tests/security/test_sanitizer.py` - Comprehensive test suite for sanitization with 100% coverage
-- ✅ `tests/security/test_config.py` - Complete test suite for security configuration validation
-- ✅ `tests/security/test_audit.py` - Complete test suite for audit logging with 100% coverage
-- 📋 `docs/security-hardening.md` - TODO: Documentation
-
-### ✅ Modified Files Completed
-- ✅ `vibectl/config.py` - Complete proxy profile configuration system with security validation and enhanced type handling
-- ✅ `vibectl/model_adapter.py` - Updated to use proxy profiles (legacy support completely removed)
-- ✅ `vibectl/subcommands/setup_proxy_cmd.py` - Complete redesign with named profile management, security flags including `--no-sanitization-warnings`
-- ✅ `vibectl/proxy_model_adapter.py` - Full integration with sanitization system, audit logging, JWT token and CA bundle resolution for profiles
-- ✅ `vibectl/security/__init__.py` - Updated exports to include AuditLogger
-- ✅ `vibectl/security/config.py` - Enhanced with `warn_sanitization` configuration option
-- ✅ All test files - Updated to use new profile-based configuration system, comprehensive sanitization testing, and audit logging integration
-
-### 🚧 Modified Files TODO
-- ✅ `vibectl/cli.py` - Added `--proxy` and `--no-proxy` flags for temporary profile override
-- 📋 `pyproject.toml` - TODO: New dependencies if needed for sanitization patterns
-
-## Success Criteria
-
-### V1 Success Metrics
-- [ ] Named proxy configurations working
-- [ ] K8s secret detection with >95% accuracy, <5% false positives
-- [ ] Request sanitization integrated into proxy flow
-- [ ] Audit logging capturing all proxy interactions
-- [ ] Per-command confirmation for destructive operations
-- [ ] Existing `--yes`/semiauto behavior preserved
-- [ ] Comprehensive test coverage (>90%)
-- [ ] Security documentation complete
-
-### Future Success Metrics
-- [ ] Plugin system for custom pattern detection
-- [ ] Advanced security profiles implemented
-- [ ] Response analysis and validation
-- [ ] Integration with monitoring systems
-- [ ] Zero false positives for common workflows
-- [ ] Sub-100ms latency impact on request processing
+*(obsolete section removed)*

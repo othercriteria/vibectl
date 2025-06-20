@@ -8,51 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- **Proxy Security Hardening System**: Complete client-side security infrastructure for vibectl proxy servers in semi-trusted environments
-  - **Named Proxy Profiles**: Full configuration system for multiple proxy profiles with individual security settings
-    - Profile-based configuration replacing legacy flat proxy settings
-    - `vibectl setup-proxy configure <profile> <url>` command with security options
-    - `vibectl setup-proxy list/set-active/remove` profile management commands
-    - Profile activation with `--activate` flag and mandatory connection testing for security
-  - **Request Sanitization Framework**: Complete secret detection and redaction system
-    - Kubernetes secret pattern detection (Bearer tokens, JWT, service account tokens)
-    - Base64 encoded data detection with entropy analysis for secret likelihood scoring
-    - PEM certificate detection and redaction with multiline support
-    - Configurable sanitization with confidence scoring and redaction placeholders
-    - Overlap detection to prevent duplicate redaction of the same secret data
-    - Comprehensive test coverage with edge cases (Unicode, long inputs, special characters)
-    - User-configurable warning system for detected secrets (`--no-sanitization-warnings` flag)
-    - Full integration with ProxyModelAdapter for automatic request sanitization
-  - **Security Configuration**: Rich security settings per proxy profile
-    - Request sanitization controls (`sanitize_requests`)
-    - Audit logging enablement (`audit_logging`)
-    - Confirmation modes (`none`/`per-session`/`per-command`)
-    - Profile-specific CA bundle and JWT token configuration
-  - **Audit Logging System**: Complete structured audit logging for all proxy interactions
-    - Comprehensive `AuditLogger` class with JSON event logging for request/response tracking
-    - Secret detection event logging with content hashing and metadata
-    - Proxy connection event logging with success/failure tracking and timing metrics
-    - Profile-specific audit log files with automatic directory creation
-    - Full integration with ProxyModelAdapter for automatic logging of all LLM interactions
-    - **Audit Log Viewing Commands**: Complete CLI interface for audit log analysis
-      - `vibectl audit show`: Pretty-print recent audit events with filtering (`--proxy`, `--since`, `--tail`)
-      - `vibectl audit export`: Export audit events to JSON/CSV format with file output support
-      - `vibectl audit info`: Display audit log metadata and paths with multiple output formats
-      - Comprehensive test suite achieving 99% code coverage with extensive edge case testing
-      - Robust error handling for missing profiles, disabled logging, and file I/O scenarios
-      - Flexible timestamp parsing supporting ISO format, epoch seconds, and relative times (e.g., "2h", "30m", "1d")
-  - **Enhanced Setup Commands**: Complete redesign of proxy configuration workflow
-    - Security-first approach with mandatory testing before activation
-    - `--enable-sanitization` and `--enable-audit-logging` flags
-    - Improved error handling and connection validation
-    - JWT token and CA bundle path resolution from profiles
-  - **CLI Override Layer**: Added root-level `--proxy`, `--no-proxy`, and `--model` flags backed by a ContextVar-based override system (`vibectl/overrides.py`) for temporary overrides without threading parameters through sub-commands.
-  - **Action Confirmation Prerequisites**: Implemented core groundwork for per-command confirmation and risk assessment
-    - Refactored all kubectl subcommand handlers to supply operation metadata (`operation_type`, `resource_scope`) to the execution layer
-    - Added `is_destructive_kubectl_command()` and `should_confirm_action()` helpers in `vibectl/execution/vibe.py`
-    - Extended `OutputFlags` and `vibectl/types.py` to consistently propagate confirmation requirements
-    - Updated and expanded tests across subcommand suites to cover the new confirmation flow (20+ test files modified)
-    - Lays foundation for Phase 4 "Response Validation & Confirmation" implementation
+- **Client-side Proxy Security Hardening (V1)**
+  • Named proxy profiles with per-profile security settings (sanitize requests, audit logging, confirmation modes)
+  • Request sanitization framework detecting Kubernetes secrets, Base-64 blobs, and PEM certificates with redaction and confidence scoring
+  • Structured audit logging with per-profile log files and new CLI commands:
+    – `vibectl audit show`, `export`, `info`
+  • Root-level `--proxy` / `--no-proxy` flags and confirmation-flow groundwork (`is_destructive_kubectl_command`, `should_confirm_action`)
+  • 100 % test coverage for sanitizer and audit logger; extensive coverage for proxy workflow
+- **Documentation**
+  • New `docs/proxy-client-security.md` – companion to `docs/llm-proxy-server.md` covering all V1 client-side security features
+  • `PLANNED_CHANGES.md` trimmed to track only remaining V1 validation tasks and post-V1 roadmap
 
 ### Changed
 - **Proxy Configuration Migration**: Removed legacy proxy configuration format in favor of named profiles
