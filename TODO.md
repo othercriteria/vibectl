@@ -522,3 +522,59 @@ Benefits
   of touching ~40 files.
 * Overrides are per-process only—no env-var leakage—and trivial to test via
   ContextVar patching.
+
+## Proxy Security Hardening – Future Enhancements (Post-V1)
+
+These items build upon the V1 client-side security hardening released in 0.12.0 (named proxy profiles, request sanitization, audit logging, confirmation groundwork):
+
+1. **Advanced Pattern Detection**
+   - Cloud provider credentials (AWS, GCP, Azure)
+   - App-specific secrets via configurable regex patterns
+   - Network topology intel (IP ranges, hostnames)
+   - Sensitive filesystem paths
+
+2. **Security Profiles & "Paranoia" Levels**
+   Example preset schema (to add in `security_profiles`):
+   ```yaml
+   security_profiles:
+     minimal:
+       sanitize_requests: false
+       confirmation_mode: none
+     standard:
+       sanitize_requests: true
+       confirmation_mode: per-session
+       patterns: [k8s-secrets, common-tokens]
+     paranoid:
+       sanitize_requests: true
+       confirmation_mode: per-command
+       patterns: [all]
+       response_size_limit: 10KB
+       request_rate_limit: 10/minute
+   ```
+   - CLI flag `--security-mode <profile>` to switch quickly.
+
+3. **Plugin System Integration**
+   - Expose sanitizer plugin interface (`SanitizerPlugin`) so orgs can ship custom detectors.
+   - Example: `CompanySecretsPlugin` for proprietary token formats.
+
+4. **Advanced Response Analysis**
+   - Parse generated kubectl commands for scope/danger analysis.
+   - Detect unusual LLM response patterns (data gathering, social-engineering payloads).
+   - Validate response consistency with original user intent.
+
+5. **Enhanced Audit & Monitoring**
+   - Prometheus / OpenTelemetry metrics export.
+   - Anomaly detection on request patterns (rate spikes, secret density).
+   - SIEM integration and log shipping helpers.
+   - Certificate transparency monitoring for server certificates.
+
+6. **Integrity & Anti-Tampering**
+   - Request/response signing for end-to-end integrity.
+   - Optional mTLS fallback to bypass compromised proxy.
+   - Client-side rate limiting & circuit-breaker patterns.
+
+7. **Automated Integration Tests**
+   - Spin up in-process gRPC stub or dockerised proxy in CI.
+   - Verify JWT loading, CA bundle resolution, sanitization & audit logging.
+
+(Imported from the now-removed `PLANNED_CHANGES.md`.)
