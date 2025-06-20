@@ -25,11 +25,15 @@ from vibectl.types import (
 
 
 @pytest.fixture
-def mock_summary_prompt() -> Callable[[Config | None, str | None], PromptFragments]:
+def mock_summary_prompt() -> Callable[
+    [Config | None, str | None, str | None], PromptFragments
+]:
     """Mock summary prompt function that adheres to SummaryPromptFragmentFunc type."""
 
     def _mock_summary_prompt_func(
-        config: Config | None = None, current_memory: str | None = None
+        config: Config | None = None,
+        current_memory: str | None = None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (SystemFragments([]), UserFragments([Fragment("Test Prompt: {output}")]))
@@ -68,7 +72,9 @@ def test_handle_standard_command_logs(
     # Test handling the logs command
     # Define summary function properly
     def summary_func(
-        config: Config | None = None, current_memory: str | None = None
+        config: Config | None = None,
+        current_memory: str | None = None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (SystemFragments([]), UserFragments([Fragment("Summarize logs: {output}")]))
@@ -110,7 +116,9 @@ def test_handle_standard_command_error_with_exception(
     mock_handle_output: AsyncMock,
     mock_run_kubectl: MagicMock,
     default_output_flags: OutputFlags,
-    mock_summary_prompt: Callable[[Config | None, str | None], PromptFragments],
+    mock_summary_prompt: Callable[
+        [Config | None, str | None, str | None], PromptFragments
+    ],
 ) -> None:
     """Test handle_standard_command when run_kubectl returns Error with exception."""
     test_exception = ValueError("Test kubectl error")
@@ -159,7 +167,9 @@ def test_handle_standard_command_empty_output(
     mock_handle_output: AsyncMock,
     mock_run_kubectl: MagicMock,
     default_output_flags: OutputFlags,
-    mock_summary_prompt: Callable[[Config | None, str | None], PromptFragments],
+    mock_summary_prompt: Callable[
+        [Config | None, str | None, str | None], PromptFragments
+    ],
 ) -> None:
     """Test handle_standard_command if run_kubectl returns Success with empty output."""
     mock_run_kubectl.return_value = Success(

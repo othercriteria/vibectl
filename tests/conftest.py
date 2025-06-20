@@ -466,9 +466,13 @@ def mock_llm() -> Generator[MagicMock, None, None]:
 
 
 @pytest.fixture
-def mock_summary_prompt() -> Callable[[], str]:
-    """Mock summary prompt function."""
-    return lambda: "Test Prompt: {output}"
+def mock_summary_prompt() -> Callable[..., str]:
+    """Mock summary prompt function that safely ignores extra parameters."""
+
+    def _prompt(*_args: Any, **_kwargs: Any) -> str:  # Accepts any params
+        return "Test Prompt: {output}"
+
+    return _prompt
 
 
 @pytest.fixture

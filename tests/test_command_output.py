@@ -54,6 +54,7 @@ def default_summary_prompt() -> SummaryPromptFragmentFunc:
     def summary_prompt_fragments(
         config: Config | None = None,
         current_memory: str | None = None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (
@@ -1240,7 +1241,7 @@ async def test_process_vibe_output_show_streaming_false(
     )
 
     # 3. Prepare arguments for _process_vibe_output
-    system_fragments, user_fragments = default_summary_prompt(None, None)
+    system_fragments, user_fragments = default_summary_prompt(None, None, None)
 
     # 4. Call _process_vibe_output
     result = await _process_vibe_output(

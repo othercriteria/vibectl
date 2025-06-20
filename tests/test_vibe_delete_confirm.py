@@ -193,6 +193,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
 def get_test_summary_fragments(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Dummy summary prompt function for testing that returns fragments."""
     return PromptFragments(

@@ -221,9 +221,9 @@ class Error:
 Result = Success | Error
 
 
-# --- Type Hints for Functions ---
-SummaryPromptFragmentFunc = Callable[["Config | None", str | None], PromptFragments]
-# -----------------------------
+SummaryPromptFragmentFunc = Callable[
+    ["Config | None", str | None, str | None], PromptFragments
+]
 
 
 @dataclass
@@ -583,21 +583,19 @@ def determine_execution_mode(*, semiauto: bool = False) -> ExecutionMode:
 
 
 def execution_mode_from_cli(choice: str | None) -> ExecutionMode | None:
-    """Translate the ``--mode`` CLI option into :class:`ExecutionMode`.
+    """Translate the ``--mode`` CLI option (``--mode auto``/``manual``/``semiauto``)
+    into an :class:`ExecutionMode` value.
 
-    Returns ``None`` if *choice* is ``None`` so that callers can fall back to
-    SEMIAUTO/MANUAL selection when the option wasn't supplied.
+    Returns
+    -------
+    ExecutionMode | None
+        ``None`` when *choice* is ``None`` so that callers can fall back to
+        configuration-based or default resolution logic. Otherwise, the
+        corresponding :class:`ExecutionMode` for the supplied string (case-
+        insensitive) is returned. Unrecognised values yield ``None``.
     """
 
     if choice is None:
         return None
 
-    lowered = choice.lower()
-    if lowered == "auto":
-        return ExecutionMode.AUTO
-    if lowered == "semiauto":
-        return ExecutionMode.SEMIAUTO
-    if lowered == "manual":
-        return ExecutionMode.MANUAL
-    # Defensive fallback - let the caller handle unexpected value.
-    return None
+    return _MODE_ALIASES.get(choice.lower())

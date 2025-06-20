@@ -280,15 +280,25 @@ Remember to choose only ONE action per response."""
 def vibe_autonomous_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing command output in autonomous mode.
 
-    Args:
-        config: Optional Config instance.
-        current_memory: Optional current memory string.
+    Parameters
+    ----------
+    config:
+        Optional :class:`~vibectl.config.Config` instance providing runtime
+        configuration.  If *None*, a new one is created.
+    current_memory:
+        Previously stored memory string (may be *None*).
+    presentation_hints:
+        Optional formatting or UI hints produced by the planner that should be
+        surfaced to the summarisation prompt.
 
-    Returns:
-        PromptFragments: System fragments and user fragments.
+    Returns
+    -------
+    PromptFragments
+        A tuple of system and user fragments forming the final prompt.
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])
@@ -297,8 +307,14 @@ def vibe_autonomous_prompt(
 
     from .context import build_context_fragments  # Local import to avoid cycles
 
-    # Standard context fragments (memory, custom instructions, timestamp, etc.)
-    system_fragments.extend(build_context_fragments(cfg, current_memory=current_memory))
+    # Inject standard context fragments including optional presentation hints.
+    system_fragments.extend(
+        build_context_fragments(
+            cfg,
+            current_memory=current_memory,
+            presentation_hints=presentation_hints,
+        )
+    )
 
     # System: Core instructions
     system_fragments.append(

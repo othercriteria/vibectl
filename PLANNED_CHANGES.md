@@ -34,9 +34,9 @@ This document tracks **only what still needs doing**. Finished items and low-lev
    b. Ensure formatting guidance and timestamps are present in summary prompts.
 
 ### 2. Summary Prompt API
-- [ ] Update every *summary* prompt creator to accept `(config, current_memory, presentation_hints)`.
+- [x] **Removed the temporary compatibility scaffold in `_vibe_summary_result`** – all call-sites now supply the 3-arg signature.
+- [ ] Update every *summary* prompt creator to accept `(config, current_memory, presentation_hints)` (most are done; audit remains).
 - [ ] Add type annotations & docs for the 3-arg signature.
-- [ ] Remove the temporary signature-introspection scaffold (_vibe_summary_result) once **all** call-sites are migrated & tests pass.
 
 ### 3. Execution Path DRY-up
 - [ ] Extract `run_llm()` helper to remove duplicated adapter + metrics boilerplate (see Roadmap 4 in previous version).
@@ -53,6 +53,10 @@ This document tracks **only what still needs doing**. Finished items and low-lev
 - [ ] Remove migration shim for legacy `custom_instructions` access.
 - [ ] Delete any obsolete prompt-layout tests.
 - [ ] Run Ruff / Mypy, fix warnings.
+
+### 7. Follow-ups identified during typing pass
+
+- [ ] **live_display.py** – port-forward summary path still assembles context manually.  Refactor to use `build_context_fragments` and propagate any `presentation_hints`.
 
 ---
 
@@ -72,7 +76,7 @@ def summary_prompt(config: Config | None, current_memory: str | None, presentati
 ```
   – The temporary introspection scaffold in `_vibe_summary_result` will be deleted once all implementations adopt this.
 
-• **Execution pipeline** – `presentation_hints` is captured from the planner and threaded through `_confirm_and_execute_plan → handle_command_output → _vibe_summary_result → summary_prompt`.
+• **Execution pipeline** – `presentation_hints` is captured from the planner and threaded through `_confirm_and_execute_plan → handle_command_output → _vibe_summary_result → summary_prompt`.  Live display helpers are a special case and need refactor (see TODO 7).
 
 • **Custom-instruction migration** – Legacy flat `custom_instructions` key is now `system.custom_instructions`; a shim in `Config.get()` warns and forwards.  The shim will be removed in Cleanup.
 
@@ -84,8 +88,10 @@ def summary_prompt(config: Config | None, current_memory: str | None, presentati
 - Central `build_context_fragments` helper implemented & unit-tested.
 - Planner schema updated with optional `presentation_hints` + schema regeneration.
 - Execution pipeline now threads `presentation_hints` through to summary helpers.
-- Temporary compatibility scaffold in `_vibe_summary_result` prevents double invocation during transition.
-- Fixed failing unit tests caused by the scaffold.
+- Temporary compatibility scaffold **deleted**; all code now on final API.
+- Updated `vibe_autonomous_prompt` to use `build_context_fragments` with `presentation_hints`.
+- All summary-prompt test helpers updated; unit tests & `make typecheck` now clean.
+- Fixed failing unit tests caused by the scaffold and typing mismatch.
 
 ---
 

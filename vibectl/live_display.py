@@ -824,7 +824,9 @@ async def _execute_port_forward_with_live_display(
             cfg = config or Config()
             current_memory_text = get_memory(cfg)
             system_fragments, user_fragments_template = summary_prompt_func(
-                cfg, current_memory_text
+                cfg,
+                current_memory_text,
+                None,  # presentation_hints are not used in port-forward summary
             )
 
             filled_user_fragments: list[

@@ -61,7 +61,9 @@ def mock_test_summary_fragments() -> Generator[SummaryPromptFragmentFunc, None, 
     """Fixture to provide a test summary prompt function."""
 
     def test_summary_fragments(
-        config: Config | None, current_memory: str | None
+        config: Config | None,
+        current_memory: str | None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         """Test helper to create summary prompt fragments."""
         # Simple fragments for testing, ensure current_memory is handled safely
@@ -797,7 +799,9 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
     mock_summary_prompt_creator = MagicMock(spec=SummaryPromptFragmentFunc)
 
     def summary_prompt_side_effect(
-        config_param: Config | None, current_memory: str | None
+        config_param: Config | None,
+        current_memory: str | None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         assert current_memory == test_memory_content
         # Based on types.py, Fragment is str, UserFragments is list[str]
@@ -871,7 +875,7 @@ async def test_handle_command_output_passes_memory_to_summary_prompt(
 
     # 3. summary_prompt_func (mock_summary_prompt_creator) was called by
     #    handle_command_output with the correct memory content.
-    mock_summary_prompt_creator.assert_called_once_with(ANY, test_memory_content)
+    mock_summary_prompt_creator.assert_called_once_with(ANY, test_memory_content, ANY)
 
     # 4. The main "vibe" LLM call (which is now streaming) was made correctly.
 

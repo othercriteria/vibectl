@@ -6,7 +6,7 @@ position in the final command.
 """
 
 import json
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -29,6 +29,7 @@ from vibectl.types import (
     OutputFlags,
     PromptFragments,
     Success,
+    SummaryPromptFragmentFunc,
     SystemFragments,
     UserFragments,
 )
@@ -62,13 +63,13 @@ def mock_handle_output() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def mock_summary_prompt_func_hvr() -> Callable[
-    [Config | None, str | None], PromptFragments
-]:
+def mock_summary_prompt_func_hvr() -> SummaryPromptFragmentFunc:
     """Provides a mock summary_prompt_func for handle_vibe_request tests."""
 
     def _mock_func(
-        config: Config | None = None, current_memory: str | None = None
+        config: Config | None = None,
+        current_memory: str | None = None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (SystemFragments([]), UserFragments([Fragment("Mocked Summary")]))
@@ -87,9 +88,7 @@ async def test_handle_vibe_request_command_execution(
     mock_execute: MagicMock,
     mock_update_memory: MagicMock,
     mock_handle_command_output: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request executing a basic command with confirmation bypassed."""
 
@@ -166,9 +165,7 @@ async def test_handle_vibe_request_yaml_execution(
     mock_execute: MagicMock,
     mock_update_memory: MagicMock,
     mock_handle_command_output: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request executing a command with YAML."""
 
@@ -246,9 +243,7 @@ async def test_handle_vibe_request_llm_planning_error(
     mock_handle_output: MagicMock,
     mock_execute: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.ERROR."""
     # Mock update_memory to return proper LLMMetrics object
@@ -313,9 +308,7 @@ async def test_handle_vibe_request_llm_wait(
     mock_handle_command_output: MagicMock,
     mock_execute_command: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.WAIT."""
     # Mock update_memory to return proper LLMMetrics object
@@ -385,9 +378,7 @@ async def test_handle_vibe_request_llm_feedback(
     mock_handle_command_output: MagicMock,
     mock_execute_command: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns ActionType.FEEDBACK."""
     # Mock update_memory to return proper LLMMetrics object
@@ -450,9 +441,7 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
     mock_console_manager_actual: MagicMock,
     mock_update_memory_actual: MagicMock,
     mock_get_model_adapter_actual: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request with ActionType.FEEDBACK but no explanation."""
     # Mock update_memory to return proper LLMMetrics object
@@ -516,9 +505,7 @@ async def test_handle_vibe_request_llm_invalid_json(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns invalid JSON."""
     output_flags = OutputFlags(
@@ -561,9 +548,7 @@ async def test_handle_vibe_request_llm_invalid_schema(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns valid JSON but invalid schema."""
 
@@ -613,9 +598,7 @@ async def test_handle_vibe_request_llm_empty_response(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when LLM returns an empty string."""
     output_flags = OutputFlags(
@@ -659,9 +642,7 @@ async def test_handle_vibe_request_action_error_no_message(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request with ActionType.ERROR but missing error message."""
     output_flags = OutputFlags(
@@ -706,9 +687,7 @@ async def test_handle_vibe_request_action_wait_no_duration(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request with ActionType.WAIT but missing duration."""
     output_flags = OutputFlags(
@@ -752,9 +731,7 @@ async def test_handle_vibe_request_action_command_empty_verb(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request with ActionType.COMMAND but LLM provides empty verb."""
     output_flags = OutputFlags(
@@ -803,9 +780,7 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
     mock_console: MagicMock,
     mock_execute_command: MagicMock,
     mock_handle_command_output: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request where handle_command_output raises generic Exception."""
     # Mock update_memory to return proper LLMMetrics object
@@ -868,9 +843,7 @@ async def test_handle_vibe_request_action_unknown(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request with an unknown ActionType from LLM."""
     output_flags = OutputFlags(
@@ -926,9 +899,7 @@ async def test_handle_vibe_request_planning_recoverable_api_error(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when planning LLM call raises RecoverableApiError."""
     from vibectl.model_adapter import RecoverableApiError
@@ -973,9 +944,7 @@ async def test_handle_vibe_request_planning_generic_error(
     mock_console: MagicMock,
     mock_update_memory: MagicMock,
     mock_get_adapter: MagicMock,
-    mock_summary_prompt_func_hvr: Callable[
-        [Config | None, str | None], PromptFragments
-    ],
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request when planning LLM call raises generic Exception."""
     output_flags = OutputFlags(
