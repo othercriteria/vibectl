@@ -4,18 +4,20 @@
 Improve consistency in how custom instructions and memory are injected into planning, summary, and other prompts.
 
 ## Planned Tasks (remaining)
-The baseline config-naming work is **done**. The outstanding functional work now centres on standardising the injection pipeline and propagating `presentation_hints`.
+The baseline config-naming work and the planner-schema update are ✅ **complete**.
 
-— Technical tasks still open —
-• Audit current prompt injection patterns across the codebase and catalogue variance.
-• Standardise the injection mechanism for **custom instructions**.
-• Standardise the injection mechanism for **memory/context**.
-• Wire the new **context helper** (`build_context_fragments`) into all prompt builders.
-• Ensure planners ingest memory and custom instructions by default (via the helper).
-• Make planners emit `presentation_hints` consumed by downstream prompts.
-• Update summary & execution prompts to rely on planner-supplied hints, not config look-ups.
-• Migrate exotic workflows (check, edit, etc.) to the same planner-hint pattern.
-• Delete / rewrite obsolete tests tied to the old injection pattern; write fresh tests once the new design stabilises.
+### Completed
+• Central `build_context_fragments` helper implemented and core unit-tested.
+• Optional `presentation_hints` field added to `LLMPlannerResponse` (+ round-trip schema tests).
+• `create_planning_prompt` documentation updated to reference `presentation_hints`.
+
+### Remaining (high-level)
+1. **Prompt Modules** – Replace ad-hoc context injection with `build_context_fragments` across all prompt builders; delete `get_formatting_fragments` afterwards.
+2. **Execution Pipeline** – Thread `presentation_hints` from planners through `vibectl.execution.*` and into summary prompt helpers.
+3. **Prompt Template Updates** – Ensure every *_plan_prompt includes the new field in its schema/example block.
+4. **Exotic Workflows** – Migrate `check`, `edit`, `auto`, `audit`, etc. to the new pattern.
+5. **Refactor Runtime Path** – Introduce `vibectl.execution.common.run_llm()` helper to DRY repeated logic.
+6. **Test & Docs Sweep** – Remove obsolete tests, add integration tests for planner→summary round-trip, update docs (`STRUCTURE.md`, README).
 
 ## Implementation Roadmap (high-level)
 
@@ -27,14 +29,14 @@ The baseline config-naming work is **done**. The outstanding functional work now
 
 2. Central PromptContext helper *(partially complete)*
    2.1  **✅ Implement helper** – `vibectl/prompts/context.py` now provides `build_context_fragments()`.
-   2.2  Add/extend unit tests covering permutations (memory on/off, instructions on/off, hints on/off, char-limit edge cases).  → *core permutations covered; edge-case tests still TODO.*
+   2.2  **✅ Unit tests** – Core permutations covered (edge-case tests still TODO).
    2.3  **Next up** – Replace call-sites:
         • Swap `get_formatting_fragments` → `build_context_fragments` across **all** prompt modules.
         • Delete `get_formatting_fragments` once the migration is complete.
    2.4  Delete the special-case code path in `prompts/edit.py` that still hand-builds context (was TODO earlier).
    2.5  Update documentation (`STRUCTURE.md`, design docs) to reference the new helper.
 
-3. Planner changes
+3. Planner changes *(partially complete)*
    • Extend `LLMPlannerResponse` schema with optional `presentation_hints: str | None` to carry UI/formatting guidance. (Decided to keep it a **plain string** for MVP; structure can evolve later.)
    • Update every planning prompt creator to include a *placeholder* for the hints in its schema description so the LLM knows it can emit them.
    • Update tests and execution code that parse planner results (e.g. `vibectl/execution/*`) to extract `presentation_hints` into a variable, store it alongside the Action.

@@ -180,7 +180,10 @@ This document provides an overview of the project's structure and organization.
    - `shared.py` - Common prompt utilities and plugin support decorators:
      - Functions that return `PromptFragments` (tuples of `SystemFragments` and `UserFragments`)
      - Plugin override decorators (`with_planning_prompt_override`, `with_summary_prompt_override`)
-     - Helper functions for building prompts (e.g., `get_formatting_fragments`, `create_planning_prompt`)
+     - Helper functions for building prompts:
+       • `build_context_fragments` – **new canonical helper** for injecting memory, custom instructions and optional `presentation_hints`.
+       • `get_formatting_fragments` – legacy formatting helper slated for removal once all prompt builders migrate.
+       • `create_planning_prompt`, `create_summary_prompt` – scaffold standardised planning/summary templates.
      - Configuration-driven prompt variations with `Config` objects
    - `schemas.py` - Centralized schema definitions (`_SCHEMA_DEFINITION_JSON`, `_EDIT_RESOURCESCOPE_SCHEMA_JSON`)
    - Command-specific modules (`edit.py`, `apply.py`, `scale.py`, `rollout.py`) with decorated functions for plugin support
@@ -188,7 +191,13 @@ This document provides an overview of the project's structure and organization.
    - Planning functions (e.g., `scale_plan_prompt`, `rollout_plan_prompt`) can be overridden by plugins
    - Summary functions (e.g., `scale_resource_prompt`, `rollout_general_prompt`) provide consistent interfaces
    - Memory integration is handled by including memory content within relevant fragments
-3. Schema Integration - Consistent LLM output structure through centralized schemas
+3. Schema Integration (`schema.py`, `types.py`, `execution/vibe.py`)
+   - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. Key highlights:
+     • `LLMPlannerResponse` now includes an optional `presentation_hints` string enabling planners to pass UI/formatting guidance to downstream prompts.
+     • `CommandAction` can specify `allowed_exit_codes` and `explanation`.
+     • `FeedbackAction` can include `explanation` and `suggestion`.
+   - `model_adapter.py` uses these schemas for LLM interaction.
+   - `types.py` includes `Error` model now with `original_exit_code`.
 
 ### Common Command Patterns
 
@@ -220,7 +229,7 @@ This document provides an overview of the project's structure and organization.
 3. `prompts/shared.py` - Memory integration in prompts
    - `memory_update_prompt` for creating memory from command execution (returns `PromptFragments`).
    - `memory_fuzzy_update_prompt` for manually updating memory (returns `PromptFragments`).
-   - Memory context is now generally passed into prompt-generating functions or included directly within specific fragment definitions rather than via a separate `include_memory_in_prompt` utility for all prompts.
+   - The **preferred** way to inject memory (and custom instructions) into prompts is via `prompts/context.build_context_fragments`, which returns standardised system fragments. Legacy helpers like `include_memory_in_prompt` are deprecated.
 4. `command_handler.py` - Memory updates after command execution
    - Updates memory with command context
    - Tracks command execution flow
@@ -300,7 +309,10 @@ Detailed documentation about model key configuration can be found in [Model API 
    - Consistent prompt structure for all LLM interactions, built from fragments.
    - Plugin override decorators for extensibility.
 6. Schema Integration (`schema.py`, `types.py`, `execution/vibe.py`)
-   - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. `CommandAction` can specify `allowed_exit_codes` and `explanation`. `FeedbackAction` can include `explanation` and `suggestion`.
+   - Defines Pydantic models (`LLMPlannerResponse`, `CommandAction`, `FeedbackAction`, etc.) and enums (`ActionType`) for desired LLM output structure. Key highlights:
+     • `LLMPlannerResponse` now includes an optional `presentation_hints` string enabling planners to pass UI/formatting guidance to downstream prompts.
+     • `CommandAction` can specify `allowed_exit_codes` and `explanation`.
+     • `FeedbackAction` can include `explanation` and `suggestion`.
    - `model_adapter.py` uses these schemas for LLM interaction.
    - `types.py` includes `Error` model now with `original_exit_code`.
 
