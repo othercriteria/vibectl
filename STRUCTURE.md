@@ -182,7 +182,6 @@ This document provides an overview of the project's structure and organization.
      - Plugin override decorators (`with_planning_prompt_override`, `with_summary_prompt_override`)
      - Helper functions for building prompts:
        • `build_context_fragments` – **new canonical helper** for injecting memory, custom instructions and optional `presentation_hints`.
-       • `get_formatting_fragments` – legacy formatting helper slated for removal once all prompt builders migrate.
        • `create_planning_prompt`, `create_summary_prompt` – scaffold standardised planning/summary templates.
      - Configuration-driven prompt variations with `Config` objects
    - `schemas.py` - Centralized schema definitions (`_SCHEMA_DEFINITION_JSON`, `_EDIT_RESOURCESCOPE_SCHEMA_JSON`)

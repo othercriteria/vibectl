@@ -44,10 +44,7 @@ from vibectl.prompts.scale import (
     PLAN_SCALE_PROMPT,
     scale_resource_prompt,
 )
-from vibectl.prompts.shared import (
-    create_planning_prompt,
-    get_formatting_fragments,
-)
+from vibectl.prompts.shared import create_planning_prompt
 from vibectl.prompts.version import version_plan_prompt, version_prompt
 from vibectl.prompts.wait import wait_plan_prompt, wait_resource_prompt
 from vibectl.schema import ActionType, LLMPlannerResponse
@@ -59,86 +56,6 @@ from vibectl.types import (
 )
 
 _TEST_SCHEMA_JSON = json.dumps(LLMPlannerResponse.model_json_schema())
-
-
-# TODO: replace with fragment_current_time test...
-# def test_refresh_datetime() -> None:
-#     """Test refresh_datetime returns correct format."""
-#     # Mock datetime to ensure consistent test
-#     mock_now = datetime.datetime(2024, 3, 20, 10, 30, 45)
-#     with patch("datetime.datetime") as mock_datetime:
-#         mock_datetime.now.return_value = mock_now
-#         result = refresh_datetime()
-#         assert result == "2024-03-20 10:30:45"
-
-
-def test_get_formatting_fragments_no_custom(test_config: Config) -> None:
-    """Test get_formatting_fragments without custom instructions."""
-    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("system.custom_instructions", None)
-    test_config.set(
-        "memory.enabled", False
-    )  # This doesn't affect get_formatting_fragments directly
-
-    # Patch datetime.now specifically within the vibectl.prompts.shared module
-    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
-        system_fragments, user_fragments = get_formatting_fragments(test_config)
-
-        all_fragments = system_fragments + user_fragments
-        assert len(all_fragments) > 1  # Expect at least base formatting and time
-        combined_text = "\n".join(all_fragments)
-
-        assert len(combined_text) > 100
-        assert "rich.Console() markup syntax" in combined_text
-        assert (
-            f"Current time is {fixed_dt_str}." in combined_text
-        )  # Check for specific time string
-        assert "Custom instructions:" not in combined_text
-        assert (
-            "Memory context:" not in combined_text
-        )  # Explicitly does not include memory
-
-
-def test_get_formatting_fragments_with_custom(test_config: Config) -> None:
-    """Test get_formatting_fragments with custom instructions."""
-    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
-    test_config.set("system.custom_instructions", "Test custom instruction")
-    test_config.set("memory.enabled", False)
-
-    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
-        system_fragments, user_fragments = get_formatting_fragments(test_config)
-        combined_text = "\n".join(system_fragments + user_fragments)
-
-        assert "Custom instructions:" in combined_text
-        assert "Test custom instruction" in combined_text
-        assert f"Current time is {fixed_dt_str}." in combined_text
-        assert (
-            "Memory context:" not in combined_text
-        )  # Explicitly does not include memory
-
-
-def test_get_formatting_fragments_with_memory(test_config: Config) -> None:
-    """Test get_formatting_fragments correctly excludes memory."""
-    fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
-    test_config.set("system.custom_instructions", None)
-    test_config.set(
-        "memory.enabled", True
-    )  # This setting is for callers, not get_formatting_fragments
-
-    with patch("vibectl.prompts.shared.datetime") as mock_prompt_datetime:
-        mock_prompt_datetime.now.return_value = fixed_dt
-        # Mocking get_memory and is_memory_enabled is not needed here as
-        # get_formatting_fragments is documented to exclude memory.
-        system_fragments, user_fragments = get_formatting_fragments(test_config)
-        combined_text = "\n".join(system_fragments + user_fragments)
-
-        assert (
-            "Memory context:" not in combined_text
-        )  # Verify memory is NOT included by this function
 
 
 # Semantic requirements that all prompts must meet
@@ -166,11 +83,8 @@ def test_prompt_semantic_requirements(
 ) -> None:
     """Test semantic requirements for various prompt functions.
 
-    These functions primarily use create_summary_prompt, which in turn uses
-    get_formatting_fragments. So, they should return PromptFragments and
-    include base formatting and time.
-    port_forward_prompt takes an optional config and returns PromptFragments,
-    similar to other summarized prompts.
+    These functions use create_summary_prompt; they must include timestamp and
+    formatting guidance fragments injected by that helper.
     """
     # Mapping of function names to the actual imported functions
     prompt_functions = {
@@ -203,14 +117,10 @@ def test_prompt_semantic_requirements(
 
         combined_text = "\n".join(system_fragments + user_fragments)
 
-        # Formatting guidelines were removed when prompt builders migrated to
-        # build_context_fragments; ensure timestamp remains instead of legacy
-        # 'rich.Console() markup syntax' line.
+        # Summary prompts include standard formatting guidance.
         assert f"Current time is {fixed_dt_str}." in combined_text
-        assert 100 < len(combined_text) < 3000  # Reasonable size limits
-        # Memory context should NOT be here unless the specific prompt adds it,
-        # or its test explicitly sets it up and calls a higher-level assembler.
-        # create_summary_prompt relies on its caller for memory.
+        assert "rich.Console() markup syntax" in combined_text
+        assert 100 < len(combined_text) < 5000  # updated upper bound
         assert "Memory context:" not in combined_text
 
 
@@ -499,9 +409,6 @@ def test_recovery_prompt(test_config: Config) -> None:  # Added test_config
 
 def test_vibe_autonomous_prompt(test_config: Config) -> None:
     """Verify the structure of the vibe autonomous prompt."""
-    # vibe_autonomous_prompt uses get_formatting_fragments, which includes time.
-    # It does NOT include memory from get_formatting_fragments; it would need to add it.
-    # The user fragment for {output} is added by vibe_autonomous_prompt itself.
     fixed_dt = datetime.datetime(2024, 3, 20, 10, 30, 45)
     fixed_dt_str = fixed_dt.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -528,12 +435,8 @@ def test_vibe_autonomous_prompt(test_config: Config) -> None:
     combined_text = "\n".join(system_fragments + user_fragments)
 
     assert "Analyze this kubectl command output" in combined_text
-    assert (
-        f"Current time is {fixed_dt_str}." in combined_text
-    )  # From get_formatting_fragments
-    assert (
-        "Memory context:" not in combined_text
-    )  # As get_formatting_fragments excludes it
+    assert f"Current time is {fixed_dt_str}." in combined_text
+    assert "Memory context:" not in combined_text
     assert "{output}" in combined_text
 
 
@@ -594,9 +497,7 @@ def test_wait_resource_prompt(
     combined_text = "\n".join(system_fragments + user_fragments)
     assert "Summarize this kubectl wait output" in combined_text
     assert "whether resources met their conditions" in combined_text
-    assert (
-        f"Current time is {fixed_dt_str}." in combined_text
-    )  # From get_formatting_fragments
+    assert f"Current time is {fixed_dt_str}." in combined_text
     assert "{output}" in combined_text
 
 

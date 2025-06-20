@@ -955,15 +955,89 @@ async def _vibe_summary_result(
     cfg = Config()
     current_memory_text = get_memory(cfg)
 
-    summary_system_fragments, summary_user_fragments = summary_prompt_func(
-        cfg,
-        current_memory_text,
-    )
+    # ------------------------------------------------------------------
+    # Temporary compatibility scaffold - REMOVE once all summary prompt
+    # functions are migrated to the new 3-arg signature.
+    # ------------------------------------------------------------------
+    # We would like to know whether *summary_prompt_func* supports the new
+    # optional ``presentation_hints`` parameter **without calling it twice**
+    # (double-invocation breaks MagicMock based tests).
+    #
+    # Strategy:
+    # 1.  Start with the supplied callable; if it is a *wrapper* created by
+    #     ``functools.wraps`` (e.g. via the @with_summary_prompt_override
+    #     decorator) then follow the ``__wrapped__`` chain via
+    #     ``inspect.unwrap`` to reach the real underlying implementation.
+    # 2.  If that underlying implementation is a *Mock/MagicMock* we **do not**
+    #     attempt signature inspection - such mocks declare a catch-all
+    #     signature which is not helpful.  We instead fall back to the legacy
+    #     two-argument call path expected by existing unit tests.
+    # 3.  Otherwise we inspect the signature to see if it explicitly declares a
+    #     ``presentation_hints`` parameter *or* has at least three positional
+    #     parameters.
+    # ------------------------------------------------------------------
 
-    if presentation_hints and presentation_hints.strip():
-        summary_system_fragments.append(
-            Fragment(f"Presentation hints:\n{presentation_hints}")
+    import inspect
+    from unittest.mock import Mock  # Only used for isinstance check.
+
+    target_callable = summary_prompt_func
+
+    # If summary_prompt_func is itself a MagicMock but with a real side_effect
+    # (common in tests), inspect that side_effect instead.
+    if hasattr(summary_prompt_func, "side_effect") and callable(  # type: ignore[attr-defined]
+        summary_prompt_func.side_effect
+    ):
+        target_callable = summary_prompt_func.side_effect  # type: ignore[attr-defined]
+
+    # Unwrap decorators (e.g., @functools.wraps) to reach the original func.
+    real_callable = inspect.unwrap(target_callable)  # type: ignore[arg-type]
+
+    # Default assumption - legacy signature.
+    accepts_hints = False
+
+    # Skip signature inspection for mocks (their signature is misleading).
+    if not isinstance(real_callable, Mock):
+        try:
+            sig = inspect.signature(real_callable)
+
+            params = sig.parameters
+            accepts_hints = (
+                "presentation_hints" in params
+                or len(
+                    [
+                        p
+                        for p in params.values()
+                        if p.kind
+                        in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        )
+                    ]
+                )
+                >= 3
+            )
+        except (TypeError, ValueError):
+            # When introspection fails (e.g., built-ins) keep default.
+            pass
+
+    if accepts_hints:
+        summary_system_fragments, summary_user_fragments = summary_prompt_func(
+            cfg,
+            current_memory_text,
+            presentation_hints,  # type: ignore[call-arg]
         )
+    else:
+        summary_system_fragments, summary_user_fragments = summary_prompt_func(
+            cfg,
+            current_memory_text,
+        )
+
+        # Manually append presentation hints if provided and the function did
+        # not explicitly accept them.
+        if presentation_hints and presentation_hints.strip():
+            summary_system_fragments.append(
+                Fragment(f"Presentation hints:\n{presentation_hints}")
+            )
 
     vibe_result = await _process_vibe_output(
         output_message=output_message,

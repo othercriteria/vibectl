@@ -6,10 +6,6 @@ instructions, optional presentation hints produced by planners, and a current
 timestamp.  Putting this logic in one place avoids subtle discrepancies between
 prompt builders and makes it easy to evolve the context over time (e.g. adding
 extra fragments).
-
-The helper deliberately **does not** inject formatting instructions.  Those
-belong in :pymod:`vibectl.prompts.shared.get_formatting_fragments` which deals
-with stylistic guidance rather than contextual information.
 """
 
 from __future__ import annotations

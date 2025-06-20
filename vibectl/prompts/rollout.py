@@ -96,12 +96,14 @@ def rollout_plan_prompt(
 def rollout_status_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout status output.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -119,6 +121,7 @@ def rollout_status_prompt(
         ],
         config=cfg,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )
 
 
@@ -126,12 +129,14 @@ def rollout_status_prompt(
 def rollout_history_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout history output.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -152,6 +157,7 @@ def rollout_history_prompt(
         ],
         config=cfg,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )
 
 
@@ -159,12 +165,14 @@ def rollout_history_prompt(
 def rollout_general_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl rollout output.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -181,4 +189,5 @@ def rollout_general_prompt(
         ],
         config=cfg,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )
