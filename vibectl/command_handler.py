@@ -518,7 +518,9 @@ def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> 
             # When there is a request, show the request
             request = parts[1].strip()
             console_manager.print_processing(f"Planning how to: {request}")
-    # Skip other cases as they're now handled in _process_and_execute_kubectl_command
+    else:
+        # For all other commands, display the kubectl command
+        console_manager.print_processing(f"kubectl {command}")
 
 
 def _check_output_visibility(output_flags: OutputFlags) -> None:
@@ -585,9 +587,16 @@ async def _process_vibe_output(
         metrics: LLMMetrics | None = None
 
         if should_stream_live:
+            # TODO: Sanitization warnings currently print during request creation,
+            # which interferes with the live streaming display. Ideally, we should
+            # print sanitization warnings before starting the live display, but this
+            # requires restructuring sanitization flow to avoid duplicate processing.
+            # For now, we defer metrics printing which fixes the main display issue.
             logger.info("Streaming Vibe output live...")
             console_manager.start_live_vibe_panel()
             full_vibe_response_text = ""
+            stored_stream_metrics = None
+            stored_stream_source = ""
             try:
                 # Use streaming with metrics instead of plain streaming
                 (
@@ -602,28 +611,30 @@ async def _process_vibe_output(
                 async for chunk in stream_iterator:
                     console_manager.update_live_vibe_panel(chunk)
                     full_vibe_response_text += chunk
+
                 vibe_output_text = full_vibe_response_text
 
                 # Get the final metrics after streaming is complete
                 final_stream_metrics = await stream_metrics_collector.get_metrics()
 
-                # Accumulate streaming metrics if available
+                # Store streaming metrics but don't print during live display
+                stored_stream_metrics = final_stream_metrics
+                stored_stream_source = "LLM Vibe Summary (Streaming)"
+            finally:
+                # stop_live_vibe_panel returns the accumulated content
+                final_accumulated_content = console_manager.stop_live_vibe_panel()
+                # Display the final content with proper Rich markup rendering
+                # Always call print_vibe after streaming to show the final result,
+                # even if empty
+                console_manager.print_vibe(final_accumulated_content, use_panel=True)
+                # Now add and print the metrics after live display is stopped
                 if (
                     llm_metrics_accumulator is not None
-                    and final_stream_metrics is not None
+                    and stored_stream_metrics is not None
                 ):
                     llm_metrics_accumulator.add_metrics(
-                        final_stream_metrics, "LLM Vibe Summary (Streaming)"
+                        stored_stream_metrics, stored_stream_source
                     )
-            finally:
-                # stop_live_vibe_panel will display the final accumulated content
-                # in the panel
-                console_manager.stop_live_vibe_panel()
-            # vibe_output_text is already set, metrics is None for streaming path
-            # Explicitly print the final panel if streaming occurred and Vibe should
-            # be shown
-            if output_flags.show_vibe:
-                console_manager.print_vibe(vibe_output_text, use_panel=True)
 
         elif (
             not original_error_object and output_flags.show_vibe
@@ -840,12 +851,12 @@ def configure_output_flags(
     show_vibe: bool | None = None,
     model: str | None = None,
     show_kubectl: bool | None = None,
-    show_metrics: MetricsDisplayMode
-    | None = None,  # Only support MetricsDisplayMode now
+    show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> OutputFlags:
     """Configure OutputFlags with the given parameters."""
     # Use OutputFlags.from_args which handles all the config logic
+
     return OutputFlags.from_args(
         model=model,
         show_raw_output=show_raw_output,

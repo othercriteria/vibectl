@@ -11,20 +11,15 @@ from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.logs import logs_plan_prompt, logs_prompt
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.types import Error, Result, Success
 
 
 async def run_logs_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: MetricsDisplayMode | None,
-    show_streaming: bool | None,
+    show_vibe: bool | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> Result:
     """
     Implements the 'logs' subcommand logic, including logging and error handling.
@@ -33,12 +28,7 @@ async def run_logs_command(
     logger.info(f"Invoking 'logs' subcommand with resource: {resource}, args: {args}")
     try:
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
         )
         configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -128,6 +118,7 @@ async def run_logs_command(
             output=result,  # Pass the entire Result object
             output_flags=output_flags,
             summary_prompt_func=logs_prompt,
+            command=f"logs {resource} {' '.join(args)}",
         )
         logger.info("Completed 'logs' subcommand for resource: %s", resource)
         return Success(message=f"Completed 'logs' subcommand for resource: {resource}")

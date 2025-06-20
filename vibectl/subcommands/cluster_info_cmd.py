@@ -1,46 +1,26 @@
 import asyncio
 
-from vibectl.command_handler import (
-    configure_output_flags,
-    handle_command_output,
-)
-from vibectl.config import Config
+from vibectl.command_handler import configure_output_flags, handle_command_output
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.cluster_info import cluster_info_plan_prompt, cluster_info_prompt
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.types import Error, Result, Success
 
 
 async def run_cluster_info_command(
     args: tuple,
-    show_raw_output: bool | None,
     show_vibe: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_kubectl: bool | None,
-    show_metrics: MetricsDisplayMode | None,
-    show_streaming: bool | None,
-    config: Config | None = None,
 ) -> Result:
-    """
-    Implements the 'cluster-info' subcommand logic, including logging and error
-    handling.
-    Returns a Result (Success or Error).
-    All config compatibility flags are accepted for future-proofing.
-    """
+    """Implements the 'cluster-info' subcommand logic."""
     logger.info(f"Invoking 'cluster-info' subcommand with args: {args}")
     try:
         # Configure output flags
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
         )
         # Configure memory flags (for consistency, even if not used)
         configure_memory_flags(freeze_memory, unfreeze_memory)

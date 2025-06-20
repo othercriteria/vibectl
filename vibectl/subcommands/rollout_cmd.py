@@ -18,7 +18,14 @@ from vibectl.prompts.rollout import (
     rollout_plan_prompt,
     rollout_status_prompt,
 )
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.types import (
+    Error,
+    ExecutionMode,
+    MetricsDisplayMode,
+    Result,
+    Success,
+    determine_execution_mode,
+)
 
 
 async def run_rollout_command(
@@ -31,7 +38,6 @@ async def run_rollout_command(
     model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    yes: bool,
     exit_on_error: bool = True,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
@@ -103,14 +109,18 @@ async def run_rollout_command(
         kubectl_subcmd, summary_prompt_func = rollout_map[subcommand]
 
         # Confirmation for undo
-        if kubectl_subcmd == "undo" and not yes:
-            confirmation_message = (
-                f"Are you sure you want to undo the rollout for {resource}?"
-            )
-            if not click.confirm(confirmation_message):
-                logger.info("Operation cancelled by user.")
-                console_manager.print_note("Operation cancelled")
-                return Success(message="Operation cancelled")
+        if kubectl_subcmd == "undo":
+            exec_mode = determine_execution_mode()
+
+            # Only prompt for confirmation in MANUAL or SEMIAUTO modes.
+            if exec_mode is not ExecutionMode.AUTO:
+                confirmation_message = (
+                    f"Are you sure you want to undo the rollout for {resource}?"
+                )
+                if not click.confirm(confirmation_message):
+                    logger.info("Operation cancelled by user.")
+                    console_manager.print_note("Operation cancelled")
+                    return Success(message="Operation cancelled")
 
         cmd = ["rollout", kubectl_subcmd, resource, *args]
         logger.info(f"Running kubectl command: {' '.join(cmd)}")

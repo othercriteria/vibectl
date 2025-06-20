@@ -415,10 +415,3 @@ async def test_get_vibe_missing_request(
     with pytest.raises(SystemExit) as exc_info:
         await cmd_obj.main(["vibe"])
     assert exc_info.value.code != 0
-
-
-# Remove redundant test covered by test_get_standard_command_error_propagation
-# test_run_get_command_propagates_handler_error
-
-# Remove redundant test covered by test_cli_get_vibe_no_request
-# test_run_get_command_vibe_no_args

@@ -44,15 +44,9 @@ async def test_run_check_command_success(
 
     result: Result = await run_check_command(
         predicate=predicate,
-        show_raw_output=False,
         show_vibe=True,
-        show_kubectl=False,
-        model="test-model",
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.NONE,
-        yes=False,
-        show_streaming=True,
     )
 
     assert result == expected_result
@@ -98,15 +92,9 @@ async def test_run_check_command_error_from_vibe(
 
     result: Result = await run_check_command(
         predicate=predicate,
-        show_raw_output=False,
         show_vibe=False,
-        show_kubectl=False,
-        model=None,
         freeze_memory=True,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        yes=False,
-        show_streaming=True,
     )
 
     assert result == expected_error
@@ -126,15 +114,9 @@ async def test_run_check_command_empty_predicate() -> None:
 
         result: Result = await run_check_command(
             predicate="",
-            show_raw_output=False,
             show_vibe=False,
-            show_kubectl=False,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
-            yes=False,
-            show_streaming=True,
         )
 
     assert isinstance(result, Error)
@@ -194,12 +176,7 @@ async def test_check_command_cli_exit_code_propagation(
     predicate_text = "is the cluster super healthy?"
 
     # Execute the CLI command
-    # The --model flag here is somewhat arbitrary since
-    # the LLM call is deeply mocked by the return_value setup above.
-    # However, it's good practice to keep it if the command expects it.
-    cli_result = await runner.invoke(
-        cli, ["check", predicate_text, "--model", "test-model-check"]
-    )
+    cli_result = await runner.invoke(cli, ["check", predicate_text])
 
     # Assertions
     # Check that our mock for vibectl.cli.run_check_command was called once.

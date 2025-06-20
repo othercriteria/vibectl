@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **Client-side Proxy Security Hardening (V1)**
+  • Named proxy profiles with per-profile security settings (sanitize requests, audit logging, confirmation modes)
+  • Request sanitization framework detecting Kubernetes secrets, Base-64 blobs, and PEM certificates with redaction and confidence scoring
+  • Structured audit logging with per-profile log files and new CLI commands:
+    – `vibectl audit show`, `export`, `info`
+  • Root-level `--proxy` / `--no-proxy` flags and confirmation-flow groundwork (`is_destructive_kubectl_command`, `should_confirm_action`)
+  • 100 % test coverage for sanitizer and audit logger; extensive coverage for proxy workflow
+- **Documentation**
+  • New `docs/proxy-client-security.md` – companion to `docs/llm-proxy-server.md` covering all V1 client-side security features
+  • `PLANNED_CHANGES.md` trimmed to track only remaining V1 validation tasks and post-V1 roadmap
+
+### Changed
+- **Proxy Configuration Migration**: Removed legacy proxy configuration format in favor of named profiles
+  - Eliminated legacy `proxy.enabled`, `proxy.server_url` flat configuration keys
+  - All proxy configuration now uses profile-based system for consistency and security
+  - Updated `ProxyModelAdapter` to use profile-based JWT token and CA bundle resolution
+  - Updated setup-proxy commands to work exclusively with named profiles
+- **Configuration System**: Enhanced profile management capabilities
+  - Added `get_effective_proxy_config()`, `list_proxy_profiles()`, `set_active_proxy_profile()` methods
+  - Profile-based CA bundle and JWT token path resolution
+  - Improved proxy status display with profile information and security settings
+  - **CLI Options Cleanup**: Removed obsolete `--ca-bundle` root option; certificate bundle is now determined via proxy profile configuration.
+
+### Fixed
+- **Rich Streaming Display Issues**: Fixed multiple display rendering bugs in the live streaming vibe panel system
+  - Fixed duplicate "top of the box" artifact where initial "(streaming...)" panel appeared alongside final result
+  - Fixed missing Rich markup rendering in final display - `[bold]`, `[green]`, etc. are now properly rendered instead of shown as raw text
+  - Improved Live display initialization to prevent premature rendering during stream setup
+  - Enhanced test coverage with proper mock configurations for streaming scenarios
+- Configuration system bug where string "none" was incorrectly converted to None value
+  - Removed magic string-to-None conversion that caused validation errors
+  - String "none" is now treated as a literal string value for config fields
+  - Added helpful error messages suggesting `vibectl config unset` for clearing values
+  - Improved user experience with clearer validation messages
+- ProxyModelAdapter JWT token and CA bundle resolution bugs
+  - Fixed missing method errors in proxy adapter when using profile-based configuration
+  - Updated token resolution to use new profile-based configuration system
+  - Enhanced connection testing with proper CA bundle and JWT token handling
+  - Prevented tests and runtime code from creating `./.well-known/` directories by relocating the default ACME HTTP-01 challenge directory to `~/.config/vibectl/server/acme-challenges/` and updating tests accordingly.
+  - Resolved linter warning about mutable default values in `vibectl/overrides.py`.
+
+### Removed
+- Legacy proxy configuration format support
+  - Removed `proxy.enabled`, `proxy.server_url` and related flat configuration keys
+  - Cleaned up legacy configuration handling code for simpler, more secure profile system
+  - Updated tests to use new profile-based configuration exclusively
+
 ## [0.11.0] - 2025-06-17
 
 ### Added

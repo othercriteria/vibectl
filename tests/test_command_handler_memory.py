@@ -21,6 +21,7 @@ from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import ActionType, CommandAction, ErrorAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
+    ExecutionMode,
     Fragment,
     LLMMetrics,
     MetricsDisplayMode,
@@ -632,7 +633,7 @@ async def test_handle_vibe_request_error_recovery_flow(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=mock_test_summary_fragments,
             output_flags=output_flags,
-            yes=True,
+            execution_mode=ExecutionMode.AUTO,
         )
 
         # --- Assertions ---
@@ -732,7 +733,7 @@ async def test_handle_vibe_request_includes_memory_context(
             plan_prompt_func=mock_plan_fragments_func,  # Pass the direct mock
             summary_prompt_func=mock_test_summary_fragments,
             output_flags=output_flags,
-            yes=True,
+            execution_mode=ExecutionMode.AUTO,
         )
 
     # Verify that the mock_plan_fragments_func was called by handle_vibe_request

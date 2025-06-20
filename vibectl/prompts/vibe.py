@@ -6,8 +6,6 @@ This module contains prompts for:
 - Vibe command output summarization
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from vibectl.config import Config

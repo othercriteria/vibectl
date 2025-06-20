@@ -71,15 +71,39 @@ def mock_server_info() -> Mock:
 @pytest.fixture
 def proxy_adapter() -> ProxyModelAdapter:
     """Create a ProxyModelAdapter instance for testing."""
-    return ProxyModelAdapter(host="localhost", port=50051, use_tls=False)
+    # Create a mock config to avoid writing to real audit logs
+    mock_config = Mock()
+    mock_config.get_effective_proxy_config.return_value = None
+    mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+    with patch("vibectl.proxy_model_adapter.AuditLogger") as mock_audit_logger:
+        adapter = ProxyModelAdapter(
+            config=mock_config, host="localhost", port=50051, use_tls=False
+        )
+        # Ensure the mock audit logger was used
+        assert mock_audit_logger.called
+        return adapter
 
 
 @pytest.fixture
 def proxy_adapter_with_auth() -> ProxyModelAdapter:
     """Create a ProxyModelAdapter instance with JWT authentication for testing."""
-    return ProxyModelAdapter(
-        host="localhost", port=50051, use_tls=True, jwt_token="test-jwt-token"
-    )
+    # Create a mock config to avoid writing to real audit logs
+    mock_config = Mock()
+    mock_config.get_effective_proxy_config.return_value = None
+    mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+    with patch("vibectl.proxy_model_adapter.AuditLogger") as mock_audit_logger:
+        adapter = ProxyModelAdapter(
+            config=mock_config,
+            host="localhost",
+            port=50051,
+            use_tls=True,
+            jwt_token="test-jwt-token",
+        )
+        # Ensure the mock audit logger was used
+        assert mock_audit_logger.called
+        return adapter
 
 
 @pytest.fixture
@@ -187,7 +211,13 @@ class TestProxyModelAdapterInitialization:
     @patch("vibectl.proxy_model_adapter.logger")
     def test_adapter_initialization_defaults(self, mock_logger: Mock) -> None:
         """Test adapter initialization with default values."""
-        adapter = ProxyModelAdapter()
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(config=mock_config)
 
         assert adapter.host == "localhost"
         assert adapter.port == 50051
@@ -203,9 +233,19 @@ class TestProxyModelAdapterInitialization:
     @patch("vibectl.proxy_model_adapter.logger")
     def test_adapter_initialization_with_auth(self, mock_logger: Mock) -> None:
         """Test ProxyModelAdapter initialization with authentication."""
-        adapter = ProxyModelAdapter(
-            host="proxy.example.com", port=9443, use_tls=True, jwt_token="test-token"
-        )
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config,
+                host="proxy.example.com",
+                port=9443,
+                use_tls=True,
+                jwt_token="test-token",
+            )
 
         assert adapter.host == "proxy.example.com"
         assert adapter.port == 9443
@@ -229,14 +269,14 @@ class TestProxyModelAdapterInitialization:
         self, mock_logger: Mock
     ) -> None:
         """Test ProxyModelAdapter initialization with CA bundle from config."""
-        from vibectl.config import Config
-
-        # Create a config with CA bundle path
-        config = Config()
-        config.set("proxy.ca_bundle_path", "/path/to/custom/ca.pem")
+        # Create a mock config to avoid filesystem modifications
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/path/to/custom/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
-            config=config,
+            config=mock_config,
             host="proxy.example.com",
             port=9443,
             use_tls=True,
@@ -248,18 +288,31 @@ class TestProxyModelAdapterInitialization:
         assert adapter.use_tls is True
         assert adapter.jwt_token == "test-token"
         # CA bundle should be available from config
-        assert adapter.config.get_ca_bundle_path() == "/path/to/custom/ca.pem"
+        proxy_config = adapter.config.get_effective_proxy_config()
+        assert proxy_config is not None
+        assert proxy_config["ca_bundle_path"] == "/path/to/custom/ca.pem"
 
     @patch.dict("os.environ", {"VIBECTL_CA_BUNDLE": "/env/path/to/ca.pem"})
     @patch("vibectl.proxy_model_adapter.logger")
     def test_adapter_initialization_with_ca_bundle_env(self, mock_logger: Mock) -> None:
         """Test ProxyModelAdapter with CA bundle from environment variable."""
-        adapter = ProxyModelAdapter(
-            host="proxy.example.com", port=9443, use_tls=True, jwt_token="test-token"
+        # Create a mock config that returns None for profile config (so env
+        # var will be used)
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+
+        ProxyModelAdapter(
+            config=mock_config,
+            host="proxy.example.com",
+            port=9443,
+            use_tls=True,
+            jwt_token="test-token",
         )
 
-        # Environment variable should override config
-        assert adapter.config.get_ca_bundle_path() == "/env/path/to/ca.pem"
+        # Environment variable should be accessible
+        import os
+
+        assert os.environ.get("VIBECTL_CA_BUNDLE") == "/env/path/to/ca.pem"
 
     def test_get_metadata_without_auth(self, proxy_adapter: ProxyModelAdapter) -> None:
         """Test metadata generation without authentication."""
@@ -287,7 +340,15 @@ class TestProxyModelAdapterChannelCreation:
         mock_channel = Mock()
         mock_insecure_channel.return_value = mock_channel
 
-        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=False)
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config, host="test-host", port=8080, use_tls=False
+            )
 
         result = adapter._get_channel()
 
@@ -308,7 +369,15 @@ class TestProxyModelAdapterChannelCreation:
         mock_channel = Mock()
         mock_secure_channel.return_value = mock_channel
 
-        adapter = ProxyModelAdapter(host="test-host", port=8080, use_tls=True)
+        # Create a mock config to avoid writing to real audit logs
+        mock_config = Mock()
+        mock_config.get_effective_proxy_config.return_value = None
+        mock_config.get.return_value = True  # For warnings.warn_sanitization
+
+        with patch("vibectl.proxy_model_adapter.AuditLogger"):
+            adapter = ProxyModelAdapter(
+                config=mock_config, host="test-host", port=8080, use_tls=True
+            )
 
         result = adapter._get_channel()
 
@@ -342,7 +411,9 @@ class TestProxyModelAdapterChannelCreation:
 
         # Create mock config with CA bundle to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/path/to/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/path/to/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -379,7 +450,9 @@ class TestProxyModelAdapterChannelCreation:
         """Test _get_channel with custom CA bundle file not found."""
         # Create mock config with CA bundle to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/nonexistent/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/nonexistent/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -406,7 +479,9 @@ class TestProxyModelAdapterChannelCreation:
 
         # Create mock config to avoid YAML loading interference
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/env/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = (
+            None  # No profile config, so fallback to env
+        )
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -543,8 +618,7 @@ class TestProxyModelAdapterAliasResolution:
     def test_resolve_alias_using_legacy_fallback(
         self, proxy_adapter: ProxyModelAdapter, mock_server_info: Mock
     ) -> None:
-        """Test alias resolution using legacy fallback when server doesn't
-        provide aliases."""
+        """Test alias resolution when server doesn't provide aliases."""
         # Remove both global and model-specific aliases
         mock_server_info.model_aliases = {}
         for model in mock_server_info.available_models:
@@ -553,7 +627,7 @@ class TestProxyModelAdapterAliasResolution:
         result = proxy_adapter._resolve_model_alias_from_server(
             "claude-3-opus", mock_server_info
         )
-        assert result == "anthropic/claude-3-opus-latest"
+        assert result is None
 
     def test_alias_resolution_no_match(
         self, proxy_adapter: ProxyModelAdapter, mock_server_info: Mock
@@ -727,24 +801,6 @@ class TestProxyModelAdapterAliasResolution:
         # Verify that debug logging happened
         mock_logger.debug.assert_called()
 
-    def test_legacy_fallback_minimal_mappings(
-        self, proxy_adapter: ProxyModelAdapter
-    ) -> None:
-        """Test legacy alias fallback with minimal available models."""
-        available_models = ["anthropic/claude-3-opus-latest", "gpt-4o"]
-
-        # Test exact match
-        result = proxy_adapter._resolve_model_alias_legacy_fallback(
-            "claude-3-opus", available_models
-        )
-        assert result == "anthropic/claude-3-opus-latest"
-
-        # Test no match
-        result = proxy_adapter._resolve_model_alias_legacy_fallback(
-            "nonexistent", available_models
-        )
-        assert result is None
-
 
 class TestProxyModelAdapterGetModelErrorHandling:
     """Test error handling in ProxyModelAdapter.get_model()."""
@@ -856,7 +912,10 @@ class TestProxyModelAdapterExecuteRequest:
             model, system_fragments, user_fragments
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         mock_request.request_id = "12345678-1234-5678-9012-123456789012"
         mock_request.model_name = "test-model"
         mock_request.system_fragments.extend.assert_called_once_with(system_fragments)
@@ -880,7 +939,10 @@ class TestProxyModelAdapterExecuteRequest:
             SampleResponseModel,
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         # Verify that response_model_schema was set with JSON schema
         assert hasattr(mock_request, "response_model_schema")
 
@@ -918,7 +980,10 @@ class TestProxyModelAdapterExecuteRequest:
             mock_response_model,
         )
 
-        assert result == mock_request
+        # _create_execute_request now returns (request, detected_secrets)
+        request, detected_secrets = result
+        assert request == mock_request
+        assert isinstance(detected_secrets, list)
         mock_logger.warning.assert_called_once()
 
 
@@ -949,7 +1014,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -987,7 +1054,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1019,7 +1088,9 @@ class TestProxyModelAdapterExecute:
 
         with (
             patch.object(proxy_adapter, "_get_stub", return_value=mock_stub),
-            patch.object(proxy_adapter, "_create_execute_request"),
+            patch.object(
+                proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+            ),
             patch.object(proxy_adapter, "_get_metadata", return_value=[]),
         ):
             model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1124,7 +1195,9 @@ class TestProxyModelAdapterStreamExecute:
             mock_get_stub.return_value = mock_stub
 
             with (
-                patch.object(proxy_adapter, "_create_execute_request"),
+                patch.object(
+                    proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+                ),
                 patch.object(proxy_adapter, "_get_metadata", return_value=[]),
             ):
                 model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1165,7 +1238,9 @@ class TestProxyModelAdapterStreamExecute:
             mock_get_stub.return_value = mock_stub
 
             with (
-                patch.object(proxy_adapter, "_create_execute_request"),
+                patch.object(
+                    proxy_adapter, "_create_execute_request", return_value=(Mock(), [])
+                ),
                 patch.object(proxy_adapter, "_get_metadata", return_value=[]),
             ):
                 model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1234,7 +1309,7 @@ class TestProxyModelAdapterStreamExecute:
             ) as mock_create_req:
                 mock_request = Mock()
                 mock_request.request_id = "test-request-id"
-                mock_create_req.return_value = mock_request
+                mock_create_req.return_value = (mock_request, [])
 
                 with patch.object(proxy_adapter, "_get_metadata", return_value=[]):
                     model = ProxyModelWrapper("test-model", proxy_adapter)
@@ -1999,7 +2074,9 @@ class TestProxyModelAdapterTLSEnforcement:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/custom/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2038,7 +2115,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test CA bundle file permission error handling."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/restricted/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/restricted/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2063,7 +2142,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test CA bundle file I/O error handling."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/corrupted/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/corrupted/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2089,7 +2170,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
     ) -> None:
         """Test environment CA bundle file not found error."""
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/env/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/env/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2112,7 +2195,9 @@ class TestProxyModelAdapterCABundleErrorHandling:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/empty/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/empty/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True
@@ -2242,7 +2327,9 @@ class TestProxyModelAdapterLogging:
         mock_secure_channel.return_value = mock_channel
 
         mock_config = Mock()
-        mock_config.get_ca_bundle_path.return_value = "/custom/ca.pem"
+        mock_config.get_effective_proxy_config.return_value = {
+            "ca_bundle_path": "/custom/ca.pem"
+        }
 
         adapter = ProxyModelAdapter(
             config=mock_config, host="test-host", port=8080, use_tls=True

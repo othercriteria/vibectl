@@ -8,9 +8,11 @@ delegation of LLM calls to a centralized service.
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import grpc
@@ -23,6 +25,7 @@ from .config import Config
 from .logutil import logger
 from .model_adapter import ModelAdapter, StreamingMetricsCollector
 from .proto import llm_proxy_pb2, llm_proxy_pb2_grpc
+from .security import AuditLogger, DetectedSecret, RequestSanitizer, SecurityConfig
 from .types import LLMMetrics, SystemFragments, UserFragments
 
 
@@ -88,9 +91,66 @@ class ProxyModelAdapter(ModelAdapter):
         self.config = config or Config()
         self.host = host
         self.port = port
-        # JWT token precedence: explicit parameter > config resolution
-        self.jwt_token = jwt_token or self.config.get_jwt_token()
+        # JWT token precedence: explicit parameter > profile config resolution
+        self.jwt_token: str | None = None
+        if jwt_token:
+            self.jwt_token = jwt_token
+        else:
+            # Get JWT token from active proxy profile
+            profile_config = self.config.get_effective_proxy_config()
+            if profile_config and profile_config.get("jwt_path"):
+                try:
+                    jwt_path = Path(profile_config["jwt_path"]).expanduser()
+                    if jwt_path.exists() and jwt_path.is_file():
+                        self.jwt_token = jwt_path.read_text().strip()
+                    else:
+                        logger.warning(
+                            f"JWT file not found: {profile_config['jwt_path']}"
+                        )
+                        self.jwt_token = None
+                except Exception as e:
+                    logger.warning(f"Failed to read JWT file: {e}")
+                    self.jwt_token = None
+            else:
+                # Fall back to environment variable
+                self.jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
         self.use_tls = use_tls
+
+        # Initialize sanitizer with security config from profile
+        security_config = None
+        profile_config = self.config.get_effective_proxy_config()
+        if profile_config and profile_config.get("security"):
+            # Start with profile-specific security config
+            security_dict = profile_config["security"].copy()
+
+            # If warn_sanitization is not set in profile, use global setting
+            if "warn_sanitization" not in security_dict:
+                global_warn_sanitization = self.config.get(
+                    "warnings.warn_sanitization", True
+                )
+                security_dict["warn_sanitization"] = global_warn_sanitization
+
+            security_config = SecurityConfig.from_dict(security_dict)
+        else:
+            # No profile security config, use global warnings setting
+            global_warn_sanitization = self.config.get(
+                "warnings.warn_sanitization", True
+            )
+            security_config = SecurityConfig(warn_sanitization=global_warn_sanitization)
+
+        self.sanitizer = RequestSanitizer(security_config)
+
+        # Initialize audit logger with security config and active profile name
+        profile_name = None
+        profile_config = self.config.get_effective_proxy_config()
+        if profile_config:
+            # Get the active profile name
+            active_profile = self.config.get("proxy.active")
+            if active_profile:
+                profile_name = active_profile
+
+        self.audit_logger = AuditLogger(security_config, proxy_profile=profile_name)
+
         self.channel: grpc.Channel | None = None
         self.stub: llm_proxy_pb2_grpc.VibectlLLMProxyStub | None = None
         self._model_cache: dict[str, ProxyModelWrapper] = {}
@@ -112,8 +172,14 @@ class ProxyModelAdapter(ModelAdapter):
             target = f"{self.host}:{self.port}"
 
             if self.use_tls:
-                # Get CA bundle path from config/environment
-                ca_bundle_path = self.config.get_ca_bundle_path()
+                # Get CA bundle path from profile config or environment
+                ca_bundle_path = None
+                profile_config = self.config.get_effective_proxy_config()
+                if profile_config and profile_config.get("ca_bundle_path"):
+                    ca_bundle_path = profile_config["ca_bundle_path"]
+                else:
+                    # Fall back to environment variable
+                    ca_bundle_path = os.environ.get("VIBECTL_CA_BUNDLE")
 
                 if ca_bundle_path:
                     # Custom CA bundle TLS
@@ -386,57 +452,7 @@ class ProxyModelAdapter(ModelAdapter):
                 )
                 return str(model_info.model_id)  # Explicitly cast to str
 
-        # Third, try legacy fallback for backward compatibility
-        # This ensures existing clients continue to work if server doesn't
-        # have aliases configured yet
-        legacy_result = self._resolve_model_alias_legacy_fallback(
-            alias, available_models
-        )
-        if legacy_result is not None:
-            logger.debug(
-                "Resolved alias '%s' to '%s' using legacy fallback",
-                alias,
-                legacy_result,
-            )
-            return legacy_result
-
         logger.debug("No alias resolution found for '%s'", alias)
-        return None
-
-    def _resolve_model_alias_legacy_fallback(
-        self, alias: str, available_models: list[str]
-    ) -> str | None:
-        """Legacy fallback alias resolution for backward compatibility.
-
-        This method provides basic alias resolution when the server
-        doesn't have aliases configured yet. Should be removed once
-        all servers are updated with proper alias configuration.
-
-        Args:
-            alias: The alias to resolve
-            available_models: List of model names available on the server
-
-        Returns:
-            The resolved model name, or None if no match found
-        """
-        # Minimal fallback mappings for common aliases
-        fallback_mappings = {
-            # Claude models - most common aliases only
-            "claude-4-sonnet": "anthropic/claude-sonnet-4-0",
-            "claude-3.5-sonnet": "anthropic/claude-3-5-sonnet-latest",
-            "claude-3-opus": "anthropic/claude-3-opus-latest",
-        }
-
-        if alias in fallback_mappings:
-            mapped_name = fallback_mappings[alias]
-            if mapped_name in available_models:
-                logger.debug(
-                    "Resolved alias '%s' to '%s' using legacy fallback",
-                    alias,
-                    mapped_name,
-                )
-                return mapped_name
-
         return None
 
     def _convert_metrics(self, pb_metrics: Any) -> LLMMetrics | None:
@@ -463,8 +479,12 @@ class ProxyModelAdapter(ModelAdapter):
         system_fragments: SystemFragments,
         user_fragments: UserFragments,
         response_model: type[BaseModel] | None = None,
-    ) -> Any:  # type: ignore[misc]  # Protobuf type not available at type check time
-        """Create an ExecuteRequest protobuf message."""
+    ) -> tuple[Any, list["DetectedSecret"]]:  # type: ignore[misc]  # Protobuf type not available at type check time
+        """Create an ExecuteRequest protobuf message.
+
+        Returns:
+            tuple[ExecuteRequest, list[DetectedSecret]]
+        """
         if not isinstance(model, ProxyModelWrapper):
             raise ValueError(f"Expected ProxyModelWrapper, got {type(model)}")
 
@@ -472,11 +492,57 @@ class ProxyModelAdapter(ModelAdapter):
         request.request_id = str(uuid.uuid4())
         request.model_name = model.model_name
 
-        # Convert fragments to strings
-        if system_fragments:
-            request.system_fragments.extend(system_fragments)
-        if user_fragments:
-            request.user_fragments.extend(user_fragments)
+        # Track all detected secrets across fragments
+        all_detected_secrets: list[DetectedSecret] = []
+
+        # Sanitize fragments before adding to request if sanitization is enabled
+        if self.sanitizer.enabled:
+            # Sanitize system fragments
+            sanitized_system_fragments = []
+            if system_fragments:
+                for fragment in system_fragments:
+                    sanitized_fragment, detected_secrets = (
+                        self.sanitizer.sanitize_request(fragment)
+                    )
+                    if detected_secrets:
+                        all_detected_secrets.extend(detected_secrets)
+                        logger.info(
+                            f"Detected {len(detected_secrets)} secrets in system "
+                            "fragment"
+                        )
+                        for secret in detected_secrets:
+                            logger.debug(
+                                f"Detected secret type: {secret.secret_type} "
+                                f"(confidence: {secret.confidence:.2f})"
+                            )
+                    sanitized_system_fragments.append(sanitized_fragment)
+                request.system_fragments.extend(sanitized_system_fragments)
+
+            # Sanitize user fragments
+            sanitized_user_fragments = []
+            if user_fragments:
+                for fragment in user_fragments:
+                    sanitized_fragment, detected_secrets = (
+                        self.sanitizer.sanitize_request(fragment)
+                    )
+                    if detected_secrets:
+                        all_detected_secrets.extend(detected_secrets)
+                        logger.info(
+                            f"Detected {len(detected_secrets)} secrets in user fragment"
+                        )
+                        for secret in detected_secrets:
+                            logger.debug(
+                                f"Detected secret type: {secret.secret_type} "
+                                f"(confidence: {secret.confidence:.2f})"
+                            )
+                    sanitized_user_fragments.append(sanitized_fragment)
+                request.user_fragments.extend(sanitized_user_fragments)
+        else:
+            # No sanitization - add fragments directly
+            if system_fragments:
+                request.system_fragments.extend(system_fragments)
+            if user_fragments:
+                request.user_fragments.extend(user_fragments)
 
         # Add response model schema if provided
         if response_model is not None:
@@ -486,7 +552,7 @@ class ProxyModelAdapter(ModelAdapter):
             except Exception as e:
                 logger.warning("Failed to serialize response model schema: %s", e)
 
-        return request
+        return request, all_detected_secrets
 
     async def execute(
         self,
@@ -511,7 +577,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 
@@ -536,6 +602,23 @@ class ProxyModelAdapter(ModelAdapter):
                     response.request_id,
                     success.actual_model_used,
                 )
+
+                # Log the request/response to audit log
+                all_fragments: list[str] = []
+                if system_fragments:
+                    all_fragments.extend(system_fragments)
+                if user_fragments:
+                    all_fragments.extend(user_fragments)
+                request_content = " ".join(all_fragments)
+
+                self.audit_logger.log_llm_request(
+                    request_id=request.request_id,
+                    request_content=request_content,
+                    response_content=success.response_text,
+                    secrets_detected=detected_secrets,
+                    model_used=success.actual_model_used,
+                )
+
                 return success.response_text, metrics
             elif response.HasField("error"):
                 error = response.error
@@ -545,6 +628,24 @@ class ProxyModelAdapter(ModelAdapter):
                 if error.HasField("error_details"):
                     error_msg += f" - {error.error_details}"
                 logger.error("Request %s failed: %s", response.request_id, error_msg)
+
+                # Log the failed request to audit log
+                error_fragments: list[str] = []
+                if system_fragments:
+                    error_fragments.extend(system_fragments)
+                if user_fragments:
+                    error_fragments.extend(user_fragments)
+                request_content = " ".join(error_fragments)
+
+                self.audit_logger.log_llm_request(
+                    request_id=request.request_id,
+                    request_content=request_content,
+                    response_content=f"ERROR: {error_msg}",
+                    secrets_detected=detected_secrets,
+                    model_used=model.model_name,
+                    additional_metadata={"error": True, "error_code": error.error_code},
+                )
+
                 raise ValueError(error_msg)
             else:
                 raise ValueError("Invalid response from proxy server")
@@ -595,7 +696,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 
@@ -667,7 +768,7 @@ class ProxyModelAdapter(ModelAdapter):
         """
         try:
             stub = self._get_stub()
-            request = self._create_execute_request(
+            request, detected_secrets = self._create_execute_request(
                 model, system_fragments, user_fragments, response_model
             )
 

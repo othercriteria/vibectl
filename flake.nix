@@ -269,10 +269,9 @@
             if [ ! -f .venv/.dev-installed ]; then
               echo "Installing development dependencies (first-run only)..."
               pip install -e ".[dev]"
+              llm install llm-anthropic
               touch .venv/.dev-installed
             fi
-
-            # Anthropic plugin is already part of dev dependencies; skip re-installing each time
 
             # Show help for distribution tools
             echo ""

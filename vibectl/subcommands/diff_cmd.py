@@ -65,7 +65,6 @@ async def run_diff_command(
             plan_prompt_func=diff_plan_prompt,
             summary_prompt_func=diff_output_prompt,
             output_flags=output_flags,
-            yes=False,
         )
 
         if isinstance(result, Error):

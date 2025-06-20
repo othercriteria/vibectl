@@ -248,9 +248,7 @@ def convert_string_to_type(
     Raises:
         ValueError: If conversion fails
     """
-    # Always convert string "none" to Python None first
-    if value.lower() == "none":
-        return None
+    # Remove the magic "none" → None conversion - use `vibectl config unset` instead
 
     try:
         # Convert string to appropriate type

@@ -169,9 +169,9 @@ pypi-release: clean pypi-check pypi-build pypi-test pypi-upload  ## Run all chec
 grpc-gen: ## Generate gRPC Python stubs from proto definitions
 	@echo "Generating gRPC Python stubs..."
 	python -m grpc_tools.protoc \
-		--proto_path=vibectl/proto \
-		--python_out=vibectl/proto \
-		--grpc_python_out=vibectl/proto \
+		--python_out=. \
+		--grpc_python_out=. \
+		--proto_path=. \
 		vibectl/proto/llm_proxy.proto
 	@echo "gRPC stubs generated successfully"
 

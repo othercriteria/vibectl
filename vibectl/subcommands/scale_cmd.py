@@ -1,42 +1,27 @@
 import asyncio
 
-from vibectl.command_handler import (
-    configure_output_flags,
-    handle_command_output,
-)
-
-# Local imports
+from vibectl.command_handler import configure_output_flags, handle_command_output
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.k8s_utils import run_kubectl
 from vibectl.logutil import logger
+from vibectl.memory import configure_memory_flags
 from vibectl.prompts.scale import scale_plan_prompt, scale_resource_prompt
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.types import Error, Result, Success
 
 
 async def run_scale_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
     freeze_memory: bool,
     unfreeze_memory: bool,
-    show_metrics: MetricsDisplayMode | None,
-    show_streaming: bool | None,
 ) -> Result:
     """Executes the scale command logic."""
 
-    # Correct argument order and remove memory flags
     output_flags = configure_output_flags(
-        show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
-        show_kubectl=show_kubectl,
-        show_metrics=show_metrics,
-        show_streaming=show_streaming,
-        # freeze_memory and unfreeze_memory are handled separately
     )
+    configure_memory_flags(freeze_memory, unfreeze_memory)
 
     # Handle vibe request first if resource is 'vibe'
     if resource == "vibe":

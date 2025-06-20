@@ -177,7 +177,7 @@ class ConsoleManager:
         self._live_vibe_display = Live(
             live_panel, console=self.console, refresh_per_second=10, transient=True
         )
-        self._live_vibe_display.start(refresh=True)
+        self._live_vibe_display.start(refresh=False)
 
     def update_live_vibe_panel(self, chunk: str) -> None:
         """Update the content of the live Vibe panel with a new chunk of text."""
@@ -192,7 +192,7 @@ class ConsoleManager:
     def stop_live_vibe_panel(self) -> str:
         """Stop the live-updating Vibe panel and return the accumulated text."""
         accumulated_text = self._accumulated_vibe_stream
-        if self._live_vibe_display:
+        if self._live_vibe_display is not None:
             self._live_vibe_display.stop()
 
         self._live_vibe_display = None
@@ -354,9 +354,15 @@ class ConsoleManager:
         if source:
             items.append(f"[dim]Source:[/] {source}")
         if latency_ms is not None:
-            items.append(f"[dim]Latency:[/] {latency_ms:.2f} ms")
+            try:
+                items.append(f"[dim]Latency:[/] {latency_ms:.2f} ms")
+            except (TypeError, ValueError):
+                items.append(f"[dim]Latency:[/] {latency_ms} ms")
         if total_duration is not None:
-            items.append(f"[dim]Total Duration:[/] {total_duration:.2f} ms")
+            try:
+                items.append(f"[dim]Total Duration:[/] {total_duration:.2f} ms")
+            except (TypeError, ValueError):
+                items.append(f"[dim]Total Duration:[/] {total_duration} ms")
         if tokens_in is not None and tokens_out is not None:
             items.append(f"[dim]Tokens:[/] {tokens_in} in, {tokens_out} out")
 

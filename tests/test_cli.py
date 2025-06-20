@@ -295,7 +295,5 @@ def test_cli_no_subcommand_shows_welcome() -> None:
             # Check if welcome message was shown or not based on invoked_subcommand
             if has_subcommand:
                 mock_console.print_vibe_welcome.assert_not_called()
-                mock_console.print.assert_not_called()
             else:
                 mock_console.print_vibe_welcome.assert_called_once()
-                mock_console.print.assert_called_once_with("Checking cluster vibes...")

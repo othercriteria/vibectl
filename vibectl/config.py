@@ -65,6 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "warnings": {
         "warn_no_output": True,
         "warn_no_proxy": True,  # Show warning when intermediate_port_range is not set
+        "warn_sanitization": True,  # Show warning when request sanitization occurs
     },
     "live_display": {
         "max_lines": 20,  # Default number of lines for live display
@@ -86,12 +87,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "precedence": [],  # Plugin precedence order; empty list = no explicit order
     },
     "proxy": {
-        "enabled": False,  # Enable proxy mode for LLM calls
-        "server_url": None,  # Server URL, e.g., vibectl-server://secret@llm-server.company.com:443
+        # Global proxy defaults (can be overridden by individual profiles)
         "timeout_seconds": 30,  # Request timeout for proxy calls
         "retry_attempts": 3,  # Number of retry attempts for failed proxy calls
-        "ca_bundle_path": None,  # Path to custom CA bundle for TLS verification
-        "jwt_path": None,  # Path to file containing JWT token for authentication
+        # Named proxy profile structure
+        "active": None,  # Active profile name (None = proxy disabled)
+        "profiles": {},  # Named proxy profiles with individual settings
     },
     "system": {
         "log_level": "WARNING",  # Default log level for logging
@@ -150,6 +151,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
     "warnings": {
         "warn_no_output": bool,
         "warn_no_proxy": bool,
+        "warn_sanitization": bool,
     },
     "live_display": {
         "max_lines": int,
@@ -171,12 +173,12 @@ CONFIG_SCHEMA: dict[str, Any] = {
         "precedence": list,
     },
     "proxy": {
-        "enabled": bool,
-        "server_url": (str, type(None)),
+        # Global proxy defaults
         "timeout_seconds": int,
         "retry_attempts": int,
-        "ca_bundle_path": (str, type(None)),
-        "jwt_path": (str, type(None)),
+        # Named proxy profile structure
+        "active": (str, type(None)),  # Active profile name
+        "profiles": dict,  # Named proxy profiles
     },
     "system": {
         "log_level": str,
@@ -223,89 +225,6 @@ ENV_KEY_MAPPINGS = {
 }
 
 
-def _get_nested_value(config: dict[str, Any], path: str) -> Any:
-    """Get a value from nested config using dotted path notation.
-
-    Args:
-        config: The config dictionary
-        path: Dotted path like 'display.theme' or 'llm.model_keys'
-
-    Returns:
-        The value at the specified path
-
-    Raises:
-        KeyError: If the path doesn't exist
-    """
-    parts = path.split(".")
-    current = config
-
-    for part in parts:
-        if not isinstance(current, dict) or part not in current:
-            raise KeyError(f"Config path not found: {path}")
-        current = current[part]
-
-    return current
-
-
-def _set_nested_value(config: dict[str, Any], path: str, value: Any) -> None:
-    """Set a value in nested config using dotted path notation.
-
-    Args:
-        config: The config dictionary to modify
-        path: Dotted path like 'display.theme' or 'llm.model_keys'
-        value: The value to set
-    """
-    parts = path.split(".")
-    current = config
-
-    # Navigate to the parent of the final key
-    for part in parts[:-1]:
-        if part not in current:
-            current[part] = {}
-        elif not isinstance(current[part], dict):
-            raise ValueError(f"Cannot set nested value: {part} is not a dictionary")
-        current = current[part]
-
-    # Set the final key
-    current[parts[-1]] = value
-
-
-def _validate_hierarchical_key(path: str) -> None:
-    """Validate that a hierarchical path exists in the schema.
-
-    Args:
-        path: Dotted path like 'display.theme'
-
-    Raises:
-        ValueError: If the path is invalid
-    """
-    parts = path.split(".")
-    current_schema = CONFIG_SCHEMA
-
-    for i, part in enumerate(parts):
-        if not isinstance(current_schema, dict) or part not in current_schema:
-            # Generate helpful error message
-            current_path = ".".join(parts[:i])
-            if current_path:
-                available_keys = (
-                    list(current_schema.keys())
-                    if isinstance(current_schema, dict)
-                    else []
-                )
-                raise ValueError(
-                    f"Invalid config path: {path}. "
-                    f"'{part}' not found in section '{current_path}'. "
-                    f"Available keys: {available_keys}"
-                )
-            else:
-                available_sections = list(CONFIG_SCHEMA.keys())
-                raise ValueError(
-                    f"Invalid config section: {part}. "
-                    f"Available sections: {available_sections}"
-                )
-        current_schema = current_schema[part]
-
-
 class Config:
     """Manages vibectl configuration"""
 
@@ -330,7 +249,28 @@ class Config:
         save_yaml_config(self._config, self.config_file)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value using either flat key or dotted path."""
+        """Get configuration value.
+
+        The lookup order is:
+        1. **CLI override** set via :pymod:`vibectl.overrides` (ContextVar)
+        2. Persisted configuration file (self._config)
+        3. Explicit *default* parameter
+        """
+
+        # 1. Check for runtime override first
+        try:
+            from .overrides import (
+                get_override,  # Local import to avoid cycles during tests
+            )
+
+            overridden, value = get_override(key)
+            if overridden:
+                return value
+        except Exception:
+            # If overrides module is not available for some reason, fall through.
+            pass
+
+        # 2. Fall back to persisted configuration
         if "." in key:
             # Hierarchical path like 'display.theme'
             try:
@@ -391,7 +331,11 @@ class Config:
             if isinstance(expected_type, tuple) and type(None) in expected_type:
                 return  # None is allowed
             else:
-                raise ValueError(f"None is not a valid value for {path}")
+                # This field doesn't allow None - suggest unset which resets to default
+                error_msg = f"None is not a valid value for {path}"
+                error_msg += "\n\nTo reset this setting to its default, use: "
+                error_msg += f"vibectl config unset {path}"
+                raise ValueError(error_msg)
 
         # Extract the key name for validation lookup
         key_name = parts[-1]  # Last part is the actual key name
@@ -406,16 +350,25 @@ class Config:
 
             # Special handling for model validation with LLM interface
             if key_name == "model":
-                is_valid, error_msg = is_valid_llm_model_name(str(value))
+                is_valid, validation_error = is_valid_llm_model_name(str(value))
                 if not is_valid:
-                    raise ValueError(error_msg or f"Invalid model: {value}")
+                    error_msg = validation_error or f"Invalid model: {value}"
+                    raise ValueError(error_msg)
             else:
                 # Standard validation against allowed values
                 if value not in valid_values:
-                    raise ValueError(
+                    # Check if this field allows None values to suggest using unset
+                    allows_none = (
+                        isinstance(expected_type, tuple) and type(None) in expected_type
+                    )
+                    error_msg = (
                         f"Invalid value for {path}: {value}. "
                         f"Valid values are: {valid_values}"
                     )
+                    if allows_none:
+                        error_msg += "\n\nTo clear this setting, use: "
+                        error_msg += f"vibectl config unset {path}"
+                    raise ValueError(error_msg)
 
     def _validate_proxy_value(self, path: str, key_name: str, value: Any) -> None:
         """Validate proxy-specific configuration values."""
@@ -434,6 +387,56 @@ class Config:
             min_val = constraint["min"]
             max_val = constraint["max"]
             validate_numeric_range(value, min_val, max_val, path)
+
+    def _validate_proxy_security_config(self, security_config: dict[str, Any]) -> None:
+        """Validate security configuration for proxy profiles.
+
+        Args:
+            security_config: Security configuration dictionary
+
+        Raises:
+            ValueError: If security configuration is invalid
+        """
+        # Define valid security configuration keys and types
+        valid_security_keys: dict[str, type | tuple[type, ...]] = {
+            "sanitize_requests": bool,
+            "audit_logging": bool,
+            "confirmation_mode": str,
+            "audit_log_path": (str, type(None)),
+            "warn_sanitization": bool,
+        }
+
+        # Valid values for confirmation_mode
+        valid_confirmation_modes = ["none", "per-session", "per-command"]
+
+        for key, value in security_config.items():
+            if key not in valid_security_keys:
+                valid_keys = list(valid_security_keys.keys())
+                raise ValueError(
+                    f"Unknown security configuration key: {key}. "
+                    f"Valid keys: {valid_keys}"
+                )
+
+            expected_type = valid_security_keys[key]
+
+            # Check type
+            if not isinstance(value, expected_type):
+                if isinstance(expected_type, tuple):
+                    type_names = [getattr(t, "__name__", str(t)) for t in expected_type]
+                    type_desc = " or ".join(type_names)
+                else:
+                    type_desc = getattr(expected_type, "__name__", str(expected_type))
+                raise ValueError(
+                    f"Invalid type for security.{key}: expected {type_desc}, "
+                    f"got {type(value).__name__}"
+                )
+
+            # Special validation for confirmation_mode
+            if key == "confirmation_mode" and value not in valid_confirmation_modes:
+                raise ValueError(
+                    f"Invalid confirmation_mode: {value}. "
+                    f"Valid values: {valid_confirmation_modes}"
+                )
 
     def unset(self, key: str) -> None:
         """Unset a configuration key, resetting it to default."""
@@ -555,66 +558,138 @@ class Config:
         # Set the file path in the new provider structure
         self.set(f"providers.{provider}.key_file", str(path))
 
-    def get_ca_bundle_path(self) -> str | None:
-        """Get the CA bundle path for TLS verification.
+    # Proxy Profile Management
 
-        Checks environment variable first, then configuration value.
+    def get_active_proxy_profile(self) -> str | None:
+        """Get the currently active proxy profile name.
+
+        Returns:
+            Active profile name, or None if no profile is active
+        """
+        active = self.get("proxy.active")
+        return str(active) if active is not None else None
+
+    def set_active_proxy_profile(self, profile_name: str | None) -> None:
+        """Set the active proxy profile.
+
+        Args:
+            profile_name: Profile name to activate, or None to disable proxy
+        """
+        self.set("proxy.active", profile_name)
+
+    def get_proxy_profile(self, profile_name: str) -> dict[str, Any] | None:
+        """Get configuration for a specific proxy profile.
+
+        Args:
+            profile_name: Name of the profile to retrieve
+
+        Returns:
+            Profile configuration dict, or None if profile doesn't exist
+        """
+        profiles = self.get("proxy.profiles", {})
+        if isinstance(profiles, dict):
+            return profiles.get(profile_name)
+        return None
+
+    def set_proxy_profile(
+        self, profile_name: str, profile_config: dict[str, Any]
+    ) -> None:
+        """Set configuration for a proxy profile.
+
+        Args:
+            profile_name: Name of the profile
+            profile_config: Profile configuration dictionary
+        """
+        # Validate security configuration if present
+        if "security" in profile_config:
+            self._validate_proxy_security_config(profile_config["security"])
+
+        profiles = self.get("proxy.profiles", {})
+        profiles[profile_name] = profile_config
+        self.set("proxy.profiles", profiles)
+
+    def remove_proxy_profile(self, profile_name: str) -> bool:
+        """Remove a proxy profile.
+
+        Args:
+            profile_name: Name of the profile to remove
+
+        Returns:
+            True if profile was removed, False if it didn't exist
+        """
+        profiles = self.get("proxy.profiles", {})
+        if profile_name in profiles:
+            del profiles[profile_name]
+            self.set("proxy.profiles", profiles)
+
+            # If we removed the active profile, deactivate proxy
+            if self.get("proxy.active") == profile_name:
+                self.set("proxy.active", None)
+
+            return True
+        return False
+
+    def list_proxy_profiles(self) -> list[str]:
+        """List all configured proxy profile names.
+
+        Returns:
+            List of profile names
+        """
+        profiles = self.get("proxy.profiles", {})
+        return list(profiles.keys())
+
+    def is_proxy_enabled(self) -> bool:
+        """Check if proxy mode is enabled (has an active profile).
+
+        Returns:
+            True if proxy is enabled
+        """
+        return self.get("proxy.active") is not None
+
+    def get_effective_proxy_config(self) -> dict[str, Any] | None:
+        """Get the effective proxy configuration by merging global and profile settings.
+
+        Returns:
+            Merged proxy configuration, or None if no active profile
+        """
+        active_profile = self.get_active_proxy_profile()
+        if not active_profile:
+            return None
+
+        profile_config = self.get_proxy_profile(active_profile)
+        if not profile_config:
+            return None
+
+        # Start with global proxy defaults
+        effective_config = {
+            "timeout_seconds": self.get("proxy.timeout_seconds", 30),
+            "retry_attempts": self.get("proxy.retry_attempts", 3),
+        }
+
+        # Override with profile-specific settings
+        effective_config.update(profile_config)
+
+        return effective_config
+
+    def get_ca_bundle_path(self) -> str | None:
+        """Get CA bundle path for proxy connections.
+
+        Checks environment variable first, then active proxy profile.
 
         Returns:
             Path to CA bundle file, or None if not configured
         """
-        # Environment variable takes precedence
+        import os
+
+        # Check environment variable first (takes precedence)
         env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
         if env_ca_bundle:
             return env_ca_bundle
 
-        # Fall back to configuration value
-        ca_bundle_path = self.get("proxy.ca_bundle_path")
-        if ca_bundle_path is None:
-            return None
-        return str(ca_bundle_path)
-
-    def get_jwt_token(self) -> str | None:
-        """Get the JWT token for proxy authentication.
-
-        Checks environment variable first, then JWT file path from config, then
-        embedded token in server URL.
-
-        Returns:
-            JWT token string, or None if not configured
-        """
-        # Environment variable takes precedence (useful for CI/CD)
-        env_jwt_token = os.environ.get("VIBECTL_JWT_TOKEN")
-        if env_jwt_token:
-            return env_jwt_token
-
-        # Try to read from JWT file path
-        jwt_path = self.get("proxy.jwt_path")
-        if jwt_path:
-            try:
-                jwt_file = Path(jwt_path).expanduser()
-                if jwt_file.exists() and jwt_file.is_file():
-                    jwt_token = jwt_file.read_text().strip()
-                    if jwt_token:
-                        return jwt_token
-                # Log warning but don't fail - fallback to embedded token
-                from vibectl.logutil import logger
-
-                logger.warning(f"JWT file not found or empty: {jwt_path}")
-            except Exception as e:
-                from vibectl.logutil import logger
-
-                logger.warning(f"Failed to read JWT file {jwt_path}: {e}")
-
-        # Fall back to embedded token in server URL
-        server_url = self.get("proxy.server_url")
-        if server_url:
-            try:
-                proxy_config = parse_proxy_url(server_url)
-                return proxy_config.jwt_token
-            except Exception:
-                # Invalid URL format, return None
-                return None
+        # Check active proxy profile for CA bundle
+        effective_config = self.get_effective_proxy_config()
+        if effective_config:
+            return effective_config.get("ca_bundle_path")
 
         return None
 

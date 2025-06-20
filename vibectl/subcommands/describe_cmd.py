@@ -9,20 +9,15 @@ from vibectl.prompts.describe import (
     describe_plan_prompt,
     describe_resource_prompt,
 )
-from vibectl.types import Error, MetricsDisplayMode, Result
+from vibectl.types import Error, Result
 
 
 async def run_describe_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
-    show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: MetricsDisplayMode | None,
-    show_streaming: bool | None,
+    show_vibe: bool | None = None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> Result:
     """Executes the describe command logic."""
 
@@ -31,12 +26,7 @@ async def run_describe_command(
     )
 
     output_flags = configure_output_flags(
-        show_raw_output=show_raw_output,
         show_vibe=show_vibe,
-        model=model,
-        show_kubectl=show_kubectl,
-        show_metrics=show_metrics,
-        show_streaming=show_streaming,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)
 
@@ -58,8 +48,6 @@ async def run_describe_command(
             plan_prompt_func=describe_plan_prompt,
             output_flags=output_flags,
             summary_prompt_func=describe_resource_prompt,
-            semiauto=False,
-            config=None,
         )
         logger.info("Completed 'describe' command for vibe request.")
         return result

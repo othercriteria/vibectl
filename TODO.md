@@ -312,12 +312,19 @@ Implementation should prioritize commands that provide the most value to users w
 
 ## Kubeconfig Handling
 
-## Auto and Semiauto Command Behavior Clarification
+## Execution Modes Clarification
 
-- **`vibectl auto`**: Designed for fully non-interactive execution. It implies `yes=True` for all internal command confirmations, regardless of the `--yes` flag passed to `vibectl auto` itself. The `--yes` flag on `vibectl auto` is primarily for future use if `auto` mode itself were to have its own direct interactive prompts (which it currently doesn't).
-- **`vibectl semiauto`**: Designed for interactive execution where each step planned by the LLM is presented to the user for confirmation. It implies `yes=False` for internal command confirmations, requiring explicit user input (`y/n/a/b/m/e`).
-- **Confirmation Logic**: The `_needs_confirmation` helper in `command_handler.py` determines if a command verb is dangerous. This, combined with the effective `yes` status (always `True` for full auto, always `False` for semiauto initial prompt) dictates whether `_handle_command_confirmation` shows a prompt or bypasses it.
-- **Error Handling**: Both modes have mechanisms to continue or halt on errors, with `exit_on_error` controlling the loop's behavior. Non-halting errors allow the loop to proceed, often with recovery suggestions.
+- **`vibectl auto`** – Fully non-interactive execution.  Destructive operations run without confirmation.
+- **`vibectl semiauto`** – Interactive loop: each generated command is shown once per iteration for confirmation.
+
+Confirmation behaviour is implemented via the `ExecutionMode` enum (`AUTO`, `SEMIAUTO`, `MANUAL`).  The legacy `--yes` flag has been removed; callers should select the desired mode with `--mode auto|semiauto|manual`.
+
+`_needs_confirmation` in `command_handler.py` still determines whether a kubectl verb is potentially dangerous; combined with the resolved `ExecutionMode`, it decides if a prompt is shown.
+
+Error handling: as before, `exit_on_error` dictates whether loops halt on recoverable errors, independent of confirmation logic.
+
+**Safe operations**: `get`, `describe`, `logs` (no confirmation needed in any mode)
+**Destructive operations**: `delete`, `drain` (confirmation required unless running in AUTO mode)
 
 ## `vibectl check` Future Enhancements
 
@@ -466,3 +473,108 @@ Server-specific tasks have been moved to [TODO-SERVER.md](TODO-SERVER.md).
 - Update release workflows (Makefile targets, pypi-dist) to rely on Hatch for version bumps.
 - Document the new process in CONTRIBUTING.md and README (version bump now: `make bump-patch` → internally calls `hatch version patch`).
 - Advantage: eliminates duplicate version strings, reduces release errors.
+
+## CLI Flag Migration to ContextVar Overrides (In-Progress)
+
+We are replacing the old pattern of **threading dozens of flags through every Click
+sub-command** with a lightweight ContextVar-based override layer.  The
+high-level steps completed so far:
+
+1. **Runtime override helper**
+   * Added `vibectl/overrides.py` implementing `set_override()`, `get_override()`
+     (ContextVar holding a dict of dotted-path keys).
+2. **Config lookup order**
+   * Patched `Config.get()` to return an override if present before falling back
+     to the stored config file / defaults.
+3. **Root-level CLI options**
+   * Added global flags to `cli()`:
+     * `--proxy <profile>` – temporarily set `proxy.active`.
+     * `--no-proxy` – temporarily disable proxy.
+     * `--model <name>` – temporarily override `llm.model`.
+   * Each flag calls `set_override()` immediately, so downstream code sees the
+     effective value via `Config()` with **zero additional plumbing**.
+4. **Sub-command clean-up pattern**
+   * Keep existing per-command `--model` for backward compatibility.
+   * Internally, helpers such as `configure_output_flags()` now do:
+     ```python
+     cfg = Config()
+     model = cfg.get("llm.model") if model is None else model
+     ```
+   * This lets us delete `model` (and eventually other flags like
+     `show_raw_output`) from function signatures incrementally.
+5. **Test-suite adjustments**
+   * Added an autouse fixture in `tests/subcommands/test_get_cmd.py` to swallow
+     the now-unused `model` kwarg until each Click callback is fully migrated.
+
+Next actions
+------------
+* Add global overrides for `show_raw_output`, `show_vibe`, `show_metrics`, etc.
+* Remove corresponding kwargs from `common_command_options()` and runner
+  signatures as each command is updated.
+* Delete temporary test shims once no sub-command callback expects the old
+  parameters.
+* Document new usage in CLI help/README.
+
+Benefits
+--------
+* Hundreds of LOC deleted (parameter plumbing, repetitive config lookups).
+* New global flags can be added with **one line** (hook into overrides) instead
+  of touching ~40 files.
+* Overrides are per-process only—no env-var leakage—and trivial to test via
+  ContextVar patching.
+
+## Proxy Security Hardening – Future Enhancements (Post-V1)
+
+These items build upon the V1 client-side security hardening released in 0.12.0 (named proxy profiles, request sanitization, audit logging, confirmation groundwork):
+
+1. **Advanced Pattern Detection**
+   - Cloud provider credentials (AWS, GCP, Azure)
+   - App-specific secrets via configurable regex patterns
+   - Network topology intel (IP ranges, hostnames)
+   - Sensitive filesystem paths
+
+2. **Security Profiles & "Paranoia" Levels**
+   Example preset schema (to add in `security_profiles`):
+   ```yaml
+   security_profiles:
+     minimal:
+       sanitize_requests: false
+       confirmation_mode: none
+     standard:
+       sanitize_requests: true
+       confirmation_mode: per-session
+       patterns: [k8s-secrets, common-tokens]
+     paranoid:
+       sanitize_requests: true
+       confirmation_mode: per-command
+       patterns: [all]
+       response_size_limit: 10KB
+       request_rate_limit: 10/minute
+   ```
+   - CLI flag `--security-mode <profile>` to switch quickly.
+
+3. **Plugin System Integration**
+   - Expose sanitizer plugin interface (`SanitizerPlugin`) so orgs can ship custom detectors.
+   - Example: `CompanySecretsPlugin` for proprietary token formats.
+
+4. **Advanced Response Analysis**
+   - Parse generated kubectl commands for scope/danger analysis.
+   - Detect unusual LLM response patterns (data gathering, social-engineering payloads).
+   - Validate response consistency with original user intent.
+
+5. **Enhanced Audit & Monitoring**
+   - Prometheus / OpenTelemetry metrics export.
+   - Anomaly detection on request patterns (rate spikes, secret density).
+   - SIEM integration and log shipping helpers.
+   - Certificate transparency monitoring for server certificates.
+
+6. **Integrity & Anti-Tampering**
+   - Request/response signing for end-to-end integrity.
+   - Optional mTLS fallback to bypass compromised proxy.
+   - Client-side rate limiting & circuit-breaker patterns.
+
+7. **Automated Integration Tests**
+   - Spin up in-process gRPC stub or dockerised proxy in CI.
+   - Verify JWT loading, CA bundle resolution, sanitization & audit logging.
+
+(Imported from the now-removed `PLANNED_CHANGES.md`.)

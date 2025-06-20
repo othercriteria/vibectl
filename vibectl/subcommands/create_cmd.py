@@ -6,27 +6,17 @@ from vibectl.command_handler import (
 from vibectl.console import console_manager
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.logutil import logger
-from vibectl.memory import (
-    configure_memory_flags,
-)
-from vibectl.prompts.create import (
-    create_plan_prompt,
-    create_resource_prompt,
-)
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.memory import configure_memory_flags
+from vibectl.prompts.create import create_plan_prompt, create_resource_prompt
+from vibectl.types import Error, Result, Success
 
 
 async def run_create_command(
     resource: str,
     args: tuple[str, ...],
-    show_raw_output: bool | None,
     show_vibe: bool | None,
-    show_kubectl: bool | None,
-    model: str | None,
-    freeze_memory: bool,
-    unfreeze_memory: bool,
-    show_metrics: MetricsDisplayMode | None,
-    show_streaming: bool | None,
+    freeze_memory: bool = False,
+    unfreeze_memory: bool = False,
 ) -> Result:
     """
     Implements the 'create' subcommand logic, including vibe handling and
@@ -36,12 +26,7 @@ async def run_create_command(
     try:
         # Configure outputs
         output_flags = configure_output_flags(
-            show_raw_output=show_raw_output,
             show_vibe=show_vibe,
-            model=model,
-            show_kubectl=show_kubectl,
-            show_metrics=show_metrics,
-            show_streaming=show_streaming,
         )
         # Configure memory flags
         configure_memory_flags(freeze_memory, unfreeze_memory)

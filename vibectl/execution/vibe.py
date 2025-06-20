@@ -38,8 +38,10 @@ from vibectl.schema import (
     ActionType,
     LLMPlannerResponse,
 )
+from vibectl.security.response_validation import ValidationOutcome, validate_action
 from vibectl.types import (
     Error,
+    ExecutionMode,
     Fragment,
     LLMMetricsAccumulator,
     OutputFlags,
@@ -50,6 +52,7 @@ from vibectl.types import (
     SummaryPromptFragmentFunc,
     SystemFragments,
     UserFragments,
+    determine_execution_mode,
 )
 from vibectl.utils import console_manager
 
@@ -63,29 +66,14 @@ async def handle_vibe_request(
     plan_prompt_func: Callable[..., PromptFragments],
     summary_prompt_func: SummaryPromptFragmentFunc,
     output_flags: OutputFlags,
-    yes: bool = False,
+    *,
+    # semiauto flag indicates confirmation-once loop
     semiauto: bool = False,
     live_display: bool = True,
-    autonomous_mode: bool = False,
+    execution_mode: ExecutionMode | None = None,
     config: Config | None = None,
 ) -> Result:
-    """Handle a request that requires LLM interaction for command planning.
-
-    Args:
-        request: The user's natural language request.
-        command: The base kubectl command (e.g., 'get', 'describe').
-        plan_prompt_func: Function returning system/user fragments for planning.
-        summary_prompt_func: Function returning system/user fragments for summary.
-        output_flags: Flags controlling output format and verbosity.
-        yes: Bypass confirmation prompts.
-        semiauto: Enable semi-autonomous mode (confirm once).
-        live_display: Show live output for background tasks.
-        autonomous_mode: Enable fully autonomous mode (no confirmations).
-        config: Optional Config instance.
-
-    Returns:
-        Result object with the outcome of the operation.
-    """
+    """Handle a request that requires LLM interaction for command planning."""
     cfg = config or Config()
     model_name = output_flags.model_name
 
@@ -93,6 +81,12 @@ async def handle_vibe_request(
     llm_metrics_accumulator = LLMMetricsAccumulator(output_flags)
 
     memory_context_str = get_memory(cfg)
+
+    exec_mode: ExecutionMode = (
+        execution_mode
+        if execution_mode is not None
+        else determine_execution_mode(semiauto=semiauto)
+    )
 
     plan_system_fragments, plan_user_fragments_base = plan_prompt_func()
 
@@ -133,6 +127,28 @@ async def handle_vibe_request(
         f"Matching action_type: {response_action.action_type} "
         f"(Type: {type(response_action.action_type)})"
     )
+
+    validation_result = validate_action(response_action, exec_mode)
+
+    if validation_result.outcome is ValidationOutcome.REJECT:
+        logger.warning(
+            "Response action rejected by validator: %s", validation_result.message
+        )
+        return Error(
+            error=f"Action rejected by safety validator: {validation_result.message}",
+            recovery_suggestions="Revise request or run in manual mode for details.",
+        )
+
+    # Force confirmation by downgrading execution mode when validator requests it.
+    if validation_result.outcome is ValidationOutcome.CONFIRM and exec_mode in (
+        ExecutionMode.AUTO,
+        ExecutionMode.SEMIAUTO,
+    ):
+        logger.debug(
+            "Validator requires confirmation - overriding execution_mode %s -> MANUAL",
+            exec_mode,
+        )
+        exec_mode = ExecutionMode.MANUAL
 
     action = response_action.action_type
     if action == ActionType.ERROR:
@@ -249,12 +265,12 @@ async def handle_vibe_request(
         console_manager.print_proposal(
             f"Suggested memory update: {feedback_suggestion}"
         )
+
         confirmation_result = await _handle_command_confirmation(
             display_cmd="Use suggested memory update?",
-            semiauto=semiauto,
+            execution_mode=exec_mode,
             model_name=output_flags.model_name,
             explanation=feedback_explanation,
-            yes=yes,
         )
 
         if isinstance(confirmation_result, Error):
@@ -314,9 +330,7 @@ async def handle_vibe_request(
                 yaml_content=response_action.yaml_manifest,
                 plan_explanation=response_action.explanation,
                 original_command_verb=command,
-                semiauto=semiauto,
-                yes=yes,
-                autonomous_mode=autonomous_mode,
+                execution_mode=exec_mode,
                 live_display=live_display,
                 output_flags=output_flags,
                 summary_prompt_func=summary_prompt_func,
@@ -347,9 +361,7 @@ async def _confirm_and_execute_plan(
     yaml_content: str | None,
     plan_explanation: str | None,
     original_command_verb: str,
-    semiauto: bool,
-    yes: bool,
-    autonomous_mode: bool,
+    execution_mode: ExecutionMode,
     live_display: bool,
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
@@ -365,26 +377,26 @@ async def _confirm_and_execute_plan(
 
     # Determine if confirmation is needed
     command_is_read_only = is_kubectl_command_read_only([kubectl_verb, *kubectl_args])
-    confirmation_is_required = not command_is_read_only and not autonomous_mode
+    confirmation_is_required = (
+        not command_is_read_only and execution_mode is not ExecutionMode.AUTO
+    )
 
     logger.debug(
         f"Confirmation check: command='{display_cmd}', verb='{original_command_verb}', "
-        f"is_read_only={command_is_read_only}, autonomous_mode={autonomous_mode}, "
-        f"confirmation_required={confirmation_is_required}, yes_flag={yes}"
+        f"is_read_only={command_is_read_only}, execution_mode={execution_mode}, "
+        f"confirmation_required={confirmation_is_required}"
     )
 
     if confirmation_is_required:
-        # _handle_command_confirmation will use the 'yes' flag to bypass prompt if True
         confirmation_result = await _handle_command_confirmation(
             display_cmd=display_cmd,
-            semiauto=semiauto,
+            execution_mode=execution_mode,
             model_name=output_flags.model_name,
             explanation=plan_explanation,
-            yes=yes,
         )
         if confirmation_result is not None:
             return confirmation_result
-    elif not command_is_read_only and autonomous_mode:
+    elif not command_is_read_only and execution_mode is ExecutionMode.AUTO:
         logger.info(
             "Proceeding with potentially dangerous command in autonomous mode "
             f"(not read-only): {display_cmd}"
@@ -472,30 +484,28 @@ async def _confirm_and_execute_plan(
 
 async def _handle_command_confirmation(
     display_cmd: str,
-    semiauto: bool,
+    execution_mode: ExecutionMode,
     model_name: str,
     explanation: str | None = None,
-    yes: bool = False,
 ) -> Result | None:
     """Handle command confirmation with enhanced options.
 
     Args:
         display_cmd: The command string (used for logging/memory).
-        semiauto: Whether this is operating in semiauto mode.
+        execution_mode: Execution mode for the command.
         model_name: The model name used.
         explanation: Optional explanation from the AI.
-        yes: If True, bypass prompt and default to yes.
 
     Returns:
         Result if the command was cancelled or memory update failed,
         None if the command should proceed.
     """
-    # If yes is True, bypass the prompt and proceed
-    if yes:
-        logger.info(
-            "Confirmation bypassed due to 'yes' flag for command: %s", display_cmd
-        )
+    # AUTO mode bypasses confirmation entirely
+    if execution_mode is ExecutionMode.AUTO:
+        logger.info("Confirmation bypassed (auto mode) for command: %s", display_cmd)
         return None  # Proceed with command execution
+
+    semiauto = execution_mode is ExecutionMode.SEMIAUTO
 
     options_base = "[Y]es, [N]o, yes [A]nd, no [B]ut, or [M]emory?"
     options_exit = " or [E]xit?"

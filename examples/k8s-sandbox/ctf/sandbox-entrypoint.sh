@@ -249,7 +249,7 @@ fi
 
 # Capture full output and error for debugging (less critical for auto, but useful if it fails)
 # Run vibectl auto indefinitely with a 5-second interval
-if ! vibectl auto --interval 5; then
+if ! vibectl auto --interval 5 "Proceed with the challenge given in your custom instructions!"; then
     ERROR_CODE=$?
     echo "⚠️ vibectl auto exited unexpectedly with code $ERROR_CODE"
     echo "If the error above is unclear, try running with VIBECTL_VERBOSE=true or check if a Python traceback is available."

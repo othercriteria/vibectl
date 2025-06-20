@@ -176,10 +176,12 @@ echo "======================================================="
 echo "   (Using production TLS with CA certificate verification)"
 
 echo "📝 Saving proxy configuration..."
-vibectl setup-proxy configure "vibectl-server://$NODE_IP:$NODE_PORT" \
-    --ca-bundle "$CA_BUNDLE_FILE" \
+vibectl setup-proxy configure "demo-ca" "vibectl-server://$NODE_IP:$NODE_PORT" \
     --jwt-path "$JWT_TOKEN_FILE" \
-    --no-test
+    --ca-bundle "$CA_BUNDLE_FILE" \
+    --enable-sanitization \
+    --enable-audit-logging \
+    --activate
 
 echo "✅ Proxy configuration saved with CA bundle"
 

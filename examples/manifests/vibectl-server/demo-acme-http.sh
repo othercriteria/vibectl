@@ -380,10 +380,12 @@ echo "======================================================="
 echo "   (Using Pebble CA certificate for proper TLS verification)"
 
 echo "📝 Saving proxy configuration..."
-vibectl setup-proxy configure "vibectl-server://$PROXY_HOST:$PROXY_PORT" \
+vibectl setup-proxy configure "demo-acme-http" "vibectl-server://$PROXY_HOST:$PROXY_PORT" \
     --ca-bundle "$CA_BUNDLE_FILE" \
     --jwt-path "$JWT_TOKEN_FILE" \
-    --no-test
+    --enable-sanitization \
+    --enable-audit-logging \
+    --activate
 
 echo "✅ Proxy configuration saved with Pebble CA bundle"
 

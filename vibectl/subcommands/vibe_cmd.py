@@ -7,7 +7,14 @@ from vibectl.execution.vibe import (
 from vibectl.logutil import logger
 from vibectl.memory import configure_memory_flags
 from vibectl.prompts.vibe import plan_vibe_fragments, vibe_autonomous_prompt
-from vibectl.types import Error, MetricsDisplayMode, Result, Success
+from vibectl.types import (
+    Error,
+    MetricsDisplayMode,
+    Result,
+    Success,
+    determine_execution_mode,
+    execution_mode_from_cli,
+)
 
 
 async def run_vibe_command(
@@ -18,8 +25,8 @@ async def run_vibe_command(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = False,
     semiauto: bool = False,
+    mode_choice: str | None = None,
     exit_on_error: bool = True,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
@@ -30,7 +37,6 @@ async def run_vibe_command(
 
     Args:
         ...
-        yes: Whether to bypass confirmation prompts
         semiauto: Whether this call is part of a semiauto loop
         exit_on_error: If True (default), errors will terminate the process.
             If False, errors are returned as Error objects for programmatic handling
@@ -56,10 +62,13 @@ async def run_vibe_command(
             logger.info(f"Planning how to: {request}")
 
         try:
-            # Determine if the mode is truly autonomous (no confirmations needed)
-            # Semiauto is never autonomous. Base vibe is autonomous only
-            # if --yes is passed.
-            is_autonomous = not semiauto and yes
+            cli_mode = execution_mode_from_cli(mode_choice)
+
+            exec_mode = (
+                cli_mode
+                if cli_mode is not None
+                else determine_execution_mode(semiauto=semiauto)
+            )
 
             result = await handle_vibe_request(
                 request=request,
@@ -67,9 +76,8 @@ async def run_vibe_command(
                 plan_prompt_func=plan_vibe_fragments,
                 summary_prompt_func=vibe_autonomous_prompt,
                 output_flags=output_flags,
-                yes=yes,
+                execution_mode=exec_mode,
                 semiauto=semiauto,
-                autonomous_mode=is_autonomous,
             )
 
             # Log if it's a normal exit request

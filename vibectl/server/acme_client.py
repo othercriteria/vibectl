@@ -374,9 +374,16 @@ class ACMEClient:
                 f"Failed to generate challenge response: {response_error}"
             ) from response_error
 
-        # Determine challenge directory
+        # Use a safe, user-level directory by default instead of writing to the
+        # current working directory (which might be a project root during
+        # a test run).  This follows XDG-like conventions and prevents
+        # unwanted artefacts such as ``./.well-known`` appearing in the repo.
         if challenge_dir is None:
-            challenge_dir = ".well-known/acme-challenge"
+            # Resolve to a user-level directory and keep *challenge_dir* a str to
+            # satisfy the declared "str | None" type.
+            challenge_dir = str(
+                Path.home() / ".config" / "vibectl" / "server" / "acme-challenges"
+            )
 
         challenge_path = Path(challenge_dir)
         challenge_path.mkdir(parents=True, exist_ok=True)

@@ -16,6 +16,7 @@ from vibectl.subcommands.rollout_cmd import (
 )
 from vibectl.types import (
     Error,
+    ExecutionMode,
     MetricsDisplayMode,
     OutputFlags,
     PromptFragments,
@@ -125,7 +126,6 @@ async def test_run_rollout_command_successful_flow(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
 
@@ -199,7 +199,6 @@ async def test_run_rollout_status(default_rollout_output_flags: OutputFlags) -> 
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -269,7 +268,6 @@ async def test_run_rollout_history(default_rollout_output_flags: OutputFlags) ->
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -342,7 +340,6 @@ async def test_run_rollout_undo_with_confirmation(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         mock_click_confirm.assert_called_once()
@@ -356,10 +353,10 @@ async def test_run_rollout_undo_with_confirmation(
 
 
 @pytest.mark.asyncio
-async def test_run_rollout_undo_with_yes_flag(
+async def test_run_rollout_undo_auto_mode(
     default_rollout_output_flags: OutputFlags,
 ) -> None:
-    """Test rollout undo command with --yes flag via run_rollout_command."""
+    """Test rollout undo command when execution mode is AUTO (non-interactive)."""
     mock_kubectl_output = Success(data="deployment.apps/nginx rolled back")
     resource_type_or_name = "deployment/nginx"
     args_tuple = ("--to-revision=2",)
@@ -394,6 +391,10 @@ async def test_run_rollout_undo_with_yes_flag(
             new_callable=AsyncMock,
             side_effect=mock_to_thread_side_effect,
         ) as mock_async_to_thread,
+        patch(
+            "vibectl.subcommands.rollout_cmd.determine_execution_mode",
+            return_value=ExecutionMode.AUTO,
+        ),
         patch("click.confirm") as mock_click_confirm,
         patch(
             "vibectl.subcommands.rollout_cmd.handle_command_output",
@@ -416,7 +417,6 @@ async def test_run_rollout_undo_with_yes_flag(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=True,
             show_streaming=True,
         )
         mock_click_confirm.assert_not_called()
@@ -463,7 +463,6 @@ async def test_run_rollout_undo_cancelled(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         mock_click_confirm.assert_called_once()
@@ -534,7 +533,6 @@ async def test_run_rollout_restart(default_rollout_output_flags: OutputFlags) ->
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -604,7 +602,6 @@ async def test_run_rollout_pause(default_rollout_output_flags: OutputFlags) -> N
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -674,7 +671,6 @@ async def test_run_rollout_resume(default_rollout_output_flags: OutputFlags) -> 
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
         assert mock_async_to_thread.call_count == 1  # Only run_kubectl
@@ -745,7 +741,6 @@ async def test_run_rollout_kubectl_error_propagates(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
 
@@ -818,7 +813,6 @@ async def test_run_rollout_handle_command_output_error(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
 
@@ -897,7 +891,6 @@ async def test_run_rollout_command_handles_run_kubectl_returning_string(
             show_kubectl=default_rollout_output_flags.show_kubectl,
             freeze_memory=False,
             unfreeze_memory=False,
-            yes=False,
             show_streaming=True,
         )
 

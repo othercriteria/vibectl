@@ -16,11 +16,14 @@ class TestDisableProxy:
 
     def test_disable_proxy_success(self, in_memory_config: Any) -> None:
         """Test successfully disabling proxy."""
-        # Set up initial proxy configuration
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-        in_memory_config.set("proxy.timeout_seconds", 60)
-        in_memory_config.set("proxy.retry_attempts", 5)
+        # Set up initial proxy configuration using profiles
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "timeout_seconds": 60,
+            "retry_attempts": 5,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with patch(
             "vibectl.subcommands.setup_proxy_cmd.Config", return_value=in_memory_config
@@ -30,13 +33,14 @@ class TestDisableProxy:
             assert isinstance(result, Success)
             assert result.data == "Proxy disabled"
             # Verify proxy was disabled
-            assert in_memory_config.get("proxy.enabled") is False
-            assert in_memory_config.get("proxy.server_url") is None
+            assert in_memory_config.get_active_proxy_profile() is None
+            assert not in_memory_config.is_proxy_enabled()
 
     def test_disable_proxy_already_disabled(self, in_memory_config: Any) -> None:
         """Test disabling proxy when already disabled."""
-        # Ensure proxy is disabled
-        in_memory_config.set("proxy.enabled", False)
+        # Ensure proxy is disabled (no active profile)
+        in_memory_config.set_active_proxy_profile(None)
+        assert in_memory_config.get_active_proxy_profile() is None
 
         with patch(
             "vibectl.subcommands.setup_proxy_cmd.Config", return_value=in_memory_config
@@ -49,7 +53,9 @@ class TestDisableProxy:
     def test_disable_proxy_exception_handling(self, in_memory_config: Any) -> None:
         """Test disable proxy handles exceptions."""
         # Set proxy enabled initially so it tries to disable
-        in_memory_config.set("proxy.enabled", True)
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -57,7 +63,9 @@ class TestDisableProxy:
                 return_value=in_memory_config,
             ),
             patch.object(
-                in_memory_config, "set", side_effect=RuntimeError("Config error")
+                in_memory_config,
+                "set_active_proxy_profile",
+                side_effect=RuntimeError("Config error"),
             ),
         ):
             result = disable_proxy()
@@ -72,7 +80,10 @@ class TestSetupProxyDisableCLI:
     @pytest.mark.asyncio
     async def test_disable_with_confirmation(self, in_memory_config: Any) -> None:
         """Test disable command with confirmation prompt."""
-        in_memory_config.set("proxy.enabled", True)
+        # Set up proxy profile to enable proxy
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -103,8 +114,8 @@ class TestSetupProxyDisableCLI:
             mock_status.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_disable_with_yes_flag(self) -> None:
-        """Test disable command with --yes flag."""
+    async def test_disable_with_auto_mode(self) -> None:
+        """Test disable command with --mode auto (skip confirmation)."""
         with (
             patch("vibectl.subcommands.setup_proxy_cmd.disable_proxy") as mock_disable,
             patch(
@@ -120,7 +131,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -132,7 +143,9 @@ class TestSetupProxyDisableCLI:
     @pytest.mark.asyncio
     async def test_disable_already_disabled(self, in_memory_config: Any) -> None:
         """Test disable command when proxy is already disabled."""
-        in_memory_config.set("proxy.enabled", False)
+        # Proxy is disabled by default (no active profile)
+        in_memory_config.set_active_proxy_profile(None)
+        assert in_memory_config.get_active_proxy_profile() is None
 
         with (
             patch(
@@ -146,7 +159,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -155,7 +168,10 @@ class TestSetupProxyDisableCLI:
     @pytest.mark.asyncio
     async def test_disable_confirmation_declined(self, in_memory_config: Any) -> None:
         """Test disable command when user declines confirmation."""
-        in_memory_config.set("proxy.enabled", True)
+        # Set up proxy profile to enable proxy
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -191,7 +207,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=False,
             )
 
@@ -214,7 +230,7 @@ class TestSetupProxyDisableCLI:
             runner = CliRunner()
             _result = await runner.invoke(
                 cli,
-                ["setup-proxy", "disable", "--yes"],
+                ["setup-proxy", "disable", "--mode", "auto"],
                 catch_exceptions=True,
             )
 

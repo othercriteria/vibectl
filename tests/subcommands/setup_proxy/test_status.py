@@ -20,10 +20,14 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test showing status when proxy is enabled."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-        in_memory_config.set("proxy.timeout_seconds", 45)
-        in_memory_config.set("proxy.retry_attempts", 4)
+        # Set up profile-based proxy configuration
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "timeout_seconds": 45,
+            "retry_attempts": 4,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -44,7 +48,8 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test showing status when proxy is disabled."""
-        in_memory_config.set("proxy.enabled", False)
+        # No active profile = proxy disabled
+        in_memory_config.set_active_proxy_profile(None)
 
         with (
             patch(
@@ -76,8 +81,10 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with environment CA bundle that exists."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
+        # Set up profile-based proxy configuration
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         # Create a temporary CA bundle file
         with tempfile.NamedTemporaryFile(suffix=".crt", delete=False) as ca_file:
@@ -109,8 +116,10 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with environment CA bundle that doesn't exist."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
+        # Set up profile-based proxy configuration
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         non_existent_path = "/path/to/nonexistent/ca-bundle.crt"
 
@@ -134,14 +143,18 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with config CA bundle that exists - covers lines 416-418."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-
         # Create a temporary CA bundle file
         with tempfile.NamedTemporaryFile(suffix=".crt", delete=False) as ca_file:
             ca_file.write(b"dummy ca bundle content")
             ca_bundle_path = ca_file.name
-            in_memory_config.set("proxy.ca_bundle_path", ca_bundle_path)
+
+        # Set up profile-based proxy configuration
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "ca_bundle_path": ca_bundle_path,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         try:
             with (
@@ -170,7 +183,7 @@ class TestShowProxyStatus:
 
                 output = test_console.console.export_text()
                 assert "CA Bundle Path" in output
-                assert "(from config)" in output
+                assert "(from profile)" in output
                 assert "✓ Found" in output
         finally:
             os.unlink(ca_bundle_path)
@@ -179,11 +192,15 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with config CA bundle that doesn't exist."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-
         non_existent_path = "/path/to/nonexistent/ca-bundle.crt"
-        in_memory_config.set("proxy.ca_bundle_path", non_existent_path)
+
+        # Set up profile-based proxy configuration
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "ca_bundle_path": non_existent_path,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -207,15 +224,17 @@ class TestShowProxyStatus:
 
             output = test_console.console.export_text()
             assert "CA Bundle Path" in output
-            assert "(from config)" in output
+            assert "(from profile)" in output
             assert "❌ Missing" in output
 
     def test_show_status_env_jwt_token(
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with environment JWT token - covers line 431."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
+        # Set up profile-based proxy configuration
+        profile_config = {"server_url": "vibectl-server://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -244,14 +263,18 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with config JWT path that exists."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-
         # Create a temporary JWT file
         with tempfile.NamedTemporaryFile(suffix=".jwt", delete=False) as jwt_file:
             jwt_file.write(b"fake-jwt-token")
             jwt_path = jwt_file.name
-            in_memory_config.set("proxy.jwt_path", jwt_path)
+
+        # Set up profile-based proxy configuration
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "jwt_path": jwt_path,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         try:
             with (
@@ -275,7 +298,7 @@ class TestShowProxyStatus:
 
                 output = test_console.console.export_text()
                 assert "JWT Token Path" in output
-                assert "(from config)" in output
+                assert "(from profile)" in output
                 assert "✓ Found" in output
         finally:
             os.unlink(jwt_path)
@@ -284,11 +307,15 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any
     ) -> None:
         """Test status with config JWT path that doesn't exist."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", "vibectl-server://test.com:443")
-
         non_existent_path = "/path/to/nonexistent/token.jwt"
-        in_memory_config.set("proxy.jwt_path", non_existent_path)
+
+        # Set up profile-based proxy configuration
+        profile_config = {
+            "server_url": "vibectl-server://test.com:443",
+            "jwt_path": non_existent_path,
+        }
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(
@@ -309,7 +336,7 @@ class TestShowProxyStatus:
 
             output = test_console.console.export_text()
             assert "JWT Token Path" in output
-            assert "(from config)" in output
+            assert "(from profile)" in output
             assert "❌ Missing" in output
 
     def test_show_status_embedded_jwt_token(
@@ -317,8 +344,11 @@ class TestShowProxyStatus:
     ) -> None:
         """Test status with embedded JWT token in URL."""
         jwt_url = "vibectl-server://fake-jwt-token@test.com:443"
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set("proxy.server_url", jwt_url)
+
+        # Set up profile-based proxy configuration
+        profile_config = {"server_url": jwt_url}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         # Mock parse_proxy_url to return a config with JWT token
         mock_proxy_config = Mock()
@@ -354,10 +384,10 @@ class TestShowProxyStatus:
         self, in_memory_config: Any, test_console: Any, capsys: Any
     ) -> None:
         """Test TLS configuration messages."""
-        in_memory_config.set("proxy.enabled", True)
-        in_memory_config.set(
-            "proxy.server_url", "vibectl-server-insecure://test.com:443"
-        )
+        # Set up profile-based proxy configuration
+        profile_config = {"server_url": "vibectl-server-insecure://test.com:443"}
+        in_memory_config.set_proxy_profile("test-profile", profile_config)
+        in_memory_config.set_active_proxy_profile("test-profile")
 
         with (
             patch(

@@ -22,6 +22,7 @@ from vibectl.schema import (
 from vibectl.types import (
     ActionType,
     Error,
+    ExecutionMode,
     Fragment,
     LLMMetrics,
     MetricsDisplayMode,
@@ -136,7 +137,7 @@ async def test_handle_vibe_request_command_execution(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,  # Bypass confirmation for this test
+        execution_mode=ExecutionMode.AUTO,
     )
 
     # === Verification ===
@@ -219,7 +220,7 @@ async def test_handle_vibe_request_yaml_execution(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,  # Bypass confirmation for this test
+        execution_mode=ExecutionMode.AUTO,
     )
 
     # === Verification ===
@@ -280,6 +281,7 @@ async def test_handle_vibe_request_llm_planning_error(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -348,7 +350,7 @@ async def test_handle_vibe_request_llm_wait(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Success)
@@ -420,7 +422,7 @@ async def test_handle_vibe_request_llm_feedback(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Success)
@@ -485,7 +487,7 @@ async def test_handle_vibe_request_llm_feedback_no_explanation(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Success)
@@ -543,6 +545,7 @@ async def test_handle_vibe_request_llm_invalid_json(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -588,7 +591,7 @@ async def test_handle_vibe_request_llm_invalid_schema(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -636,6 +639,7 @@ async def test_handle_vibe_request_llm_empty_response(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -686,7 +690,7 @@ async def test_handle_vibe_request_action_error_no_message(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -732,7 +736,7 @@ async def test_handle_vibe_request_action_wait_no_duration(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -780,7 +784,7 @@ async def test_handle_vibe_request_action_command_empty_verb(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -840,7 +844,7 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -898,6 +902,7 @@ async def test_handle_vibe_request_action_unknown(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     # This depends on whether validation catches it first or the match case.
@@ -950,7 +955,7 @@ async def test_handle_vibe_request_planning_recoverable_api_error(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)
@@ -995,7 +1000,7 @@ async def test_handle_vibe_request_planning_generic_error(
         plan_prompt_func=plan_vibe_fragments,
         summary_prompt_func=mock_summary_prompt_func_hvr,
         output_flags=output_flags,
-        yes=True,
+        execution_mode=ExecutionMode.AUTO,
     )
 
     assert isinstance(result, Error)

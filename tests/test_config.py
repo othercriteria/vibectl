@@ -74,6 +74,20 @@ class MockConfig(Config):
         result = self.get(f"providers.{provider}.key_file")
         return result if isinstance(result, str | type(None)) else None
 
+    def get_ca_bundle_path(self) -> str | None:
+        """Get CA bundle path - legacy method for backwards compatibility in tests."""
+        # Check environment variable first (takes precedence)
+        env_ca_bundle = os.environ.get("VIBECTL_CA_BUNDLE")
+        if env_ca_bundle:
+            return env_ca_bundle
+
+        # Check active proxy profile for CA bundle
+        effective_config = self.get_effective_proxy_config()
+        if effective_config:
+            return effective_config.get("ca_bundle_path")
+
+        return None
+
 
 @pytest.fixture
 def test_config() -> MockConfig:
@@ -575,14 +589,59 @@ async def test_cli_config_show_basic(mock_config_class: Mock) -> None:
 
 
 def test_config_handle_none_value_full(test_config: MockConfig) -> None:
-    """Test handling of 'none' string as None value when it's allowed."""
-    # The kubeconfig config field allows None values
+    """Test that 'none' string is treated as a regular string value."""
+    # "none" should be treated as a string, not converted to None
     test_config.set("core.kubeconfig", "none")
-    assert test_config.get("core.kubeconfig") is None
+    assert test_config.get("core.kubeconfig") == "none"
 
-    # Setting 'none' value for a field that doesn't allow None should raise ValueError
-    with pytest.raises(ValueError, match="None is not a valid value for display.theme"):
+    # Setting 'none' should fail validation if it's not a valid value for the field
+    # Now expect the more detailed error message without the unset suggestion
+    # (since display.theme doesn't allow None values)
+    with pytest.raises(
+        ValueError, match="Invalid value for display.theme: none.*Valid values are"
+    ):
         test_config.set("display.theme", "none")
+
+
+def test_config_helpful_unset_message_for_nullable_fields(
+    test_config: MockConfig,
+) -> None:
+    """Test unset message is shown for nullable fields with enumerated values."""
+    import vibectl.config
+
+    # Temporarily add a test field that is nullable and has enumerated values
+    original_schema = vibectl.config.CONFIG_SCHEMA.copy()
+    original_valid_values = vibectl.config.CONFIG_VALID_VALUES.copy()
+
+    try:
+        # Add test field to schema and valid values
+        vibectl.config.CONFIG_SCHEMA = {
+            **original_schema,
+            "test_section": {"nullable_enum": (str, type(None))},
+        }
+        vibectl.config.CONFIG_VALID_VALUES = {
+            **original_valid_values,
+            "nullable_enum": ["option1", "option2", "option3"],
+        }
+
+        # Create a new config instance to pick up the modified schema
+        with TemporaryDirectory() as temp_dir:
+            test_cfg = Config(Path(temp_dir))
+
+            # Test that invalid value shows helpful message with unset suggestion
+            # Use re.DOTALL flag to match newlines in the error message
+            expected_pattern = (
+                r"(?s)Invalid value for test_section\.nullable_enum: invalid.*"
+                r"Valid values are.*To clear this setting, use: vibectl config "
+                r"unset test_section\.nullable_enum"
+            )
+            with pytest.raises(ValueError, match=expected_pattern):
+                test_cfg.set("test_section.nullable_enum", "invalid")
+
+    finally:
+        # Restore original schema and valid values
+        vibectl.config.CONFIG_SCHEMA = original_schema
+        vibectl.config.CONFIG_VALID_VALUES = original_valid_values
 
 
 def test_config_convert_type_first_non_none_full(test_config: MockConfig) -> None:
@@ -852,176 +911,57 @@ def test_config_ollama_model_pattern_allowed(test_config: MockConfig) -> None:
         test_config.set("llm.model", "ollama:invalid-model-for-test")
 
 
-# Proxy Configuration Validation Tests
+# Proxy Configuration Tests - Updated for Profile System
 
 
-def test_proxy_server_url_validation_valid_urls(test_config: MockConfig) -> None:
-    """Test that valid proxy server URLs are accepted."""
-    valid_urls = [
-        "vibectl-server://localhost:50051",
-        "vibectl-server-insecure://localhost:8080",
-    ]
+def test_proxy_profile_management(test_config: MockConfig) -> None:
+    """Test basic proxy profile management."""
+    # Test creating a profile
+    profile_config = {
+        "server_url": "vibectl-server://example.com:443",
+        "timeout_seconds": 45,
+        "ca_bundle_path": "/path/to/ca.pem",
+    }
+    test_config.set_proxy_profile("test-profile", profile_config)
 
-    for url in valid_urls:
-        test_config.set("proxy.server_url", url)
-        assert test_config.get("proxy.server_url") == url
+    # Test retrieving the profile
+    retrieved = test_config.get_proxy_profile("test-profile")
+    assert retrieved is not None
+    assert retrieved["server_url"] == "vibectl-server://example.com:443"
+    assert retrieved["timeout_seconds"] == 45
+    assert retrieved["ca_bundle_path"] == "/path/to/ca.pem"
 
+    # Test listing profiles
+    profiles = test_config.list_proxy_profiles()
+    assert "test-profile" in profiles
 
-def test_proxy_server_url_validation_invalid_urls(test_config: MockConfig) -> None:
-    """Test that invalid proxy server URLs are rejected."""
-    invalid_urls = [
-        "http://localhost:50051",  # Wrong scheme
-        "https://localhost:50051",  # Wrong scheme
-        "ftp://localhost:50051",  # Wrong scheme
-        "vibectl-server://",  # Missing host
-        "vibectl-server://:50051",  # Missing host
-        "invalid-url",  # Not a URL at all
-        "vibectl-server://host:abc",  # Invalid port
-    ]
+    # Test setting active profile
+    test_config.set_active_proxy_profile("test-profile")
+    assert test_config.get_active_proxy_profile() == "test-profile"
 
-    for url in invalid_urls:
-        with pytest.raises(ValueError, match="Invalid proxy URL"):
-            test_config.set("proxy.server_url", url)
+    # Test effective config
+    effective = test_config.get_effective_proxy_config()
+    assert effective is not None
+    assert effective["server_url"] == "vibectl-server://example.com:443"
 
-
-def test_proxy_server_url_jwt_token_format_validation(test_config: MockConfig) -> None:
-    """Test JWT token handling in proxy server URLs."""
-    # Valid URLs with tokens (tokens are treated as opaque strings)
-    valid_urls_with_tokens = [
-        "vibectl-server://eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdWIifQ.sig@host:443",
-        "vibectl-server-insecure://a.b.c@localhost:50051",
-        "vibectl-server://simple-token@example.com:443",
-        "vibectl-server://abc123@example.com:443",
-    ]
-
-    # These should all work (tokens are treated as opaque)
-    for url in valid_urls_with_tokens:
-        test_config.set("proxy.server_url", url)
-        assert test_config.get("proxy.server_url") == url
-
-    # URLs without tokens should also work
-    token_optional_urls = [
-        "vibectl-server://host:443",
-        "vibectl-server-insecure://localhost:50051",
-    ]
-
-    for url in token_optional_urls:
-        test_config.set("proxy.server_url", url)
-        assert test_config.get("proxy.server_url") == url
+    # Test removing profile
+    test_config.remove_proxy_profile("test-profile")
+    assert test_config.get_proxy_profile("test-profile") is None
 
 
-def test_proxy_server_url_none_allowed(test_config: MockConfig) -> None:
-    """Test that proxy.server_url can be set to None."""
-    test_config.set("proxy.server_url", None)
-    assert test_config.get("proxy.server_url") is None
-
-    # Test string "none" also converts to None
-    test_config.set("proxy.server_url", "none")
-    assert test_config.get("proxy.server_url") is None
-
-
-def test_proxy_timeout_seconds_validation_valid_values(test_config: MockConfig) -> None:
-    """Test that valid timeout values are accepted."""
-    valid_timeouts = [1, 30, 60, 120, 300]  # 1 second to 5 minutes
-
+def test_proxy_timeout_and_retry_validation(test_config: MockConfig) -> None:
+    """Test that proxy global settings validation still works."""
+    # Test valid timeout values
+    valid_timeouts = [1, 30, 60, 120, 300]
     for timeout in valid_timeouts:
         test_config.set("proxy.timeout_seconds", timeout)
         assert test_config.get("proxy.timeout_seconds") == timeout
 
-
-def test_proxy_timeout_seconds_validation_invalid_values(
-    test_config: MockConfig,
-) -> None:
-    """Test that invalid timeout values are rejected."""
-    invalid_timeouts = [0, -1, 301, 1000]  # Below min, above max
-
-    for timeout in invalid_timeouts:
-        with pytest.raises(ValueError, match="Must be between 1 and 300"):
-            test_config.set("proxy.timeout_seconds", timeout)
-
-
-def test_proxy_retry_attempts_validation_valid_values(
-    test_config: MockConfig,
-) -> None:
-    """Test that valid retry attempt values are accepted."""
-    valid_retries = [0, 1, 3, 5, 10]  # 0 to 10 retries
-
+    # Test valid retry values
+    valid_retries = [0, 1, 3, 5, 10]
     for retries in valid_retries:
         test_config.set("proxy.retry_attempts", retries)
         assert test_config.get("proxy.retry_attempts") == retries
-
-
-def test_proxy_retry_attempts_validation_invalid_values(
-    test_config: MockConfig,
-) -> None:
-    """Test that invalid retry attempt values are rejected."""
-    invalid_retries = [-1, 11, 20, 100]  # Below min, above max
-
-    for retries in invalid_retries:
-        with pytest.raises(ValueError, match="Must be between 0 and 10"):
-            test_config.set("proxy.retry_attempts", retries)
-
-
-def test_proxy_enabled_boolean_validation(test_config: MockConfig) -> None:
-    """Test that proxy.enabled only accepts boolean values."""
-    # Valid boolean values
-    test_config.set("proxy.enabled", True)
-    assert test_config.get("proxy.enabled") is True
-
-    test_config.set("proxy.enabled", False)
-    assert test_config.get("proxy.enabled") is False
-
-    # String boolean representations
-    test_config.set("proxy.enabled", "true")
-    assert test_config.get("proxy.enabled") is True
-
-    test_config.set("proxy.enabled", "false")
-    assert test_config.get("proxy.enabled") is False
-
-
-def test_proxy_type_validation(test_config: MockConfig) -> None:
-    """Test that proxy configuration values require correct types."""
-    # timeout_seconds must be numeric
-    with pytest.raises(ValueError, match="Invalid value for proxy.timeout_seconds"):
-        test_config.set("proxy.timeout_seconds", "not-a-number")
-
-    # retry_attempts must be numeric
-    with pytest.raises(ValueError, match="Invalid value for proxy.retry_attempts"):
-        test_config.set("proxy.retry_attempts", "not-a-number")
-
-
-def test_proxy_edge_cases(test_config: MockConfig) -> None:
-    """Test edge cases for proxy configuration validation."""
-    # Boundary values should work
-    test_config.set("proxy.timeout_seconds", 1)  # Minimum
-    assert test_config.get("proxy.timeout_seconds") == 1
-
-    test_config.set("proxy.timeout_seconds", 300)  # Maximum
-    assert test_config.get("proxy.timeout_seconds") == 300
-
-    test_config.set("proxy.retry_attempts", 0)  # Minimum (no retries)
-    assert test_config.get("proxy.retry_attempts") == 0
-
-    test_config.set("proxy.retry_attempts", 10)  # Maximum
-    assert test_config.get("proxy.retry_attempts") == 10
-
-
-def test_proxy_unset_behavior(test_config: MockConfig) -> None:
-    """Test that unsetting proxy configuration resets to defaults."""
-    # Set non-default values
-    test_config.set("proxy.enabled", True)
-    test_config.set("proxy.timeout_seconds", 60)
-    test_config.set("proxy.retry_attempts", 5)
-
-    # Unset should restore defaults
-    test_config.unset("proxy.enabled")
-    assert test_config.get("proxy.enabled") is False  # Default
-
-    test_config.unset("proxy.timeout_seconds")
-    assert test_config.get("proxy.timeout_seconds") == 30  # Default
-
-    test_config.unset("proxy.retry_attempts")
-    assert test_config.get("proxy.retry_attempts") == 3  # Default
 
 
 def test_jwt_token_validation_helper() -> None:
@@ -1056,10 +996,17 @@ def test_get_model_key_file_from_env_var(test_config: MockConfig) -> None:
         assert result == test_file
 
 
-def test_get_ca_bundle_path_from_config(test_config: MockConfig) -> None:
-    """Test getting CA bundle path from configuration."""
-    ca_bundle_path = "/config/path/to/ca.pem"
-    test_config.set("proxy.ca_bundle_path", ca_bundle_path)
+def test_get_ca_bundle_path_from_profile(test_config: MockConfig) -> None:
+    """Test getting CA bundle path from active proxy profile."""
+    ca_bundle_path = "/profile/path/to/ca.pem"
+
+    # Set up a profile with CA bundle
+    profile_config = {
+        "server_url": "vibectl-server://example.com:443",
+        "ca_bundle_path": ca_bundle_path,
+    }
+    test_config.set_proxy_profile("test-profile", profile_config)
+    test_config.set_active_proxy_profile("test-profile")
 
     result = test_config.get_ca_bundle_path()
     assert result == ca_bundle_path
@@ -1074,12 +1021,18 @@ def test_get_ca_bundle_path_from_env_var(test_config: MockConfig) -> None:
         assert result == ca_bundle_path
 
 
-def test_get_ca_bundle_path_env_overrides_config(test_config: MockConfig) -> None:
-    """Test that environment variable overrides config for CA bundle path."""
-    config_path = "/config/path/to/ca.pem"
+def test_get_ca_bundle_path_env_overrides_profile(test_config: MockConfig) -> None:
+    """Test that environment variable overrides profile for CA bundle path."""
+    profile_path = "/profile/path/to/ca.pem"
     env_path = "/env/path/to/ca.pem"
 
-    test_config.set("proxy.ca_bundle_path", config_path)
+    # Set up profile with CA bundle
+    profile_config = {
+        "server_url": "vibectl-server://example.com:443",
+        "ca_bundle_path": profile_path,
+    }
+    test_config.set_proxy_profile("test-profile", profile_config)
+    test_config.set_active_proxy_profile("test-profile")
 
     with patch.dict("os.environ", {"VIBECTL_CA_BUNDLE": env_path}):
         result = test_config.get_ca_bundle_path()

@@ -2,7 +2,8 @@
 Auto command for vibectl.
 
 This module provides the implementation for the 'auto' subcommand,
-which reifies the looping 'vibectl vibe --yes' pattern.
+which provides a non-interactive alternative to looping 'vibectl vibe' calls that
+would historically have used the deprecated '--yes' flag.
 """
 
 import time
@@ -26,13 +27,13 @@ async def run_auto_command(
     model: str | None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
-    yes: bool = True,
     interval: int = 5,
     semiauto: bool = False,
     exit_on_error: bool = True,
     limit: int | None = None,
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
+    mode_choice: str | None = None,
 ) -> Result:
     """
     Implements the auto subcommand logic, including looping
@@ -46,8 +47,6 @@ async def run_auto_command(
         model: Model name to use for vibe
         freeze_memory: Whether to freeze memory
         unfreeze_memory: Whether to unfreeze memory
-        yes: Whether to automatically confirm actions (default:
-            True for auto, False for semiauto)
         interval: Seconds to wait between loop iterations
         semiauto: Whether we're in semiauto mode with manual confirmation
         exit_on_error: If True (default), errors will terminate the process.
@@ -55,6 +54,7 @@ async def run_auto_command(
         limit: Maximum number of iterations to run (None for unlimited)
         show_metrics: Whether to show metrics
         show_streaming: Whether to show streaming output
+        mode_choice: Optional mode choice from the CLI
 
     Returns:
         Result object (Success or Error)
@@ -83,12 +83,12 @@ async def run_auto_command(
                 "Dangerous commands (e.g., delete, apply) will require confirmation. "
                 "Review each step carefully."
             )
-            yes_to_pass_to_vibe = False  # Semiauto always requires initial confirmation
+            mode_choice = "manual"
             effective_interval = (
                 0  # No sleep in semiauto, user confirmation is the pause
             )
         else:  # Full auto mode
-            yes_to_pass_to_vibe = True  # <<< MODIFIED: Force True for full auto mode
+            mode_choice = "auto"
             effective_interval = interval
 
         # Show limit information if applicable
@@ -154,10 +154,10 @@ async def run_auto_command(
                     freeze_memory=freeze_memory,
                     unfreeze_memory=unfreeze_memory,
                     show_metrics=show_metrics,
-                    yes=yes_to_pass_to_vibe,
                     semiauto=semiauto,
                     exit_on_error=False,
                     show_streaming=show_streaming,
+                    mode_choice=mode_choice,
                 )
 
                 # Handle user exit request
@@ -242,28 +242,10 @@ async def run_semiauto_command(
     show_streaming: bool | None = None,
 ) -> Result:
     """
-    Implements the semiauto subcommand logic, which is sugar
-    for auto with manual confirmation.
+    Implements the semiauto subcommand logic.
 
-    This just calls run_auto_command with semiauto=True and yes=False.
-
-    Args:
-        request: Natural language request from the user
-        show_raw_output: Whether to show raw output
-        show_vibe: Whether to show vibe output
-        show_kubectl: Whether to show kubectl commands
-        model: Model name to use for vibe
-        freeze_memory: Whether to freeze memory
-        unfreeze_memory: Whether to unfreeze memory
-        exit_on_error: If True, errors will terminate the process.
-           If False (default for semiauto), errors are handled gracefully
-           and the loop continues.
-        limit: Maximum number of iterations to run (None for unlimited)
-        show_metrics: Whether to show metrics
-        show_streaming: Whether to show streaming output
-
-    Returns:
-        Result object (Success or Error)
+    This is a thin wrapper around run_auto_command with semiauto=True (manual
+    confirmation) so that every command is confirmed by the user before execution.
     """
     logger.info(
         f"Starting 'semiauto' command with request: {request!r}, limit: {limit}"
@@ -277,9 +259,9 @@ async def run_semiauto_command(
         model=model,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
-        yes=False,  # Override to False for semiauto
-        interval=0,  # Use 0 interval as semiauto has natural pausing through user input
+        interval=0,  # Use 0 interval as semiauto has natural pausing
         semiauto=True,  # Set semiauto mode
+        mode_choice="manual",
         exit_on_error=exit_on_error,
         limit=limit,  # Pass the iteration limit
         show_metrics=show_metrics,

@@ -6,7 +6,7 @@ Contains common type definitions used across the application.
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import Enum, auto
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -480,3 +480,124 @@ class ACMEValidationError(ACMEError):
     """Exception raised when ACME validation fails."""
 
     pass
+
+
+class ExecutionMode(Enum):
+    """Represents the high-level execution style chosen for a vibectl run.
+
+    MANUAL     - default behaviour, ask for confirmation on destructive actions.
+    AUTO       - fully autonomous, no confirmations at all.
+    SEMIAUTO   - prompt once per iteration in the *semiauto* loop.
+
+    This abstraction replaced the previous mixture of boolean flags that
+    controlled confirmation behaviour.
+    """
+
+    MANUAL = auto()
+    AUTO = auto()
+    SEMIAUTO = auto()
+
+
+_MODE_ALIASES: dict[str, ExecutionMode] = {
+    # Direct mode names
+    "auto": ExecutionMode.AUTO,
+    "semiauto": ExecutionMode.SEMIAUTO,
+    "manual": ExecutionMode.MANUAL,
+    # Confirmation-mode strings from config
+    "none": ExecutionMode.AUTO,
+    "per-session": ExecutionMode.SEMIAUTO,
+    "per-command": ExecutionMode.MANUAL,
+}
+
+
+def _mode_from_string(value: str | None) -> ExecutionMode | None:
+    """Translate a config / override string into :class:`ExecutionMode`."""
+    if not value:
+        return None
+    return _MODE_ALIASES.get(str(value).lower())
+
+
+def determine_execution_mode(*, semiauto: bool = False) -> ExecutionMode:
+    """Resolve the :class:`ExecutionMode` for the current invocation.
+
+    Precedence (highest first):
+    1. Process-local override via :pyfunc:`vibectl.overrides.set_override`
+       (CLI ``--mode``).
+    2. ``security.confirmation_mode`` configuration - first on the active proxy profile,
+       then global config.
+    3. Runtime context: the *semiauto* loop sets ``semiauto=True``.
+    4. Default → :pyattr:`ExecutionMode.MANUAL`.
+    """
+
+    # 1. Process-local override (CLI --mode)
+    try:
+        from vibectl.overrides import get_override  # Local import - avoids cycles
+
+        overridden, value = get_override("execution.mode")
+        override_mode = _mode_from_string(value) if overridden else None
+        if override_mode is not None:
+            return override_mode
+    except Exception:  # pragma: no cover - overrides system unavailable
+        pass
+
+    # 2. Configuration-based confirmation mode
+    try:
+        from vibectl.config import Config  # Late import to avoid heavy dependency
+
+        cfg = Config()
+
+        # Look at active proxy profile first
+        proxy_cfg = cfg.get("proxy", {})
+        confirmation_mode: str | None = None
+
+        active_profile = proxy_cfg.get("active")
+        if active_profile:
+            profiles = proxy_cfg.get("profiles", {})
+            confirmation_mode = (
+                profiles.get(active_profile, {})
+                .get("security", {})
+                .get("confirmation_mode")
+            )
+
+        # Fall back to global config
+        if confirmation_mode is None:
+            confirmation_mode = cfg.get("security.confirmation_mode")
+
+        cfg_mode = _mode_from_string(confirmation_mode)
+        if cfg_mode is not None:
+            return cfg_mode
+    except Exception:  # pragma: no cover - config errors should not abort flow
+        pass
+
+    # 3. Runtime flag from the semiauto loop
+    if semiauto:
+        return ExecutionMode.SEMIAUTO
+
+    # 4. Default
+    return ExecutionMode.MANUAL
+
+
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
+
+
+def execution_mode_from_cli(choice: str | None) -> ExecutionMode | None:
+    """Translate the ``--mode`` CLI option into :class:`ExecutionMode`.
+
+    Returns ``None`` if *choice* is ``None`` so that callers can fall back to
+    SEMIAUTO/MANUAL selection when the option wasn't supplied.
+    """
+
+    if choice is None:
+        return None
+
+    lowered = choice.lower()
+    if lowered == "auto":
+        return ExecutionMode.AUTO
+    if lowered == "semiauto":
+        return ExecutionMode.SEMIAUTO
+    if lowered == "manual":
+        return ExecutionMode.MANUAL
+    # Defensive fallback - let the caller handle unexpected value.
+    return None

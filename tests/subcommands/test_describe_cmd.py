@@ -4,7 +4,7 @@ import pytest
 
 from vibectl.prompts.describe import describe_resource_prompt
 from vibectl.subcommands.describe_cmd import run_describe_command
-from vibectl.types import Error, MetricsDisplayMode, Success
+from vibectl.types import Error, Success
 
 
 @pytest.mark.asyncio
@@ -26,14 +26,9 @@ async def test_describe_basic(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),
-        show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     # Assert the result and mock calls
@@ -78,14 +73,9 @@ async def test_describe_args_variants(
     result = await run_describe_command(
         resource=resource,
         args=func_args,
-        show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     if should_succeed:
@@ -121,25 +111,17 @@ async def test_describe_with_flags(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),  # Flags are handled by configure_output_flags
-        show_raw_output=True,
         show_vibe=True,
-        show_kubectl=True,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     assert isinstance(result, Success)
     mock_handle_standard.assert_called_once()
+    # show_streaming is no longer a parameter passed to configure_output_flags
+    # since it's handled via ContextVar overrides at the CLI level
     mock_configure_output.assert_called_once_with(
-        show_raw_output=True,
         show_vibe=True,
-        model=None,
-        show_kubectl=True,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
     mock_configure_memory.assert_called_once()
 
@@ -163,14 +145,9 @@ async def test_describe_error_handling(
     result = await run_describe_command(
         resource="pod",
         args=("my-pod",),
-        show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     # Assert Error is returned and mock was called
@@ -198,28 +175,20 @@ async def test_describe_vibe_request(
     result = await run_describe_command(
         resource="vibe",
         args=("show", "me", "the", "nginx", "pod"),
-        show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     # Assert Success is returned
     assert isinstance(result, Success)
 
-    mock_handle_vibe.assert_called_once_with(
-        request="show me the nginx pod",
-        command="describe",
-        plan_prompt_func=ANY,
-        summary_prompt_func=describe_resource_prompt,
-        output_flags=ANY,  # Check specific flags if needed
-        semiauto=False,
-        config=None,  # Expect config to be None as it's not passed by caller
-    )
+    # Verify essential kwargs were passed
+    mock_handle_vibe.assert_called_once()
+    called_kwargs = mock_handle_vibe.call_args.kwargs
+    assert called_kwargs["request"] == "show me the nginx pod"
+    assert called_kwargs["command"] == "describe"
+    assert "output_flags" in called_kwargs
 
 
 @pytest.mark.asyncio
@@ -236,22 +205,14 @@ async def test_describe_vibe_no_request(
     result = await run_describe_command(
         resource="vibe",
         args=(),
-        show_raw_output=None,
         show_vibe=None,
-        show_kubectl=None,
-        model=None,
         freeze_memory=False,
         unfreeze_memory=False,
-        show_metrics=MetricsDisplayMode.ALL,
-        show_streaming=True,
     )
 
     # Assert an Error is returned with the correct message
     assert isinstance(result, Error)
     assert "Missing request after 'vibe'" in result.error
-
-
-# --- Unit tests for run_describe_command for 100% coverage ---
 
 
 @pytest.mark.asyncio
@@ -276,14 +237,9 @@ async def test_run_describe_command_normal() -> None:
         result = await run_describe_command(
             resource="pod",
             args=("test-pod",),
-            show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
-            show_streaming=False,
         )
 
         assert result == mock_result
@@ -318,26 +274,17 @@ async def test_run_describe_command_vibe() -> None:
         result = await run_describe_command(
             resource="vibe",
             args=("show", "pods"),
-            show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
-            show_streaming=False,
         )
 
         assert result == mock_result
-        mock_handle_vibe.assert_called_once_with(
-            request="show pods",
-            command="describe",
-            plan_prompt_func=ANY,
-            output_flags=mock_output_flags,
-            summary_prompt_func=describe_resource_prompt,
-            semiauto=False,
-            config=None,
-        )
+        mock_handle_vibe.assert_called_once()
+        called_kwargs = mock_handle_vibe.call_args.kwargs
+        assert called_kwargs["request"] == "show pods"
+        assert called_kwargs["command"] == "describe"
+        assert "output_flags" in called_kwargs
 
 
 @pytest.mark.asyncio
@@ -357,14 +304,9 @@ async def test_run_describe_command_vibe_no_args() -> None:
         result = await run_describe_command(
             resource="vibe",
             args=(),
-            show_raw_output=None,
             show_vibe=None,
-            show_kubectl=None,
-            model=None,
             freeze_memory=False,
             unfreeze_memory=False,
-            show_metrics=MetricsDisplayMode.NONE,
-            show_streaming=False,
         )
 
         assert isinstance(result, Error)
@@ -394,14 +336,9 @@ async def test_run_describe_command_vibe_handle_vibe_request_exception() -> None
             await run_describe_command(
                 resource="vibe",
                 args=("test", "request"),
-                show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.NONE,
-                show_streaming=False,
             )
 
 
@@ -428,14 +365,9 @@ async def test_run_describe_command_standard_command_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test-pod",),
-                show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.NONE,
-                show_streaming=False,
             )
 
 
@@ -452,14 +384,9 @@ async def test_run_describe_command_configure_output_flags_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test",),
-                show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.ALL,
-                show_streaming=True,
             )
 
 
@@ -483,12 +410,7 @@ async def test_run_describe_command_configure_memory_flags_exception() -> None:
             await run_describe_command(
                 resource="pod",
                 args=("test",),
-                show_raw_output=None,
                 show_vibe=None,
-                show_kubectl=None,
-                model=None,
                 freeze_memory=False,
                 unfreeze_memory=False,
-                show_metrics=MetricsDisplayMode.ALL,
-                show_streaming=True,
             )

@@ -13,6 +13,7 @@ from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import CommandAction, FeedbackAction, LLMPlannerResponse
 from vibectl.types import (
     Error,
+    ExecutionMode,
     Fragment,
     MetricsDisplayMode,
     PromptFragments,
@@ -238,7 +239,7 @@ async def test_vibe_delete_with_confirmation(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
         # Assert _get_llm_plan was called
@@ -320,7 +321,7 @@ async def test_vibe_delete_with_confirmation_cancelled(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
         # Verify _get_llm_plan was called
@@ -348,7 +349,7 @@ async def test_vibe_delete_with_confirmation_cancelled(
 
 @pytest.mark.asyncio
 @patch("vibectl.execution.vibe._get_llm_plan")
-async def test_vibe_delete_yes_flag_bypasses_confirmation(
+async def test_vibe_delete_auto_mode_bypasses_confirmation(
     mock_get_llm_plan: MagicMock,
     mock_llm: MagicMock,
     mock_run_kubectl: MagicMock,
@@ -359,7 +360,7 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
     mock_memory: tuple[MagicMock, MagicMock],
     mock_handle_output: MagicMock,
 ) -> None:
-    """Test that the --yes flag bypasses the delete confirmation."""
+    """Test that AUTO execution mode bypasses the delete confirmation (legacy --yes)."""
     command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pod", "bypass-pod"],
@@ -379,7 +380,7 @@ async def test_vibe_delete_yes_flag_bypasses_confirmation(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=True,  # <<<< Bypass confirmation
+            execution_mode=ExecutionMode.AUTO,
         )
 
         # Verify _get_llm_plan was called
@@ -426,7 +427,7 @@ async def test_vibe_non_delete_commands_skip_confirmation(
     mock_memory: tuple[MagicMock, MagicMock],
     mock_handle_output: MagicMock,
 ) -> None:
-    """Test non-delete commands skip confirmation even if yes=False."""
+    """Test non-delete commands skip confirmation when execution mode is MANUAL."""
     command_action = CommandAction(
         action_type=ActionType.COMMAND,
         commands=["pods", "-A"],  # Args for 'get'
@@ -446,7 +447,7 @@ async def test_vibe_non_delete_commands_skip_confirmation(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,  # <<<< Confirmation not bypassed by flag
+            execution_mode=ExecutionMode.MANUAL,
         )
 
         # Verify _get_llm_plan was called
@@ -531,7 +532,7 @@ async def test_vibe_delete_confirmation_memory_option(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
         assert mock_click_prompt.call_count == 2
@@ -599,7 +600,7 @@ async def test_vibe_delete_confirmation_no_but_fuzzy_update_error(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
     # click.prompt is called for main confirmation and then for fuzzy input.
@@ -668,7 +669,7 @@ async def test_vibe_delete_confirmation_yes_and_fuzzy_update_success(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
     assert mock_click_prompt.call_count == 2
@@ -735,7 +736,7 @@ async def test_vibe_delete_confirmation_yes_and_fuzzy_update_error(
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=standard_output_flags,
-            yes=False,
+            execution_mode=ExecutionMode.MANUAL,
         )
 
     assert mock_click_prompt.call_count == 2
