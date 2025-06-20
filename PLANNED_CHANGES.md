@@ -10,8 +10,8 @@ The baseline config-naming work is **done**. The outstanding functional work now
 • Audit current prompt injection patterns across the codebase and catalogue variance.
 • Standardise the injection mechanism for **custom instructions**.
 • Standardise the injection mechanism for **memory/context**.
-• Create a single DRY helper that injects memory/custom-instruction/time fragments.
-• Ensure planners ingest memory and custom instructions by default.
+• Wire the new **context helper** (`build_context_fragments`) into all prompt builders.
+• Ensure planners ingest memory and custom instructions by default (via the helper).
 • Make planners emit `presentation_hints` consumed by downstream prompts.
 • Update summary & execution prompts to rely on planner-supplied hints, not config look-ups.
 • Migrate exotic workflows (check, edit, etc.) to the same planner-hint pattern.
@@ -25,29 +25,13 @@ The baseline config-naming work is **done**. The outstanding functional work now
 
    Remaining trace work ➜ During Step 2 we'll delete the now-redundant ad-hoc lookup in `prompts/edit.py` when the new helper lands.
 
-2. Central PromptContext helper *(in progress – next immédiate task)*
-   2.1  Create `vibectl/prompts/context.py` with:
-        ```python
-        def build_context_fragments(
-            cfg: Config,
-            *,
-            current_memory: str | None = None,
-            presentation_hints: str | None = None,
-        ) -> SystemFragments:
-        ```
-        • Injects memory fragment when provided (and `cfg.memory.enabled` is true).
-        • Injects custom-instruction fragment when present.
-        • Injects presentation-hints fragment when present.
-        • Appends current-time fragment.
-
-   2.2  Add unit tests covering permutations (memory on/off, instructions on/off, hints on/off, char-limit edge cases).
-
-   2.3  Replace the call-sites:
+2. Central PromptContext helper *(partially complete)*
+   2.1  **✅ Implement helper** – `vibectl/prompts/context.py` now provides `build_context_fragments()`.
+   2.2  Add/extend unit tests covering permutations (memory on/off, instructions on/off, hints on/off, char-limit edge cases).  → *core permutations covered; edge-case tests still TODO.*
+   2.3  **Next up** – Replace call-sites:
         • Swap `get_formatting_fragments` → `build_context_fragments` across **all** prompt modules.
         • Delete `get_formatting_fragments` once the migration is complete.
-
-   2.4  Delete the special-case code path in `prompts/edit.py` that still hand builds context (was TODO earlier).
-
+   2.4  Delete the special-case code path in `prompts/edit.py` that still hand-builds context (was TODO earlier).
    2.5  Update documentation (`STRUCTURE.md`, design docs) to reference the new helper.
 
 3. Planner changes
