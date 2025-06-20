@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck test test-parallel test-coverage check clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
+.PHONY: help format lint typecheck test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -40,11 +40,11 @@ typecheck:  ## Run static type checking using mypy
 
 ##@ Testing
 
-test:  ## Run tests using pytest
-	pytest
-
-test-parallel:  ## Run tests in parallel (faster but without coverage)
+test:  ## Run tests in parallel (default for development)
 	./scripts/run_parallel_tests.sh
+
+test-serial:  ## Run tests serially using pytest (slower but more compatible)
+	pytest
 
 test-coverage:  ## Run tests with coverage report
 	pytest --cov=vibectl --cov-report=term --cov-report=html --cov-report=xml
@@ -58,9 +58,9 @@ test-quick:  ## Ultra-fast feedback – run pytest quietly excluding slow tests,
 
 ##@ Quality and Verification
 
-check: install-dev format lint typecheck test  ## Run all code quality checks and tests
+check: install-dev format lint typecheck test  ## Run all code quality checks and tests (with parallel execution)
 
-check-fast: install-dev format lint typecheck test-parallel  ## Run code quality checks with faster parallel tests
+check-coverage: install-dev format lint typecheck test-coverage  ## Run code quality checks and tests with coverage report
 
 pypi-check:  ## Run code quality checks without reinstalling (for CI/release)
 	pre-commit run --all-files

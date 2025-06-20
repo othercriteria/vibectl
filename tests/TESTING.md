@@ -110,11 +110,11 @@ Added support for marking tests based on performance characteristics:
 Several options are available for running tests:
 
 ```bash
-# Run all tests with coverage (standard)
+# Run all tests in parallel (default, faster)
 make test
 
-# Run all tests in parallel (faster, no coverage)
-make test-parallel
+# Run all tests serially (slower but more compatible)
+make test-serial
 
 # Run only fast tests (fastest, for quick feedback)
 make test-fast
@@ -127,9 +127,10 @@ make test-coverage
 
 | Test Mode | Time | Coverage | Use Case |
 |-----------|------|----------|----------|
-| Regular   | ~10s | Yes      | CI/CD, pre-commit |
-| Parallel  | ~4s  | No       | Development iteration |
+| Serial    | ~80s | Yes      | When parallel tests have issues |
+| Parallel  | ~4s  | No       | Default for development (make test) |
 | Fast-only | ~1s  | Limited  | Quick feedback during development |
+| Coverage  | ~80s | Yes      | CI/CD, detailed analysis |
 
 ### Writing Optimized Tests
 
@@ -173,9 +174,9 @@ To create tests that run efficiently:
    - Use full integration tests only when necessary
 
 3. **Run the Right Test Mode**:
-   - Use `make test-fast` during active development
-   - Use `make test-parallel` for validating all changes quickly
-   - Use `make test` or `make test-coverage` before committing
+   - Use `make test-fast` during active development for immediate feedback
+   - Use `make test` (parallel) for validating all changes quickly
+   - Use `make test-coverage` for detailed analysis and before committing
 
 4. **Maintain Coverage**:
    - Even when using optimized test modes during development, always run full coverage checks before committing
@@ -191,8 +192,8 @@ CoverageWarning: Module vibectl was previously imported, but not measured
 ```
 
 To work around this:
-- Use `make test-parallel` for fast feedback without coverage
-- Use `make test` or `make test-coverage` when you need coverage data
+- Use `make test` (parallel) for fast feedback without coverage
+- Use `make test-coverage` when you need coverage data
 
 ### Fixture Incompatibilities
 
