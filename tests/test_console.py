@@ -239,7 +239,9 @@ def test_console_print_error_with_markup_errors(test_console: ConsoleManager) ->
     # Verify that the output was printed (without handling markup)
     output = test_console.error_console.export_text()
     assert "Error: Some Kubernetes components are" in output
-    assert "broken [blue]formatting [/yellow] which causes errors" in output
+    # Check for individual parts due to potential line wrapping
+    assert "broken [blue]formatting [/yellow]" in output
+    assert "which causes errors" in output
 
 
 def test_logging_handler_with_markup_errors(
