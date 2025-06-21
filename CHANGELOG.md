@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.11.2] - 2025-06-21
+
 ### Added
 - Consistent prompt injection mechanism for custom instructions and memory across all prompt types
 - Unit tests covering defensive branches in LLM adapter helpers (`is_valid_llm_model_name`, API-key message formatters) improving coverage.
