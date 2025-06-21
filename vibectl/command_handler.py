@@ -28,6 +28,7 @@ from .live_display import (
     _execute_wait_with_live_display,
 )
 from .live_display_watch import _execute_watch_with_live_display
+from .llm_utils import run_llm
 from .logutil import logger as _logger
 from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
@@ -490,16 +491,17 @@ async def _process_vibe_output(
             # error recovery.
             # For error recovery (original_error_object is not None), we always
             # fetch non-streamed.
-            vibe_output_text, metrics = await model_adapter.execute_and_log_metrics(
-                model=model,
-                system_fragments=summary_system_fragments,
-                user_fragments=UserFragments(formatted_user_fragments),
+            vibe_output_text, metrics = await run_llm(
+                summary_system_fragments,
+                UserFragments(formatted_user_fragments),
+                output_flags.model_name,
+                metrics_acc=llm_metrics_accumulator,
+                metrics_source="LLM Summary Generation",
+                get_adapter=get_model_adapter,
             )
-            # Accumulate LLM summary metrics
-            if llm_metrics_accumulator and metrics:
-                llm_metrics_accumulator.add_metrics(metrics, "LLM Summary Generation")
-            elif metrics:
-                # Fallback for standalone calls without accumulator
+            # When run_llm handled metrics accumulation, we only need to print
+            # sub-metrics in the rare case an accumulator wasn't provided.
+            if metrics and llm_metrics_accumulator is None:
                 print_sub_metrics_if_enabled(
                     metrics, output_flags, "LLM Summary Generation"
                 )
@@ -896,15 +898,13 @@ async def _vibe_recovery_result(
     )
 
     try:
-        model_adapter = get_model_adapter()
-        model = model_adapter.get_model(output_flags.model_name)
-        recovery_text, recovery_metrics = await model_adapter.execute_and_log_metrics(
-            model,
-            system_fragments=SystemFragments(recovery_system_fragments),
-            user_fragments=UserFragments(recovery_user_fragments),
-        )
-        llm_metrics_accumulator.add_metrics(
-            recovery_metrics, "LLM Recovery Suggestions"
+        recovery_text, recovery_metrics = await run_llm(
+            SystemFragments(recovery_system_fragments),
+            UserFragments(recovery_user_fragments),
+            output_flags.model_name,
+            metrics_acc=llm_metrics_accumulator,
+            metrics_source="LLM Recovery Suggestions",
+            get_adapter=get_model_adapter,
         )
         original_error.metrics = (
             recovery_metrics  # surface directly on error object for tests

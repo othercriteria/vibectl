@@ -22,6 +22,7 @@ from vibectl.config import Config
 
 # Import console utility functions for metrics display
 from vibectl.k8s_utils import is_kubectl_command_read_only
+from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger as _logger
 from vibectl.memory import (
     get_memory,
@@ -627,9 +628,6 @@ async def _handle_fuzzy_memory_update(
         cfg = Config()
         current_memory = get_memory(cfg)
 
-        model_adapter = get_model_adapter(cfg)
-        model = model_adapter.get_model(model_name)
-
         system_fragments, user_fragments = memory_fuzzy_update_prompt(
             current_memory=current_memory,
             update_text=update_text,
@@ -637,10 +635,12 @@ async def _handle_fuzzy_memory_update(
         )
 
         console_manager.print_processing("Updating memory...")
-        updated_memory_text, metrics = await model_adapter.execute_and_log_metrics(
-            model,
-            system_fragments=system_fragments,
-            user_fragments=user_fragments,
+        updated_memory_text, metrics = await run_llm(
+            system_fragments,
+            user_fragments,
+            model_name,
+            get_adapter=get_model_adapter,
+            config=cfg,
         )
 
         set_memory(updated_memory_text, cfg)
