@@ -193,6 +193,7 @@ def mock_handle_output() -> Generator[MagicMock, None, None]:
 def get_test_summary_fragments(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Dummy summary prompt function for testing that returns fragments."""
     return PromptFragments(
@@ -272,7 +273,15 @@ async def test_vibe_delete_with_confirmation(
     )  # Corrected: Should be the original command verb
 
     # Verify handle_command_output was called
-    mock_handle_output.assert_called_once()
+    mock_handle_output.assert_called_once_with(
+        mock_execute_cmd.return_value,
+        standard_output_flags,
+        get_test_summary_fragments,
+        command="delete",  # Expect the original command verb here
+        presentation_hints=ANY,
+        llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
+        suppress_total_metrics=True,  # Add the new parameter
+    )
 
 
 @pytest.mark.asyncio
@@ -400,6 +409,7 @@ async def test_vibe_delete_auto_mode_bypasses_confirmation(
             standard_output_flags,
             get_test_summary_fragments,
             command="delete",  # Expect the original command verb here
+            presentation_hints=ANY,
             llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
             suppress_total_metrics=True,  # Add the new parameter
         )
@@ -467,6 +477,7 @@ async def test_vibe_non_delete_commands_skip_confirmation(
             standard_output_flags,
             get_test_summary_fragments,
             command="get",  # Expect the original command verb here
+            presentation_hints=ANY,
             llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
             suppress_total_metrics=True,  # Add the new parameter
         )
@@ -687,6 +698,7 @@ async def test_vibe_delete_confirmation_yes_and_fuzzy_update_success(
         standard_output_flags,
         get_test_summary_fragments,
         command="delete",
+        presentation_hints=ANY,
         llm_metrics_accumulator=ANY,  # Accept any LLMMetricsAccumulator instance
         suppress_total_metrics=True,  # Add the new parameter
     )

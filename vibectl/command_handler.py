@@ -28,6 +28,7 @@ from .live_display import (
     _execute_wait_with_live_display,
 )
 from .live_display_watch import _execute_watch_with_live_display
+from .llm_utils import run_llm
 from .logutil import logger as _logger
 from .memory import get_memory, update_memory
 from .model_adapter import RecoverableApiError, get_model_adapter
@@ -233,22 +234,16 @@ async def handle_command_output(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     command: str | None = None,
+    presentation_hints: str | None = None,
     llm_metrics_accumulator: LLMMetricsAccumulator | None = None,
     suppress_total_metrics: bool = False,
 ) -> Result:
-    """Handle the output of a kubectl command.
+    """Handle the output of a kubectl command - top-level coordinator.
 
-    Processes and displays raw output, vibe output, or summaries based on flags.
-
-    Args:
-        output: The command output Result object.
-        output_flags: Flags controlling the output format.
-        command: The original kubectl command type (e.g., get, describe).
-        llm_metrics_accumulator: Optional existing accumulator to merge with.
-        suppress_total_metrics: If True, don't print total metrics at the end.
-
-    Returns:
-        Result object containing the processed output or original error.
+    The heavy lifting (error-recovery vs. normal summary) now lives in two
+    smaller helpers so we can reason about each path independently and keep
+    this dispatcher trim.  A thin *finalisation* section at the end ensures we
+    always merge metrics and honour the *suppress_total_metrics* flag.
     """
     _check_output_visibility(output_flags)
 
@@ -278,220 +273,70 @@ async def handle_command_output(
     _display_raw_output(output_flags, output_data or "")
 
     vibe_result: Result | None = None
-    if output_flags.show_vibe:
-        if output_data is not None:
-            try:
-                if original_error_object:
-                    # If we started with an error, generate a recovery prompt
-                    # recovery_prompt now returns fragments
-                    recovery_system_fragments, recovery_user_fragments = (
-                        recovery_prompt(
-                            failed_command=command or "Unknown Command",
-                            error_output=output_data,
-                            original_explanation=None,
-                            config=Config(),
-                        )
-                    )
-                    logger.info(
-                        "Generated recovery fragments: "
-                        f"System={len(recovery_system_fragments)}, "
-                        f"User={len(recovery_user_fragments)}"
-                    )
 
-                    # Call LLM adapter directly for recovery, bypassing _get_llm_summary
-                    try:
-                        model_adapter = get_model_adapter()
-                        model = model_adapter.get_model(output_flags.model_name)
-                        # Get text and metrics from the recovery call using fragments
-                        (
-                            vibe_output_text,
-                            recovery_metrics,
-                        ) = await model_adapter.execute_and_log_metrics(
-                            model,
-                            system_fragments=SystemFragments(recovery_system_fragments),
-                            user_fragments=UserFragments(recovery_user_fragments),
-                        )
-                        # Accumulate recovery metrics
-                        llm_metrics_accumulator.add_metrics(
-                            recovery_metrics, "LLM Recovery Suggestions"
-                        )
-                        suggestions_generated = True
-                    except Exception as llm_exc:
-                        # Handle LLM execution errors during recovery appropriately
-                        logger.error(
-                            f"Error getting recovery suggestions from LLM: {llm_exc}",
-                            exc_info=True,
-                        )
-                        # If suggestions fail, we don't mark as recoverable
-                        suggestions_generated = False
-                        # Store the error message as the text output
-                        vibe_output_text = (
-                            f"Failed to get recovery suggestions: {llm_exc}"
-                        )
-                        recovery_metrics = None  # No metrics if call failed
-                        # Don't raise here, let the function return the original error
+    # Short-circuit when vibe display is disabled or there's no output at all.
+    if not output_flags.show_vibe or output_data is None:
+        return _finalise_no_vibe_result(
+            original_error_object,
+            output_data,
+            result_original_exit_code,
+            llm_metrics_accumulator,
+            suppress_total_metrics,
+        )
 
-                    logger.info(f"LLM recovery suggestion: {vibe_output_text}")
-                    # Display only the text part of the suggestion/error
-                    console_manager.print_vibe(vibe_output_text)
-
-                    # Store recovery suggestion directly as text
-                    if original_error_object:
-                        original_error_object.recovery_suggestions = vibe_output_text
-                        original_error_object.metrics = (
-                            recovery_metrics  # Add metrics from recovery
-                        )
-
-                    # If suggestions were generated, mark as non-halting for auto mode
-                    if suggestions_generated:
-                        logger.info(
-                            "Marking error as non-halting due to successful "
-                            "recovery suggestion."
-                        )
-                        original_error_object.halt_auto_loop = False
-
-                    # Update memory with error and recovery suggestion (or
-                    # failure message)
-                    # Wrap memory update in try-except as it's non-critical path
-                    try:
-                        memory_update_metrics_error = await update_memory(
-                            command_message=output_message or command or "Unknown",
-                            command_output=output_data,
-                            vibe_output=vibe_output_text,
-                            model_name=output_flags.model_name,
-                            config=Config(),
-                        )
-                        # Accumulate memory update metrics
-                        llm_metrics_accumulator.add_metrics(
-                            memory_update_metrics_error, "LLM Memory Update (Recovery)"
-                        )
-
-                    except Exception as mem_err:
-                        logger.error(
-                            f"Failed to update memory during error recovery: {mem_err}"
-                        )
-
-                    # The recovery path returns the modified original_error_object
-                    # which now contains recovery_metrics in its .metrics field.
-                    vibe_result = original_error_object
-                    # If recovery was attempted and vibe_result is set, return it.
-                    return vibe_result
-                else:
-                    # If we started with success, generate a summary prompt
-                    # Call with config
-                    cfg = Config()  # Instantiate config
-                    current_memory_text = get_memory(cfg)  # Fetch memory here
-                    # Call WITH config argument as required by the type hint
-                    summary_system_fragments, summary_user_fragments = (
-                        summary_prompt_func(
-                            cfg,  # Pass config as positional
-                            current_memory_text,  # Pass current_memory as positional
-                        )
-                    )
-                    # _process_vibe_output returns Success with summary_metrics
-                    # _process_vibe_output is now async
-                    vibe_result = await _process_vibe_output(
-                        output_message=output_message,
-                        output_data=output_data,
-                        output_flags=output_flags,
-                        summary_system_fragments=summary_system_fragments,
-                        summary_user_fragments=summary_user_fragments,
-                        command=command,
-                        original_error_object=original_error_object,
-                        llm_metrics_accumulator=llm_metrics_accumulator,
-                    )
-                    if isinstance(vibe_result, Success):
-                        vibe_result.original_exit_code = result_original_exit_code
-                    elif isinstance(vibe_result, Error):
-                        pass  # Error case, no additional processing needed
-            except RecoverableApiError as api_err:
-                # Catch specific recoverable errors from _get_llm_summary
-                logger.warning(
-                    f"Recoverable API error during Vibe processing: {api_err}",
-                    exc_info=True,
-                )
-                console_manager.print_error(f"API Error: {api_err}")
-                # Create a non-halting error using the more detailed log message
-                return create_api_error(
-                    f"Recoverable API error during Vibe processing: {api_err}", api_err
-                )
-            except Exception as e:
-                logger.error(f"Error during Vibe processing: {e}", exc_info=True)
-                error_str = str(e)
-                formatted_error_msg = f"Error getting Vibe summary: {error_str}"
-                console_manager.print_error(formatted_error_msg)
-                # Create a standard halting error for Vibe summary failures
-                # using the formatted message
-                vibe_error = Error(error=formatted_error_msg, exception=e)
-
-                if original_error_object:
-                    # Combine the original error with the Vibe failure
-                    # Use the formatted vibe_error message here too
-                    combined_error_msg = (
-                        f"Original Error: {original_error_object.error}\n"
-                        f"Vibe Failure: {vibe_error.error}"
-                    )
-                    exc = original_error_object.exception or vibe_error.exception
-                    # Return combined error, keeping original exception if possible
-                    combined_error = Error(error=combined_error_msg, exception=exc)
-                    return combined_error
-                else:
-                    # If there was no original error, just return the Vibe error
-                    return vibe_error
+    # At this point we *will* attempt some form of vibe processing.
+    try:
+        if original_error_object:
+            vibe_result = await _vibe_recovery_result(
+                output_message,
+                output_data,
+                command,
+                output_flags,
+                presentation_hints,
+                original_error_object,
+                llm_metrics_accumulator,
+            )
         else:
-            # Handle case where output was None but Vibe was requested
-            logger.warning("Cannot process Vibe output because input was None.")
-            # If we started with an Error object that had no .error string, return that
-            if original_error_object:
-                original_error_object.error = (
-                    original_error_object.error or "Input error was None"
-                )
-                original_error_object.recovery_suggestions = (
-                    "Could not process None error for suggestions."
-                )
-                return original_error_object
-            else:
-                return Error(
-                    error="Input command output was None, cannot generate Vibe summary."
-                )
+            vibe_result = await _vibe_summary_result(
+                output_message,
+                output_data,
+                command,
+                output_flags,
+                presentation_hints,
+                summary_prompt_func,
+                llm_metrics_accumulator,
+                result_original_exit_code,
+            )
+    except RecoverableApiError as api_err:
+        logger.warning(
+            "Recoverable API error during Vibe processing: %s", api_err, exc_info=True
+        )
+        console_manager.print_error(f"API Error: {api_err}")
+        return create_api_error(
+            f"Recoverable API error during Vibe processing: {api_err}", api_err
+        )
+    except Exception as e:
+        logger.error("Error during Vibe processing: %s", e, exc_info=True)
+        formatted_error_msg = f"Error getting Vibe summary: {e}"
+        console_manager.print_error(formatted_error_msg)
+        return Error(error=formatted_error_msg, exception=e)
 
-    # If vibe processing occurred and resulted in a Success/Error, return that.
-    # Otherwise, return the original result (or Success if only raw was shown).
-    if vibe_result:
-        logger.debug(
-            f"Vibe output processing complete. Result type: {type(vibe_result)}"
+    if vibe_result is None:
+        # This covers the (rare) path where output_data was empty string.
+        return _finalise_no_vibe_result(
+            original_error_object,
+            output_data,
+            result_original_exit_code,
+            llm_metrics_accumulator,
+            suppress_total_metrics,
         )
-        # Ensure accumulated metrics are included in the result
-        if isinstance(vibe_result, Success | Error):
-            vibe_result.metrics = llm_metrics_accumulator.get_metrics()
-        # Display total metrics if enabled after all vibe processing is complete
-        if not suppress_total_metrics:
-            llm_metrics_accumulator.print_total_if_enabled(
-                "Total LLM Command Processing"
-            )
-        return vibe_result
-    elif original_error_object:
-        # Return original error if vibe wasn't shown or only recovery happened
-        # Ensure accumulated metrics are included
-        original_error_object.metrics = llm_metrics_accumulator.get_metrics()
-        # Display total metrics if enabled
-        if not suppress_total_metrics:
-            llm_metrics_accumulator.print_total_if_enabled(
-                "Total LLM Command Processing"
-            )
-        return original_error_object
-    else:
-        # Return Success with the original output string if no vibe processing
-        # Display total metrics if enabled
-        if not suppress_total_metrics:
-            llm_metrics_accumulator.print_total_if_enabled(
-                "Total LLM Command Processing"
-            )
-        return Success(
-            message=output_data if output_data is not None else "",
-            original_exit_code=result_original_exit_code,
-            metrics=llm_metrics_accumulator.get_metrics(),
-        )
+
+    return _finalise_vibe_result(
+        vibe_result,
+        original_error_object,
+        llm_metrics_accumulator,
+        suppress_total_metrics,
+    )
 
 
 def _display_kubectl_command(output_flags: OutputFlags, command: str | None) -> None:
@@ -646,16 +491,17 @@ async def _process_vibe_output(
             # error recovery.
             # For error recovery (original_error_object is not None), we always
             # fetch non-streamed.
-            vibe_output_text, metrics = await model_adapter.execute_and_log_metrics(
-                model=model,
-                system_fragments=summary_system_fragments,
-                user_fragments=UserFragments(formatted_user_fragments),
+            vibe_output_text, metrics = await run_llm(
+                summary_system_fragments,
+                UserFragments(formatted_user_fragments),
+                model_name=output_flags.model_name,
+                config=Config(),
+                metrics_acc=llm_metrics_accumulator,
+                metrics_source="LLM Summary Generation",
             )
-            # Accumulate LLM summary metrics
-            if llm_metrics_accumulator and metrics:
-                llm_metrics_accumulator.add_metrics(metrics, "LLM Summary Generation")
-            elif metrics:
-                # Fallback for standalone calls without accumulator
+            # When run_llm handled metrics accumulation, we only need to print
+            # sub-metrics in the rare case an accumulator wasn't provided.
+            if metrics and llm_metrics_accumulator is None:
                 print_sub_metrics_if_enabled(
                     metrics, output_flags, "LLM Summary Generation"
                 )
@@ -922,6 +768,7 @@ async def handle_port_forward_with_live_display(
     output_flags: OutputFlags,
     summary_prompt_func: SummaryPromptFragmentFunc,
     allowed_exit_codes: tuple[int, ...] = (0,),
+    presentation_hints: str | None = None,
 ) -> Result:
     """Handles `kubectl port-forward` by preparing args and invoking live display.
 
@@ -930,6 +777,7 @@ async def handle_port_forward_with_live_display(
         args: Command arguments including resource name and port mappings.
         output_flags: Flags controlling output format.
         allowed_exit_codes: Tuple of exit codes that should be treated as success
+        presentation_hints: Optional presentation hints forwarded from planner.
     Returns:
         Result from the live display worker function.
     """
@@ -966,6 +814,7 @@ async def handle_port_forward_with_live_display(
         display_text=display_text,
         summary_prompt_func=summary_prompt_func,
         allowed_exit_codes=allowed_exit_codes,
+        presentation_hints=presentation_hints,
     )
 
 
@@ -1015,3 +864,165 @@ async def handle_watch_with_live_display(
         summary_prompt_func=summary_prompt_func,
         command=command_str,
     )
+
+
+# ---------------------------------------------------------------------------
+# Helper functions (keep them close to their caller to avoid polluting module
+# namespace for external users).  These are *internal only* and therefore use
+# a leading underscore.
+# ---------------------------------------------------------------------------
+
+
+async def _vibe_recovery_result(
+    output_message: str,
+    output_data: str,
+    command: str | None,
+    output_flags: OutputFlags,
+    presentation_hints: str | None,
+    original_error: Error,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
+) -> Result:
+    """Generate recovery suggestions when the initial command failed."""
+
+    recovery_system_fragments, recovery_user_fragments = recovery_prompt(
+        failed_command=command or "Unknown Command",
+        error_output=output_data,
+        original_explanation=None,
+        config=Config(),
+    )
+
+    logger.info(
+        "Generated recovery fragments: System=%s, User=%s",
+        len(recovery_system_fragments),
+        len(recovery_user_fragments),
+    )
+
+    try:
+        recovery_text, recovery_metrics = await run_llm(
+            SystemFragments(recovery_system_fragments),
+            UserFragments(recovery_user_fragments),
+            model_name=output_flags.model_name,
+            config=Config(),
+            metrics_acc=llm_metrics_accumulator,
+            metrics_source="LLM Recovery Suggestions",
+        )
+        original_error.metrics = (
+            recovery_metrics  # surface directly on error object for tests
+        )
+        suggestions_generated = True
+    except Exception as llm_exc:  # pragma: no cover - network / provider failure
+        logger.error(
+            "Error getting recovery suggestions from LLM: %s", llm_exc, exc_info=True
+        )
+        recovery_text = f"Failed to get recovery suggestions: {llm_exc}"
+        suggestions_generated = False
+
+    console_manager.print_vibe(recovery_text)
+
+    # Store recovery suggestion text and metrics on the original_error object.
+    original_error.recovery_suggestions = recovery_text
+    # Metrics already accumulated - no need to attach separately.
+
+    if suggestions_generated:
+        original_error.halt_auto_loop = False
+
+    try:
+        memory_update_metrics_error = await update_memory(
+            command_message=output_message or command or "Unknown",
+            command_output=output_data,
+            vibe_output=recovery_text,
+            model_name=output_flags.model_name,
+            config=Config(),
+        )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics_error, "LLM Memory Update (Recovery)"
+        )
+    except Exception as mem_err:  # pragma: no cover
+        logger.error("Failed to update memory during error recovery: %s", mem_err)
+
+    return original_error
+
+
+async def _vibe_summary_result(
+    output_message: str,
+    output_data: str,
+    command: str | None,
+    output_flags: OutputFlags,
+    presentation_hints: str | None,
+    summary_prompt_func: SummaryPromptFragmentFunc,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
+    result_original_exit_code: int | None,
+) -> Result:
+    """Generate a normal summary for successful command output."""
+
+    cfg = Config()
+    current_memory_text = get_memory(cfg)
+
+    # All summary prompt functions now accept an optional ``presentation_hints``
+    # third parameter.  Call directly with that argument.
+
+    summary_system_fragments, summary_user_fragments = summary_prompt_func(
+        cfg,
+        current_memory_text,
+        presentation_hints,
+    )
+
+    vibe_result = await _process_vibe_output(
+        output_message=output_message,
+        output_data=output_data,
+        output_flags=output_flags,
+        summary_system_fragments=summary_system_fragments,
+        summary_user_fragments=summary_user_fragments,
+        command=command,
+        original_error_object=None,
+        llm_metrics_accumulator=llm_metrics_accumulator,
+    )
+
+    if isinstance(vibe_result, Success):
+        vibe_result.original_exit_code = result_original_exit_code
+
+    return vibe_result
+
+
+def _finalise_no_vibe_result(
+    original_error: Error | None,
+    output_data: str | None,
+    result_original_exit_code: int | None,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
+    suppress_total_metrics: bool,
+) -> Result:
+    """Return early when no vibe processing took place."""
+
+    if original_error:
+        original_error.metrics = llm_metrics_accumulator.get_metrics()
+        if not suppress_total_metrics:
+            llm_metrics_accumulator.print_total_if_enabled(
+                "Total LLM Command Processing"
+            )
+        return original_error
+
+    # Success path with raw output only
+    if not suppress_total_metrics:
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
+    return Success(
+        message=output_data or "",
+        original_exit_code=result_original_exit_code,
+        metrics=llm_metrics_accumulator.get_metrics(),
+    )
+
+
+def _finalise_vibe_result(
+    vibe_result: Result,
+    original_error: Error | None,
+    llm_metrics_accumulator: LLMMetricsAccumulator,
+    suppress_total_metrics: bool,
+) -> Result:
+    """Attach metrics & optionally print totals before returning."""
+
+    if isinstance(vibe_result, Success | Error) and vibe_result.metrics is None:
+        vibe_result.metrics = llm_metrics_accumulator.get_metrics()
+
+    if not suppress_total_metrics:
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Command Processing")
+
+    return vibe_result

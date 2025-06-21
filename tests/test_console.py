@@ -241,7 +241,11 @@ def test_console_print_error_with_markup_errors(test_console: ConsoleManager) ->
     assert "Error: Some Kubernetes components are" in output
     # Check for individual parts due to potential line wrapping
     assert "broken [blue]formatting [/yellow]" in output
-    assert "which causes errors" in output
+    import re
+
+    # Allow Rich to insert line breaks between "causes" and "errors" depending
+    # on console width
+    assert re.search(r"which causes\s+errors", output)
 
 
 def test_logging_handler_with_markup_errors(

@@ -20,9 +20,10 @@ import yaml
 from vibectl.command_handler import handle_command_output
 from vibectl.config import Config
 from vibectl.k8s_utils import run_kubectl
+from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger
 from vibectl.memory import get_memory, update_memory
-from vibectl.model_adapter import get_model_adapter
+from vibectl.model_adapter import get_model_adapter  # noqa: F401 (see conftest.py)
 from vibectl.prompts.edit import (
     get_patch_generation_prompt,
     get_resource_summarization_prompt,
@@ -249,22 +250,16 @@ async def _summarize_resource(
         )
         system_fragments, user_fragments = prompt_fragments
 
-        # Get model adapter and process
-        model_adapter = get_model_adapter(config)
-        model_name = output_flags.model_name
-        model = model_adapter.get_model(model_name)
-
-        # Get response text and metrics - no response_model since we expect plain text
-        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
+        # Use shared helper for LLM execution and metrics aggregation
+        llm_response_text, metrics = await run_llm(
             system_fragments=system_fragments,
             user_fragments=user_fragments,
+            model_name=output_flags.model_name,
+            metrics_acc=llm_metrics_accumulator,
+            metrics_source="LLM Resource Summarization",
+            config=config,
             response_model=None,  # Plain text response, not JSON
         )
-
-        # Add metrics to accumulator if provided
-        if metrics and llm_metrics_accumulator:
-            llm_metrics_accumulator.add_metrics(metrics, "LLM Resource Summarization")
 
         if not llm_response_text or llm_response_text.strip() == "":
             return Error(
@@ -341,22 +336,16 @@ async def _generate_patch_from_changes(
         )
         system_fragments, user_fragments = prompt_fragments
 
-        # Get model adapter and process
-        model_adapter = get_model_adapter(config)
-        model_name = output_flags.model_name
-        model = model_adapter.get_model(model_name)
-
-        # Get LLM response
-        response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
+        # Use shared helper for LLM execution and metrics aggregation
+        response_text, metrics = await run_llm(
             system_fragments=system_fragments,
             user_fragments=user_fragments,
+            model_name=output_flags.model_name,
+            metrics_acc=llm_metrics_accumulator,
+            metrics_source="LLM Patch Generation",
+            config=config,
             response_model=LLMPlannerResponse,
         )
-
-        # Add metrics to accumulator if provided
-        if metrics and llm_metrics_accumulator:
-            llm_metrics_accumulator.add_metrics(metrics, "LLM Patch Generation")
 
         if not response_text or response_text.strip() == "":
             return Error(
@@ -492,9 +481,7 @@ async def run_intelligent_vibe_edit_workflow(
 
     # Step 1: Resource Scoping & Intent Extraction (LLM)
     logger.info("Step 1: Analyzing request for resource scoping")
-    model_adapter = get_model_adapter(config=config)
     model_name = output_flags.model_name
-    model = model_adapter.get_model(model_name)
 
     # Get memory context
     memory_context = get_memory(config)
@@ -509,16 +496,15 @@ async def run_intelligent_vibe_edit_workflow(
 
     # Get LLM response for resource scoping
     try:
-        response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
+        response_text, metrics = await run_llm(
             system_fragments=system_fragments,
             user_fragments=UserFragments(user_fragments),
+            model_name=model_name,
+            metrics_acc=llm_metrics_accumulator,
+            metrics_source="LLM Resource Scoping",
+            config=config,
             response_model=EditResourceScopeResponse,
         )
-
-        # Add metrics to accumulator
-        if metrics:
-            llm_metrics_accumulator.add_metrics(metrics, "LLM Resource Scoping")
 
         if not response_text or response_text.strip() == "":
             return Error(

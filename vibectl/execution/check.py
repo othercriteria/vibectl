@@ -12,15 +12,13 @@ from vibectl.console import (
     console_manager,
 )
 from vibectl.k8s_utils import is_kubectl_command_read_only, run_kubectl
+from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger
 from vibectl.memory import (
     get_memory,
     update_memory,
 )
-from vibectl.model_adapter import (
-    RecoverableApiError,
-    get_model_adapter,
-)
+from vibectl.model_adapter import RecoverableApiError
 from vibectl.prompts.check import plan_check_fragments
 from vibectl.schema import (
     CommandAction,
@@ -56,17 +54,6 @@ async def _get_check_llm_plan(
     config: Config,
 ) -> Result:
     """Calls the LLM to get a command plan for 'check' and validates the response."""
-    model_adapter = get_model_adapter(config=config)
-
-    try:
-        model = model_adapter.get_model(model_name)
-    except Exception as e:
-        error_msg = f"Failed to get model '{model_name}': {e}"
-        logger.error(error_msg, exc_info=True)
-
-        return Error(
-            error=error_msg, exception=e, halt_auto_loop=False
-        )  # halt_auto_loop might not be relevant for check
 
     console_manager.print_processing(
         f"Consulting {model_name} to evaluate predicate..."
@@ -75,47 +62,53 @@ async def _get_check_llm_plan(
         f"Final 'check' planning prompt:\n{plan_system_fragments} {plan_user_fragments}"
     )
 
+    # 1) Execute the prompt via the shared run_llm helper which handles adapter
+    #    lookup, execution, and optional metrics aggregation.
     try:
-        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
-            system_fragments=plan_system_fragments,
-            user_fragments=plan_user_fragments,
+        llm_response_text, metrics = await run_llm(
+            plan_system_fragments,
+            plan_user_fragments,
+            model_name=model_name,
+            config=config,
             response_model=LLMPlannerResponse,
         )
-        logger.info(f"Raw LLM response text for 'check':\n{llm_response_text}")
+        logger.info("Raw LLM response text for 'check':\n%s", llm_response_text)
         logger.debug(
-            f"LLM response text for 'check' (repr): {llm_response_text!r}, "
-            f"Length: {len(llm_response_text)}"
+            "LLM response text for 'check' (repr): %r, Length: %d",
+            llm_response_text,
+            len(llm_response_text),
         )
-
-        response = LLMPlannerResponse.model_validate_json(llm_response_text)
-        logger.debug(f"Parsed LLM response object for 'check': {response}")
-
-        logger.info(f"Validated ActionType for 'check': {response.action.action_type}")
-        return Success(data=response, metrics=metrics)
-
-    except (JSONDecodeError, ValidationError) as e:
-        logger.warning(
-            f"Failed to parse LLM response for 'check' as JSON ({type(e).__name__}). "
-            f"Response Text: {llm_response_text[:500]}..."
-        )
-        error_msg = f"Failed to parse LLM response for 'check' as expected JSON: {e}"
-        # memory_update_metrics = update_memory(...) # Optional
-        return Error(
-            error=error_msg, exception=e
-        )  # Potentially non-halting for API errors
     except RecoverableApiError as api_err:
         logger.warning(
-            f"Recoverable API error during 'check' planning: {api_err}", exc_info=True
+            "Recoverable API error during 'check' planning: %s", api_err, exc_info=True
         )
         console_manager.print_error(f"API Error: {api_err}")
         return Error(str(api_err), exception=api_err, halt_auto_loop=False)
     except Exception as e:
         logger.error(
-            f"Error during LLM 'check' planning interaction: {e}", exc_info=True
+            "Error during LLM 'check' planning interaction: %s", e, exc_info=True
         )
         console_manager.print_error(f"Error evaluating predicate: {e!s}")
         return Error(str(e), exception=e)
+
+    # 2) Parse the response into the expected schema.
+    try:
+        response = LLMPlannerResponse.model_validate_json(llm_response_text)
+        logger.debug("Parsed LLM response object for 'check': %s", response)
+        logger.info("Validated ActionType for 'check': %s", response.action.action_type)
+        return Success(data=response, metrics=metrics)
+
+    except (JSONDecodeError, ValidationError) as e:
+        logger.warning(
+            (
+                "Failed to parse LLM response for 'check' as JSON (%s). "
+                "Response Text: %s..."
+            ),
+            type(e).__name__,
+            llm_response_text[:500],
+        )
+        error_msg = f"Failed to parse LLM response for 'check' as expected JSON: {e}"
+        return Error(error=error_msg, exception=e)
 
 
 async def run_check_command(

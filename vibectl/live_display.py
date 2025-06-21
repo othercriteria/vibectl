@@ -326,6 +326,7 @@ async def _execute_port_forward_with_live_display(
     remote_port: str,
     display_text: str,
     summary_prompt_func: SummaryPromptFragmentFunc,
+    presentation_hints: str | None = None,
     allowed_exit_codes: tuple[int, ...] = (0,),
     config: Config | None = None,
 ) -> Result:
@@ -339,6 +340,7 @@ async def _execute_port_forward_with_live_display(
         local_port: The extracted local port.
         remote_port: The extracted remote port.
         display_text: The text to display in the progress bar.
+        presentation_hints: Optional presentation hints propagated from planner.
 
     Returns:
         Result object indicating success or failure.
@@ -824,7 +826,9 @@ async def _execute_port_forward_with_live_display(
             cfg = config or Config()
             current_memory_text = get_memory(cfg)
             system_fragments, user_fragments_template = summary_prompt_func(
-                cfg, current_memory_text
+                cfg,
+                current_memory_text,
+                presentation_hints,
             )
 
             filled_user_fragments: list[

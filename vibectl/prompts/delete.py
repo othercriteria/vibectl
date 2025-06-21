@@ -109,12 +109,14 @@ def delete_plan_prompt(
 def delete_resource_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl delete output.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -130,4 +132,5 @@ def delete_resource_prompt(
         ],
         config=cfg,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )

@@ -466,9 +466,13 @@ def mock_llm() -> Generator[MagicMock, None, None]:
 
 
 @pytest.fixture
-def mock_summary_prompt() -> Callable[[], str]:
-    """Mock summary prompt function."""
-    return lambda: "Test Prompt: {output}"
+def mock_summary_prompt() -> Callable[..., str]:
+    """Mock summary prompt function that safely ignores extra parameters."""
+
+    def _prompt(*_args: Any, **_kwargs: Any) -> str:  # Accepts any params
+        return "Test Prompt: {output}"
+
+    return _prompt
 
 
 @pytest.fixture
@@ -738,3 +742,36 @@ def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
         patch("asyncio.Future", MagicMock),
     ):
         yield mock_loop
+
+
+# --------------------------------------------------------------------------------------
+# Temporary compatibility alias for get_model_adapter after removal from vibe module.
+# This sets the attribute ONLY within the test environment so existing patch() targets
+# still resolve.  Production code no longer relies on this alias.
+# --------------------------------------------------------------------------------------
+import importlib  # noqa: E402
+
+try:
+    vibe_module = importlib.import_module("vibectl.execution.vibe")
+    if not hasattr(vibe_module, "get_model_adapter"):  # type: ignore[attr-defined]
+        from vibectl.model_adapter import get_model_adapter as _get_model_adapter
+
+        # Expose as attribute for legacy patch targets used by tests.
+        vibe_module.get_model_adapter = _get_model_adapter  # type: ignore[attr-defined]
+
+    # Ensure the central path used by run_llm routes via the vibe alias so
+    # tests that patch "vibectl.execution.vibe.get_model_adapter" continue to
+    # intercept the call.
+    # Use a delegating wrapper so that if tests patch vibe_module.get_model_adapter
+    # AFTER this code runs, subsequent calls from run_llm (which re-import the
+    # symbol fresh each invocation) will still flow through the patched object.
+    from typing import Any
+
+    import vibectl.model_adapter as _model_adapter_mod
+
+    def _delegating_get_adapter(*args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        return vibe_module.get_model_adapter(*args, **kwargs)  # type: ignore[attr-defined]
+
+    _model_adapter_mod.get_model_adapter = _delegating_get_adapter  # type: ignore[attr-defined]
+except ModuleNotFoundError:  # Defensive: should never happen in test env
+    pass

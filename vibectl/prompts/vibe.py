@@ -23,8 +23,6 @@ from .schemas import _SCHEMA_DEFINITION_JSON
 from .shared import (
     create_planning_prompt,
     format_ml_examples,
-    fragment_memory_context,
-    get_formatting_fragments,
     with_custom_prompt_override,
     with_summary_prompt_override,
 )
@@ -282,21 +280,41 @@ Remember to choose only ONE action per response."""
 def vibe_autonomous_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing command output in autonomous mode.
 
-    Args:
-        config: Optional Config instance.
-        current_memory: Optional current memory string.
+    Parameters
+    ----------
+    config:
+        Optional :class:`~vibectl.config.Config` instance providing runtime
+        configuration.  If *None*, a new one is created.
+    current_memory:
+        Previously stored memory string (may be *None*).
+    presentation_hints:
+        Optional formatting or UI hints produced by the planner that should be
+        surfaced to the summarisation prompt.
 
-    Returns:
-        PromptFragments: System fragments and user fragments.
+    Returns
+    -------
+    PromptFragments
+        A tuple of system and user fragments forming the final prompt.
     """
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])
 
-    if current_memory and current_memory.strip():
-        system_fragments.append(fragment_memory_context(current_memory))
+    cfg = config or Config()
+
+    from .context import build_context_fragments  # Local import to avoid cycles
+
+    # Inject standard context fragments including optional presentation hints.
+    system_fragments.extend(
+        build_context_fragments(
+            cfg,
+            current_memory=current_memory,
+            presentation_hints=presentation_hints,
+        )
+    )
 
     # System: Core instructions
     system_fragments.append(
@@ -313,16 +331,6 @@ For resources with complex data:
 - For ConfigMaps, Secrets with complex content, recommend kubectl create/apply -f
 - Avoid suggesting command line arguments with quoted content""")
     )
-
-    # System: Formatting instructions
-    formatting_system_fragments, formatting_user_fragments = get_formatting_fragments(
-        config  # Pass original config parameter
-    )
-    system_fragments.extend(formatting_system_fragments)
-    # User fragments from get_formatting_fragments might include dynamic time notes.
-    # These should come after general instructions but before specific
-    # output placeholders.
-    user_fragments.extend(formatting_user_fragments)
 
     # System: Example format
     system_fragments.append(

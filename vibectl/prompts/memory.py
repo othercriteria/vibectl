@@ -11,13 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 from vibectl.config import Config
+from vibectl.prompts.context import build_context_fragments
 from vibectl.types import Fragment, PromptFragments, SystemFragments, UserFragments
 
 from .shared import (
     FRAGMENT_MEMORY_ASSISTANT,
     fragment_concision,
     fragment_current_time,
-    fragment_memory_context,
     with_custom_prompt_override,
 )
 
@@ -41,6 +41,14 @@ def memory_update_prompt(
         ]
     )
 
+    # Standard context fragments (memory, custom instructions, timestamp, etc.)
+    system_fragments.extend(
+        build_context_fragments(
+            cfg,
+            current_memory=current_memory,
+        )
+    )
+
     fragment_interaction = Fragment(f"""Interaction:
 Action: {command_message}
 Output: {command_output}
@@ -49,8 +57,6 @@ Vibe: {vibe_output}
 
     user_fragments: UserFragments = UserFragments(
         [
-            fragment_current_time(),
-            fragment_memory_context(current_memory),
             fragment_interaction,
             Fragment("New Memory Summary:"),
         ]
@@ -87,23 +93,31 @@ def memory_fuzzy_update_prompt(
             "Based on the user's new information, give the updated memory."
         )
 
-    # Build custom system fragments if plugin provides them
-    if custom_mapping and custom_mapping.get("system_instructions"):
-        system_fragments = SystemFragments(
-            [
-                FRAGMENT_MEMORY_ASSISTANT,
-                fragment_concision(max_chars),
-                Fragment(custom_mapping.get("system_instructions")),
-            ]
+    # Build base system fragments and push down any custom instructions or
+    # the default memory_instruction.  This avoids duplicating almost-identical
+    # lists across the conditional branches.
+    system_fragments = SystemFragments(
+        [
+            FRAGMENT_MEMORY_ASSISTANT,
+            fragment_concision(max_chars),
+        ]
+    )
+
+    custom_sys_instr = (
+        custom_mapping.get("system_instructions") if custom_mapping else None
+    )
+    system_fragments.append(
+        Fragment(custom_sys_instr) if custom_sys_instr else memory_instruction
+    )
+
+    # Inject standard context fragments (memory, timestamp, etc.) after any
+    # custom system fragments
+    system_fragments.extend(
+        build_context_fragments(
+            cfg,
+            current_memory=current_memory,
         )
-    else:
-        system_fragments = SystemFragments(
-            [
-                FRAGMENT_MEMORY_ASSISTANT,
-                fragment_concision(max_chars),
-                memory_instruction,
-            ]
-        )
+    )
 
     # Use custom user template if provided by plugin
     if custom_mapping and custom_mapping.get("user_template"):
@@ -117,8 +131,6 @@ def memory_fuzzy_update_prompt(
     else:
         user_fragments = UserFragments(
             [
-                fragment_current_time(),
-                fragment_memory_context(current_memory),
                 Fragment(f"User Update: {update_text}"),
                 Fragment("New Memory Summary:"),
             ]

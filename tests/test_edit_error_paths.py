@@ -4,6 +4,14 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Compatibility shim: ensure the target attribute exists for patching.
+# The production code in vibectl.execution.edit no longer imports
+# get_model_adapter directly, but many legacy tests patch the symbol.
+# Inject an alias pointing to the canonical factory so patch() calls work.
+# ---------------------------------------------------------------------------
+import vibectl.execution.edit as _edit_module  # type: ignore
+import vibectl.model_adapter as _model_adapter_module
 from vibectl.config import Config
 from vibectl.execution.edit import (
     _apply_patch,
@@ -15,6 +23,7 @@ from vibectl.execution.edit import (
     run_intelligent_edit_workflow,
     run_intelligent_vibe_edit_workflow,
 )
+from vibectl.model_adapter import get_model_adapter as _global_get_model_adapter
 from vibectl.schema import (
     ActionType,
     EditResourceScopeResponse,
@@ -23,6 +32,40 @@ from vibectl.schema import (
     ThoughtAction,
 )
 from vibectl.types import Error, LLMMetrics, MetricsDisplayMode, OutputFlags, Success
+
+# Only set the attribute if it is missing (newer codebase).
+if not hasattr(_edit_module, "get_model_adapter"):
+    _edit_module.get_model_adapter = _global_get_model_adapter
+
+# Ensure vibectl.model_adapter.get_model_adapter delegates to the (possibly
+# patched) symbol on vibectl.execution.edit so tests patching the latter affect
+# both call-sites. This fixture runs automatically for every test in this
+# module and rolls back afterwards, preventing leakage to other test modules.
+
+import importlib
+from collections.abc import Generator
+
+
+# Needed by tests to sync adapter patches across modules
+@pytest.fixture(autouse=True)
+def _sync_adapter(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Proxy global get_model_adapter through the edit module for this test."""
+
+    edit_mod = importlib.import_module("vibectl.execution.edit")
+
+    # If the attribute is missing (newer production code), expose it.
+    if not hasattr(edit_mod, "get_model_adapter"):
+        edit_mod.get_model_adapter = _global_get_model_adapter  # type: ignore[attr-defined]
+
+    # Create proxy so any patching of edit_mod.get_model_adapter is observed.
+    from typing import Any
+
+    def _proxy(cfg: Any) -> Any:  # type: ignore[arg-type]
+        return edit_mod.get_model_adapter(cfg)
+
+    monkeypatch.setattr(_model_adapter_module, "get_model_adapter", _proxy)
+    yield
+    # Monkeypatch will automatically restore original after yield
 
 
 class TestEditErrorPaths:

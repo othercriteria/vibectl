@@ -147,8 +147,11 @@ This means your output should have syntax that aligns with this:
     "action_type": "COMMAND",
     "commands": ["<arg1>", "<arg2>", ...],
     "yaml_manifest": "<yaml_string_if_applicable>",
-    "allowed_exit_codes": [0]
-    "explanation": "Optional string."
+    "allowed_exit_codes": [0],
+    "explanation": "Optional string.",
+    "presentation_hints": "Optional. Free-form string carrying formatting or UI hints
+    for downstream prompts. Leave it `null` if no specific presentation guidance is
+    required."
   }}
 }}
 
@@ -161,7 +164,10 @@ Key fields within the nested "COMMAND" action object:
 - `yaml_manifest`: YAML content as a string (for actions like `create` that use stdin).
 - `allowed_exit_codes`: Optional. List of integers representing allowed exit codes
   for the command (e.g., [0, 1] for diff). Defaults to [0] if not provided.
-- `explanation`: Optional. A brief string explaining why this command was chosen.""")
+- `explanation`: Optional. A brief string explaining why this command was chosen.
+- `presentation_hints`: Optional. Free-form string carrying formatting or UI hints
+  for downstream prompts. Leave it `null` if no specific presentation guidance is
+  required.""")
     )
 
     # System: Formatted examples
@@ -189,7 +195,8 @@ def create_summary_prompt(
     focus_points: list[str],
     example_format: list[str],
     config: Config | None = None,  # Add config for formatting fragments
-    current_memory: str | None = None,  # New argument
+    current_memory: str | None = None,  # Existing argument
+    presentation_hints: str | None = None,  # New argument for formatting/UI hints
 ) -> PromptFragments:
     """Create standard summary prompt fragments for kubectl command output.
 
@@ -199,6 +206,7 @@ def create_summary_prompt(
         example_format: List of lines showing the expected output format
         config: Optional Config instance to use.
         current_memory: Optional current memory string.
+        presentation_hints: Optional formatting or UI hints propagated from planner.
 
     Returns:
         PromptFragments: System fragments and base user fragments (excluding memory).
@@ -207,9 +215,45 @@ def create_summary_prompt(
     system_fragments: SystemFragments = SystemFragments([])
     user_fragments: UserFragments = UserFragments([])  # Base user fragments
 
-    # Add memory context if provided and not empty
-    if current_memory and current_memory.strip():
-        system_fragments.append(fragment_memory_context(current_memory))
+    cfg = config or Config()
+
+    # Standard context fragments (memory, custom instructions, timestamp, etc.)
+    from .context import build_context_fragments  # Local import to avoid cycles
+
+    system_fragments.extend(
+        build_context_fragments(
+            cfg,
+            current_memory=current_memory,
+            presentation_hints=presentation_hints,
+        )
+    )
+
+    # System-level Rich markup guidance
+    system_fragments.append(
+        Fragment(
+            """Format your response using rich.Console() markup syntax
+with matched closing tags:
+- [bold]resource names and key fields[/bold] for emphasis
+- [green]healthy states[/green] for positive states
+- [yellow]warnings or potential issues[/yellow] for concerning states
+- [red]errors or critical issues[/red] for problems
+- [blue]namespaces and other Kubernetes concepts[/blue] for k8s terms
+- [italic]timestamps and metadata[/italic] for timing information"""
+        )
+    )
+
+    # User-level important notes placed before the actual output placeholder so
+    # the LLM reads them in close proximity to the content it must format.
+    user_fragments.append(
+        Fragment(
+            """Important:
+- Timestamps in the future relative to this are not anomalies
+- Do NOT use markdown formatting (e.g., #, ##, *, -)
+- Use plain text with rich.Console() markup only
+- Skip any introductory phrases like "This output shows" or "I can see"
+- Be direct and concise"""
+        )
+    )
 
     # System: Core task description and focus points
     task_description = f"""Summarize kubectl output. {description}
@@ -218,13 +262,6 @@ Focus on:
 {chr(10).join(f"- {point}" for point in focus_points)}"""
     system_fragments.append(Fragment(task_description))
 
-    # Add formatting fragments from config
-    formatting_fragments = get_formatting_fragments(config)
-    # Destructure the PromptFragments tuple properly
-    format_sys_fragments, format_user_fragments = formatting_fragments
-    system_fragments.extend(format_sys_fragments)
-    user_fragments.extend(format_user_fragments)
-
     # System: Example format section
     if example_format:
         examples_text = "Expected output format:\n" + "\n".join(example_format)
@@ -232,57 +269,6 @@ Focus on:
 
     # User: The actual output to summarize (with placeholder)
     user_fragments.append(Fragment("Here's the output:\n\n{output}"))
-
-    return PromptFragments((system_fragments, user_fragments))
-
-
-def get_formatting_fragments(
-    config: Config | None = None,
-) -> PromptFragments:
-    """Get formatting instructions as fragments (system, user).
-
-    Args:
-        config: Optional Config instance to use. If not provided, creates a new one.
-
-    Returns:
-        PromptFragments: System fragments and user fragments (excluding memory).
-                         Caller is responsible for adding memory context fragment.
-    """
-    system_fragments: SystemFragments = SystemFragments([])
-    user_fragments: UserFragments = UserFragments([])
-
-    cfg = config or Config()
-
-    # System: Static Rich markup instructions
-    system_fragments.append(
-        Fragment("""Format your response using rich.Console() markup syntax
-with matched closing tags:
-- [bold]resource names and key fields[/bold] for emphasis
-- [green]healthy states[/green] for positive states
-- [yellow]warnings or potential issues[/yellow] for concerning states
-- [red]errors or critical issues[/red] for problems
-- [blue]namespaces and other Kubernetes concepts[/blue] for k8s terms
-- [italic]timestamps and metadata[/italic] for timing information""")
-    )
-
-    # System: Custom instructions (less frequent change than memory)
-    custom_instructions = cfg.get("system.custom_instructions")
-    if custom_instructions:
-        system_fragments.append(
-            Fragment(f"Custom instructions:\n{custom_instructions}")
-        )
-
-    system_fragments.append(fragment_current_time())
-
-    # User: Important notes including dynamic time (most frequent change)
-    user_fragments.append(
-        Fragment("""Important:
-- Timestamps in the future relative to this are not anomalies
-- Do NOT use markdown formatting (e.g., #, ##, *, -)
-- Use plain text with rich.Console() markup only
-- Skip any introductory phrases like "This output shows" or "I can see"
-- Be direct and concise""")
-    )
 
     return PromptFragments((system_fragments, user_fragments))
 
@@ -319,9 +305,12 @@ FRAGMENT_MEMORY_ASSISTANT: Fragment = Fragment("""
 You are an AI agent maintaining memory state for a Kubernetes CLI tool.
 The memory contains essential context to help you better assist with future requests.
 
-Based on new information, update the memory to maintain the most relevant context.
+Based on new information, update the memory to maintain the most relevant
+context **without** duplicating user-supplied *custom instructions*. Those
+instructions will be provided separately in future prompts, so including them
+here is redundant.
 
-IMPORTANT: Do NOT include any prefixes like \"Updated memory:\" or headings in
+IMPORTANT: Do **NOT** include any prefixes like "Updated memory:" or headings in
 your response. Just provide the direct memory content itself with no additional
 labels or headers.
 """)
@@ -438,6 +427,7 @@ def with_summary_prompt_override(
                         example_format=custom_mapping.get("example_format") or [],
                         config=cfg,
                         current_memory=current_memory,
+                        presentation_hints=custom_mapping.get("presentation_hints"),
                     )
             except Exception as e:
                 from vibectl.logutil import logger

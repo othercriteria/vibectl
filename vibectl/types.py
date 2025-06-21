@@ -12,6 +12,7 @@ from typing import (
     Any,
     NewType,
     Protocol,
+    TypeAlias,
     runtime_checkable,
 )
 
@@ -152,8 +153,7 @@ class OutputFlags:
         show_raw_output: bool | None = None,
         show_vibe: bool | None = None,
         show_kubectl: bool | None = None,
-        show_metrics: MetricsDisplayMode
-        | None = None,  # Only support MetricsDisplayMode now
+        show_metrics: MetricsDisplayMode | None = None,
         show_streaming: bool | None = None,
         warn_no_output: bool | None = None,
         warn_no_proxy: bool | None = None,
@@ -221,9 +221,16 @@ class Error:
 Result = Success | Error
 
 
-# --- Type Hints for Functions ---
-SummaryPromptFragmentFunc = Callable[["Config | None", str | None], PromptFragments]
-# -----------------------------
+# A callable returning the prompt fragments used to summarise kubectl command output.
+# Signature matches the new 3-argument convention:
+#   1) Config | None             - the runtime Config object (or None to use defaults)
+#   2) str | None current_memory - the current memory string if available
+#   3) str | None presentation_hints - optional presentation/UI hints propagated
+#      from the planner
+# It returns a PromptFragments tuple (system_fragments, user_fragments).
+SummaryPromptFragmentFunc: TypeAlias = Callable[
+    ["Config | None", str | None, str | None], PromptFragments
+]
 
 
 @dataclass
@@ -583,21 +590,19 @@ def determine_execution_mode(*, semiauto: bool = False) -> ExecutionMode:
 
 
 def execution_mode_from_cli(choice: str | None) -> ExecutionMode | None:
-    """Translate the ``--mode`` CLI option into :class:`ExecutionMode`.
+    """Translate the ``--mode`` CLI option (``--mode auto``/``manual``/``semiauto``)
+    into an :class:`ExecutionMode` value.
 
-    Returns ``None`` if *choice* is ``None`` so that callers can fall back to
-    SEMIAUTO/MANUAL selection when the option wasn't supplied.
+    Returns
+    -------
+    ExecutionMode | None
+        ``None`` when *choice* is ``None`` so that callers can fall back to
+        configuration-based or default resolution logic. Otherwise, the
+        corresponding :class:`ExecutionMode` for the supplied string (case-
+        insensitive) is returned. Unrecognised values yield ``None``.
     """
 
     if choice is None:
         return None
 
-    lowered = choice.lower()
-    if lowered == "auto":
-        return ExecutionMode.AUTO
-    if lowered == "semiauto":
-        return ExecutionMode.SEMIAUTO
-    if lowered == "manual":
-        return ExecutionMode.MANUAL
-    # Defensive fallback - let the caller handle unexpected value.
-    return None
+    return _MODE_ALIASES.get(choice.lower())

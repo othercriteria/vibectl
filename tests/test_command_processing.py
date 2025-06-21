@@ -363,7 +363,7 @@ async def test_fuzzy_memory_update(
     print("✓ get_model_adapter called correctly")
 
     mock_model_adapter_instance.execute_and_log_metrics.assert_called_once_with(
-        mock_model_instance,
+        model=mock_model_instance,
         system_fragments=system_frags,
         user_fragments=user_frags,
     )

@@ -257,6 +257,53 @@ class Config:
         3. Explicit *default* parameter
         """
 
+        # ------------------------------------------------------------------
+        # Deprecation shim for legacy keys
+        # ------------------------------------------------------------------
+        # Historically the key for user-supplied custom instructions lived at
+        # the *top level* of the config as ``custom_instructions``.  The new
+        # canonical location is ``system.custom_instructions``.  To avoid
+        # breaking existing user configs and in-flight migrations we still
+        # honour the legacy key *read-only* while emitting an explicit
+        # deprecation warning.  Write operations **must** target the new key.
+        #
+        # NOTE:  The shim is intentionally placed *before* override handling
+        # so that overrides continue to work transparently when callers still
+        # reference the old key.
+        if key == "custom_instructions":
+            import warnings
+
+            warnings.warn(
+                "Config key 'custom_instructions' is deprecated; use "
+                "'system.custom_instructions' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+            # Redirect lookup to the new namespaced key while preserving the
+            # original precedence rules (CLI overrides > persisted config >
+            # supplied default).
+            redirected_key = "system.custom_instructions"
+
+            # 1. CLI override check for the *new* key
+            try:
+                from .overrides import get_override  # type: ignore
+
+                overridden, value = get_override(redirected_key)
+                if overridden:
+                    return value
+            except Exception:
+                # If overrides module is unavailable (e.g., during certain
+                # test setups) fall through to persisted config lookup.
+                pass
+
+            # 2. Persisted configuration lookup for the new key
+            try:
+                return get_nested_value(self._config, redirected_key)
+            except KeyError:
+                # 3. Fallback to the caller-supplied default
+                return default
+
         # 1. Check for runtime override first
         try:
             from .overrides import (

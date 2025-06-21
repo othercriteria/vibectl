@@ -23,8 +23,8 @@ from pydantic import ValidationError
 from vibectl.command_handler import handle_command_output
 from vibectl.config import Config
 from vibectl.k8s_utils import run_kubectl, run_kubectl_with_yaml
+from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger
-from vibectl.model_adapter import ModelAdapter, get_model_adapter
 from vibectl.prompts.apply import (
     _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
     apply_output_prompt,
@@ -38,7 +38,13 @@ from vibectl.schema import (
     CommandAction,
     LLMFinalApplyPlanResponse,
 )
-from vibectl.types import Error, LLMMetricsAccumulator, OutputFlags, Result, Success
+from vibectl.types import (
+    Error,
+    LLMMetricsAccumulator,
+    OutputFlags,
+    Result,
+    Success,
+)
 
 
 async def validate_manifest_content(
@@ -242,10 +248,11 @@ async def discover_and_validate_files(
 
 async def summarize_manifests_and_build_memory(
     semantically_valid_manifests: list[tuple[Path, str]],
-    model_adapter: ModelAdapter,
-    llm_model: Any,
     invalid_sources_to_correct: list[tuple[Path, str | None, str]],
     llm_metrics_accumulator: LLMMetricsAccumulator,
+    *,
+    cfg: Config,
+    model_name: str,
 ) -> tuple[str, list[tuple[Path, str | None, str]]]:
     """
     Summarize valid manifests and build operation memory.
@@ -275,11 +282,11 @@ async def summarize_manifests_and_build_memory(
             (
                 summary_text,
                 summary_metrics,
-            ) = await model_adapter.execute_and_log_metrics(
-                model=llm_model,
-                system_fragments=summary_system_frags,
-                user_fragments=summary_user_frags,
-                response_model=None,
+            ) = await run_llm(
+                summary_system_frags,
+                summary_user_frags,
+                model_name=model_name,
+                config=cfg,
             )
 
             if not summary_text or summary_text.strip() == "":
@@ -321,9 +328,9 @@ async def correct_and_generate_manifests(
     invalid_sources_to_correct: list[tuple[Path, str | None, str]],
     apply_operation_memory: str,
     llm_remaining_request: str,
-    model_adapter: ModelAdapter,
-    llm_model: Any,
+    *,
     cfg: Config,
+    model_name: str,
     temp_dir_path: Path,
     max_correction_retries: int,
     llm_metrics_accumulator: LLMMetricsAccumulator,
@@ -395,11 +402,11 @@ async def correct_and_generate_manifests(
                 (
                     proposed_yaml_str,
                     correction_metrics,
-                ) = await model_adapter.execute_and_log_metrics(
-                    model=llm_model,
-                    system_fragments=correction_system_frags,
-                    user_fragments=correction_user_frags,
-                    response_model=None,  # Expecting raw YAML string
+                ) = await run_llm(
+                    correction_system_frags,
+                    correction_user_frags,
+                    model_name=model_name,
+                    config=cfg,
                 )
 
                 # Add correction metrics to accumulator
@@ -472,11 +479,11 @@ async def correct_and_generate_manifests(
                         (
                             new_summary_text,
                             new_summary_metrics,
-                        ) = await model_adapter.execute_and_log_metrics(
-                            model=llm_model,
-                            system_fragments=new_summary_system_frags,
-                            user_fragments=new_summary_user_frags,
-                            response_model=None,
+                        ) = await run_llm(
+                            new_summary_system_frags,
+                            new_summary_user_frags,
+                            model_name=model_name,
+                            config=cfg,
                         )
                         if new_summary_text and new_summary_text.strip():
                             updated_operation_memory += (
@@ -697,14 +704,19 @@ async def plan_and_execute_final_commands(
     unresolvable_sources: list[tuple[Path, str]],
     updated_operation_memory: str,
     llm_remaining_request: str,
-    model_adapter: ModelAdapter,
-    llm_model: Any,
+    _llm_model: Any | None,
     cfg: Config,
     output_flags: OutputFlags,
     llm_metrics_accumulator: LLMMetricsAccumulator,
+    *,
+    model_name: str | None = None,
 ) -> Result:
     """Plan and execute final kubectl apply commands based on discovered manifests."""
     logger.info("Starting Step 5: Plan Final kubectl apply Command(s)")
+
+    # Determine model name if not supplied explicitly
+    if model_name is None:
+        model_name = cfg.get_typed("model", "claude-3.7-sonnet")
 
     # Prepare data for final planning prompt
     valid_original_paths_str = [str(p) for p, _ in semantically_valid_manifests]
@@ -750,10 +762,11 @@ async def plan_and_execute_final_commands(
         (
             response_from_adapter,
             final_plan_metrics,
-        ) = await model_adapter.execute_and_log_metrics(
-            model=llm_model,
-            system_fragments=final_plan_system_frags,
-            user_fragments=final_plan_user_frags,
+        ) = await run_llm(
+            final_plan_system_frags,
+            final_plan_user_frags,
+            model_name=model_name,
+            config=cfg,
             response_model=LLMFinalApplyPlanResponse,
         )
 
@@ -844,17 +857,16 @@ async def run_intelligent_apply_workflow(
     try:
         # Step 1: Initial Scoping & Intent Extraction (LLM)
         model_name = cfg.get_typed("model", "claude-3.7-sonnet")
-        model_adapter = get_model_adapter(config=cfg)
-        llm_for_corrections_and_summaries = model_adapter.get_model(model_name)
-
+        # Build prompt fragments for file scoping
         system_fragments, user_fragments = plan_apply_filescope_prompt_fragments(
             request=request
         )
 
-        response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=llm_for_corrections_and_summaries,
-            system_fragments=system_fragments,
-            user_fragments=user_fragments,
+        response_text, metrics = await run_llm(
+            system_fragments,
+            user_fragments,
+            model_name=model_name,
+            config=cfg,
             response_model=ApplyFileScopeResponse,
         )
 
@@ -923,10 +935,10 @@ async def run_intelligent_apply_workflow(
             updated_invalid_sources,
         ) = await summarize_manifests_and_build_memory(
             semantically_valid_manifests,
-            model_adapter,
-            llm_for_corrections_and_summaries,
             invalid_sources_to_correct,
             llm_metrics_accumulator,
+            cfg=cfg,
+            model_name=model_name,
         )
 
         # Step 4: Correction/Generation Loop for Invalid Sources (LLM)
@@ -941,12 +953,11 @@ async def run_intelligent_apply_workflow(
             updated_invalid_sources,
             apply_operation_memory,
             llm_remaining_request,
-            model_adapter,
-            llm_for_corrections_and_summaries,
-            cfg,
-            temp_dir_path,
-            max_correction_retries,
-            llm_metrics_accumulator,
+            cfg=cfg,
+            model_name=model_name,
+            temp_dir_path=temp_dir_path,
+            max_correction_retries=max_correction_retries,
+            llm_metrics_accumulator=llm_metrics_accumulator,
         )
 
         # Step 5: Plan Final kubectl apply Command(s) (LLM)
@@ -956,11 +967,11 @@ async def run_intelligent_apply_workflow(
             unresolvable_sources,
             updated_operation_memory,
             llm_remaining_request,
-            model_adapter,
-            llm_for_corrections_and_summaries,
+            None,
             cfg,
             output_flags,
             llm_metrics_accumulator,
+            model_name=model_name,
         )
 
         # Print total metrics for the entire apply operation

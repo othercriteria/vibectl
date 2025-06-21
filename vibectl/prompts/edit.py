@@ -13,9 +13,7 @@ from vibectl.prompts.schemas import (
 from vibectl.prompts.shared import (
     create_planning_prompt,
     create_summary_prompt,
-    fragment_current_time,
     fragment_json_schema_instruction,
-    fragment_memory_context,
     with_custom_prompt_override,
     with_planning_prompt_override,
     with_summary_prompt_override,
@@ -111,12 +109,14 @@ def edit_plan_prompt(
 def edit_resource_prompt(
     config: Config | None = None,
     current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl edit output.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -143,6 +143,7 @@ def edit_resource_prompt(
         ],
         config=cfg,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )
 
 
@@ -339,10 +340,6 @@ def plan_edit_scope(
     examples = getattr(custom_mapping, "examples", "")
     context_instructions = getattr(custom_mapping, "context_instructions", "")
 
-    # TODO: Make this consistent with other prompts by using get_formatting_fragments()
-    # instead of manually adding memory/custom_instructions/time. This will be done
-    # in a broader refactoring, not in this feature branch.
-
     cfg = config or Config()
 
     system_frags = SystemFragments([])
@@ -376,17 +373,10 @@ def plan_edit_scope(
         ]
     )
 
-    # Add custom instructions if available
-    custom_instructions = cfg.get("custom_instructions")
-    if custom_instructions:
-        system_frags.append(Fragment(f"Custom instructions:\n{custom_instructions}"))
+    # Inject standard context fragments (memory, custom instructions, timestamp)
+    from vibectl.prompts.context import build_context_fragments
 
-    # Add memory context if provided and not empty
-    if current_memory and current_memory.strip():
-        system_frags.append(fragment_memory_context(current_memory))
-
-    # Add current time
-    system_frags.append(fragment_current_time())
+    system_frags.extend(build_context_fragments(cfg, current_memory=current_memory))
 
     # User context instructions
     base_context = f"""User Request: {request}
@@ -424,13 +414,16 @@ def plan_edit_scope(
 
 @with_summary_prompt_override("edit_patch_summary")
 def patch_summary_prompt(
-    config: Config | None = None, current_memory: str | None = None
+    config: Config | None = None,
+    current_memory: str | None = None,
+    presentation_hints: str | None = None,
 ) -> PromptFragments:
     """Get prompt fragments for summarizing kubectl patch output from intelligent edit.
 
     Args:
         config: Optional Config instance.
         current_memory: Optional current memory string.
+        presentation_hints: Optional presentation hints string.
 
     Returns:
         PromptFragments: System fragments and user fragments
@@ -450,6 +443,7 @@ def patch_summary_prompt(
         ],
         config=config,
         current_memory=current_memory,
+        presentation_hints=presentation_hints,
     )
 
 

@@ -8,7 +8,10 @@ import logging
 from typing import cast  # Added List, Tuple
 
 from .config import Config
-from .model_adapter import get_model_adapter
+from .llm_utils import run_llm
+from .model_adapter import (
+    get_model_adapter,  # noqa: F401, import retained for backward-compat in tests
+)
 from .prompts.memory import (
     memory_update_prompt,  # Import the fragment-based prompt function
 )
@@ -111,14 +114,10 @@ async def update_memory(
         return None
 
     try:
-        model_adapter = get_model_adapter(cfg)
         model_name = model_name or cfg.get("model")
-        model = model_adapter.get_model(model_name)
 
-        # Get current memory BEFORE calling memory_update_prompt
+        # Prepare fragments
         current_memory_text = get_memory(cfg)
-
-        # Get fragments for memory update, now passing current_memory
         system_fragments, user_fragments = memory_update_prompt(
             command_message=command_message,
             command_output=command_output,
@@ -127,12 +126,11 @@ async def update_memory(
             config=cfg,
         )
 
-        # Use the wrapper function to execute and handle metrics logging
-        # Pass system_fragments and the filled user_fragments list
-        updated_memory_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
-            system_fragments=system_fragments,
-            user_fragments=user_fragments,
+        updated_memory_text, metrics = await run_llm(
+            system_fragments,
+            user_fragments,
+            model_name,
+            config=cfg,
         )
 
         if updated_memory_text:

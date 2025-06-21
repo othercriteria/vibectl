@@ -320,10 +320,8 @@ async def test_run_apply_command_vibe_missing_request(
     )
 
 
-@pytest.mark.asyncio
 @patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
-@patch("vibectl.execution.apply.get_model_adapter")
-@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
@@ -333,8 +331,7 @@ async def test_run_apply_command_vibe_success(
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
-    mock_get_model_adapter_ch: MagicMock,
-    mock_get_model_adapter_ac: MagicMock,
+    mock_get_model_adapter: MagicMock,
     mock_handle_vibe_request: MagicMock,
 ) -> None:
     """Test run_apply_command successful vibe execution."""
@@ -352,11 +349,8 @@ async def test_run_apply_command_vibe_success(
     mock_output_flags.show_streaming = True  # Added show_streaming
     mock_configure_output_flags.return_value = mock_output_flags
 
-    mock_model_adapter_instance_ch = MagicMock()
-    mock_get_model_adapter_ch.return_value = mock_model_adapter_instance_ch
-
-    mock_model_adapter_instance_ac = MagicMock()
-    mock_get_model_adapter_ac.return_value = mock_model_adapter_instance_ac
+    mock_model_adapter_instance = MagicMock()
+    mock_get_model_adapter.return_value = mock_model_adapter_instance
 
     mock_vibe_success_result = Success(
         message="Vibe apply successful", original_exit_code=0
@@ -404,10 +398,8 @@ async def test_run_apply_command_vibe_success(
     assert called_kwargs["output_flags"] is mock_output_flags
 
 
-@pytest.mark.asyncio
 @patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
-@patch("vibectl.execution.apply.get_model_adapter")
-@patch("vibectl.command_handler.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
@@ -417,8 +409,7 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
-    mock_get_model_adapter_ch: MagicMock,
-    mock_get_model_adapter_ac: MagicMock,
+    mock_get_model_adapter: MagicMock,
     mock_handle_vibe_request: MagicMock,
 ) -> None:
     """Test run_apply_command with vibe execution that returns an error."""
@@ -436,11 +427,8 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_output_flags.show_streaming = True  # Added show_streaming
     mock_configure_output_flags.return_value = mock_output_flags
 
-    mock_model_adapter_instance_ch = MagicMock()
-    mock_get_model_adapter_ch.return_value = mock_model_adapter_instance_ch
-
-    mock_model_adapter_instance_ac = MagicMock()
-    mock_get_model_adapter_ac.return_value = mock_model_adapter_instance_ac
+    mock_model_adapter_instance = MagicMock()
+    mock_get_model_adapter.return_value = mock_model_adapter_instance
 
     mock_vibe_error_result = Error(error="Vibe handler failed")
     mock_handle_vibe_request.return_value = mock_vibe_error_result
@@ -486,7 +474,7 @@ async def test_run_apply_command_vibe_error_from_handler(
     assert called_kwargs["output_flags"] is mock_output_flags
 
 
-@patch("vibectl.execution.apply.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
 @patch("vibectl.subcommands.apply_cmd.configure_memory_flags")
@@ -516,15 +504,15 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_output_flags.show_streaming = True  # Added show_streaming
     mock_configure_output_flags.return_value = mock_output_flags
 
-    mock_adapter_instance = MagicMock()
+    mock_model_adapter_instance = MagicMock()
     # Simulate LLM returning an empty string for file scoping
-    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+    mock_model_adapter_instance.execute_and_log_metrics = AsyncMock(
         return_value=(
             "",
             LLMMetrics(token_input=0, token_output=0, latency_ms=0.0, call_count=0),
         )
     )
-    mock_get_model_adapter.return_value = mock_adapter_instance
+    mock_get_model_adapter.return_value = mock_model_adapter_instance
 
     request_str = "intelligent apply this"
     args_tuple = ("vibe", request_str)
@@ -566,8 +554,8 @@ async def test_run_apply_command_intelligent_vibe_empty_scope_response(
     mock_config_cls.assert_called_once()
     mock_config_instance.get_typed.assert_any_call("intelligent_apply", True)
     mock_config_instance.get_typed.assert_any_call("model", "claude-3.7-sonnet")
-    mock_get_model_adapter.assert_called_once_with(config=mock_config_instance)
-    mock_adapter_instance.execute_and_log_metrics.assert_called_once()
+    mock_get_model_adapter.assert_called_once_with(mock_config_instance)
+    mock_model_adapter_instance.execute_and_log_metrics.assert_called_once()
 
 
 # Further tests for other scenarios in intelligent apply would go here

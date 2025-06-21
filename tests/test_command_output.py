@@ -54,6 +54,7 @@ def default_summary_prompt() -> SummaryPromptFragmentFunc:
     def summary_prompt_fragments(
         config: Config | None = None,
         current_memory: str | None = None,
+        presentation_hints: str | None = None,
     ) -> PromptFragments:
         return PromptFragments(
             (
@@ -70,8 +71,15 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     """Mock LLMModelAdapter for command handling by mocking get_model_adapter."""
     mock_adapter_instance = MagicMock()
 
-    with patch(
-        "vibectl.command_handler.get_model_adapter", return_value=mock_adapter_instance
+    with (
+        patch(
+            "vibectl.command_handler.get_model_adapter",
+            return_value=mock_adapter_instance,
+        ),
+        patch(
+            "vibectl.model_adapter.get_model_adapter",
+            return_value=mock_adapter_instance,
+        ),
     ):
         yield mock_adapter_instance
 
@@ -1240,7 +1248,7 @@ async def test_process_vibe_output_show_streaming_false(
     )
 
     # 3. Prepare arguments for _process_vibe_output
-    system_fragments, user_fragments = default_summary_prompt(None, None)
+    system_fragments, user_fragments = default_summary_prompt(None, None, None)
 
     # 4. Call _process_vibe_output
     result = await _process_vibe_output(

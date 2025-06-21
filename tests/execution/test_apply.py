@@ -8,7 +8,7 @@ focusing on helper functions rather than the full workflow.
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -356,7 +356,7 @@ async def test_run_intelligent_apply_workflow_empty_llm_response(
 ) -> None:
     """Test run_intelligent_apply_workflow on empty file scoping response."""
     with (
-        patch("vibectl.execution.apply.get_model_adapter") as mock_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_adapter,
         patch("vibectl.execution.apply.tempfile.TemporaryDirectory") as mock_temp,
     ):
         # Mock model adapter to return empty response
@@ -392,7 +392,7 @@ async def test_run_intelligent_apply_workflow_json_parse_error(
 ) -> None:
     """Test run_intelligent_apply_workflow on invalid JSON file scoping response."""
     with (
-        patch("vibectl.execution.apply.get_model_adapter") as mock_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_adapter,
         patch("vibectl.execution.apply.tempfile.TemporaryDirectory") as mock_temp,
     ):
         # Mock model adapter to return invalid JSON
@@ -425,7 +425,7 @@ async def test_run_intelligent_apply_workflow_kubectl_not_found_early(
 ) -> None:
     """Test run_intelligent_apply_workflow stops early when kubectl is not found."""
     with (
-        patch("vibectl.execution.apply.get_model_adapter") as mock_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_adapter,
         patch("vibectl.execution.apply.discover_and_validate_files") as mock_discover,
         patch("vibectl.execution.apply.tempfile.TemporaryDirectory") as mock_temp,
     ):
@@ -464,7 +464,10 @@ async def test_run_intelligent_apply_workflow_kubectl_not_found_early(
 
 
 @pytest.mark.asyncio
-async def test_plan_and_execute_final_commands_success(test_config: Config) -> None:
+@patch("vibectl.model_adapter.get_model_adapter")
+async def test_plan_and_execute_final_commands_success(
+    mock_get_model_adapter: MagicMock, test_config: Config
+) -> None:
     """Test plan_and_execute_final_commands with successful execution."""
     # Mock data for the function
     semantically_valid_manifests = [
@@ -477,8 +480,8 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
     llm_remaining_request = "apply to staging namespace"
 
     # Mock the model and adapter
-    mock_model = Mock()
     mock_adapter = AsyncMock()
+    mock_get_model_adapter.return_value = mock_adapter
 
     # Mock the LLM response for final planning
     mock_plan_response = {
@@ -498,7 +501,6 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
         LLMMetrics(token_input=10, token_output=20, latency_ms=100.0, call_count=1),
     )
 
-    # Mock kubectl execution
     with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
         mock_kubectl.return_value = Success(
             message="apply successful", data='{"items": []}'
@@ -520,8 +522,7 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
                     unresolvable_sources,
                     updated_operation_memory,
                     llm_remaining_request,
-                    mock_adapter,
-                    mock_model,
+                    None,
                     test_config,
                     OutputFlags(
                         show_raw_output=False,
@@ -552,10 +553,13 @@ async def test_plan_and_execute_final_commands_success(test_config: Config) -> N
 
 
 @pytest.mark.asyncio
-async def test_plan_and_execute_final_commands_parse_error(test_config: Config) -> None:
+@patch("vibectl.model_adapter.get_model_adapter")
+async def test_plan_and_execute_final_commands_parse_error(
+    mock_get_model_adapter: MagicMock, test_config: Config
+) -> None:
     """Test plan_and_execute_final_commands when LLM response can't be parsed."""
-    mock_model = Mock()
     mock_adapter = AsyncMock()
+    mock_get_model_adapter.return_value = mock_adapter
 
     # Mock LLM to return non-parseable response
     mock_adapter.execute_and_log_metrics.side_effect = (
@@ -578,8 +582,7 @@ async def test_plan_and_execute_final_commands_parse_error(test_config: Config) 
         unresolvable_sources=[],
         updated_operation_memory="",
         llm_remaining_request="",
-        model_adapter=mock_adapter,
-        llm_model=mock_model,
+        _llm_model=None,
         cfg=test_config,
         output_flags=OutputFlags(
             show_raw_output=False,

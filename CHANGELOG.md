@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Consistent prompt injection mechanism for custom instructions and memory across all prompt types
+- Unit tests covering defensive branches in LLM adapter helpers (`is_valid_llm_model_name`, API-key message formatters) improving coverage.
+
 ### Changed
 - **Developer Experience Improvements**: Dramatically improved development workflow performance through parallel execution and daemon optimization
   - **Parallel Test Execution by Default**: `make test` now runs tests in parallel (~4 seconds vs ~80 seconds, 20x faster)
@@ -22,8 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Updated pre-commit hooks to use dmypy instead of standard mypy for faster commit-time checks
     - Added `.dmypy.json` to `.gitignore` and `make clean` target
     - Maintained full compatibility with existing mypy configuration and type checking standards
+- **Internal Refactor**: Unified all non-streaming LLM invocations under the shared `run_llm` helper
+  - Removed obsolete `get_adapter=` parameter from `run_llm`; helper now always resolves the adapter internally.
+  - Updated tests to patch `vibectl.model_adapter.get_model_adapter` dynamically; eliminated redundant imports in production code.
+  - Added temporary compatibility shim in `tests/conftest.py`, later earmarked for removal.
+  - Removed duplicate boilerplate for adapter look-up and metrics aggregation
+  - Enables consistent testing via easier mocking of `get_model_adapter`
+  - Paves the way for future instrumentation and behaviour tweaks in a single location
+  - Fixed Ruff F811 by removing duplicate `output_processor` import in `execution/vibe.py`.
+- Memory update prompts no longer duplicate user custom instructions, reducing redundant context and improving memory quality.
 
-## [0.11.0] - 2025-06-20
+## [0.11.1] - 2025-06-20
 
 ### Added
 - **Client-side Proxy Security Hardening (V1)**

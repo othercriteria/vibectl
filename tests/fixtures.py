@@ -4,6 +4,7 @@ This module contains reusable fixtures to reduce duplication across test files.
 """
 
 from collections.abc import Callable, Generator
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -57,12 +58,13 @@ def mock_handle_vibe_request() -> Generator[Mock, None, None]:
 
 
 @pytest.fixture
-def mock_summary_prompt() -> Callable[[], str]:
-    """Mock summary prompt function.
+def mock_summary_prompt() -> Callable[..., str]:
+    """Mock summary prompt function that ignores extra parameters."""
 
-    Returns a function that generates a summary prompt template.
-    """
-    return lambda: "Summarize this: {output}"
+    def _prompt(*_args: Any, **_kwargs: Any) -> str:
+        return "Summarize this: {output}"
+
+    return _prompt
 
 
 @pytest.fixture
