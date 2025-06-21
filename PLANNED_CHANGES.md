@@ -69,17 +69,21 @@ aggregation and unit-test monkey-patching are handled uniformly.
 
 **Remaining migration checklist**:
 
-1. `execution/vibe.py`
+All direct `execute_and_log_metrics` call-sites have been migrated to use
+`run_llm`.
+
+Next cleanup tasks:
+-1. `execution/vibe.py`
    - ✅ Replaced internal planning call with `run_llm` (response_model forwarded).
    - ✅ Audited helpers (`_handle_fuzzy_memory_update`, confirmation logic) – they already use `run_llm`.
-2. `execution/apply.py`
+-2. `execution/apply.py`
    - ✅ Migrated 5 direct `execute_and_log_metrics` invocations (replaced with `run_llm`).
-3. `execution/edit.py`
-   - [ ] Migrate 3 direct calls (lines ~250, 340, 510).
-4. `execution/check.py`
+-3. `execution/edit.py`
+   - ✅ Migrated 3 direct calls (lines ~250, 340, 510).
+-4. `execution/check.py`
    - ✅ Single call migrated (replaced with `run_llm`; lines ~75–140).
-5. `subcommands/memory_update_cmd.py`
-   - [ ] Single call around line 50.
+-5. `subcommands/memory_update_cmd.py`
+   - ✅ Migrated single call around line 50.
 
 After each batch:
 
@@ -90,14 +94,11 @@ ruff check . && mypy .            # keep linters happy
 
 Once all call-sites are migrated:
 
-- [ ] Remove redundant `get_model_adapter` imports from updated modules.
-- [ ] Consider deprecating helper wrappers sprinkled across codebase.
-- [ ] Update docs & STRUCTURE.md.
-- [ ] Review `run_llm` call-site conventions: today some callers rely on
-      implicit `Config()` (passing `None`) while others pass an explicit
-      `config` object.  Likewise, we always pass `model=` keyword-arg. Decide on
-      a single, documented pattern (e.g. *always* supply `config` and *always*
-      use keyword args) and update helpers/tests accordingly.
+Cleanup tasks remaining:
+
+* Remove redundant `get_model_adapter` imports where no longer required (after test fixtures are updated).
+* Deprecate or consolidate any helper wrappers that duplicate `run_llm` functionality.
+* Document the preferred `run_llm` call-site convention (always pass `config` & use keyword args), then update code & STRUCTURE.md accordingly.
 
 ### 4. Tests & Coverage
 - [ ] Add integration test for planner → execution → summary round-trip including

@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Updated pre-commit hooks to use dmypy instead of standard mypy for faster commit-time checks
     - Added `.dmypy.json` to `.gitignore` and `make clean` target
     - Maintained full compatibility with existing mypy configuration and type checking standards
+- **Internal Refactor**: Unified all non-streaming LLM invocations under the shared `run_llm` helper
+  - Removed duplicate boilerplate for adapter look-up and metrics aggregation
+  - Enables consistent testing via easier mocking of `get_model_adapter`
+  - Paves the way for future instrumentation and behaviour tweaks in a single location
 
 ## [0.11.1] - 2025-06-20
 
