@@ -494,7 +494,8 @@ async def _process_vibe_output(
             vibe_output_text, metrics = await run_llm(
                 summary_system_fragments,
                 UserFragments(formatted_user_fragments),
-                output_flags.model_name,
+                model_name=output_flags.model_name,
+                config=Config(),
                 metrics_acc=llm_metrics_accumulator,
                 metrics_source="LLM Summary Generation",
                 get_adapter=get_model_adapter,
@@ -901,7 +902,8 @@ async def _vibe_recovery_result(
         recovery_text, recovery_metrics = await run_llm(
             SystemFragments(recovery_system_fragments),
             UserFragments(recovery_user_fragments),
-            output_flags.model_name,
+            model_name=output_flags.model_name,
+            config=Config(),
             metrics_acc=llm_metrics_accumulator,
             metrics_source="LLM Recovery Suggestions",
             get_adapter=get_model_adapter,

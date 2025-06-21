@@ -35,7 +35,7 @@ async def run_llm(
     *,
     metrics_acc: LLMMetricsAccumulator | None = None,
     metrics_source: str = "LLM Call",
-    config: Config | None = None,
+    config: Config,
     get_adapter: Callable | None = None,
     **execute_kwargs: Any,
 ) -> tuple[str, LLMMetrics | None]:
@@ -49,16 +49,28 @@ async def run_llm(
             will receive the call metrics via ``add_metrics``.
         metrics_source: A human-readable label describing the call. This is
             forwarded to ``metrics_acc.add_metrics``.
-        config: Optional ``Config`` instance.  Currently unused but reserved for
-            future extension (e.g., adapter selection overrides).
+        config: The active ``Config`` instance driving this CLI invocation. **This
+            parameter is now required** so that all call-sites share a single,
+            explicit configuration context.
         get_adapter: Optional callable to use for obtaining the model adapter.
-        **execute_kwargs: Additional keyword arguments to forward to
+        **execute_kwargs: Additional keyword arguments forwarded verbatim to
             ``model_adapter.execute_and_log_metrics``.
 
     Returns:
         A tuple ``(response_text, metrics)`` where ``response_text`` is the raw
         string returned by the provider and ``metrics`` contains any associated
         usage/cost information (or ``None`` when unavailable).
+
+    Call-site convention (2025-06-21):
+        >>> response, metrics = await run_llm(
+        ...     system_fragments=system_frags,
+        ...     user_fragments=user_frags,
+        ...     model_name=model_name,
+        ...     config=cfg,  # <-- Always pass the active Config
+        ...     get_adapter=get_model_adapter,  # Only when re-using a mock/instance
+        ...     metrics_acc=llm_metrics_accumulator,
+        ...     metrics_source="LLM XYZ",
+        ... )
     """
 
     if get_adapter is None:

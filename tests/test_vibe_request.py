@@ -654,6 +654,7 @@ async def test_get_llm_plan_parses_command_action(
         plan_system_fragments=base_system_fragments,
         plan_user_fragments=current_user_fragments,
         response_model_type=LLMPlannerResponse,
+        config=Config(),
     )
     assert isinstance(result, Success)
     assert isinstance(result.data, LLMPlannerResponse)
@@ -687,6 +688,7 @@ async def test_get_llm_plan_handles_pydantic_validation_error(
         plan_system_fragments=base_system_fragments,
         plan_user_fragments=current_user_fragments,
         response_model_type=LLMPlannerResponse,
+        config=Config(),
     )
     assert isinstance(result, Error)
     assert "Failed to parse LLM response as expected JSON" in result.error

@@ -103,3 +103,18 @@ Cleanup tasks remaining:
 ### 4. Tests & Coverage
 - [ ] Add integration test for planner → execution → summary round-trip including
       `run_llm` path.
+
+### 5. TODOs / Follow-ups
+
+- [ ] **Deprecate `get_adapter=` hook in `run_llm`**
+  - Now that every call-site passes an explicit `Config` instance, the helper can
+    look up its own adapter consistently.
+  - Plan: introduce an internal cache in `llm_utils` for adapter instances per
+    config and migrate callers, then remove the kwarg.
+- [ ] **Decide on `execute_kwargs` future**
+  - Currently used only for `response_model=`; still valuable as an escape hatch for
+    low-frequency parameters (e.g., `temperature`, `max_tokens`).
+  - Option A: keep as flexible `**kwargs` (status quo).  Option B: promote the few
+    stable parameters (starting with `response_model`) to explicit keywords for
+    stronger type safety, then lint for stray extras.
+  - Evaluate once additional adapter options become necessary.

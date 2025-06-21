@@ -101,6 +101,7 @@ async def handle_vibe_request(
         plan_system_fragments,
         UserFragments(final_user_fragments),
         LLMPlannerResponse,
+        config=cfg,
     )
 
     if isinstance(plan_result, Error):
@@ -649,9 +650,9 @@ async def _handle_fuzzy_memory_update(
         updated_memory_text, metrics = await run_llm(
             system_fragments,
             user_fragments,
-            model_name,
-            get_adapter=get_model_adapter,
+            model_name=model_name,
             config=cfg,
+            get_adapter=get_model_adapter,
         )
 
         set_memory(updated_memory_text, cfg)
@@ -680,6 +681,8 @@ async def _get_llm_plan(
     plan_system_fragments: SystemFragments,
     plan_user_fragments: UserFragments,
     response_model_type: type[LLMPlannerResponse],
+    *,
+    config: Config,
 ) -> Result:
     """Calls the LLM to get a command plan and validates the response."""
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
@@ -692,7 +695,8 @@ async def _get_llm_plan(
         llm_response_text, metrics = await run_llm(
             plan_system_fragments,
             plan_user_fragments,
-            model_name,
+            model_name=model_name,
+            config=config,
             get_adapter=get_model_adapter,
             response_model=response_model_type,
         )
