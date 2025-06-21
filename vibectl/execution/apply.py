@@ -25,7 +25,6 @@ from vibectl.config import Config
 from vibectl.k8s_utils import run_kubectl, run_kubectl_with_yaml
 from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger
-from vibectl.model_adapter import ModelAdapter, get_model_adapter
 from vibectl.prompts.apply import (
     _LLM_FINAL_APPLY_PLAN_RESPONSE_SCHEMA_JSON,
     apply_output_prompt,
@@ -249,7 +248,6 @@ async def discover_and_validate_files(
 
 async def summarize_manifests_and_build_memory(
     semantically_valid_manifests: list[tuple[Path, str]],
-    model_adapter: ModelAdapter,
     invalid_sources_to_correct: list[tuple[Path, str | None, str]],
     llm_metrics_accumulator: LLMMetricsAccumulator,
     *,
@@ -289,7 +287,6 @@ async def summarize_manifests_and_build_memory(
                 summary_user_frags,
                 model_name=model_name,
                 config=cfg,
-                get_adapter=lambda _cfg: model_adapter,
             )
 
             if not summary_text or summary_text.strip() == "":
@@ -331,7 +328,6 @@ async def correct_and_generate_manifests(
     invalid_sources_to_correct: list[tuple[Path, str | None, str]],
     apply_operation_memory: str,
     llm_remaining_request: str,
-    model_adapter: ModelAdapter,
     *,
     cfg: Config,
     model_name: str,
@@ -411,7 +407,6 @@ async def correct_and_generate_manifests(
                     correction_user_frags,
                     model_name=model_name,
                     config=cfg,
-                    get_adapter=lambda _cfg: model_adapter,
                 )
 
                 # Add correction metrics to accumulator
@@ -489,7 +484,6 @@ async def correct_and_generate_manifests(
                             new_summary_user_frags,
                             model_name=model_name,
                             config=cfg,
-                            get_adapter=lambda _cfg: model_adapter,
                         )
                         if new_summary_text and new_summary_text.strip():
                             updated_operation_memory += (
@@ -710,8 +704,7 @@ async def plan_and_execute_final_commands(
     unresolvable_sources: list[tuple[Path, str]],
     updated_operation_memory: str,
     llm_remaining_request: str,
-    model_adapter: ModelAdapter,
-    llm_model: Any | None,
+    _llm_model: Any | None,
     cfg: Config,
     output_flags: OutputFlags,
     llm_metrics_accumulator: LLMMetricsAccumulator,
@@ -775,7 +768,6 @@ async def plan_and_execute_final_commands(
             model_name=model_name,
             config=cfg,
             response_model=LLMFinalApplyPlanResponse,
-            get_adapter=lambda _cfg: model_adapter,
         )
 
         # Add final planning metrics to accumulator
@@ -865,9 +857,7 @@ async def run_intelligent_apply_workflow(
     try:
         # Step 1: Initial Scoping & Intent Extraction (LLM)
         model_name = cfg.get_typed("model", "claude-3.7-sonnet")
-        model_adapter = get_model_adapter(config=cfg)
-        llm_for_corrections_and_summaries = model_adapter.get_model(model_name)
-
+        # Build prompt fragments for file scoping
         system_fragments, user_fragments = plan_apply_filescope_prompt_fragments(
             request=request
         )
@@ -878,7 +868,6 @@ async def run_intelligent_apply_workflow(
             model_name=model_name,
             config=cfg,
             response_model=ApplyFileScopeResponse,
-            get_adapter=lambda _cfg: model_adapter,
         )
 
         # Add initial scoping metrics to accumulator
@@ -946,7 +935,6 @@ async def run_intelligent_apply_workflow(
             updated_invalid_sources,
         ) = await summarize_manifests_and_build_memory(
             semantically_valid_manifests,
-            model_adapter,
             invalid_sources_to_correct,
             llm_metrics_accumulator,
             cfg=cfg,
@@ -965,7 +953,6 @@ async def run_intelligent_apply_workflow(
             updated_invalid_sources,
             apply_operation_memory,
             llm_remaining_request,
-            model_adapter,
             cfg=cfg,
             model_name=model_name,
             temp_dir_path=temp_dir_path,
@@ -980,7 +967,6 @@ async def run_intelligent_apply_workflow(
             unresolvable_sources,
             updated_operation_memory,
             llm_remaining_request,
-            model_adapter,
             None,
             cfg,
             output_flags,

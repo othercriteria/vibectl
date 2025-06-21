@@ -14,7 +14,6 @@ The new helper wraps these steps to reduce repetition and unify behaviour.
 Future refactors can gradually migrate modules to use ``run_llm``.
 """
 
-from collections.abc import Callable
 from typing import Any
 
 from vibectl.config import Config
@@ -36,7 +35,6 @@ async def run_llm(
     metrics_acc: LLMMetricsAccumulator | None = None,
     metrics_source: str = "LLM Call",
     config: Config,
-    get_adapter: Callable | None = None,
     **execute_kwargs: Any,
 ) -> tuple[str, LLMMetrics | None]:
     """Execute **one** LLM call and optionally accumulate its metrics.
@@ -52,7 +50,6 @@ async def run_llm(
         config: The active ``Config`` instance driving this CLI invocation. **This
             parameter is now required** so that all call-sites share a single,
             explicit configuration context.
-        get_adapter: Optional callable to use for obtaining the model adapter.
         **execute_kwargs: Additional keyword arguments forwarded verbatim to
             ``model_adapter.execute_and_log_metrics``.
 
@@ -67,23 +64,15 @@ async def run_llm(
         ...     user_fragments=user_frags,
         ...     model_name=model_name,
         ...     config=cfg,  # <-- Always pass the active Config
-        ...     get_adapter=get_model_adapter,  # Only when re-using a mock/instance
-        ...     metrics_acc=llm_metrics_accumulator,
-        ...     metrics_source="LLM XYZ",
         ... )
     """
 
-    if get_adapter is None:
-        # Late import to ensure any monkey-patches performed by tests on
-        # ``vibectl.model_adapter.get_model_adapter`` take effect.  Importing
-        # lazily also avoids tight coupling that could complicate circular
-        # imports when ``run_llm`` is invoked from modules that themselves
-        # import this helper at import-time.
-        from vibectl.model_adapter import get_model_adapter as _default_get_adapter
+    # Late import ensures that any monkey-patches applied by tests to
+    # ``vibectl.model_adapter.get_model_adapter`` are respected. Importing
+    # lazily also avoids potential circular-import issues.
+    from vibectl.model_adapter import get_model_adapter as _get_adapter
 
-        get_adapter = _default_get_adapter
-
-    model_adapter = get_adapter(config)  # type: ignore[arg-type]
+    model_adapter = _get_adapter(config)
     model = model_adapter.get_model(model_name)
 
     # Step 3 - execute prompt & gather metrics

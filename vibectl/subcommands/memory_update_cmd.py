@@ -6,9 +6,6 @@ from vibectl.config import DEFAULT_CONFIG, Config
 from vibectl.console import console_manager
 from vibectl.llm_utils import run_llm
 from vibectl.memory import get_memory, set_memory
-from vibectl.model_adapter import (
-    get_model_adapter,  # Maintained for test monkeypatching
-)
 from vibectl.prompts.memory import memory_fuzzy_update_prompt
 from vibectl.types import Error, Fragment, Result, Success, UserFragments
 
@@ -60,7 +57,6 @@ async def run_memory_update_logic(
             model_name=model_name_to_use,
             metrics_source="LLM Memory Update",
             config=cfg,
-            get_adapter=get_model_adapter,
         )
 
         set_memory(updated_memory, cfg)

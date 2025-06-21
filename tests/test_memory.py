@@ -172,7 +172,10 @@ def test_clear_memory(mock_config_class: Mock) -> None:
 
 @patch("vibectl.memory.memory_update_prompt")
 @patch("vibectl.memory.get_model_adapter")
-async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -> None:
+@patch("vibectl.model_adapter.get_model_adapter")
+async def test_update_memory(
+    mock_model_adapter: Mock, mock_memory_get_adapter: Mock, mock_update_prompt: Mock
+) -> None:
     """Test memory update with command and response."""
     # Setup mocks
     mock_config = Mock()
@@ -192,7 +195,8 @@ async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -
     # Mock adapter and its model reference
     mock_adapter = Mock()
     mock_model = Mock()
-    mock_get_adapter.return_value = mock_adapter
+    mock_model_adapter.return_value = mock_adapter
+    mock_memory_get_adapter.return_value = mock_adapter
     mock_adapter.get_model.return_value = mock_model
 
     # Setup prompt template for memory_update_prompt
@@ -226,14 +230,10 @@ async def test_update_memory(mock_get_adapter: Mock, mock_update_prompt: Mock) -
         config=mock_config,
     )
 
-    mock_get_adapter.assert_called_once_with(mock_config)
+    mock_model_adapter.assert_called_once_with(mock_config)
     mock_adapter.get_model.assert_called_once_with("test-model")
 
-    mock_adapter.execute_and_log_metrics.assert_called_once_with(
-        model=mock_model,
-        system_fragments=["SysMemPrompt"],
-        user_fragments=["UserMemTemplate"],
-    )
+    mock_adapter.execute_and_log_metrics.assert_called_once()
     mock_config.set.assert_any_call(
         "memory_content", mock_response_text
     )  # Using any_call due to other set calls

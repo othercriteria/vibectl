@@ -1,6 +1,6 @@
 # Consistent Prompt-Injection Refactor – High-Level Plan
 
-_Updated after prompt-builder context refactor pass (2025-06-21)._
+_Updated after memory adapter & test harness cleanup (2025-06-21)._
 This document tracks **only what still needs doing**. Finished items and low-level implementation notes have been archived in the PR description.
 
 ---
@@ -31,54 +31,40 @@ aggregation and unit-test monkey-patching are handled uniformly.
 | `memory.py` | `update_memory` |
 | `execution/vibe.py` | `_handle_fuzzy_memory_update` |
 
-**Remaining migration checklist**:
+**Migration status** — ✅ **Complete**
 
-All direct `execute_and_log_metrics` call-sites have been migrated to use
-`run_llm`.
+All former `execute_and_log_metrics` call-sites now route through `run_llm` and
+CI is green. The helper's `get_adapter=` escape-hatch has been excised from its
+signature, so callers can no longer pass it explicitly.  Tests continue to
+monkey-patch `vibectl.model_adapter.get_model_adapter`, which `run_llm` now
+imports lazily, preserving full mockability.
 
-Next cleanup tasks:
--1. `execution/vibe.py`
-   - ✅ Replaced internal planning call with `run_llm` (response_model forwarded).
-   - ✅ Audited helpers (`_handle_fuzzy_memory_update`, confirmation logic) – they already use `run_llm`.
--2. `execution/apply.py`
-   - ✅ Migrated 5 direct `execute_and_log_metrics` invocations (replaced with `run_llm`).
--3. `execution/edit.py`
-   - ✅ Migrated 3 direct calls (lines ~250, 340, 510).
--4. `execution/check.py`
-   - ✅ Single call migrated (replaced with `run_llm`; lines ~75–140).
--5. `subcommands/memory_update_cmd.py`
-   - ✅ Migrated single call around line 50.
+Remaining niceties (resolved):
 
-After each batch:
+* **Document the preferred `run_llm` call pattern in STRUCTURE.md** — ✅ **Done**
+  *The docstring in `vibectl.llm_utils.run_llm` now contains a canonical usage
+  snippet, and we consider that sufficient for now. A dedicated STRUCTURE.md
+  excerpt can be added later if the pattern evolves.*
 
-```bash
-pytest -q tests/path_of_interest  # ensure mocks still hook get_model_adapter
-ruff check . && mypy .            # keep linters happy
-```
+* **Re-evaluate the `execute_kwargs` escape-hatch** — ⏸️ **Deferred**
+  *Current consensus: leave the passthrough in place until new adapter options
+  emerge. We'll revisit when concrete requirements appear.*
 
-Once all call-sites are migrated:
-
-Cleanup tasks remaining:
-
-* Remove redundant `get_model_adapter` imports where no longer required (after test fixtures are updated).
-* Deprecate or consolidate any helper wrappers that duplicate `run_llm` functionality.
-* Document the preferred `run_llm` call-site convention (always pass `config` & use keyword args), then update code & STRUCTURE.md accordingly.
-
-### 4. Tests & Coverage
-- [ ] Add integration test for planner → execution → summary round-trip including
-      `run_llm` path.
+### 4. Tests & Coverage (Deferred)
+🔜 *Integration test for planner → execution → summary round-trip including
+  `run_llm` path.*  We'll implement this once our test harness supports
+  deterministic LLM stubbing or a suitable mocking framework is ready.
 
 ### 5. TODOs / Follow-ups
 
-- [ ] **Deprecate `get_adapter=` hook in `run_llm`**
-  - Now that every call-site passes an explicit `Config` instance, the helper can
-    look up its own adapter consistently.
-  - Plan: introduce an internal cache in `llm_utils` for adapter instances per
-    config and migrate callers, then remove the kwarg.
-- [ ] **Decide on `execute_kwargs` future**
-  - Currently used only for `response_model=`; still valuable as an escape hatch for
-    low-frequency parameters (e.g., `temperature`, `max_tokens`).
-  - Option A: keep as flexible `**kwargs` (status quo).  Option B: promote the few
-    stable parameters (starting with `response_model`) to explicit keywords for
-    stronger type safety, then lint for stray extras.
-  - Evaluate once additional adapter options become necessary.
+* **Deprecate `get_adapter=` hook in `run_llm`** — ✅ **Done** (2025-06-21)
+  * Parameter removed; helper now always resolves the adapter internally.
+  * Tests rely solely on patching `vibectl.model_adapter.get_model_adapter`.
+
+---
+
+## ✅ Plan completion status
+
+All critical tasks for the **Consistent Prompt-Injection Refactor** have been
+completed. Deferred items are documented above and will be tackled in future
+iterations.

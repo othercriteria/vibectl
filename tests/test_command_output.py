@@ -71,8 +71,15 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     """Mock LLMModelAdapter for command handling by mocking get_model_adapter."""
     mock_adapter_instance = MagicMock()
 
-    with patch(
-        "vibectl.command_handler.get_model_adapter", return_value=mock_adapter_instance
+    with (
+        patch(
+            "vibectl.command_handler.get_model_adapter",
+            return_value=mock_adapter_instance,
+        ),
+        patch(
+            "vibectl.model_adapter.get_model_adapter",
+            return_value=mock_adapter_instance,
+        ),
     ):
         yield mock_adapter_instance
 

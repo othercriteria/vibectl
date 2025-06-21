@@ -305,9 +305,12 @@ FRAGMENT_MEMORY_ASSISTANT: Fragment = Fragment("""
 You are an AI agent maintaining memory state for a Kubernetes CLI tool.
 The memory contains essential context to help you better assist with future requests.
 
-Based on new information, update the memory to maintain the most relevant context.
+Based on new information, update the memory to maintain the most relevant
+context **without** duplicating user-supplied *custom instructions*. Those
+instructions will be provided separately in future prompts, so including them
+here is redundant.
 
-IMPORTANT: Do NOT include any prefixes like \"Updated memory:\" or headings in
+IMPORTANT: Do **NOT** include any prefixes like "Updated memory:" or headings in
 your response. Just provide the direct memory content itself with no additional
 labels or headers.
 """)

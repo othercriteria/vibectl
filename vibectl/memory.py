@@ -9,7 +9,9 @@ from typing import cast  # Added List, Tuple
 
 from .config import Config
 from .llm_utils import run_llm
-from .model_adapter import get_model_adapter
+from .model_adapter import (
+    get_model_adapter,  # noqa: F401, import retained for backward-compat in tests
+)
 from .prompts.memory import (
     memory_update_prompt,  # Import the fragment-based prompt function
 )
@@ -124,12 +126,10 @@ async def update_memory(
             config=cfg,
         )
 
-        # Execute via shared helper (ensures test mocks still work)
         updated_memory_text, metrics = await run_llm(
             system_fragments,
             user_fragments,
             model_name,
-            get_adapter=get_model_adapter,
             config=cfg,
         )
 

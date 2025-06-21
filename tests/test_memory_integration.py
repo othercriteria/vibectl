@@ -24,10 +24,14 @@ def mock_model_adapter() -> Generator[Mock, None, None]:
     mock_model = Mock()
     mock_adapter.get_model.return_value = mock_model
     # Setup default response for execute_and_log_metrics
-    mock_adapter.execute_and_log_metrics.return_value = "Updated memory content"
+    mock_adapter.execute_and_log_metrics.return_value = ("Updated memory content", None)
 
-    # Save original adapter
-    with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
+    # Patch both the global model adapter getter (used by run_llm) and the
+    # legacy path imported in vibectl.memory for backward compatibility.
+    with (
+        patch("vibectl.model_adapter.get_model_adapter", return_value=mock_adapter),
+        patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
+    ):
         yield mock_adapter
 
     # Reset adapter after test

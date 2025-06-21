@@ -31,7 +31,6 @@ from vibectl.memory import (
 )
 from vibectl.model_adapter import (
     RecoverableApiError,
-    get_model_adapter,
 )
 from vibectl.output_processor import OutputProcessor
 from vibectl.prompts.memory import memory_fuzzy_update_prompt
@@ -652,7 +651,6 @@ async def _handle_fuzzy_memory_update(
             user_fragments,
             model_name=model_name,
             config=cfg,
-            get_adapter=get_model_adapter,
         )
 
         set_memory(updated_memory_text, cfg)
@@ -697,7 +695,6 @@ async def _get_llm_plan(
             plan_user_fragments,
             model_name=model_name,
             config=config,
-            get_adapter=get_model_adapter,
             response_model=response_model_type,
         )
         logger.info(f"Raw LLM response text:\n{llm_response_text}")

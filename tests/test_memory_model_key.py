@@ -169,7 +169,10 @@ async def test_memory_with_anthropic_api_key(
     set_model_adapter(mock_adapter)
 
     # Apply the mocked adapter
-    with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
+    with (
+        patch("vibectl.model_adapter.get_model_adapter", return_value=mock_adapter),
+        patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
+    ):
         # Call update_memory with a Claude model
         await update_memory(
             command_message="kubectl get pods",
@@ -303,7 +306,10 @@ async def test_memory_with_openai_api_key(test_config: Config) -> None:
     set_model_adapter(mock_adapter)
 
     # Apply the mocked adapter
-    with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
+    with (
+        patch("vibectl.model_adapter.get_model_adapter", return_value=mock_adapter),
+        patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
+    ):
         # Call update_memory with a GPT model
         await update_memory(
             command_message="kubectl get pods",
@@ -334,6 +340,7 @@ async def test_memory_update_missing_api_key(test_config: Config) -> None:
 
     # Apply the mocked adapter and patch set_memory
     with (
+        patch("vibectl.model_adapter.get_model_adapter", return_value=mock_adapter),
         patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
         patch("vibectl.memory.set_memory") as mock_set_mem,
     ):
@@ -377,7 +384,10 @@ async def test_memory_update_with_environment_key(test_config: Config) -> None:
         mock_adapter.execute_and_log_metrics.side_effect = verify_env
 
         # Apply the mocked adapter
-        with patch("vibectl.memory.get_model_adapter", return_value=mock_adapter):
+        with (
+            patch("vibectl.model_adapter.get_model_adapter", return_value=mock_adapter),
+            patch("vibectl.memory.get_model_adapter", return_value=mock_adapter),
+        ):
             # Call update_memory
             await update_memory(
                 command_message="kubectl get pods",

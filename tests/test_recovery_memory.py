@@ -11,7 +11,7 @@ The tests verify:
 """
 
 from collections.abc import Generator
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -109,6 +109,8 @@ def get_test_summary_fragments(
 @patch("vibectl.plugins.PluginStore")
 @patch("vibectl.plugins.PromptResolver")
 @patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.execution.vibe.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.execution.vibe._execute_command")
@@ -117,8 +119,10 @@ async def test_recovery_suggestions_should_update_memory(
     mock_get_llm_plan: MagicMock,
     mock_execute: Mock,
     mock_ch_update_memory: Mock,
-    mock_ch_get_model_adapter: MagicMock,  # For recovery path in handle_command_output
-    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_ch_get_model_adapter: MagicMock,
+    mock_model_get_model_adapter: MagicMock,
+    mock_exec_vibe_get_model_adapter: MagicMock,
+    mock_memory_get_model_adapter: MagicMock,
     mock_prompt_resolver: MagicMock,
     mock_plugin_store: MagicMock,
 ) -> None:
@@ -133,7 +137,9 @@ async def test_recovery_suggestions_should_update_memory(
     # Mock the memory adapter to avoid LLM calls
     memory_adapter = MagicMock(spec=LLMModelAdapter)
     memory_adapter.get_model.return_value = MagicMock()
-    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    memory_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=("updated memory", None)
+    )
     mock_memory_get_model_adapter.return_value = memory_adapter
 
     # Setup: Define the plan object that _get_llm_plan (mock_get_llm_plan) should return
@@ -153,11 +159,13 @@ async def test_recovery_suggestions_should_update_memory(
     recovery_suggestion_text = "Oops: Pod not found. Try 'kubectl get pods -A'."
     adapter_for_recovery = MagicMock(spec=LLMModelAdapter)
     adapter_for_recovery.get_model.return_value = MagicMock()
-    adapter_for_recovery.execute_and_log_metrics.return_value = (
-        recovery_suggestion_text,
-        None,
+    adapter_for_recovery.execute_and_log_metrics = AsyncMock(
+        return_value=(recovery_suggestion_text, None)
     )
     mock_ch_get_model_adapter.return_value = adapter_for_recovery
+
+    # After defining adapter_for_recovery, configure model adapter side effect order.
+    mock_model_get_model_adapter.side_effect = [memory_adapter, adapter_for_recovery]
 
     output_flags_mock = Mock(spec=OutputFlags)
     output_flags_mock.model_name = "test-model"
@@ -182,6 +190,8 @@ async def test_recovery_suggestions_should_update_memory(
 @patch("vibectl.plugins.PluginStore")
 @patch("vibectl.plugins.PromptResolver")
 @patch("vibectl.memory.get_model_adapter")
+@patch("vibectl.execution.vibe.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.execution.vibe._execute_command")
@@ -191,7 +201,9 @@ async def test_recovery_suggestions_in_auto_mode(
     mock_execute: Mock,
     mock_ch_update_memory: Mock,
     mock_ch_get_model_adapter: MagicMock,
-    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_model_get_model_adapter: MagicMock,
+    mock_exec_vibe_get_model_adapter: MagicMock,
+    mock_memory_get_model_adapter: MagicMock,
     mock_prompt_resolver: MagicMock,
     mock_plugin_store: MagicMock,
 ) -> None:
@@ -206,7 +218,9 @@ async def test_recovery_suggestions_in_auto_mode(
     # Mock the memory adapter to avoid LLM calls
     memory_adapter = MagicMock(spec=LLMModelAdapter)
     memory_adapter.get_model.return_value = MagicMock()
-    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    memory_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=("updated memory", None)
+    )
     mock_memory_get_model_adapter.return_value = memory_adapter
 
     # Setup: Define the plan object that _get_llm_plan (mock_get_llm_plan) should return
@@ -227,11 +241,13 @@ async def test_recovery_suggestions_in_auto_mode(
     recovery_suggestion_text = "Error occurred: Pod not found. Trying again with -A."
     adapter_for_recovery = MagicMock(spec=LLMModelAdapter)
     adapter_for_recovery.get_model.return_value = MagicMock()
-    adapter_for_recovery.execute_and_log_metrics.return_value = (
-        recovery_suggestion_text,
-        None,
+    adapter_for_recovery.execute_and_log_metrics = AsyncMock(
+        return_value=(recovery_suggestion_text, None)
     )
     mock_ch_get_model_adapter.return_value = adapter_for_recovery
+
+    # After defining adapter_for_recovery
+    mock_model_get_model_adapter.side_effect = [memory_adapter, adapter_for_recovery]
 
     output_flags_mock = Mock(spec=OutputFlags)
     output_flags_mock.model_name = "test-model"
@@ -258,6 +274,7 @@ async def test_recovery_suggestions_in_auto_mode(
 @patch("vibectl.plugins.PromptResolver")
 @patch("vibectl.memory.get_model_adapter")
 @patch("vibectl.execution.vibe.get_model_adapter")
+@patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.command_handler.get_model_adapter")
 @patch("vibectl.command_handler.update_memory")
 @patch("vibectl.execution.vibe._execute_command")
@@ -269,9 +286,10 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
     mock_vibe_update_memory: Mock,
     mock_execute: MagicMock,
     mock_ch_update_memory: Mock,
-    mock_get_adapter: MagicMock,
+    mock_ch_get_model_adapter: MagicMock,
+    mock_model_get_model_adapter: MagicMock,
     mock_exec_vibe_get_model_adapter: MagicMock,
-    mock_memory_get_model_adapter: MagicMock,  # For memory updates
+    mock_memory_get_model_adapter: MagicMock,
     mock_prompt_resolver: MagicMock,
     mock_plugin_store: MagicMock,
     mock_console: MagicMock,
@@ -288,7 +306,9 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
     # Mock the memory adapter to avoid LLM calls
     memory_adapter = MagicMock(spec=LLMModelAdapter)
     memory_adapter.get_model.return_value = MagicMock()
-    memory_adapter.execute_and_log_metrics.return_value = ("updated memory", None)
+    memory_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=("updated memory", None)
+    )
     mock_memory_get_model_adapter.return_value = memory_adapter
 
     # Setup initial plan to be executed by handle_vibe_request
@@ -300,9 +320,8 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
 
     adapter_instance_for_initial_plan = MagicMock(spec=LLMModelAdapter)
     adapter_instance_for_initial_plan.get_model.return_value = MagicMock()
-    adapter_instance_for_initial_plan.execute_and_log_metrics.return_value = (
-        initial_plan_json,
-        None,  # Metrics for initial plan
+    adapter_instance_for_initial_plan.execute_and_log_metrics = AsyncMock(
+        return_value=(initial_plan_json, None)
     )
     mock_exec_vibe_get_model_adapter.return_value = adapter_instance_for_initial_plan
 
@@ -320,11 +339,15 @@ async def test_recovery_after_failed_command_with_llm_suggestion_accepted(
 
     adapter_instance_for_recovery = MagicMock(spec=LLMModelAdapter)
     adapter_instance_for_recovery.get_model.return_value = MagicMock()
-    adapter_instance_for_recovery.execute_and_log_metrics.return_value = (
-        recovery_plan_json_str,  # LLM returns a new plan as a string
-        None,  # Metrics for recovery plan
+    adapter_instance_for_recovery.execute_and_log_metrics = AsyncMock(
+        return_value=(recovery_plan_json_str, None)
     )
-    mock_get_adapter.return_value = adapter_instance_for_recovery
+    mock_ch_get_model_adapter.return_value = adapter_instance_for_recovery
+    # Provide adapter instances sequentially for model-level adapter retrievals
+    mock_model_get_model_adapter.side_effect = [
+        adapter_instance_for_initial_plan,
+        adapter_instance_for_recovery,
+    ]
 
     # User's choice for recovery prompt (if one was shown, which it isn't
     # for CommandAction recovery)

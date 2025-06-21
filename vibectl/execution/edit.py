@@ -23,9 +23,7 @@ from vibectl.k8s_utils import run_kubectl
 from vibectl.llm_utils import run_llm
 from vibectl.logutil import logger
 from vibectl.memory import get_memory, update_memory
-from vibectl.model_adapter import (
-    get_model_adapter,  # Maintained for test monkeypatching compatibility
-)
+from vibectl.model_adapter import get_model_adapter  # noqa: F401 (see conftest.py)
 from vibectl.prompts.edit import (
     get_patch_generation_prompt,
     get_resource_summarization_prompt,
@@ -260,7 +258,6 @@ async def _summarize_resource(
             metrics_acc=llm_metrics_accumulator,
             metrics_source="LLM Resource Summarization",
             config=config,
-            get_adapter=get_model_adapter,
             response_model=None,  # Plain text response, not JSON
         )
 
@@ -347,7 +344,6 @@ async def _generate_patch_from_changes(
             metrics_acc=llm_metrics_accumulator,
             metrics_source="LLM Patch Generation",
             config=config,
-            get_adapter=get_model_adapter,
             response_model=LLMPlannerResponse,
         )
 
@@ -507,7 +503,6 @@ async def run_intelligent_vibe_edit_workflow(
             metrics_acc=llm_metrics_accumulator,
             metrics_source="LLM Resource Scoping",
             config=config,
-            get_adapter=get_model_adapter,
             response_model=EditResourceScopeResponse,
         )
 

@@ -121,6 +121,7 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
             "vibectl.command_handler.get_model_adapter", return_value=adapter_instance
         ),
         patch("vibectl.memory.get_model_adapter", return_value=adapter_instance),
+        patch("vibectl.model_adapter.get_model_adapter", return_value=adapter_instance),
     ):
         yield adapter_instance
 

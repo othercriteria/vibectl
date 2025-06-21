@@ -498,7 +498,6 @@ async def _process_vibe_output(
                 config=Config(),
                 metrics_acc=llm_metrics_accumulator,
                 metrics_source="LLM Summary Generation",
-                get_adapter=get_model_adapter,
             )
             # When run_llm handled metrics accumulation, we only need to print
             # sub-metrics in the rare case an accumulator wasn't provided.
@@ -906,7 +905,6 @@ async def _vibe_recovery_result(
             config=Config(),
             metrics_acc=llm_metrics_accumulator,
             metrics_source="LLM Recovery Suggestions",
-            get_adapter=get_model_adapter,
         )
         original_error.metrics = (
             recovery_metrics  # surface directly on error object for tests

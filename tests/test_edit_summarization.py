@@ -90,11 +90,15 @@ async def test_summarize_resource_returns_plain_text(
         latency_ms=1000,
     )
 
-    with patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter:
+    with (
+        patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_get_adapter,
+    ):
         # Setup mock adapter
         mock_adapter = Mock()
         mock_model = Mock()
         mock_get_adapter.return_value = mock_adapter
+        mock_model_get_adapter.return_value = mock_adapter
         mock_adapter.get_model.return_value = mock_model
 
         # Mock the execute_and_log_metrics to return plain text
@@ -126,11 +130,15 @@ async def test_summarize_resource_handles_empty_response(
 ) -> None:
     """Test that _summarize_resource handles empty LLM responses."""
 
-    with patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter:
+    with (
+        patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_get_adapter,
+    ):
         # Setup mock adapter to return empty response
         mock_adapter = Mock()
         mock_model = Mock()
         mock_get_adapter.return_value = mock_adapter
+        mock_model_get_adapter.return_value = mock_adapter
         mock_adapter.get_model.return_value = mock_model
 
         mock_adapter.execute_and_log_metrics = AsyncMock(return_value=("", None))
@@ -155,11 +163,15 @@ async def test_summarize_resource_processes_placeholders_correctly(
 
     mock_summary_text = "Test summary for nginx-demo deployment"
 
-    with patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter:
+    with (
+        patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_get_adapter,
+    ):
         # Setup mock adapter
         mock_adapter = Mock()
         mock_model = Mock()
         mock_get_adapter.return_value = mock_adapter
+        mock_model_get_adapter.return_value = mock_adapter
         mock_adapter.get_model.return_value = mock_model
 
         mock_adapter.execute_and_log_metrics = AsyncMock(

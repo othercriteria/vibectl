@@ -78,12 +78,14 @@ async def test_generate_patch_handles_error_action(
 
     with (
         patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_get_adapter,
         patch("vibectl.execution.edit.console_manager") as mock_console,
     ):
         # Setup mock adapter
         mock_adapter = Mock()
         mock_model = Mock()
         mock_get_adapter.return_value = mock_adapter
+        mock_model_get_adapter.return_value = mock_adapter
         mock_adapter.get_model.return_value = mock_model
 
         # Mock the execute_and_log_metrics to return ERROR action
@@ -148,12 +150,14 @@ async def test_generate_patch_successful_command_action(
 
     with (
         patch("vibectl.execution.edit.get_model_adapter") as mock_get_adapter,
+        patch("vibectl.model_adapter.get_model_adapter") as mock_model_get_adapter,
         patch("vibectl.execution.edit.console_manager") as _mock_console,
     ):
         # Setup mock adapter
         mock_adapter = Mock()
         mock_model = Mock()
         mock_get_adapter.return_value = mock_adapter
+        mock_model_get_adapter.return_value = mock_adapter
         mock_adapter.get_model.return_value = mock_model
 
         # Mock the execute_and_log_metrics to return COMMAND action
