@@ -16,6 +16,7 @@ from vibectl.config import Config
 from vibectl.execution.vibe import handle_vibe_request
 from vibectl.prompts.vibe import plan_vibe_fragments
 from vibectl.schema import (
+    DoneAction,
     ErrorAction,
     LLMPlannerResponse,
 )
@@ -990,4 +991,62 @@ async def test_handle_vibe_request_planning_generic_error(
     mock_console.print_error.assert_called_with(
         f"Error executing vibe request: {generic_error}"
     )
+    mock_update_memory.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("vibectl.execution.vibe.get_model_adapter")
+@patch("vibectl.execution.vibe.update_memory")
+@patch("vibectl.execution.vibe.console_manager")
+async def test_handle_vibe_request_done_action(
+    mock_console: MagicMock,
+    mock_update_memory: MagicMock,
+    mock_get_model_adapter: MagicMock,
+    mock_summary_prompt_func_hvr: SummaryPromptFragmentFunc,
+) -> None:
+    """Ensure that a DONE action from the planner is treated as Success."""
+
+    # Mock update_memory returning dummy metrics
+    mock_update_memory.return_value = None
+
+    # Prepare OutputFlags
+    output_flags = OutputFlags(
+        show_raw_output=False,
+        show_vibe=False,
+        warn_no_output=False,
+        model_name="test-model",
+        show_metrics=MetricsDisplayMode.NONE,
+    )
+
+    # Build the DONE action response
+    done_action = DoneAction(
+        action_type="DONE",
+        exit_code=0,
+        explanation="All tasks complete.",
+    )
+    llm_response = LLMPlannerResponse(action=done_action)
+    llm_response_json = llm_response.model_dump_json()
+
+    # Set up mocked adapter to return our response
+    mock_adapter_instance = Mock()
+    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
+        return_value=(llm_response_json, None)
+    )
+    mock_adapter_instance.get_model.return_value = Mock()
+    mock_get_model_adapter.return_value = mock_adapter_instance
+
+    # Execute the function under test
+    result = await handle_vibe_request(
+        request="solve everything",
+        command="vibe",
+        plan_prompt_func=plan_vibe_fragments,
+        summary_prompt_func=mock_summary_prompt_func_hvr,
+        output_flags=output_flags,
+        execution_mode=ExecutionMode.AUTO,
+    )
+
+    # Assertions
+    assert isinstance(result, Success)
+    assert result.message == "All tasks complete."
+    assert result.continue_execution is False
     mock_update_memory.assert_called_once()

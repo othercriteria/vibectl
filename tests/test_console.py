@@ -243,9 +243,8 @@ def test_console_print_error_with_markup_errors(test_console: ConsoleManager) ->
     assert "broken [blue]formatting [/yellow]" in output
     import re
 
-    # Allow Rich to insert line breaks between "causes" and "errors" depending
-    # on console width
-    assert re.search(r"which causes\s+errors", output)
+    # Allow Rich to insert line breaks between 'which', 'causes', and 'errors'
+    assert re.search(r"which\s+causes\s+errors", output)
 
 
 def test_logging_handler_with_markup_errors(

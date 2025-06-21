@@ -45,7 +45,6 @@ from vibectl.types import (
     Fragment,
     LLMMetricsAccumulator,
     OutputFlags,
-    PredicateCheckExitCode,
     PromptFragments,
     Result,
     Success,
@@ -179,18 +178,41 @@ async def handle_vibe_request(
         )
 
     elif action == ActionType.DONE:
-        # TODO: Handle DONE action for commands other than 'check' or remove from
-        # schema so that it's not returned.
+        # Treat DONE as a graceful completion signal for the current request.
+        # The LLM indicates that no further action is required.
 
-        # DONE action received for a command other than 'check', or wrong type
-        logger.warning(
-            f"Received DONE action for command '{command}' or mismatched type. "
-            "This is currently unhandled."
+        done_exit_code: int | None = getattr(response_action, "exit_code", None)
+        done_message: str = (
+            getattr(response_action, "explanation", None)
+            or "AI signalled completion of the requested task."
         )
-        # For now, treat as an error or unexpected situation
-        return Error(
-            error=f"Unexpected DONE action for command '{command}'.",
-            original_exit_code=PredicateCheckExitCode.CANNOT_DETERMINE.value,
+
+        logger.info(
+            "DONE action received for command '%s'. Exit code: %s. Message: %s",
+            command,
+            done_exit_code,
+            done_message,
+        )
+
+        # Record this completion in memory
+        memory_update_metrics = await update_memory(
+            command_message=f"command: {command} request: {request}",
+            command_output=f"DONE: {done_message}",
+            vibe_output="",
+            model_name=output_flags.model_name,
+        )
+        llm_metrics_accumulator.add_metrics(
+            memory_update_metrics, "LLM Memory Update (Done)"
+        )
+
+        # Display total metrics before returning
+        llm_metrics_accumulator.print_total_if_enabled("Total LLM Vibe Processing")
+
+        return Success(
+            message=done_message,
+            original_exit_code=done_exit_code,
+            continue_execution=False,
+            metrics=llm_metrics_accumulator.get_metrics(),
         )
 
     elif action == ActionType.WAIT:
