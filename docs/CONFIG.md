@@ -28,7 +28,6 @@ This document describes all available configuration options for vibectl. Configu
 | display.show_memory         | boolean             | true       | Show memory content before each auto/semiauto iteration. |
 | display.show_iterations     | boolean             | true       | Show iteration count and limit in auto/semiauto mode. |
 | display.show_metrics        | string              | none       | Show LLM metrics. Valid values: none, total, sub, all. |
-| display.colored_output      | boolean             | true       | Whether to use colored output. |
 | display.show_streaming      | boolean             | true       | Show intermediate streaming Vibe output. |
 
 ### LLM Settings

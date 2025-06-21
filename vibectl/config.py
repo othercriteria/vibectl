@@ -36,7 +36,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "show_memory": True,  # Show memory content before each auto/semiauto iteration
         "show_iterations": True,  # Show iteration count in auto/semiauto mode
         "show_metrics": "none",  # Show LLM metrics (none/total/sub/all)
-        "colored_output": True,
         "show_streaming": True,  # Show intermediate streaming Vibe output
     },
     "llm": {
@@ -122,7 +121,6 @@ CONFIG_SCHEMA: dict[str, Any] = {
         "show_memory": bool,
         "show_iterations": bool,
         "show_metrics": str,  # Show LLM metrics
-        "colored_output": bool,
         "show_streaming": bool,
     },
     "llm": {
