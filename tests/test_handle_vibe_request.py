@@ -832,7 +832,18 @@ async def test_handle_vibe_request_command_generic_error_in_handler(
     mock_execute_command.assert_called_once()
     mock_handle_command_output.assert_called_once()
 
-    mock_update_memory.assert_called_once()
+    # We expect **two** memory updates in this path:
+    #   1. After a successful kubectl execution the tool writes an "execution record"
+    #      so the LLM remembers what command ran and what came back.
+    #   2. When `handle_command_output` subsequently raises a *generic* error we
+    #      persist a **second** entry capturing that failure.  Having both pieces of
+    #      information in memory is useful - future prompts can reference the command
+    #      *and* know we failed to format/interpret its result.
+    #
+    # If this behaviour changes the test will fail, signalling the contract has shifted.
+    assert mock_update_memory.call_count == 2
+    _, second_call_kwargs = mock_update_memory.call_args  # last call is error
+    assert "Error handling command output" in second_call_kwargs["command_output"]
 
 
 @pytest.mark.asyncio
@@ -979,4 +990,4 @@ async def test_handle_vibe_request_planning_generic_error(
     mock_console.print_error.assert_called_with(
         f"Error executing vibe request: {generic_error}"
     )
-    mock_update_memory.assert_not_called()
+    mock_update_memory.assert_called_once()

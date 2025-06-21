@@ -11,7 +11,6 @@ extra fragments).
 from __future__ import annotations
 
 from vibectl.config import Config
-from vibectl.memory import is_memory_enabled
 from vibectl.prompts.shared import (
     fragment_current_time,
     fragment_memory_context,
@@ -63,7 +62,11 @@ def build_context_fragments(
 
     system_fragments: SystemFragments = SystemFragments([])
 
-    # 1. Memory context
+    # 1. Memory context - import lazily to avoid circular import
+    from vibectl.memory import (
+        is_memory_enabled,
+    )
+
     if current_memory and current_memory.strip() and is_memory_enabled(cfg):
         _add_if_not_empty(system_fragments, fragment_memory_context(current_memory))
 

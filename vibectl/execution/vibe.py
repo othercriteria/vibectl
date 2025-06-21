@@ -486,7 +486,18 @@ async def _confirm_and_execute_plan(
         )
     except Exception as e:
         logger.error(f"Error handling command output: {e}", exc_info=True)
-        return Error(error=f"Error handling command output: {e}", exception=e)
+        error_str = str(e)
+
+        # Persist error to memory for future context
+        await update_memory(
+            command_message="system",
+            command_output=f"Error handling command output: {error_str}",
+            vibe_output=f"Error handling command output: {error_str}",
+            model_name=output_flags.model_name,
+        )
+
+        console_manager.print_error(f"Error handling command output: {error_str}")
+        return Error(error=f"Error handling command output: {error_str}", exception=e)
 
 
 async def _handle_command_confirmation(
@@ -671,39 +682,18 @@ async def _get_llm_plan(
     response_model_type: type[LLMPlannerResponse],
 ) -> Result:
     """Calls the LLM to get a command plan and validates the response."""
-    model_adapter = get_model_adapter()
-
-    try:
-        model = model_adapter.get_model(model_name)
-    except Exception as e:
-        error_msg = f"Failed to get model '{model_name}': {e}"
-        logger.error(error_msg, exc_info=True)
-        error_memory_metrics = await update_memory(
-            command_message="system",
-            command_output=error_msg,
-            vibe_output=f"System Error: Failed to get model '{model_name}'.",
-            model_name=model_name,
-        )
-        # Use create_api_error to allow potential recovery if config changes
-        # create_api_error is in command_handler, needs import or replication
-        return Error(
-            error=error_msg,
-            exception=e,
-            halt_auto_loop=False,
-            metrics=error_memory_metrics,
-        )
-
     console_manager.print_processing(f"Consulting {model_name} for a plan...")
     logger.debug(
         f"Final planning prompt:\n{plan_system_fragments} {plan_user_fragments}"
     )
 
     try:
-        # Get response text and metrics using fragments
-        llm_response_text, metrics = await model_adapter.execute_and_log_metrics(
-            model=model,
-            system_fragments=plan_system_fragments,
-            user_fragments=plan_user_fragments,
+        # Run the LLM via the shared helper (captures metrics and centralises behaviour)
+        llm_response_text, metrics = await run_llm(
+            plan_system_fragments,
+            plan_user_fragments,
+            model_name,
+            get_adapter=get_model_adapter,
             response_model=response_model_type,
         )
         logger.info(f"Raw LLM response text:\n{llm_response_text}")
@@ -774,6 +764,14 @@ async def _get_llm_plan(
     except Exception as e:  # Catch other errors during execute
         logger.error(f"Error during LLM planning interaction: {e}", exc_info=True)
         error_str = str(e)
+        # Persist error to memory for future context
+        await update_memory(
+            command_message="system",
+            command_output=f"LLM planning error: {error_str}",
+            vibe_output=f"System Error: {error_str}",
+            model_name=model_name,
+        )
+
         # Print generic error before returning
         console_manager.print_error(f"Error executing vibe request: {error_str}")
         return Error(error=error_str, exception=e)

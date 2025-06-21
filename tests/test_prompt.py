@@ -308,13 +308,11 @@ def test_memory_update_prompt(test_config: Config) -> None:
             config=test_config,
         )
 
-    # Ensure the fragment exists as expected in the list of user fragments
-    assert expected_memory_fragment_str in user_fragments, (
-        "Expected memory fragment not found in user_fragments. "
-        f"User fragments: {user_fragments}"
-    )
-
+    # Ensure the fragment exists within the assembled prompt fragments
     combined_text = "\n".join(system_fragments + user_fragments)
+    assert expected_memory_fragment_str in combined_text, (
+        "Expected memory fragment not found in generated prompt fragments. "
+    )
 
     assert (
         "update the memory" in combined_text

@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from vibectl.config import Config
 from vibectl.plugins import PromptMapping
+
+# Import context builder to inject standard fragments (timestamp, etc.)
+from vibectl.prompts.context import build_context_fragments
 from vibectl.types import Fragment, PromptFragments, SystemFragments, UserFragments
 
 from .shared import (
     fragment_concision,
-    fragment_current_time,
     with_custom_prompt_override,
 )
 
@@ -55,6 +57,10 @@ def recovery_prompt(
         ]
     )
 
+    # Append standard context fragments (e.g., current timestamp) so callers
+    # don't need to inject them manually.
+    system_fragments.extend(build_context_fragments(cfg))
+
     # Build failure information fragment
     failure_parts = [
         f"Failed Command: {failed_command}",
@@ -76,7 +82,6 @@ def recovery_prompt(
 
     user_fragments: UserFragments = UserFragments(
         [
-            fragment_current_time(),
             fragment_failure,
             prompt_instruction,
         ]

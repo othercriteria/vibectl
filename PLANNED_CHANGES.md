@@ -1,6 +1,6 @@
 # Consistent Prompt-Injection Refactor – High-Level Plan
 
-_Updated after completing core plumbing & test fixes (2025-06-20)._
+_Updated after prompt-builder context refactor pass (2025-06-21)._
 This document tracks **only what still needs doing**. Finished items and low-level implementation notes have been archived in the PR description.
 
 ---
@@ -32,6 +32,19 @@ This document tracks **only what still needs doing**. Finished items and low-lev
 5. **Tests**:
    a. Update unit tests to call summary prompt with the 3-arg signature.
    b. Ensure formatting guidance and timestamps are present in summary prompts.
+
+**Recent progress (2025-06-21)**
+
+- ✅ `vibectl/prompts/memory.py` (both `memory_update_prompt` and `memory_fuzzy_update_prompt`) now rely on `build_context_fragments` and have removed manual `fragment_current_time` / `fragment_memory_context` logic.
+- ✅ `vibectl/prompts/recovery.py` migrated to use `build_context_fragments` for timestamp and future context injection.
+
+Remaining summary/other prompt modules still need auditing as per steps below.
+
+### ✅ 1.a Memory Update Side-Effect Policy (2025-06-21)
+
+Generic errors during *handle_command_output* now trigger an additional memory update (post-execution error record).  Tests have been updated to assert **two** `update_memory` calls: one for the successful execution record, one for the formatting error.  This ensures future prompts have full context.
+
+No further action needed.
 
 ### 2. Summary Prompt API
 - [x] **Removed the temporary compatibility scaffold in `_vibe_summary_result`** – all call-sites now supply the 3-arg signature.
