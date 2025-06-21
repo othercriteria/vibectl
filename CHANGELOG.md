@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- Planned: Consistent prompt injection mechanism for custom instructions and memory across all prompt types (WIP)
+- Consistent prompt injection mechanism for custom instructions and memory across all prompt types
 - Unit tests covering defensive branches in LLM adapter helpers (`is_valid_llm_model_name`, API-key message formatters) improving coverage.
 
 ### Changed
@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables consistent testing via easier mocking of `get_model_adapter`
   - Paves the way for future instrumentation and behaviour tweaks in a single location
   - Fixed Ruff F811 by removing duplicate `output_processor` import in `execution/vibe.py`.
+- Memory update prompts no longer duplicate user custom instructions, reducing redundant context and improving memory quality.
 
 ## [0.11.1] - 2025-06-20
 
