@@ -70,16 +70,14 @@ aggregation and unit-test monkey-patching are handled uniformly.
 **Remaining migration checklist**:
 
 1. `execution/vibe.py`
-   - [ ] Replace two calls inside `_get_llm_plan` (ensure `response_model=` is
-     forwarded).
-   - [ ] Audit any feedback / confirmation helpers for direct adapter usage.
+   - ✅ Replaced internal planning call with `run_llm` (response_model forwarded).
+   - ✅ Audited helpers (`_handle_fuzzy_memory_update`, confirmation logic) – they already use `run_llm`.
 2. `execution/apply.py`
-   - [ ] Migrate 5 direct `execute_and_log_metrics` invocations (lines ~270,
-     390, 470, 750, 850).
+   - ✅ Migrated 5 direct `execute_and_log_metrics` invocations (replaced with `run_llm`).
 3. `execution/edit.py`
    - [ ] Migrate 3 direct calls (lines ~250, 340, 510).
 4. `execution/check.py`
-   - [ ] Single call around line 75.
+   - ✅ Single call migrated (replaced with `run_llm`; lines ~75–140).
 5. `subcommands/memory_update_cmd.py`
    - [ ] Single call around line 50.
 
@@ -102,4 +100,5 @@ Once all call-sites are migrated:
       use keyword args) and update helpers/tests accordingly.
 
 ### 4. Tests & Coverage
-- [ ] Add integration test for planner → execution → summary round-trip including `
+- [ ] Add integration test for planner → execution → summary round-trip including
+      `run_llm` path.
