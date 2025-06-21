@@ -15,42 +15,6 @@ This document tracks **only what still needs doing**. Finished items and low-lev
 
 ## Next actionable tasks
 
-### 1. Prompt Builders (detailed checklist)
-
-❗ **Goal**: every prompt builder—planning _and_ summary—uses `build_context_fragments` for context injection; no module composes fragments manually.
-
-**Migration steps for each file**:
-1. **Import**: add `from vibectl.prompts.context import build_context_fragments` (or rely on `shared.create_*` wrappers if already used).
-2. **Planning functions** – usually fine; they already call `create_planning_prompt` which now injects hints; double-check any custom fragment assembly.
-3. **Summary functions**:
-   a. Replace manual memory/custom-instruction/timestamp blocks with:
-   ```python
-   system_fragments.extend(build_context_fragments(cfg, current_memory=current_memory))
-   ```
-   b. Remove direct calls to `fragment_current_time`, `fragment_memory_context`, etc.
-4. **Presentation hints** – if the summary builder needs customised placement (e.g., logs vs events) accept the new `presentation_hints` param and inject accordingly; otherwise rely on default injection in `_vibe_summary_result`.
-5. **Tests**:
-   a. Update unit tests to call summary prompt with the 3-arg signature.
-   b. Ensure formatting guidance and timestamps are present in summary prompts.
-
-**Recent progress (2025-06-21)**
-
-- ✅ `vibectl/prompts/memory.py` (both `memory_update_prompt` and `memory_fuzzy_update_prompt`) now rely on `build_context_fragments` and have removed manual `fragment_current_time` / `fragment_memory_context` logic.
-- ✅ `vibectl/prompts/recovery.py` migrated to use `build_context_fragments` for timestamp and future context injection.
-
-Remaining summary/other prompt modules still need auditing as per steps below.
-
-### ✅ 1.a Memory Update Side-Effect Policy (2025-06-21)
-
-Generic errors during *handle_command_output* now trigger an additional memory update (post-execution error record).  Tests have been updated to assert **two** `update_memory` calls: one for the successful execution record, one for the formatting error.  This ensures future prompts have full context.
-
-No further action needed.
-
-### 2. Summary Prompt API
-- [x] **Removed the temporary compatibility scaffold in `_vibe_summary_result`** – all call-sites now supply the 3-arg signature.
-- [ ] Update every *summary* prompt creator to accept `(config, current_memory, presentation_hints)` (most are done; audit remains).
-- [ ] Add type annotations & docs for the 3-arg signature.
-
 ### 3. Execution Path DRY-up – *run_llm helper*
 
 ❗ **Goal**: every non-streaming LLM invocation should route through the shared

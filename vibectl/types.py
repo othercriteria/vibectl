@@ -12,6 +12,7 @@ from typing import (
     Any,
     NewType,
     Protocol,
+    TypeAlias,
     runtime_checkable,
 )
 
@@ -152,8 +153,7 @@ class OutputFlags:
         show_raw_output: bool | None = None,
         show_vibe: bool | None = None,
         show_kubectl: bool | None = None,
-        show_metrics: MetricsDisplayMode
-        | None = None,  # Only support MetricsDisplayMode now
+        show_metrics: MetricsDisplayMode | None = None,
         show_streaming: bool | None = None,
         warn_no_output: bool | None = None,
         warn_no_proxy: bool | None = None,
@@ -221,7 +221,14 @@ class Error:
 Result = Success | Error
 
 
-SummaryPromptFragmentFunc = Callable[
+# A callable returning the prompt fragments used to summarise kubectl command output.
+# Signature matches the new 3-argument convention:
+#   1) Config | None             - the runtime Config object (or None to use defaults)
+#   2) str | None current_memory - the current memory string if available
+#   3) str | None presentation_hints - optional presentation/UI hints propagated
+#      from the planner
+# It returns a PromptFragments tuple (system_fragments, user_fragments).
+SummaryPromptFragmentFunc: TypeAlias = Callable[
     ["Config | None", str | None, str | None], PromptFragments
 ]
 
