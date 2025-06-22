@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Implement server-side rate limiting and quota enforcement for vibectl-server (WIP)
+
 ### Fixed
 * Handled `DONE` action in Vibe execution path, allowing autonomous and semiauto sessions to terminate gracefully instead of raising unexpected errors.
 * Relaxed console test regex to accommodate line wrapping differences, eliminating flaky failures in parallel test runs.
