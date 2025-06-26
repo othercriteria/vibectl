@@ -113,8 +113,8 @@ Thus the demo will automatically showcase limit enforcement and live Prometheus 
 
 1. Expand `server/config.py` + CLI flags to parse `server.limits.*` blocks.
 2. Populate `ServerLimits` from config (read-only) – **no enforcement yet**.
-3. Add `RateLimitInterceptor` with in-memory backend (fixed 60-s window, per-request semaphore); unit-tests for RPM & concurrency.
-4. Start internal `/metrics` server (default 9095) and wire basic Prometheus counters + structured logs.
+3. **RateLimitInterceptor w/ in-memory backend (DONE)** – fixed 60-s window RPM counter + per-request semaphore; unit tests cover RPM & concurrency.
+4. Start internal `/metrics` server (default 9095) and wire basic Prometheus counters + structured logs. *(next)*
 5. Hot-reload support (polling-based watcher) – implemented; tests added.
 
 ## Future Work (tracked in TODO-SERVER.md)
