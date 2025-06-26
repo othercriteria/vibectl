@@ -71,7 +71,7 @@ current = a.incr(key="user:rpm", window_s=60, amount=1)
 
 Before wiring the interceptors we will beef up the config subsystem so that limit data is strongly typed, validated and reloadable:
 
-1. **Typed model for limits**
+1. **Typed model for limits (DONE)**
 
    ```python
    @dataclass
@@ -83,10 +83,10 @@ Before wiring the interceptors we will beef up the config subsystem so that limi
    ```
 
    `ServerConfig.get_limits(token_sub: str | None) -> Limits` returns the effective limits (global + per-token overrides).
-2. **Validation helpers**
+2. **Validation helpers (DONE)**
    * Ensure integers ≥1 and within sensible maxima.
    * Pydantic 2 adoption **deferred**; stick to lightweight custom validation for MVP to avoid new runtime deps.
-3. **Hot-reload MVP**
+3. **Hot-reload MVP (IN PROGRESS – polling watcher implemented, callbacks + validation)**
    * File-watch thread using `watchdog`; on change → re-validate → swap in-memory cache → fire `config_changed` callbacks.
    * Fail-open strategy: on invalid update keep previous config and log error.
 4. **CLI quality-of-life**
@@ -94,7 +94,7 @@ Before wiring the interceptors we will beef up the config subsystem so that limi
    * New CLI flags `--max-rpm`, `--max-concurrent` as shortcuts that patch overrides.
 5. **Unit tests**
    * `tests/server/test_config_limits.py` – merge precedence & validation.
-   * `tests/server/test_config_reload.py` – verify watcher behaviour.
+   * `tests/server/test_config_reload.py` – verify watcher behaviour (DONE).
 6. **Runtime integration**
    * Pass a live `ServerConfig` reference to interceptors; they subscribe to `on_config_change` to refresh limits without restart.
 
@@ -115,7 +115,7 @@ Thus the demo will automatically showcase limit enforcement and live Prometheus 
 2. Populate `ServerLimits` from config (read-only) – **no enforcement yet**.
 3. Add `RateLimitInterceptor` with in-memory backend (fixed 60-s window, per-request semaphore); unit-tests for RPM & concurrency.
 4. Start internal `/metrics` server (default 9095) and wire basic Prometheus counters + structured logs.
-5. Hot-reload support (file-watch) – nice-to-have; may slip to follow-up PR.
+5. Hot-reload support (polling-based watcher) – implemented; tests added.
 
 ## Future Work (tracked in TODO-SERVER.md)
 

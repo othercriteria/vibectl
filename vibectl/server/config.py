@@ -6,14 +6,44 @@ following the same patterns as the main CLI configuration.
 
 import json
 import logging
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from vibectl.types import Error, Result, Success
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit model
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Limits:
+    """Typed container for effective rate-limit values.
+
+    A ``None`` value means *unlimited* for that particular dimension.
+    """
+
+    max_requests_per_minute: int | None = None
+    max_concurrent_requests: int | None = None
+    max_input_length: int | None = None
+    request_timeout_seconds: int | None = None
+
+    def as_dict(self) -> dict[str, int | None]:
+        return {
+            "max_requests_per_minute": self.max_requests_per_minute,
+            "max_concurrent_requests": self.max_concurrent_requests,
+            "max_input_length": self.max_input_length,
+            "request_timeout_seconds": self.request_timeout_seconds,
+        }
 
 
 class ServerConfig:
@@ -28,6 +58,11 @@ class ServerConfig:
         self.config_path = config_path or get_server_config_path()
         self._config_cache: dict[str, Any] | None = None
 
+        # Hot-reload support
+        self._callbacks: list[Callable[[dict[str, Any]], None]] = []
+        self._watch_thread: threading.Thread | None = None
+        self._stop_event: threading.Event | None = None
+
     def get_config_path(self) -> Path:
         """Get the server configuration file path."""
         return self.config_path
@@ -40,6 +75,15 @@ class ServerConfig:
                 "port": 50051,
                 "max_workers": 10,
                 "default_model": None,
+                "limits": {
+                    "global": {
+                        "max_requests_per_minute": None,
+                        "max_concurrent_requests": None,
+                        "max_input_length": None,
+                        "request_timeout_seconds": None,
+                    },
+                    "per_token": {},
+                },
             },
             "jwt": {
                 "enabled": False,
@@ -290,6 +334,38 @@ class ServerConfig:
                 if not acme_section.get("domains"):
                     return Error(error="ACME enabled but no domains provided")
 
+            # Validate limits section
+            limits_section = server_section.get("limits", {})
+
+            # Ensure required sub-sections exist even if empty.
+            if "global" not in limits_section:
+                limits_section["global"] = {}
+            if "per_token" not in limits_section:
+                limits_section["per_token"] = {}
+
+            # Validate & sanitise global limits
+            result_global = self._sanitize_limits_dict(limits_section["global"])
+            if isinstance(result_global, Error):
+                return result_global
+            limits_section["global"] = result_global.data
+
+            # Validate each per-token block
+            for token_key, token_limits in list(
+                limits_section.get("per_token", {}).items()
+            ):
+                if not isinstance(token_limits, dict):
+                    return Error(
+                        error=f"per_token entry for {token_key} must be a mapping"
+                    )
+
+                result_token = self._sanitize_limits_dict(token_limits)
+                if isinstance(result_token, Error):
+                    return result_token
+                limits_section["per_token"][token_key] = result_token.data
+
+            # Persist sanitized limits back to config
+            server_section["limits"] = limits_section
+
             return Success(data=config)
 
         except Exception as e:
@@ -346,6 +422,180 @@ class ServerConfig:
             else:
                 result[key] = value
         return result
+
+    def _sanitize_limits_dict(self, limits_dict: dict[str, object]) -> Result:
+        """Validate & sanitise a limits dictionary in-place.
+
+        The input is expected to be a mapping of *limit keys* to raw values. Strings are
+        coerced to ints. On success, returns a new dict with sanitised values which can
+        be safely merged back into the config structure.
+        """
+
+        cleaned: dict[str, int | None] = {}
+
+        for attr in (
+            "max_requests_per_minute",
+            "max_concurrent_requests",
+            "max_input_length",
+            "request_timeout_seconds",
+        ):
+            value = limits_dict.get(attr)
+            validated = self._validate_limit_value(value, attr)
+            if isinstance(validated, Error):
+                return validated
+            cleaned[attr] = validated
+
+        return Success(data=cleaned)
+
+    def _validate_limit_value(self, raw: Any, key: str) -> int | None | Error:
+        """Validate a single numeric limit value.
+
+        Args:
+            raw: Raw value from configuration (may be ``None`` or string).
+            key: Friendly name for error messages.
+
+        Returns:
+            ``int`` or ``None`` on success, or an ``Error`` instance when invalid.
+        """
+
+        if raw is None:
+            return None
+
+        # Convert strings to int where possible.
+        try:
+            value_int = int(raw)
+        except (ValueError, TypeError):
+            return Error(error=f"Invalid {key} value: {raw!r} (must be integer)")
+
+        if value_int < 1:
+            return Error(error=f"{key} must be >= 1, got: {value_int}")
+
+        return value_int
+
+    def get_limits(self, token_sub: str | None = None) -> "Limits":
+        """Return the *effective* limits for a JWT subject (or global defaults).
+
+        Args:
+            token_sub: The JWT ``sub`` (subject) or ``kid`` identifying the caller.
+                       If ``None``, only the global limits are considered.
+
+        Returns:
+            A :class:`Limits` instance with any unspecified dimensions set to
+            ``None`` (meaning *unlimited*).
+        """
+
+        config_result = self.load()
+        if isinstance(config_result, Error) or config_result.data is None:
+            # Fail-open (no limits) if configuration cannot be loaded.
+            return Limits()
+
+        cfg = config_result.data
+        limits_cfg = cfg.get("server", {}).get("limits", {})
+
+        global_cfg = (
+            limits_cfg.get("global", {}) if isinstance(limits_cfg, dict) else {}
+        )
+
+        # Extract per-token overrides if present
+        per_token_cfg: dict[str, Any] = {}
+        if token_sub is not None and isinstance(limits_cfg, dict):
+            per_token_cfg = (
+                limits_cfg.get("per_token", {}).get(token_sub, {})
+                if isinstance(limits_cfg.get("per_token", {}), dict)
+                else {}
+            )
+
+        # Merge per-token over global (token-specific keys override globals)
+        merged: dict[str, int | None] = {**global_cfg, **per_token_cfg}
+
+        # Sanitize (re-use helper)
+        sanitised_result = self._sanitize_limits_dict(cast(dict[str, object], merged))
+        if isinstance(sanitised_result, Error):
+            # Config invalid - treat as unlimited, but log for diagnostics.
+            logger.warning(
+                "Invalid limits configuration detected for token %s: %s",
+                token_sub,
+                sanitised_result.error,
+            )
+            return Limits()
+
+        clean_dict: dict[str, int | None] = sanitised_result.data or {}
+
+        return Limits(
+            max_requests_per_minute=clean_dict.get("max_requests_per_minute"),
+            max_concurrent_requests=clean_dict.get("max_concurrent_requests"),
+            max_input_length=clean_dict.get("max_input_length"),
+            request_timeout_seconds=clean_dict.get("request_timeout_seconds"),
+        )
+
+    # ---------------------------------------------------------------------
+    # Hot-reload / subscription API
+    # ---------------------------------------------------------------------
+
+    def subscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
+        """Register *callback* invoked with new config after each successful reload."""
+
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
+
+    def unsubscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
+        """Remove previously registered callback."""
+
+        if callback in self._callbacks:
+            self._callbacks.remove(callback)
+
+    def start_auto_reload(self, poll_interval: float = 1.0) -> None:
+        """Begin background polling of the config file for changes."""
+
+        if self._watch_thread and self._watch_thread.is_alive():
+            return  # Already running
+
+        self._stop_event = threading.Event()
+
+        def _watch() -> None:
+            last_mtime: float | None = (
+                self.config_path.stat().st_mtime if self.config_path.exists() else None
+            )
+
+            while self._stop_event and not self._stop_event.is_set():
+                try:
+                    current_mtime: float | None = (
+                        self.config_path.stat().st_mtime
+                        if self.config_path.exists()
+                        else None
+                    )
+                    if current_mtime != last_mtime:
+                        last_mtime = current_mtime
+
+                        result = self.load(force_reload=True)
+                        if isinstance(result, Success) and result.data is not None:
+                            for cb in list(self._callbacks):
+                                try:
+                                    cb(result.data)
+                                except (
+                                    Exception
+                                ):  # pragma: no cover - user callbacks may fail
+                                    logger.exception("Config reload callback raised")
+                    # Sleep
+                    time.sleep(poll_interval)
+                except Exception:  # pragma: no cover
+                    logger.exception("Exception in config auto-reload watcher")
+                    time.sleep(poll_interval)
+
+        self._watch_thread = threading.Thread(
+            target=_watch, name="ServerConfigAutoReload", daemon=True
+        )
+        self._watch_thread.start()
+
+    def stop_auto_reload(self) -> None:
+        """Stop background config polling."""
+
+        if self._stop_event:
+            self._stop_event.set()
+        if self._watch_thread and self._watch_thread.is_alive():
+            self._watch_thread.join(timeout=2)
+        self._watch_thread = None
+        self._stop_event = None
 
 
 def get_server_config_path() -> Path:
@@ -415,6 +665,15 @@ def get_default_server_config() -> dict[str, Any]:
             "max_workers": 10,
             "default_model": "anthropic/claude-3-7-sonnet-latest",
             "log_level": "INFO",
+            "limits": {
+                "global": {
+                    "max_requests_per_minute": None,
+                    "max_concurrent_requests": None,
+                    "max_input_length": None,
+                    "request_timeout_seconds": None,
+                },
+                "per_token": {},
+            },
         },
         "jwt": {
             "enabled": False,
