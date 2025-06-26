@@ -88,6 +88,8 @@ The server components implement a high-performance gRPC-based LLM proxy that all
   - **Type Conversion**: Automatic type conversion and validation
   - **File-based Keys**: Support for file-based secret management
 
+*ContextVar Overrides*: Global CLI flags (e.g. `--max-rpm`, `--max-concurrent`) set **runtime** overrides via a ContextVar-backed helper (`vibectl/overrides.py`).  Any component can query the current effective value through `ServerConfig.get()` / `ServerConfig.get_limits()` without having to pass the flags down the call-chain.
+
 ### Key Configuration Areas
 1. **Server Settings**: Port, host, SSL/TLS configuration
 2. **Authentication**: JWT signing keys, token expiration, auth bypass

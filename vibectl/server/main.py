@@ -11,6 +11,7 @@ import asyncio
 import sys
 from collections.abc import Callable
 from datetime import datetime
+from functools import wraps  # Added for decorator wrapper
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,7 @@ from vibectl.logutil import init_logging, logger, update_logging_level
 from vibectl.types import Error, Result, ServeMode, Success
 from vibectl.utils import handle_exception
 
-from . import cert_utils
+from . import cert_utils, overrides as server_overrides
 from .acme_client import LETSENCRYPT_PRODUCTION
 from .ca_manager import CAManager, CAManagerError, setup_private_ca
 from .config import (
@@ -42,12 +43,40 @@ from .jwt_auth import JWTAuthManager, load_config_with_generation
 shutdown_event = False
 
 
+# ---------------------------------------------------------------------------
+# CLI flag → ContextVar override callbacks (needed before decorator definition)
+# ---------------------------------------------------------------------------
+
+
+def _max_rpm_callback(
+    ctx: click.Context, param: click.Option, value: int | None
+) -> None:
+    """When provided, set ServerContext override for global RPM limit."""
+    if value is not None:
+        server_overrides.set_override(
+            "server.limits.global.max_requests_per_minute", value
+        )
+    # Do **not** propagate value to command function (expose_value=False)
+    return None
+
+
+def _max_concurrent_callback(
+    ctx: click.Context, param: click.Option, value: int | None
+) -> None:
+    """When provided, set ServerContext override for global concurrency limit."""
+    if value is not None:
+        server_overrides.set_override(
+            "server.limits.global.max_concurrent_requests", value
+        )
+    return None
+
+
 # --- Common Server Option Decorator ---
 def common_server_options() -> Callable:
     """Decorator to DRY out common server CLI options."""
 
     def decorator(f: Callable) -> Callable:
-        options = [
+        options: list[Callable[[Callable], Callable]] = [
             click.option("--config", type=click.Path(), help="Configuration file path"),
             click.option(
                 "--require-auth", is_flag=True, help="Enable JWT authentication"
@@ -65,10 +94,37 @@ def common_server_options() -> Callable:
             click.option("--model", default=None, help="Default LLM model"),
             click.option("--port", type=int, default=None, help="Port to bind to"),
             click.option("--host", default=None, help="Host to bind to"),
+            # --- Rate-limit helpers (ContextVar overrides) ------------------
+            click.option(
+                "--max-rpm",
+                type=int,
+                default=None,
+                help="Override global max requests per minute limit",
+                callback=_max_rpm_callback,
+                expose_value=False,
+            ),
+            click.option(
+                "--max-concurrent",
+                type=int,
+                default=None,
+                help="Override global max concurrent requests limit",
+                callback=_max_concurrent_callback,
+                expose_value=False,
+            ),
         ]
+
+        # Wrap the original function to preserve signature while applying
+        # Click options.  "click" processes decorators inside-out, so we first
+        # attach options, then return the resulting callable.
+
+        wrapped = f
         for option in reversed(options):
-            f = option(f)
-        return f
+            wrapped = option(wrapped)
+
+        # No additional runtime logic needed - the callbacks have already set
+        # overrides *before* the command body executes.
+
+        return wraps(f)(wrapped)
 
     return decorator
 
@@ -813,6 +869,7 @@ def _check_certificate_expiry(ca_dir: str | None, days: int) -> Result:
     return Success(message=message)
 
 
+# Helper for merging overrides and handling rate-limit CLI flags
 def _build_config_overrides(
     host: str | None = None,
     port: int | None = None,
@@ -835,9 +892,9 @@ def _build_config_overrides(
         "max_workers": max_workers,
         "log_level": log_level,
     }
-    server_overrides = {k: v for k, v in server_params.items() if v is not None}
-    if server_overrides:
-        overrides["server"] = server_overrides
+    server_section_overrides = {k: v for k, v in server_params.items() if v is not None}
+    if server_section_overrides:
+        overrides["server"] = server_section_overrides
 
     # Build JWT section if authentication is enabled
     if require_auth:
@@ -1340,23 +1397,20 @@ def determine_serve_mode(config: dict) -> ServeMode:
 @cli.command(name="serve-insecure")
 @common_server_options()
 def serve_insecure(
-    host: str | None,
-    port: int | None,
-    model: str | None,
-    max_workers: int | None,
-    log_level: str | None,
     require_auth: bool,
     config: str | None,
+    **common_opts: Any,
 ) -> None:
     """Start insecure HTTP server (development only)."""
 
     # Build configuration overrides using helper
     overrides = _build_config_overrides(
-        host=host,
-        port=port,
-        model=model,
-        max_workers=max_workers,
-        log_level=log_level,
+        host=common_opts.get("host"),
+        port=common_opts.get("port"),
+        model=common_opts.get("model"),
+        max_workers=common_opts.get("max_workers"),
+        log_level=common_opts.get("log_level"),
+        # No server-level overrides - rely on config defaults or ContextVar overrides
         require_auth=require_auth,
         tls_overrides={"enabled": False},  # Force TLS off
         acme_overrides={"enabled": False},  # Force ACME off
@@ -1387,25 +1441,21 @@ def serve_insecure(
 
 
 @cli.command(name="serve-ca")
-@common_server_options()
 @click.option("--ca-dir", type=click.Path(), help="CA directory path")
 @click.option("--hostname", default="localhost", help="Certificate hostname")
 @click.option("--san", multiple=True, help="Subject Alternative Names")
 @click.option(
     "--validity-days", type=int, default=90, help="Certificate validity in days"
 )
+@common_server_options()
 def serve_ca(
-    host: str | None,
-    port: int | None,
-    model: str | None,
-    max_workers: int | None,
-    log_level: str | None,
     require_auth: bool,
     config: str | None,
     ca_dir: str | None,
     hostname: str,
     san: tuple[str, ...],
     validity_days: int,
+    **common_opts: Any,
 ) -> None:
     """Start server with private CA certificates."""
 
@@ -1440,11 +1490,11 @@ def serve_ca(
 
     # Build configuration overrides using helper
     overrides = _build_config_overrides(
-        host=host,
-        port=port,
-        model=model,
-        max_workers=max_workers,
-        log_level=log_level,
+        host=common_opts.get("host"),
+        port=common_opts.get("port"),
+        model=common_opts.get("model"),
+        max_workers=common_opts.get("max_workers"),
+        log_level=common_opts.get("log_level"),
         require_auth=require_auth,
         tls_overrides={
             "enabled": True,
@@ -1473,7 +1523,6 @@ def serve_ca(
 
 
 @cli.command(name="serve-acme")
-@common_server_options()
 @click.option("--email", required=True, help="ACME account email")
 @click.option(
     "--domain",
@@ -1491,24 +1540,21 @@ def serve_ca(
     default="tls-alpn-01",
     help="Challenge type",
 )
+@common_server_options()
 def serve_acme(
-    host: str | None,
-    port: int | None,
-    model: str | None,
-    max_workers: int | None,
-    log_level: str | None,
     require_auth: bool,
     config: str | None,
     email: str,
     domain: tuple[str, ...],
     directory_url: str | None,
     challenge_type: str,
+    **common_opts: Any,
 ) -> None:
     """Start server with Let's Encrypt ACME certificates."""
 
     # Build configuration overrides using helper
-    # Default to port 443 for ACME/TLS if no port specified
-    acme_port = port if port is not None else 443
+    # ACME/TLS must bind to 443 by default
+    acme_port = 443
 
     acme_overrides = {
         "enabled": True,
@@ -1522,11 +1568,11 @@ def serve_acme(
         acme_overrides["directory_url"] = directory_url
 
     overrides = _build_config_overrides(
-        host=host,
-        port=acme_port,
-        model=model,
-        max_workers=max_workers,
-        log_level=log_level,
+        host=common_opts.get("host"),
+        port=common_opts.get("port", acme_port),
+        model=common_opts.get("model"),
+        max_workers=common_opts.get("max_workers"),
+        log_level=common_opts.get("log_level"),
         require_auth=require_auth,
         tls_overrides={"enabled": True},
         acme_overrides=acme_overrides,
@@ -1551,7 +1597,6 @@ def serve_acme(
 
 
 @cli.command(name="serve-custom")
-@common_server_options()
 @click.option(
     "--cert-file",
     required=True,
@@ -1569,17 +1614,14 @@ def serve_acme(
     type=click.Path(exists=True),
     help="CA bundle for client verification",
 )
+@common_server_options()
 def serve_custom(
-    host: str | None,
-    port: int | None,
-    model: str | None,
-    max_workers: int | None,
-    log_level: str | None,
     require_auth: bool,
     config: str | None,
     cert_file: str,
     key_file: str,
     ca_bundle_file: str | None,
+    **common_opts: Any,
 ) -> None:
     """Start server with custom TLS certificates."""
 
@@ -1595,11 +1637,11 @@ def serve_custom(
 
     # Build configuration overrides using helper
     overrides = _build_config_overrides(
-        host=host,
-        port=port,
-        model=model,
-        max_workers=max_workers,
-        log_level=log_level,
+        host=common_opts.get("host"),
+        port=common_opts.get("port"),
+        model=common_opts.get("model"),
+        max_workers=common_opts.get("max_workers"),
+        log_level=common_opts.get("log_level"),
         require_auth=require_auth,
         tls_overrides=tls_overrides,
         acme_overrides={"enabled": False},
@@ -1648,7 +1690,7 @@ def serve(ctx: click.Context, config: str | None) -> None:
 
     # Route to appropriate specialized command
     if mode == ServeMode.INSECURE:
-        ctx.invoke(serve_insecure, config=config)
+        ctx.invoke(serve_insecure, require_auth=False, config=config)
     elif mode == ServeMode.CA:
         # Extract CA configuration with proper defaults
         ca_dir = None  # Let serve_ca determine the default CA directory
@@ -1658,6 +1700,7 @@ def serve(ctx: click.Context, config: str | None) -> None:
 
         ctx.invoke(
             serve_ca,
+            require_auth=False,
             config=config,
             ca_dir=ca_dir,
             hostname=hostname,
@@ -1689,6 +1732,7 @@ def serve(ctx: click.Context, config: str | None) -> None:
         # Pass required arguments to serve_custom
         ctx.invoke(
             serve_custom,
+            require_auth=False,
             config=config,
             cert_file=cert_file,
             key_file=key_file,

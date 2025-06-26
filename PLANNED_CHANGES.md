@@ -86,7 +86,7 @@ Before wiring the interceptors we will beef up the config subsystem so that limi
 2. **Validation helpers (DONE)**
    * Ensure integers ≥1 and within sensible maxima.
    * Pydantic 2 adoption **deferred**; stick to lightweight custom validation for MVP to avoid new runtime deps.
-3. **Hot-reload MVP (IN PROGRESS – polling watcher implemented, callbacks + validation)**
+3. **Hot-reload MVP (DONE – polling watcher implemented, callbacks + validation)**
    * File-watch thread using `watchdog`; on change → re-validate → swap in-memory cache → fire `config_changed` callbacks.
    * Fail-open strategy: on invalid update keep previous config and log error.
 4. **CLI quality-of-life**
@@ -127,6 +127,14 @@ Thus the demo will automatically showcase limit enforcement and live Prometheus 
 
 * Sliding-window vs fixed-window RPM counter – prototype will start with fixed window (simpler) unless operator feedback prefers sliding.
 * Where to surface Prometheus metrics → **decision: built-in HTTP endpoint on configurable port (default 9095)**.
+
+## CLI Flag Follow-ups
+
+The ContextVar override refactor (now complete) introduced global `--max-rpm` and `--max-concurrent` flags.  A small follow-up task will add another convenience flag:
+
+* `--metrics-port` → `server.metrics.port`
+
+This will reuse the same callback/override pattern established for the rate-limit flags.
 
 ---
 *This document guides the scope of the current PR. Items marked as "Future Work" will **not** be implemented here, only designed for.*

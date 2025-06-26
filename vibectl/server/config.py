@@ -17,6 +17,9 @@ import yaml
 
 from vibectl.types import Error, Result, Success
 
+# Runtime ContextVar overrides (set via CLI flags or tests)
+from . import overrides as server_overrides
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,6 +198,12 @@ class ServerConfig:
         Returns:
             Configuration value or default
         """
+        # 1. Check for runtime overrides first - these have highest precedence.
+        is_overridden, override_val = server_overrides.get_override(key)
+        if is_overridden:
+            return override_val
+
+        # 2. Fallback to persisted configuration.
         config_result = self.load()
         if isinstance(config_result, Error):
             logger.warning(
@@ -508,6 +517,19 @@ class ServerConfig:
         # Merge per-token over global (token-specific keys override globals)
         merged: dict[str, int | None] = {**global_cfg, **per_token_cfg}
 
+        # Apply ContextVar overrides for global limit keys (token-specific overrides
+        # are not supported yet but can be added following the same pattern).
+        override_paths: dict[str, str] = {
+            "max_requests_per_minute": "server.limits.global.max_requests_per_minute",
+            "max_concurrent_requests": "server.limits.global.max_concurrent_requests",
+            "max_input_length": "server.limits.global.max_input_length",
+            "request_timeout_seconds": "server.limits.global.request_timeout_seconds",
+        }
+        for attr, path in override_paths.items():
+            is_overridden, value = server_overrides.get_override(path)
+            if is_overridden:
+                merged[attr] = value
+
         # Sanitize (re-use helper)
         sanitised_result = self._sanitize_limits_dict(cast(dict[str, object], merged))
         if isinstance(sanitised_result, Error):
@@ -553,14 +575,17 @@ class ServerConfig:
         self._stop_event = threading.Event()
 
         def _watch() -> None:
-            last_mtime: float | None = (
-                self.config_path.stat().st_mtime if self.config_path.exists() else None
+            # Use nanosecond resolution to avoid missing quick successive edits
+            last_mtime: int | None = (
+                self.config_path.stat().st_mtime_ns
+                if self.config_path.exists()
+                else None
             )
 
             while self._stop_event and not self._stop_event.is_set():
                 try:
-                    current_mtime: float | None = (
-                        self.config_path.stat().st_mtime
+                    current_mtime: int | None = (
+                        self.config_path.stat().st_mtime_ns
                         if self.config_path.exists()
                         else None
                     )

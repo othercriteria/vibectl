@@ -471,17 +471,6 @@ class TestServeCustomCommand:
                 cli,
                 [
                     "serve-custom",
-                    "--host",
-                    "0.0.0.0",
-                    "--port",
-                    "8443",
-                    "--model",
-                    "custom-model",
-                    "--max-workers",
-                    "20",
-                    "--log-level",
-                    "DEBUG",
-                    "--require-auth",
                     "--cert-file",
                     "server.crt",
                     "--key-file",
@@ -503,12 +492,8 @@ class TestServeCustomCommand:
             assert Path(overrides["tls"]["key_file"]).name == "server.key"
             assert Path(overrides["tls"]["ca_bundle_file"]).name == "ca-bundle.pem"
             assert overrides["acme"]["enabled"] is False
-            assert overrides["server"]["host"] == "0.0.0.0"
-            assert overrides["server"]["port"] == 8443  # Now correctly kept as int
-            assert overrides["server"]["default_model"] == "custom-model"
-            assert overrides["server"]["max_workers"] == 20  # Now correctly kept as int
-            assert overrides["server"]["log_level"] == "DEBUG"
-            assert overrides["jwt"]["enabled"] is True
+            assert "server" not in overrides or overrides["server"] == {}
+            assert "jwt" not in overrides
 
     def test_serve_custom_command_missing_cert_file(self) -> None:
         """Test serve-custom command with missing cert file."""
@@ -1087,7 +1072,9 @@ class TestSmartServeCommandRouting:
         result = self.runner.invoke(cli, ["serve", "--config", "test.yaml"])
 
         assert result.exit_code == 0
-        mock_serve_insecure.assert_called_once_with(config="test.yaml")
+        mock_serve_insecure.assert_called_once_with(
+            require_auth=False, config="test.yaml"
+        )
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.serve_ca")
@@ -1105,6 +1092,7 @@ class TestSmartServeCommandRouting:
 
         assert result.exit_code == 0
         mock_serve_ca.assert_called_once_with(
+            require_auth=False,
             config=None,
             ca_dir=None,
             hostname="localhost",
@@ -1177,6 +1165,7 @@ class TestSmartServeCommandRouting:
 
         assert result.exit_code == 0
         mock_serve_custom.assert_called_once_with(
+            require_auth=False,
             config="custom.yaml",
             cert_file="/path/to/cert.pem",
             key_file="/path/to/key.pem",
@@ -1203,6 +1192,7 @@ class TestSmartServeCommandRouting:
 
         assert result.exit_code == 0
         mock_serve_custom.assert_called_once_with(
+            require_auth=False,
             config=None,
             cert_file="/path/to/cert.pem",
             key_file="/path/to/key.pem",

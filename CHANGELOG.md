@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- ContextVar override CLI flags `--max-rpm` and `--max-concurrent` for all `serve-*` commands, providing global runtime rate-limit controls without additional plumbing
+- Refactor: removed redundant per-command kwargs; rate-limit flags now set overrides via callbacks (developer-experience only, no behaviour change for operators)
 - Planned: Implement server-side rate limiting and quota enforcement for vibectl-server (WIP)
 - Planned: Add typed `Limits` model, validation helpers, and polling-based hot-reload watcher for server configuration (WIP)
 
