@@ -89,10 +89,11 @@ Before wiring the interceptors we will beef up the config subsystem so that limi
 3. **Hot-reload MVP (DONE – polling watcher implemented, callbacks + validation)**
    * File-watch thread using `watchdog`; on change → re-validate → swap in-memory cache → fire `config_changed` callbacks.
    * Fail-open strategy: on invalid update keep previous config and log error.
-4. **CLI quality-of-life**
-   * Extend `vibectl-server config` with `show / set / validate` sub-commands for server config (mirrors client CLI).
-   * New CLI flags `--max-rpm`, `--max-concurrent` as shortcuts that patch overrides.
-5. **Unit tests**
+4. **CLI quality-of-life (DONE)**
+   * `vibectl-server config` now supports `show`, `set`, and `validate` sub-commands for managing the server config file (mirrors client CLI).
+   * Global convenience flags `--max-rpm`, `--max-concurrent` already available via ContextVar overrides.
+5. **Unit tests (UPDATED)**
+   * `tests/server/test_config_cli_commands.py` – coverage for new `config` CLI sub-commands (DONE).
    * `tests/server/test_config_limits.py` – merge precedence & validation.
    * `tests/server/test_config_reload.py` – verify watcher behaviour (DONE).
 6. **Runtime integration**

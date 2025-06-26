@@ -1776,3 +1776,17 @@ def _signal_container_ready(path: str = "/tmp/ready") -> None:
         logger.info("📣 Container readiness signalled (created %s)", path)
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("⚠️ Failed to create readiness file %s: %s", path, exc)
+
+
+# ---------------------------------------------------------------------------
+# Register external sub-command groups
+# ---------------------------------------------------------------------------
+
+# The actual implementation lives in vibectl.server.subcommands.config_cmd; import
+# placed here (after CLI definition) to avoid Click circular registration issues.
+from vibectl.server.subcommands.config_cmd import (  # noqa: E402
+    config_group as _server_config_group,
+)
+
+# Attach to the main click CLI group.
+cli.add_command(_server_config_group)
