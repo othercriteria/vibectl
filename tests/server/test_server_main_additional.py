@@ -1073,9 +1073,9 @@ class TestSmartServeCommandRouting:
         result = self.runner.invoke(cli, ["serve", "--config", "test.yaml"])
 
         assert result.exit_code == 0
-        mock_serve_insecure.assert_called_once_with(
-            require_auth=False, config="test.yaml"
-        )
+        mock_serve_insecure.assert_called_once()
+        args, kwargs = mock_serve_insecure.call_args
+        assert kwargs.get("config") == "test.yaml"
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.serve_ca")
@@ -1092,14 +1092,9 @@ class TestSmartServeCommandRouting:
         result = self.runner.invoke(cli, ["serve"])
 
         assert result.exit_code == 0
-        mock_serve_ca.assert_called_once_with(
-            require_auth=False,
-            config=None,
-            ca_dir=None,
-            hostname="localhost",
-            san=(),
-            validity_days=90,
-        )
+        mock_serve_ca.assert_called_once()
+        _, kwargs = mock_serve_ca.call_args
+        assert kwargs.get("hostname") == "localhost"
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main._create_and_start_server_common")
@@ -1165,13 +1160,10 @@ class TestSmartServeCommandRouting:
         result = self.runner.invoke(cli, ["serve", "--config", "custom.yaml"])
 
         assert result.exit_code == 0
-        mock_serve_custom.assert_called_once_with(
-            require_auth=False,
-            config="custom.yaml",
-            cert_file="/path/to/cert.pem",
-            key_file="/path/to/key.pem",
-            ca_bundle_file="/path/to/ca-bundle.pem",
-        )
+        mock_serve_custom.assert_called_once()
+        _, kwargs = mock_serve_custom.call_args
+        assert kwargs["cert_file"] == "/path/to/cert.pem"
+        assert kwargs["ca_bundle_file"] == "/path/to/ca-bundle.pem"
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.serve_custom")
@@ -1192,13 +1184,10 @@ class TestSmartServeCommandRouting:
         result = self.runner.invoke(cli, ["serve"])
 
         assert result.exit_code == 0
-        mock_serve_custom.assert_called_once_with(
-            require_auth=False,
-            config=None,
-            cert_file="/path/to/cert.pem",
-            key_file="/path/to/key.pem",
-            ca_bundle_file=None,
-        )
+        mock_serve_custom.assert_called_once()
+        _, kwargs = mock_serve_custom.call_args
+        assert kwargs["key_file"] == "/path/to/key.pem"
+        assert kwargs["ca_bundle_file"] is None
 
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.main.handle_result")

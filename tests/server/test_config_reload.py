@@ -96,3 +96,47 @@ def test_config_auto_reload_invalid_change() -> None:
     finally:
         sc.stop_auto_reload()
         config_path.unlink(missing_ok=True)
+
+
+def test_config_auto_reload_multiple_changes() -> None:
+    """Watcher should emit callbacks for each successive config update."""
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp:
+        config_path = Path(tmp.name)
+
+    try:
+        base_cfg = {"server": {"host": "v1", "port": 9999}}
+        _write_yaml(config_path, base_cfg)
+
+        sc = ServerConfig(config_path)
+        assert isinstance(sc.load(), Success)
+
+        # Track all hosts seen by the callback so we can verify both updates
+        seen_hosts: list[str] = []
+        event = threading.Event()
+
+        def _cb(new_cfg: dict) -> None:
+            host = new_cfg["server"]["host"]
+            seen_hosts.append(host)
+            # Signal when we've observed the *second* update (v3)
+            if host == "v3":
+                event.set()
+
+        sc.subscribe(_cb)
+        sc.start_auto_reload(poll_interval=0.05)
+
+        # First update
+        _write_yaml(config_path, {"server": {"host": "v2", "port": 9999}})
+        time.sleep(0.2)  # Allow watcher to detect first change
+
+        # Second update
+        _write_yaml(config_path, {"server": {"host": "v3", "port": 9999}})
+
+        # Wait up to 1s for second callback
+        assert event.wait(1.0), "Second config change not detected"
+        # We expect to see both v2 and v3 in callbacks (order preserved)
+        assert seen_hosts == ["v2", "v3"]
+
+    finally:
+        sc.stop_auto_reload()
+        config_path.unlink(missing_ok=True)

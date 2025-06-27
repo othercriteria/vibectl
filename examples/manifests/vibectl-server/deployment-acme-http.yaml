@@ -107,19 +107,22 @@ spec:
           cat /root/.config/vibectl/server/config.yaml
           echo ""
           echo "Starting server with command:"
-          vibectl-server serve --config /root/.config/vibectl/server/config.yaml
+          vibectl-server serve --config /root/.config/vibectl/server/config.yaml --enable-metrics --metrics-port 9095
         env:
         # JWT secret configuration
         - name: VIBECTL_JWT_SECRET_FILE
           value: /jwt-secret/jwt-secret
         - name: VIBECTL_LOG_LEVEL
-          value: "DEBUG"
+          value: "INFO"
         ports:
         - name: grpc-tls
           containerPort: 8443
           protocol: TCP
         - name: http-acme
           containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9095
           protocol: TCP
         # Health checks for HTTP-01 ACME mode
         startupProbe:

@@ -11,7 +11,7 @@ import asyncio
 import sys
 from collections.abc import Callable
 from datetime import datetime
-from functools import wraps  # Added for decorator wrapper
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +94,6 @@ def common_server_options() -> Callable:
             click.option("--model", default=None, help="Default LLM model"),
             click.option("--port", type=int, default=None, help="Port to bind to"),
             click.option("--host", default=None, help="Host to bind to"),
-            # --- Rate-limit helpers (ContextVar overrides) ------------------
             click.option(
                 "--max-rpm",
                 type=int,
@@ -111,7 +110,6 @@ def common_server_options() -> Callable:
                 callback=_max_concurrent_callback,
                 expose_value=False,
             ),
-            # -------------------- Metrics ----------------------------------
             click.option(
                 "--enable-metrics",
                 is_flag=True,
@@ -126,18 +124,28 @@ def common_server_options() -> Callable:
             ),
         ]
 
-        # Wrap the original function to preserve signature while applying
-        # Click options.  "click" processes decorators inside-out, so we first
-        # attach options, then return the resulting callable.
-
         wrapped = f
         for option in reversed(options):
             wrapped = option(wrapped)
 
-        # No additional runtime logic needed - the callbacks have already set
-        # overrides *before* the command body executes.
+        @wraps(f)
+        def _with_metrics(*args: Any, **kwargs: Any) -> Any:
+            # The Click-generated wrapper passes all CLI options as kwargs;
+            # we can forward the whole mapping to the helper.
+            if kwargs.get("enable_metrics"):
+                port = int(kwargs.get("metrics_port", 9095))
+                try:
+                    from vibectl.server.metrics import init_metrics_server
 
-        return wraps(f)(wrapped)
+                    init_metrics_server(port)
+                    logger.info("Prometheus metrics endpoint enabled on port %s", port)
+                except Exception as exc:  # pragma: no cover
+                    logger.error("Failed to initialise metrics endpoint: %s", exc)
+
+            # Call the original Click-wrapped function
+            return wrapped(*args, **kwargs)
+
+        return _with_metrics
 
     return decorator
 
@@ -1411,14 +1419,10 @@ def determine_serve_mode(config: dict) -> ServeMode:
 @cli.command(name="serve-insecure")
 @common_server_options()
 def serve_insecure(
-    require_auth: bool,
     config: str | None,
     **common_opts: Any,
 ) -> None:
     """Start insecure HTTP server (development only)."""
-
-    # Start metrics exporter if requested via CLI flags
-    _maybe_start_metrics(common_opts)
 
     # Build configuration overrides using helper
     overrides = _build_config_overrides(
@@ -1427,13 +1431,11 @@ def serve_insecure(
         model=common_opts.get("model"),
         max_workers=common_opts.get("max_workers"),
         log_level=common_opts.get("log_level"),
-        # No server-level overrides - rely on config defaults or ContextVar overrides
-        require_auth=require_auth,
         tls_overrides={"enabled": False},  # Force TLS off
         acme_overrides={"enabled": False},  # Force ACME off
     )
 
-    config_path = Path(config) if config else None
+    config_path = _resolve_config_path(config, common_opts)
     config_result = _load_and_validate_config(config_path, overrides)
     if isinstance(config_result, Error):
         handle_result(config_result)
@@ -1466,7 +1468,6 @@ def serve_insecure(
 )
 @common_server_options()
 def serve_ca(
-    require_auth: bool,
     config: str | None,
     ca_dir: str | None,
     hostname: str,
@@ -1475,8 +1476,6 @@ def serve_ca(
     **common_opts: Any,
 ) -> None:
     """Start server with private CA certificates."""
-
-    _maybe_start_metrics(common_opts)
 
     # Determine CA directory
     if ca_dir is None:
@@ -1514,7 +1513,6 @@ def serve_ca(
         model=common_opts.get("model"),
         max_workers=common_opts.get("max_workers"),
         log_level=common_opts.get("log_level"),
-        require_auth=require_auth,
         tls_overrides={
             "enabled": True,
             "cert_file": str(cert_path),
@@ -1523,7 +1521,7 @@ def serve_ca(
         acme_overrides={"enabled": False},
     )
 
-    config_path = Path(config) if config else None
+    config_path = _resolve_config_path(config, common_opts)
     config_result = _load_and_validate_config(config_path, overrides)
     if isinstance(config_result, Error):
         handle_result(config_result)
@@ -1561,8 +1559,6 @@ def serve_ca(
 )
 @common_server_options()
 def serve_acme(
-    require_auth: bool,
-    config: str | None,
     email: str,
     domain: tuple[str, ...],
     directory_url: str | None,
@@ -1570,8 +1566,6 @@ def serve_acme(
     **common_opts: Any,
 ) -> None:
     """Start server with Let's Encrypt ACME certificates."""
-
-    _maybe_start_metrics(common_opts)
 
     # Build configuration overrides using helper
     # ACME/TLS must bind to 443 by default
@@ -1594,12 +1588,11 @@ def serve_acme(
         model=common_opts.get("model"),
         max_workers=common_opts.get("max_workers"),
         log_level=common_opts.get("log_level"),
-        require_auth=require_auth,
         tls_overrides={"enabled": True},
         acme_overrides=acme_overrides,
     )
 
-    config_path = Path(config) if config else None
+    config_path = _resolve_config_path(None, common_opts)
     config_result = _load_and_validate_config(config_path, overrides)
     if isinstance(config_result, Error):
         handle_result(config_result)
@@ -1637,7 +1630,6 @@ def serve_acme(
 )
 @common_server_options()
 def serve_custom(
-    require_auth: bool,
     config: str | None,
     cert_file: str,
     key_file: str,
@@ -1645,8 +1637,6 @@ def serve_custom(
     **common_opts: Any,
 ) -> None:
     """Start server with custom TLS certificates."""
-
-    _maybe_start_metrics(common_opts)
 
     # Prepare TLS overrides with cert files
     tls_overrides = {
@@ -1665,12 +1655,11 @@ def serve_custom(
         model=common_opts.get("model"),
         max_workers=common_opts.get("max_workers"),
         log_level=common_opts.get("log_level"),
-        require_auth=require_auth,
         tls_overrides=tls_overrides,
         acme_overrides={"enabled": False},
     )
 
-    config_path = Path(config) if config else None
+    config_path = _resolve_config_path(config, common_opts)
     config_result = _load_and_validate_config(config_path, overrides)
     if isinstance(config_result, Error):
         handle_result(config_result)
@@ -1689,13 +1678,13 @@ def serve_custom(
 
 
 @cli.command()
-@click.option("--config", type=click.Path(), help="Configuration file path")
+@common_server_options()
 @click.pass_context
-def serve(ctx: click.Context, config: str | None) -> None:
+def serve(ctx: click.Context, config: str | None, **common_opts: Any) -> None:
     """Start the gRPC server with intelligent routing."""
 
     # Load config to determine routing
-    config_path = Path(config) if config else None
+    config_path = _resolve_config_path(config, common_opts)
     config_result = load_server_config(config_path)
 
     if isinstance(config_result, Error):
@@ -1713,7 +1702,7 @@ def serve(ctx: click.Context, config: str | None) -> None:
 
     # Route to appropriate specialized command
     if mode == ServeMode.INSECURE:
-        ctx.invoke(serve_insecure, require_auth=False, config=config)
+        ctx.invoke(serve_insecure, config=config, **common_opts)
     elif mode == ServeMode.CA:
         # Extract CA configuration with proper defaults
         ca_dir = None  # Let serve_ca determine the default CA directory
@@ -1723,12 +1712,12 @@ def serve(ctx: click.Context, config: str | None) -> None:
 
         ctx.invoke(
             serve_ca,
-            require_auth=False,
             config=config,
             ca_dir=ca_dir,
             hostname=hostname,
             san=san,
             validity_days=validity_days,
+            **common_opts,
         )
     elif mode == ServeMode.ACME:
         # For ACME mode, use the loaded config directly to avoid CLI override issues
@@ -1755,11 +1744,11 @@ def serve(ctx: click.Context, config: str | None) -> None:
         # Pass required arguments to serve_custom
         ctx.invoke(
             serve_custom,
-            require_auth=False,
             config=config,
             cert_file=cert_file,
             key_file=key_file,
             ca_bundle_file=ca_bundle_file,
+            **common_opts,
         )
     else:
         handle_result(Error(error=f"Unknown serve mode: {mode}"))
@@ -1801,10 +1790,6 @@ def _signal_container_ready(path: str = "/tmp/ready") -> None:
         logger.warning("⚠️ Failed to create readiness file %s: %s", path, exc)
 
 
-# ---------------------------------------------------------------------------
-# Register external sub-command groups
-# ---------------------------------------------------------------------------
-
 # The actual implementation lives in vibectl.server.subcommands.config_cmd; import
 # placed here (after CLI definition) to avoid Click circular registration issues.
 from vibectl.server.subcommands.config_cmd import (  # noqa: E402
@@ -1814,23 +1799,23 @@ from vibectl.server.subcommands.config_cmd import (  # noqa: E402
 # Attach to the main click CLI group.
 cli.add_command(_server_config_group)
 
-# ---------------------------------------------------------------------------
-# Metrics helper (lazy)
-# ---------------------------------------------------------------------------
+
+def _resolve_config_path(
+    explicit: str | None, opts: dict[str, Any] | None = None
+) -> Path | None:
+    """Return Path object from *explicit* if provided, else inspect opts."""
+
+    if explicit:
+        return Path(explicit)
+
+    if opts is not None:
+        return _cfg_path(opts)
+
+    return None
 
 
-def _maybe_start_metrics(common_opts: dict[str, Any]) -> None:
-    """Start Prometheus metrics exporter if user passed --enable-metrics."""
+def _cfg_path(opts: dict[str, Any]) -> Path | None:
+    """Return Path for --config value if it is a string, else None."""
 
-    if not common_opts.get("enable_metrics"):
-        return
-
-    port = int(common_opts.get("metrics_port", 9095))
-
-    try:
-        from vibectl.server.metrics import init_metrics_server
-
-        init_metrics_server(port)
-        logger.info("Prometheus metrics endpoint enabled on port %s", port)
-    except Exception as exc:  # pragma: no cover
-        logger.error("Failed to initialise metrics endpoint: %s", exc)
+    val = opts.get("config")
+    return Path(val) if isinstance(val, str) and val else None

@@ -171,9 +171,27 @@ echo "🔌 Node Port: $NODE_PORT"
 echo "🌐 External URL: vibectl-server://$NODE_IP:$NODE_PORT"
 
 echo ""
-echo "⚙️  Step 7: Configuring vibectl proxy with CA bundle..."
+echo "🩺 Step 7: Verifying Prometheus metrics endpoint..."
+echo "====================================================="
+
+# Retrieve the NodePort exposed for Prometheus metrics (port 9095 in the Service spec)
+METRICS_PORT=$(kubectl get service vibectl-server -n "${NAMESPACE}" \
+  -o jsonpath='{.spec.ports[?(@.port==9095)].nodePort}')
+
+echo "📡 Metrics NodePort: $METRICS_PORT"
+
+# Attempt to fetch the metrics endpoint from the host and look for vibectl-specific metric names
+echo "🔍 Fetching metrics from http://$NODE_IP:$METRICS_PORT ..."
+if curl -sf "http://$NODE_IP:$METRICS_PORT" | grep -q "vibectl_requests_total"; then
+    echo "✅ Metrics endpoint reachable and vibectl metrics present"
+else
+    echo "❌ Failed to verify metrics endpoint or expected metrics not found" >&2
+    exit 1
+fi
+
+echo ""
+echo "⚙️  Step 8: Configuring vibectl proxy with CA bundle..."
 echo "======================================================="
-echo "   (Using production TLS with CA certificate verification)"
 
 echo "📝 Saving proxy configuration..."
 vibectl setup-proxy configure "demo-ca" "vibectl-server://$NODE_IP:$NODE_PORT" \
@@ -184,41 +202,6 @@ vibectl setup-proxy configure "demo-ca" "vibectl-server://$NODE_IP:$NODE_PORT" \
     --activate
 
 echo "✅ Proxy configuration saved with CA bundle"
-
-echo ""
-echo "🧪 Step 8: Testing secure connection..."
-echo "========================================"
-echo "Testing connection with proper certificate verification..."
-
-if vibectl setup-proxy test; then
-    echo ""
-    echo "🎉 Demo Complete!"
-    echo "==============================="
-    echo ""
-    echo "📋 Technical Summary:"
-    echo "   • Server endpoint: ${NODE_IP}:${NODE_PORT}"
-    echo "   • Token: ${JWT_TOKEN}"
-    echo "   • CA Bundle: ${CA_BUNDLE_FILE}"
-    echo ""
-    echo "🧪 Certificate Management:"
-    echo "   • View cert info: kubectl exec deploy/vibectl-server -n ${NAMESPACE} -- ls -la /ca-data/"
-    echo "   • Check logs: kubectl logs deployment/vibectl-server -n ${NAMESPACE} -c ca-init"
-    echo "   • Regenerate: kubectl delete pod -l app=vibectl-server -n ${NAMESPACE}"
-else
-    echo ""
-    echo "❌ Connection test failed. Troubleshooting information:"
-    echo ""
-    echo "🔍 Check deployment logs:"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE}"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE} -c ca-init"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE} -c jwt-init"
-    echo ""
-    echo "🔍 Verify certificates in container:"
-    echo "   kubectl exec deploy/vibectl-server -n ${NAMESPACE} -- ls -la /ca-data/"
-    echo ""
-    echo "🔍 Test certificate verification manually:"
-    echo "   openssl s_client -connect ${NODE_IP}:${NODE_PORT} -CAfile ${CA_BUNDLE_FILE}"
-fi
 
 echo ""
 echo "🧹 Cleanup Commands:"

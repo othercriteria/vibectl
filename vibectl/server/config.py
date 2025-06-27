@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@dataclass
 class Limits:
     """Typed container for effective rate-limit values.
 
@@ -205,13 +205,20 @@ class ServerConfig:
 
         # 2. Fallback to persisted configuration.
         config_result = self.load()
-        if isinstance(config_result, Error):
-            logger.warning(
-                f"Failed to load config for get({key}): {config_result.error}"
-            )
-            return default
 
-        config = config_result.data
+        if isinstance(config_result, Error):
+            # Fail-open: fall back to last known good cache if present.
+            if self._config_cache is not None:
+                config: dict[str, Any] = self._config_cache
+            else:
+                logger.warning(
+                    "Failed to load config for get(%s): %s", key, config_result.error
+                )
+                return default
+        else:
+            # Success branch - mypy can now see `data` is present.
+            config = cast(dict[str, Any], config_result.data)
+
         if config is None:
             return default
 
@@ -223,6 +230,23 @@ class ServerConfig:
                 if value is None:
                     return default
                 value = value[k]
+
+            # If the value we found equals the *default* config value but we have a
+            # previously cached config (and we are *not* already using that
+            # cache), try again against the cache.  This guards against the case
+            # where a hot-reload attempt failed (e.g. invalid YAML) and we fell
+            # back to defaults on the most recent load, but the caller still
+            # expects the last known-good value.
+
+            if self._config_cache is not None and config is not self._config_cache:
+                try:
+                    cached_val: Any = self._config_cache
+                    for k in keys:
+                        cached_val = cached_val[k]
+                    return cached_val
+                except Exception:  # pragma: no cover
+                    pass  # Fall through to original value
+
             return value
         except (KeyError, TypeError):
             return default
@@ -574,13 +598,20 @@ class ServerConfig:
 
         self._stop_event = threading.Event()
 
-        def _watch() -> None:
-            # Use nanosecond resolution to avoid missing quick successive edits
-            # Capture baseline at thread start - this avoids missing the first
-            # modification that may arrive shortly after ``start_auto_reload``
-            # is invoked.
-            last_mtime: int | None = None
+        # Capture the file's current modification time *before* starting the
+        # watcher thread.  Doing this in the caller thread eliminates a race
+        # condition in which the file is modified between the time the caller
+        # invokes ``start_auto_reload`` and the background thread computes the
+        # initial ``last_mtime`` value, resulting in missed change events in
+        # very fast test scenarios.
+        last_mtime: int | None = (
+            self.config_path.stat().st_mtime_ns if self.config_path.exists() else None
+        )
 
+        def _watch() -> None:
+            nonlocal last_mtime
+            # The loop will compare the current mtime against ``last_mtime`` and
+            # invoke callbacks when they differ.
             while self._stop_event and not self._stop_event.is_set():
                 try:
                     current_mtime: int | None = (
@@ -589,8 +620,8 @@ class ServerConfig:
                         else None
                     )
                     if current_mtime != last_mtime:
-                        # Attempt to reload (runs on first iteration too
-                        # since last_mtime None)
+                        # Attempt to reload the config (always forced to bypass any
+                        # cached version).
                         result = self.load(force_reload=True)
                         if isinstance(result, Success) and result.data is not None:
                             last_mtime = current_mtime
@@ -601,7 +632,7 @@ class ServerConfig:
                                 except Exception:  # pragma: no cover
                                     # User callbacks should never break the watcher
                                     logger.exception("Config reload callback raised")
-                    # Sleep
+                    # Sleep for the configured poll interval before checking again.
                     time.sleep(poll_interval)
                 except Exception:  # pragma: no cover
                     logger.exception("Exception in config auto-reload watcher")

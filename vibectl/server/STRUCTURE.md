@@ -66,6 +66,18 @@ The server components implement a high-performance gRPC-based LLM proxy that all
   - **Authentication Bypass**: Configurable authentication disabling for development
   - **Status Code Management**: Proper gRPC status code generation for auth failures
 
+### Rate Limiting & Metrics
+- **`rate_limit_interceptor.py`** – gRPC interceptor enforcing RPM and concurrency limits before a request reaches the service implementation.
+  - Fixed-window counter (60-s) and in-flight semaphore implemented in-process.
+  - Hot-reload aware: subscribes to `ServerConfig` changes at runtime.
+  - Returns `RESOURCE_EXHAUSTED` with `retry-after-ms` metadata when quotas are exceeded.
+- **`limit_backend.py`** – backend abstraction (`LimitBackend`) providing `incr()` and semaphore helpers.
+  - Default in-memory implementation used for single-instance deployments.
+  - Future Redis backend tracked in TODO-SERVER.md.
+- **Metrics Exporter** – `/metrics` HTTP endpoint started when `--enable-metrics` flag is supplied (port configurable via `--metrics-port`).
+  - **Counters**: `vibectl_requests_total`, `vibectl_rate_limited_total`, `vibectl_concurrent_in_flight`.
+  - Prometheus scrape annotations now included in demo K8s manifests.
+
 ## Protocol Definition
 
 ### gRPC Protocol (`vibectl/proto/`)
@@ -218,10 +230,8 @@ The server components implement a high-performance gRPC-based LLM proxy that all
 ## Future Enhancements
 
 ### Planned Features
-1. **Metrics Export**: Prometheus/OpenTelemetry integration
-2. **Load Balancing**: Multi-instance deployment support
-3. **Rate Limiting**: Per-client rate limiting and quota management
-4. **Advanced Authentication**: RBAC and multi-tenant support
+1. **Load Balancing**: Multi-instance deployment support
+2. **Advanced Authentication**: RBAC and multi-tenant support
 
 ### Extension Points
 1. **Custom Interceptors**: Plugin system for custom request processing
