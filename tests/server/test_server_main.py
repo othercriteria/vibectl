@@ -333,6 +333,7 @@ class TestCLICommands:
             cert_file=None,
             key_file=None,
             hsts_settings={},
+            server_config=mock_config,
         )
 
         # Verify server.serve_forever was called

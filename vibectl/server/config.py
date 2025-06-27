@@ -576,11 +576,10 @@ class ServerConfig:
 
         def _watch() -> None:
             # Use nanosecond resolution to avoid missing quick successive edits
-            last_mtime: int | None = (
-                self.config_path.stat().st_mtime_ns
-                if self.config_path.exists()
-                else None
-            )
+            # Capture baseline at thread start - this avoids missing the first
+            # modification that may arrive shortly after ``start_auto_reload``
+            # is invoked.
+            last_mtime: int | None = None
 
             while self._stop_event and not self._stop_event.is_set():
                 try:
@@ -590,16 +589,17 @@ class ServerConfig:
                         else None
                     )
                     if current_mtime != last_mtime:
-                        last_mtime = current_mtime
-
+                        # Attempt to reload (runs on first iteration too
+                        # since last_mtime None)
                         result = self.load(force_reload=True)
                         if isinstance(result, Success) and result.data is not None:
+                            last_mtime = current_mtime
+
                             for cb in list(self._callbacks):
                                 try:
                                     cb(result.data)
-                                except (
-                                    Exception
-                                ):  # pragma: no cover - user callbacks may fail
+                                except Exception:  # pragma: no cover
+                                    # User callbacks should never break the watcher
                                     logger.exception("Config reload callback raised")
                     # Sleep
                     time.sleep(poll_interval)

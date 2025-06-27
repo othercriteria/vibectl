@@ -111,6 +111,19 @@ def common_server_options() -> Callable:
                 callback=_max_concurrent_callback,
                 expose_value=False,
             ),
+            # -------------------- Metrics ----------------------------------
+            click.option(
+                "--enable-metrics",
+                is_flag=True,
+                default=False,
+                help="Expose Prometheus metrics endpoint (/metrics)",
+            ),
+            click.option(
+                "--metrics-port",
+                type=int,
+                default=9095,
+                help="Port for Prometheus metrics endpoint (default 9095)",
+            ),
         ]
 
         # Wrap the original function to preserve signature while applying
@@ -1018,6 +1031,7 @@ def _create_and_start_server_common(server_config: dict) -> Result:
             cert_file=cert_file,
             key_file=key_file,
             hsts_settings=server_config["tls"].get("hsts", {}),
+            server_config=server_config,
         )
 
         logger.info("Server created successfully")
@@ -1403,6 +1417,9 @@ def serve_insecure(
 ) -> None:
     """Start insecure HTTP server (development only)."""
 
+    # Start metrics exporter if requested via CLI flags
+    _maybe_start_metrics(common_opts)
+
     # Build configuration overrides using helper
     overrides = _build_config_overrides(
         host=common_opts.get("host"),
@@ -1458,6 +1475,8 @@ def serve_ca(
     **common_opts: Any,
 ) -> None:
     """Start server with private CA certificates."""
+
+    _maybe_start_metrics(common_opts)
 
     # Determine CA directory
     if ca_dir is None:
@@ -1552,6 +1571,8 @@ def serve_acme(
 ) -> None:
     """Start server with Let's Encrypt ACME certificates."""
 
+    _maybe_start_metrics(common_opts)
+
     # Build configuration overrides using helper
     # ACME/TLS must bind to 443 by default
     acme_port = 443
@@ -1624,6 +1645,8 @@ def serve_custom(
     **common_opts: Any,
 ) -> None:
     """Start server with custom TLS certificates."""
+
+    _maybe_start_metrics(common_opts)
 
     # Prepare TLS overrides with cert files
     tls_overrides = {
@@ -1790,3 +1813,24 @@ from vibectl.server.subcommands.config_cmd import (  # noqa: E402
 
 # Attach to the main click CLI group.
 cli.add_command(_server_config_group)
+
+# ---------------------------------------------------------------------------
+# Metrics helper (lazy)
+# ---------------------------------------------------------------------------
+
+
+def _maybe_start_metrics(common_opts: dict[str, Any]) -> None:
+    """Start Prometheus metrics exporter if user passed --enable-metrics."""
+
+    if not common_opts.get("enable_metrics"):
+        return
+
+    port = int(common_opts.get("metrics_port", 9095))
+
+    try:
+        from vibectl.server.metrics import init_metrics_server
+
+        init_metrics_server(port)
+        logger.info("Prometheus metrics endpoint enabled on port %s", port)
+    except Exception as exc:  # pragma: no cover
+        logger.error("Failed to initialise metrics endpoint: %s", exc)

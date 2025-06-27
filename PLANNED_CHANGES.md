@@ -96,6 +96,9 @@ Before wiring the interceptors we will beef up the config subsystem so that limi
    * `tests/server/test_config_cli_commands.py` – coverage for new `config` CLI sub-commands (DONE).
    * `tests/server/test_config_limits.py` – merge precedence & validation.
    * `tests/server/test_config_reload.py` – verify watcher behaviour (DONE).
+   * `tests/server/test_cli_flag_overrides.py` – ensure `--max-rpm` and `--max-concurrent` flags correctly override limits (DONE).
+   * `tests/server/test_metrics.py` – verify Prometheus exporter wiring & idempotency (DONE).
+   * `tests/server/test_throttle_logging.py` – validate structured JSON logs for throttle events (DONE).
 6. **Runtime integration**
    * Pass a live `ServerConfig` reference to interceptors; they subscribe to `on_config_change` to refresh limits without restart.
 
@@ -112,11 +115,12 @@ Thus the demo will automatically showcase limit enforcement and live Prometheus 
 
 ## Incremental Delivery (within this feature branch)
 
-1. Expand `server/config.py` + CLI flags to parse `server.limits.*` blocks.
+1. Expand `server/config.py` + CLI flags to parse `server.limits.*` blocks (DONE)
 2. Populate `ServerLimits` from config (read-only) – **no enforcement yet**.
 3. **RateLimitInterceptor w/ in-memory backend (DONE)** – fixed 60-s window RPM counter + per-request semaphore; unit tests cover RPM & concurrency.
-4. Start internal `/metrics` server (default 9095) and wire basic Prometheus counters + structured logs. *(next)*
-5. Hot-reload support (polling-based watcher) – implemented; tests added.
+4. **Metrics & Structured Logs (DONE)** – internal `/metrics` server, Prometheus counters, JSON throttle logs, CLI flags `--enable-metrics` & `--metrics-port` implemented; tests added.
+5. Update demo manifests to expose metrics port & scrape config. *(next)*
+6. Hot-reload support (polling-based watcher) – implemented; tests added.
 
 ## Future Work (tracked in TODO-SERVER.md)
 
@@ -133,9 +137,14 @@ Thus the demo will automatically showcase limit enforcement and live Prometheus 
 
 The ContextVar override refactor (now complete) introduced global `--max-rpm` and `--max-concurrent` flags.  A small follow-up task will add another convenience flag:
 
-* `--metrics-port` → `server.metrics.port`
-
-This will reuse the same callback/override pattern established for the rate-limit flags.
+* `--metrics-port` → `server.metrics.port` (DONE – see `--enable-metrics`/`--metrics-port` flags)
 
 ---
 *This document guides the scope of the current PR. Items marked as "Future Work" will **not** be implemented here, only designed for.*
+
+### Next Steps
+
+1. **ServerLimits surface (read-only)** – populate `ServerLimits` message from current config so clients can self-throttle.
+2. **Manifest polish** – finalise demo k8s manifests with metrics port & scrape annotations; write README snippet.
+3. **Docs & STRUCTURE** – update STRUCTURE.md & README with observability guidance (metrics flags, log examples).
+4. **Optional** – implement sliding-window option once feedback gathered.
