@@ -30,6 +30,8 @@
 - Add user documentation for the new key management features
 - Document best practices for API key security
 - Update configuration examples with new key management options
+- Document secure proxy server defaults (TLS, auth, HSTS)
+- Clarify CA bundle usage in quick-start docs
 - Include migration guide for users coming from older versions
 
 ## Configuration System Improvements

@@ -32,11 +32,16 @@ vibectl-server generate-token dev-user --expires-in 30d --output dev.jwt
 # 4. Point vibectl at the proxy
 vibectl setup-proxy configure \
   vibectl-server://localhost:50051 \
-  --jwt-path dev.jwt
+  --jwt-path dev.jwt \
+  --ca-bundle ~/.config/vibectl/server/certs/ca-bundle.crt
 
 # 5. Use vibectl as normal
 vibectl vibe "explain kubernetes pods"
 ```
+
+Without the `--ca-bundle` flag the client will fail TLS verification and you
+may be tempted to use the insecure scheme. Always provide the bundle when using
+self‑signed certificates.
 
 Self-signed certificates are stored under `~/.config/vibectl/server/certs/`.
 
@@ -350,3 +355,16 @@ retry-after-ms: <milliseconds>
 Clients can inspect these values to implement back-off logic.
 
 For multi-instance or distributed deployments, see the **Rate Limiting & Quota Enforcement** section in [`TODO-SERVER.md`](../TODO-SERVER.md) for planned Redis backend and quota tracking.
+
+---
+## 10  Security Notes & Best Practices
+
+The server's **default configuration is insecure**: it binds to `0.0.0.0` without TLS or authentication. For anything beyond isolated testing you should:
+
+* Enable TLS (`--tls` or `server.use_tls: true`) and supply a CA bundle when using self-signed certificates.
+* Require authentication (`server.require_auth: true`) and issue short-lived JWT tokens. Revocation tooling is still TODO.
+* Bind only to `localhost` during development to avoid accidental exposure.
+* Enable the HSTS header (`tls.hsts.enabled: true`) to guard against downgrade attacks.
+* Restrict or firewall the Prometheus metrics port; it is HTTP-only and unauthenticated.
+* Server-side TLS version is governed by gRPC defaults; enforcing a minimum version is planned.
+

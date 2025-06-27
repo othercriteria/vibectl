@@ -174,4 +174,15 @@ The following items are *not* in V1 and remain tracked in **`PLANNED_CHANGES.md`
 
 ---
 
-*Last updated: 2025-06-20 (Commit: V1 client-side hardening)*
+## 7 Server-Side Considerations
+
+See [`docs/llm-proxy-server.md`](llm-proxy-server.md) for details on securing the proxy server itself. Highlights:
+
+* Start the server with TLS and authentication enabled; the defaults are insecure.
+* Provide a CA bundle when connecting to self-signed certificates to avoid falling back to the `vibectl-server-insecure://` scheme.
+* Enable HSTS headers on the server to prevent downgrade attacks.
+* The metrics endpoint runs over plain HTTP; expose it only on trusted networks.
+
+---
+
+*Last updated: 2025-06-27 (Commit: security audit notes integrated)*
