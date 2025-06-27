@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.11.3] - 2025-06-27
+
 ### Added
 - ContextVar override CLI flags `--max-rpm` and `--max-concurrent` for all `serve-*` commands, providing global runtime rate-limit controls without additional plumbing
 - Refactor: removed redundant per-command kwargs; rate-limit flags now set overrides via callbacks (developer-experience only, no behaviour change for operators)
