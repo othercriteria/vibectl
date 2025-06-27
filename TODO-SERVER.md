@@ -15,9 +15,12 @@ Server-specific development tasks and enhancements for vibectl-server.
 - [x] **Modern TLS protocol support** - TLS 1.3 enforced for gRPC, TLS 1.2+ for ACME compatibility
 - [ ] Strong cipher suite configuration
 - [ ] Certificate transparency monitoring
-- [ ] HSTS header support
+- [x] HSTS header support
 - [ ] Certificate pinning for client connections
 - [ ] Mutual TLS (mTLS) support for enhanced security
+- [ ] Secure default configuration (TLS & auth enabled, bind to localhost)
+- [ ] Enforce minimum TLS version server-side
+- [ ] Optionally protect metrics endpoint via TLS or authentication
 
 #### Certificate Transparency Monitoring Details
 Certificate Transparency (CT) monitoring acts as an early-warning system that watches public CT logs for certificates issued for any vibectl-controlled domains.
@@ -124,7 +127,7 @@ Certificate Transparency (CT) monitoring acts as an early-warning system that wa
 ## Performance & Monitoring
 
 ### Metrics and Observability
-- [ ] Prometheus metrics export
+- [x] Prometheus metrics export
 - [ ] Grafana dashboard templates
 - [ ] Health check endpoints
 - [ ] Performance profiling endpoints
