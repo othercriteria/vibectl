@@ -333,6 +333,7 @@ class TestCLICommands:
             cert_file=None,
             key_file=None,
             hsts_settings={},
+            server_config=mock_config,
         )
 
         # Verify server.serve_forever was called
@@ -759,16 +760,15 @@ class TestCLICommands:
         mock_create_server.return_value = mock_server
 
         # Import the command directly for testing
-        result = self.runner.invoke(
-            serve_insecure, ["--host", "127.0.0.1", "--port", "8080"]
-        )
+        result = self.runner.invoke(serve_insecure, [])
 
         assert result.exit_code == 0
         mock_create_server.assert_called_once()
         # Verify TLS is forced off
         args, kwargs = mock_create_server.call_args
-        assert kwargs["host"] == "127.0.0.1"
-        assert kwargs["port"] == 8080  # Port is now correctly kept as int
+        # With redundant server kwargs removed, defaults from config are used
+        assert kwargs["host"] == "0.0.0.0"
+        assert kwargs["port"] == 50051
         assert kwargs["use_tls"] is False
 
 

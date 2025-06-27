@@ -345,7 +345,28 @@ echo "🌐 External access domain : $EXTERNAL_DOMAIN"
 echo "🌐 External URL          : vibectl-server://$PROXY_HOST:$PROXY_PORT"
 
 echo ""
-echo "⚙️  Step 8: Configuring vibectl proxy with Pebble CA..."
+echo "🩺 Step 8: Verifying Prometheus metrics endpoint..."
+echo "====================================================="
+
+# Attempt to discover a NodePort for the metrics (port 9095) if it exists.
+METRICS_PORT=$(kubectl get service vibectl-server -n "${NAMESPACE}" \
+  -o jsonpath='{.spec.ports[?(@.port==9095)].nodePort}' 2>/dev/null || true)
+
+if [ -z "$METRICS_PORT" ]; then
+  echo "ℹ️  Metrics port not exposed by Service; skipping metrics endpoint check."
+else
+  echo "📡 Metrics NodePort: $METRICS_PORT"
+  echo "🔍 Fetching metrics from http://$NODE_IP:$METRICS_PORT ..."
+  if curl -sf "http://$NODE_IP:$METRICS_PORT" | grep -q "vibectl_requests_total"; then
+    echo "✅ Metrics endpoint reachable and vibectl metrics present"
+  else
+    echo "❌ Failed to verify metrics endpoint or expected metrics not found" >&2
+    exit 1
+  fi
+fi
+
+echo ""
+echo "⚙️  Step 9: Configuring vibectl proxy with Pebble CA..."
 echo "======================================================="
 echo "   (Using Pebble CA certificate for proper TLS verification)"
 
@@ -358,43 +379,6 @@ vibectl setup-proxy configure "demo-acme" "vibectl-server://$PROXY_HOST:$PROXY_P
     --activate
 
 echo "✅ Proxy configuration saved with Pebble CA bundle"
-
-echo ""
-echo "🧪 Step 9: Testing secure connection..."
-echo "========================================"
-echo "Testing connection with ACME certificate verification..."
-
-if vibectl setup-proxy test; then
-    echo ""
-    echo "🎉 ACME Demo Complete!"
-    echo "==============================="
-    echo ""
-    echo "📋 Technical Summary:"
-    echo "   • Server endpoint: ${PROXY_HOST}:${PROXY_PORT}"
-    echo "   • Token: ${JWT_TOKEN}"
-    echo "   • ACME Provider : Pebble (${PEBBLE_URL})"
-    echo "   • Challenge     : TLS-ALPN-01"
-    echo "   • Domain        : ${ACME_DOMAIN}"
-    echo "   • Email         : admin@vibectl.test"
-    echo ""
-    echo "(For logs, run: kubectl logs deployment/vibectl-server -n ${NAMESPACE})"
-else
-    echo ""
-    echo "❌ Connection test failed. Troubleshooting information:"
-    echo ""
-    echo "🔍 Check deployment logs:"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE}"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE} -c config-init"
-    echo "   kubectl logs deploy/vibectl-server -n ${NAMESPACE} -c jwt-init"
-    echo ""
-    echo "🔍 Check Pebble ACME server:"
-    echo "   kubectl logs deploy/pebble -n ${NAMESPACE}"
-    echo ""
-    echo "🔍 Check ACME certificate provisioning:"
-    echo "   kubectl exec deploy/vibectl-server -n ${NAMESPACE} -- ls -la /root/.config/vibectl/server/certs/"
-    echo ""
-    # Manual connection test removed – use logs above for troubleshooting
-fi
 
 echo ""
 echo "🧹 Cleanup Commands:"

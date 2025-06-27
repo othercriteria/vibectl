@@ -5,13 +5,20 @@ metadata:
   labels:
     app: vibectl-server
     mode: acme
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9095"
+    prometheus.io/path: "/metrics"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - name: grpc-tls
     port: 443
     targetPort: 443
     protocol: TCP
+  - name: metrics
+    port: 9095
+    targetPort: 9095
   selector:
     app: vibectl-server
 ---
@@ -34,22 +41,3 @@ spec:
     protocol: TCP
   selector:
     app: vibectl-server
----
-# Additional service for external access with LoadBalancer (optional)
-# Uncomment this if you want to test with a real LoadBalancer
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: vibectl-server-lb
-#   labels:
-#     app: vibectl-server
-#     mode: acme
-# spec:
-#   type: LoadBalancer
-#   ports:
-#   - name: grpc-tls
-#     port: 443
-#     targetPort: 443
-#     protocol: TCP
-#   selector:
-#     app: vibectl-server

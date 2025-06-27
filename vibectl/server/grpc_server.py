@@ -46,6 +46,7 @@ class GRPCServer:
         cert_file: str | None = None,
         key_file: str | None = None,
         hsts_settings: dict | None = None,
+        server_config: dict | None = None,
     ):
         """Initialize the gRPC server.
 
@@ -63,6 +64,7 @@ class GRPCServer:
             key_file: Path to TLS private key file (auto-generated if None
                       and TLS enabled)
             hsts_settings: HSTS settings for the server
+            server_config: Server configuration
         """
         self.host = host
         self.port = port
@@ -74,7 +76,9 @@ class GRPCServer:
         self.key_file = key_file
         self.hsts_settings = hsts_settings or {}
         self.server: grpc.Server | None = None
-        self._servicer = LLMProxyServicer(default_model=default_model)
+        self._servicer = LLMProxyServicer(
+            default_model=default_model, config=server_config
+        )
 
         # Set up JWT authentication if enabled
         self.jwt_manager: JWTAuthManager | None
@@ -318,6 +322,7 @@ def create_server(
     cert_file: str | None = None,
     key_file: str | None = None,
     hsts_settings: dict | None = None,
+    server_config: dict | None = None,
 ) -> GRPCServer:
     """Create a new gRPC server instance.
 
@@ -332,6 +337,7 @@ def create_server(
         cert_file: Path to TLS certificate file (auto-generated if None and TLS enabled)
         key_file: Path to TLS private key file (auto-generated if None and TLS enabled)
         hsts_settings: HSTS settings for the server
+        server_config: Server configuration
 
     Returns:
         Configured GRPCServer instance
@@ -347,6 +353,7 @@ def create_server(
         cert_file=cert_file,
         key_file=key_file,
         hsts_settings=hsts_settings,
+        server_config=server_config,
     )
 
 

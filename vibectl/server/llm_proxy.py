@@ -411,12 +411,34 @@ class LLMProxyServicer(VibectlLLMProxyServicer):
 
                 models.append(model_info)
 
+            # Build ServerLimits from config (global limits only)
+            limits_cfg = (
+                self.config.get("server", {}).get("limits", {}).get("global", {})
+            )
+
+            server_limits = ServerLimits()
+
+            def _set_if_present(field: str, value: int | None) -> None:
+                if value is not None:
+                    setattr(server_limits, field, int(value))
+
+            _set_if_present(
+                "max_requests_per_minute", limits_cfg.get("max_requests_per_minute")
+            )
+            _set_if_present(
+                "max_concurrent_requests", limits_cfg.get("max_concurrent_requests")
+            )
+            _set_if_present("max_input_length", limits_cfg.get("max_input_length"))
+            _set_if_present(
+                "request_timeout_seconds", limits_cfg.get("request_timeout_seconds")
+            )
+
             return GetServerInfoResponse(
                 server_version=get_package_version(),
                 server_name="vibectl-llm-proxy",
                 available_models=models,
                 default_model=self.default_model or "",
-                limits=ServerLimits(),
+                limits=server_limits,
                 model_aliases=all_aliases,
             )
 

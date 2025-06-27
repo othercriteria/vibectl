@@ -137,6 +137,16 @@ Certificate Transparency (CT) monitoring acts as an early-warning system that wa
 - [ ] Resource usage optimization
 - [ ] Benchmarking and performance testing
 
+## Rate Limiting & Quota Enforcement (Post-V1)
+
+- [ ] Redis-backed `LimitBackend` for multi-instance deployments
+- [ ] `QuotaInterceptor` for monthly token quotas using `ExecutionMetrics`
+- [ ] Sliding-window / token-bucket RPM algorithm (optional operator toggle)
+- [ ] Live limit configuration tooling (Kubernetes Operator / Helm helpers)
+- [ ] CLI & API endpoints for real-time limit inspection
+- [ ] Detailed Prometheus metrics for quota consumption
+- [ ] Documentation & examples for distributed quota enforcement
+
 ## Error Handling & Reliability
 
 ### Resilience Features

@@ -4,6 +4,10 @@ metadata:
   name: vibectl-server
   labels:
     app: vibectl-server
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9095"
+    prometheus.io/path: "/metrics"
 spec:
   type: NodePort
   ports:
@@ -11,6 +15,10 @@ spec:
     targetPort: 50051
     nodePort: 30551
     name: grpc
+  - port: 9095
+    targetPort: 9095
+    nodePort: 30995
+    name: metrics
   selector:
     app: vibectl-server
 ---

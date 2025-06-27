@@ -12,6 +12,14 @@ data:
       default_model: "anthropic/claude-3-7-sonnet-latest"
       max_workers: 10
       log_level: "INFO"
+      limits:
+        global:
+          max_requests_per_minute: 120       # demo default
+          max_concurrent_requests: 10        # demo default
+          request_timeout_seconds: 30        # demo default
+        per_token:
+          "demo-user":
+            max_requests_per_minute: 5       # stricter limit for demo user
 
     tls:
       enabled: true

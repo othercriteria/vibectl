@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- ContextVar override CLI flags `--max-rpm` and `--max-concurrent` for all `serve-*` commands, providing global runtime rate-limit controls without additional plumbing
+- Refactor: removed redundant per-command kwargs; rate-limit flags now set overrides via callbacks (developer-experience only, no behaviour change for operators)
+- **Server-side rate limiting & metrics for vibectl-server**:
+  - Typed `Limits` model, validation helpers, and hot-reload watcher in `ServerConfig`
+  - `RateLimitInterceptor` with in-process fixed-window RPM counter and concurrency semaphore
+  - Prometheus metrics exporter (`/metrics`) behind `--enable-metrics` / `--metrics-port` flags
+  - Global & per-token limit support via `server.limits.*` config keys and ContextVar overrides
+  - Structured throttle logs and `RESOURCE_EXHAUSTED` gRPC responses with `retry-after-ms` metadata
+  - Updated Kubernetes demo manifests to expose port 9095 and include Prometheus scrape annotations
+
 ### Fixed
 * Handled `DONE` action in Vibe execution path, allowing autonomous and semiauto sessions to terminate gracefully instead of raising unexpected errors.
 * Relaxed console test regex to accommodate line wrapping differences, eliminating flaky failures in parallel test runs.

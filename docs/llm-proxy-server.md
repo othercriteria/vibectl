@@ -14,6 +14,7 @@ The optional *vibectl-server* lets multiple vibectl clients share a single set o
 6. Checking the server
 7. Strict-Transport-Security (HSTS)
 8. More information
+9. Rate limiting & metrics
 
 ---
 ## 1  Quick Start – Local Development
@@ -297,3 +298,55 @@ Strict-Transport-Security: max-age=31536000; includeSubDomains
 • [docs/CONFIG.md](CONFIG.md) – full configuration reference.
 • [vibectl/server/STRUCTURE.md](../vibectl/server/STRUCTURE.md) – detailed server architecture.
 • Roadmap for advanced hardening (CT monitoring, mTLS, etc.) lives in [`TODO-SERVER.md`](../TODO-SERVER.md).
+
+---
+## 9  Rate limiting & metrics
+
+vibectl-server now supports **server-side rate limiting** (RPM, concurrency, input size, and request timeout) and a built-in **Prometheus metrics** endpoint.
+
+### Enabling rate limits
+
+```yaml
+server:
+  limits:
+    global:
+      max_requests_per_minute: 120   # Optional – omit for unlimited
+      max_concurrent_requests: 10    # Optional – omit for unlimited
+      max_input_length: 32000        # Optional – characters
+      request_timeout_seconds: 30    # Optional
+    # Optional per-token overrides (by JWT `sub` or `kid`)
+    per_token:
+      "demo-user":
+        max_requests_per_minute: 5
+```
+
+Hot-reload is supported – edit the config file and the server picks up changes automatically without restart.
+
+### Metrics endpoint
+
+Run the server with:
+
+```bash
+vibectl-server serve --enable-metrics --metrics-port 9095
+```
+
+This starts an HTTP endpoint at `http://<host>:9095/metrics` that exposes Prometheus counters such as:
+
+* `vibectl_requests_total{sub="demo-user"}`
+* `vibectl_rate_limited_total{sub="demo-user",limit_type="rpm"}`
+* `vibectl_concurrent_in_flight{sub="demo-user"}`
+
+Add a scrape config in Prometheus or add annotations in K8s manifests (see example deployments) to collect these metrics.
+
+### Throttling behaviour
+
+When a limit is exceeded the server returns `grpc.StatusCode.RESOURCE_EXHAUSTED` with metadata:
+
+```
+limit-type: rpm | concurrency | token
+retry-after-ms: <milliseconds>
+```
+
+Clients can inspect these values to implement back-off logic.
+
+For multi-instance or distributed deployments, see the **Rate Limiting & Quota Enforcement** section in [`TODO-SERVER.md`](../TODO-SERVER.md) for planned Redis backend and quota tracking.

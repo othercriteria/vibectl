@@ -113,6 +113,8 @@ spec:
         ports:
         - containerPort: 50051
           name: grpc
+        - containerPort: 9095
+          name: metrics
         env:
         - name: VIBECTL_LOG_LEVEL
           value: "INFO"
@@ -128,6 +130,9 @@ spec:
         - serve
         - --config
         - /etc/vibectl/config/config.yaml
+        - --enable-metrics
+        - --metrics-port
+        - "9095"
         volumeMounts:
         - name: config
           mountPath: /etc/vibectl/config
@@ -149,6 +154,13 @@ spec:
             port: 50051
           initialDelaySeconds: 15
           periodSeconds: 30
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: config
         configMap:
