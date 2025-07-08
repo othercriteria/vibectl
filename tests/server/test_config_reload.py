@@ -1,8 +1,9 @@
+import asyncio
 import tempfile
 import threading
-import time
 from pathlib import Path
 
+import pytest
 import yaml
 
 from vibectl.server.config import ServerConfig, Success
@@ -22,7 +23,8 @@ def _write_yaml(path: Path, data: dict) -> None:
         f.flush()
 
 
-def test_config_auto_reload_success() -> None:
+@pytest.mark.asyncio
+async def test_config_auto_reload_success() -> None:
     """Config watcher should pick up changes and invoke callbacks."""
 
     with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp:
@@ -50,7 +52,9 @@ def test_config_auto_reload_success() -> None:
         _write_yaml(config_path, modified_cfg)
 
         # Wait up to ~1s for the change to propagate
-        assert event.wait(1.0), "Config change callback not triggered"
+        assert await asyncio.to_thread(event.wait, 1.0), (
+            "Config change callback not triggered"
+        )
 
         # Cache should be updated too
         assert sc.get("server.host") == "modified"
@@ -60,7 +64,8 @@ def test_config_auto_reload_success() -> None:
         config_path.unlink(missing_ok=True)
 
 
-def test_config_auto_reload_invalid_change() -> None:
+@pytest.mark.asyncio
+async def test_config_auto_reload_invalid_change() -> None:
     """Invalid YAML should fail-open and keep previous config without callbacks."""
 
     with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp:
@@ -88,7 +93,7 @@ def test_config_auto_reload_invalid_change() -> None:
             f.flush()
 
         # Give watcher some time
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
 
         assert sc.get("server.host") == "stable"
         assert called is False, "Callback should not run on invalid reload"
@@ -98,7 +103,8 @@ def test_config_auto_reload_invalid_change() -> None:
         config_path.unlink(missing_ok=True)
 
 
-def test_config_auto_reload_multiple_changes() -> None:
+@pytest.mark.asyncio
+async def test_config_auto_reload_multiple_changes() -> None:
     """Watcher should emit callbacks for each successive config update."""
 
     with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp:
@@ -127,13 +133,15 @@ def test_config_auto_reload_multiple_changes() -> None:
 
         # First update
         _write_yaml(config_path, {"server": {"host": "v2", "port": 9999}})
-        time.sleep(0.2)  # Allow watcher to detect first change
+        await asyncio.sleep(0.2)  # Allow watcher to detect first change
 
         # Second update
         _write_yaml(config_path, {"server": {"host": "v3", "port": 9999}})
 
         # Wait up to 1s for second callback
-        assert event.wait(1.0), "Second config change not detected"
+        assert await asyncio.to_thread(event.wait, 1.0), (
+            "Second config change not detected"
+        )
         # We expect to see both v2 and v3 in callbacks (order preserved)
         assert seen_hosts == ["v2", "v3"]
 

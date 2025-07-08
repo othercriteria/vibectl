@@ -5,7 +5,13 @@ This file contains fixtures that can be used across all tests.
 """
 
 import os
-from collections.abc import AsyncIterator, Callable, Generator
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Generator,
+)
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -28,6 +34,9 @@ except ImportError:
     # Fallback if direct import fails or for older llm versions
     class UnknownModelError(Exception):  # type: ignore
         pass
+
+
+import asyncio  # Added for new async test helpers
 
 
 @pytest.fixture
@@ -233,9 +242,35 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
 @pytest.fixture
 def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
     """Fixture providing patched run_kubectl function specifically for CLI tests."""
-    with patch("vibectl.command_handler.run_kubectl") as mock:
+    with (
+        patch("vibectl.command_handler.run_kubectl") as mock,
+        patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter_func,
+        patch("vibectl.model_adapter.get_model") as mock_model_adapter_get_model,
+        patch("vibectl.command_handler.model_adapter.get_model") as mock_cmd_model_get,
+        patch(
+            "vibectl.command_handler._process_vibe_output", new_callable=AsyncMock
+        ) as mock_process_vibe,
+    ):
         # Set up default mock behavior
         mock.return_value = Success(data="test output")
+
+        # Provide a lightweight stub adapter that satisfies get_model but
+        # does minimal work
+        stub_adapter = MagicMock(name="cli_stub_model_adapter")
+
+        # get_model returns a simple Mock to satisfy downstream calls
+        stub_adapter.get_model.return_value = Mock(name="stub-llm-model")
+
+        # execute_and_log_metrics returns a successful dummy tuple to bypass
+        # real parsing
+        stub_adapter.execute_and_log_metrics = AsyncMock(
+            return_value=(
+                '{"action": {"action_type": "THOUGHT", "text": "noop"}}',
+                None,
+            )
+        )
+
+        mock_get_adapter_func.return_value = stub_adapter
 
         # Helper for setting up error responses
         def set_error_response(stderr: str = "test error") -> None:
@@ -246,14 +281,18 @@ def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
         # Add the helper method to the mock
         mock.set_error_response = set_error_response
 
-        yield mock
+        # The direct helper used by _process_vibe_output bypasses
+        # get_model_adapter and calls vibectl.model_adapter.get_model(...)
+        # directly.  Patch this to return a stub model so that wait command
+        # tests do not attempt to resolve real model names.
+        mock_model_adapter_get_model.return_value = Mock(name="stub-llm-model-direct")
 
+        mock_cmd_model_get.return_value = mock_model_adapter_get_model.return_value
 
-@pytest.fixture
-def mock_handle_output_for_cli() -> Generator[Mock, None, None]:
-    """Fixture providing patched handle_command_output function specifically
-    for CLI tests."""
-    with patch("vibectl.command_handler.handle_command_output") as mock:
+        mock_process_vibe.return_value = (
+            None  # Skip vibe processing during wait CLI tests
+        )
+
         yield mock
 
 
@@ -272,19 +311,25 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     default_mock_model = Mock(name="mock-llm-model-from-adapter-fixture")
 
     def get_model_side_effect(model_name_arg: str) -> Mock:
-        if model_name_arg == "test-model":
-            return Mock(name="test-model")
-        elif model_name_arg == "mock-llm-model-from-adapter-fixture":
-            return default_mock_model
-        # Import UnknownModelError directly if available
-        # try:
-        #     from llm import UnknownModelError  # type: ignore
-        # except ImportError:
-        #     # Fallback if direct import fails or for older llm versions
-        #     class UnknownModelError(Exception):
-        #         pass  # type: ignore
+        """Return a mock model for *any* requested model name.
 
-        raise UnknownModelError(f"mock_get_adapter unmocked model: {model_name_arg}")
+        Tests may request assorted model names (e.g. "claude-3.7-sonnet") via
+        CLI flags or default settings.  Rather than enumerating every possible
+        string we simply return a fresh ``Mock`` instance for unknown names to
+        avoid raising ``UnknownModelError`` and keep the tests isolated from
+        the real model registry.
+        """
+        if model_name_arg in {"test-model", "mock-llm-model-from-adapter-fixture"}:
+            return (
+                default_mock_model
+                if model_name_arg != "test-model"
+                else Mock(name="test-model")
+            )
+
+        # For any other model name, return a generic mock model instance so
+        # that code paths depending on a model can proceed without hitting the
+        # real LLM registry.
+        return Mock(name=f"mock-model-{model_name_arg}")
 
     mock_adapter_instance.get_model.side_effect = get_model_side_effect
 
@@ -570,32 +615,6 @@ def mock_memory(mocker: MockerFixture) -> Generator[dict[str, Mock], None, None]
 
 
 @pytest.fixture(autouse=True)
-def no_coroutine_warnings() -> Generator[None, None, None]:
-    """Suppress RuntimeWarning about coroutines never being awaited."""
-    import warnings
-
-    # Save original filters as a list
-    original_filters = list(warnings.filters)
-
-    # Suppress coroutine warnings using the specific filter pattern
-    warnings.filterwarnings("ignore", message="coroutine '.*' was never awaited")
-
-    yield
-
-    # Restore original filters
-    warnings.filters = original_filters
-
-
-@pytest.fixture
-def mock_command_handler_logger() -> Generator[Mock, None, None]:
-    """Patch the logger in vibectl.command_handler for logging assertions."""
-    from vibectl import command_handler
-
-    with patch.object(command_handler, "logger") as mock_logger:
-        yield mock_logger
-
-
-@pytest.fixture(autouse=True)
 def reset_memory(request: pytest.FixtureRequest) -> Generator[None, None, None]:
     """Reset memory between tests without file I/O.
 
@@ -695,53 +714,44 @@ def in_memory_config() -> Generator[Config, None, None]:
 
 
 @pytest.fixture
-def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
-    """Mock asyncio functionality for wait command tests to avoid coroutine warnings."""
-    # Create a mock event loop
-    mock_loop = MagicMock()
-    mock_loop.run_until_complete.side_effect = lambda coro: Success(
-        data="pod/nginx condition met"
-    )
-    mock_loop.is_running.return_value = False
+def fast_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[Callable[..., Awaitable[None]], None, None]:
+    """Replace asyncio.sleep with an awaitable noop that yields control once.
 
-    # Create synchronous (non-async) mocks to avoid coroutine warnings
-    def mock_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
-        """Mock sleep as a regular function to avoid coroutine warnings."""
-        return None
+    This avoids real delays while keeping the coroutine awaitable, so tests run
+    quickly without RuntimeWarning for un-awaited coroutines.
+    """
+    orig_sleep = asyncio.sleep  # Capture original before patching
 
-    def mock_wait_for(coro: Any, timeout: float) -> Any:
-        """Mock wait_for as a regular function to avoid coroutine warnings."""
-        return None
+    async def _fast_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        """A drop-in replacement for asyncio.sleep that returns after one loop tick."""
+        # Yield control to the scheduler briefly
+        await orig_sleep(0)
 
-    def mock_to_thread(func: Callable, *args: Any, **kwargs: Any) -> Any:
-        """Mock to_thread as a regular function to avoid coroutine warnings."""
-        return Success(data="pod/nginx condition met")
+    # Apply patch for the duration of the test
+    monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
+    yield _fast_sleep  # Make replacement accessible to tests if needed
+    # monkeypatch automatically restores the original function on fixture teardown
 
-    def mock_create_task(coro: Any) -> MagicMock:
-        """Mock create_task to return a MagicMock instead of a Task object."""
-        task = MagicMock()
-        task.done.return_value = False
-        task.cancel.return_value = None
-        return task
 
-    # Use a patch context manager to replace all asyncio functions we use
-    with (
-        # Mock asyncio functions - Patch asyncio directly
-        patch("asyncio.get_event_loop", return_value=mock_loop),
-        patch("asyncio.new_event_loop", return_value=mock_loop),
-        patch("asyncio.set_event_loop"),
-        # Replace all async functions with synchronous versions
-        patch("asyncio.sleep", mock_sleep),
-        patch("asyncio.wait_for", mock_wait_for),
-        patch("asyncio.to_thread", mock_to_thread),
-        patch("asyncio.create_task", mock_create_task),
-        # Replace asyncio exceptions with regular Exception
-        patch("asyncio.CancelledError", Exception),
-        patch("asyncio.TimeoutError", Exception),
-        # Future should still be mocked directly if used in tests
-        patch("asyncio.Future", MagicMock),
-    ):
-        yield mock_loop
+@pytest.fixture
+async def background_tasks() -> AsyncGenerator[list[asyncio.Task[Any]], None]:
+    """Fixture that tracks asyncio tasks and ensures they are cleaned up.
+
+    Tests should append any long-lived tasks created with asyncio.create_task
+    to the returned list.  After the test, all tasks are cancelled/awaited to
+    prevent leaks and spurious warnings.
+    """
+    tasks: list[asyncio.Task] = []
+    try:
+        yield tasks
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # --------------------------------------------------------------------------------------
