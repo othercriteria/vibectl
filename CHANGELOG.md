@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- Planned: Robust async-testing refactor (WIP)
+
 ## [0.11.3] - 2025-06-27
 
 ### Added

@@ -239,9 +239,10 @@ def test_console_print_error_with_markup_errors(test_console: ConsoleManager) ->
     # Verify that the output was printed (without handling markup)
     output = test_console.error_console.export_text()
     assert "Error: Some Kubernetes components are" in output
-    # Check for individual parts due to potential line wrapping
-    assert "broken [blue]formatting [/yellow]" in output
     import re
+
+    # Allow Rich to insert line breaks around the markup tags that may be split
+    assert re.search(r"broken\s+\[blue\]formatting\s+\[/yellow\]", output)
 
     # Allow Rich to insert line breaks between 'which', 'causes', and 'errors'
     assert re.search(r"which\s+causes\s+errors", output)
