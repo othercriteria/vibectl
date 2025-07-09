@@ -50,7 +50,11 @@ async def test_wait_for_readiness_success(
         challenge_server=challenge_server, acme_config=minimal_acme_http_config
     )
 
-    async_mock = AsyncMock(return_value=(None, AsyncMock()))
+    writer_mock = Mock()
+    writer_mock.close = Mock()  # Synchronous close to match real StreamWriter
+    writer_mock.wait_closed = AsyncMock()
+
+    async_mock = AsyncMock(return_value=(None, writer_mock))
     with patch("asyncio.open_connection", async_mock):
         await manager._wait_for_http01_readiness(timeout=0.5)
 

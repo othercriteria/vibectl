@@ -33,6 +33,8 @@ and make our mocks play nicely with it.
      `time.sleep(...)` with `await asyncio.sleep(...)` and leveraging
      `asyncio.to_thread` for `threading.Event` waits.  Poll interval remains at
      `0.05` for fast detection.
+   - **NOTE**: Some flakiness remains in `test_config_auto_reload_success` - may need
+     further investigation or deterministic event handling.
 
 5. [x] **Trim warning filters**
    - **COMPLETED**: Removed autouse fixture suppressing coroutine-not-awaited
@@ -42,6 +44,14 @@ and make our mocks play nicely with it.
    - Run full test suite with `pytest -n auto --no-cov` to validate the parallel
      path.
    - Verify warnings summary is empty; address any remaining noise explicitly.
+   - **IN PROGRESS**: Reduced async warnings from 17 → 3 by fixing AsyncMock usage:
+     • Fixed `tests/server/test_acme_readiness.py` (writer mock)
+     • Fixed `tests/server/test_acme_manager.py` (ACME client mocks)
+     • Fixed `tests/test_port_forward_handler.py` (update_memory mock)
+   - **REMAINING**: 3 warnings in:
+     • `tests/server/test_acme_server_paths.py` (`_async_acme_server_main` mock)
+     • `tests/test_cli.py` (`BaseCommand.main` mock)
+     • `tests/server/test_server_main_ca.py` (AsyncMock usage)
 
 ## Non-Goals (for this PR)
 - Changing production `vibectl` async behaviour.
@@ -49,7 +59,13 @@ and make our mocks play nicely with it.
 
 ## Acceptance Criteria
 - ✅ **ACHIEVED**: All 2182 tests pass under xdist without major `RuntimeWarning: ...was never awaited` messages.
-- ⚠️ **NEARLY ACHIEVED**: Only 1 minor async warning remains (down from multiple major warnings).
-- ✅ `tests/server/test_config_reload.py` passes deterministically (no sleeps or
-  flakiness).
-- No broad warning filters remain in repository configuration.
+- ⚠️ **NEARLY ACHIEVED**: Only 3 minor async warnings remain (down from 17).
+- ⚠️ `tests/server/test_config_reload.py` passes deterministically (no sleeps or
+  flakiness) - **NEEDS INVESTIGATION**: `test_config_auto_reload_success` shows intermittent failures.
+- ✅ No broad warning filters remain in repository configuration.
+
+## Next Steps
+1. **Fix remaining 3 async warnings** by converting AsyncMock patches to Mock where sync behavior is expected.
+2. **Investigate config reload test flakiness** - may need more deterministic event handling or longer timeouts.
+3. **Run full CI validation** with `pytest -n auto --no-cov` to confirm parallel execution stability.
+4. **Final cleanup** - ensure all tests pass consistently before merging.

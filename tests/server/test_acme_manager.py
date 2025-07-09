@@ -781,7 +781,7 @@ class TestACMEManagerRenewal:
 
     async def test_start_tls_alpn_continues_on_initial_failure(self) -> None:
         """Test TLS-ALPN-01 manager keeps running even if initial provisioning fails."""
-        mock_acme_client = AsyncMock()
+        mock_acme_client = Mock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
             "Initial certificate request failed"
         )
@@ -796,7 +796,7 @@ class TestACMEManagerRenewal:
             "ca_cert_file": None,
         }
 
-        mock_tls_alpn_server = AsyncMock()
+        mock_tls_alpn_server = Mock()
 
         with patch(
             "vibectl.server.acme_manager.create_acme_client",
@@ -819,7 +819,7 @@ class TestACMEManagerRenewal:
 
     async def test_start_http01_continues_on_initial_failure(self) -> None:
         """Test HTTP-01 manager continues running when initial provisioning fails."""
-        mock_acme_client = AsyncMock()
+        mock_acme_client = Mock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
             "Initial certificate request failed"
         )
@@ -834,7 +834,7 @@ class TestACMEManagerRenewal:
             "ca_cert_file": None,
         }
 
-        mock_http_challenge_server = AsyncMock()
+        mock_http_challenge_server = Mock()
 
         with patch(
             "vibectl.server.acme_manager.create_acme_client",
@@ -853,7 +853,7 @@ class TestACMEManagerRenewal:
 
     async def test_start_tls_alpn_background_retry_success(self) -> None:
         """Test TLS-ALPN-01 manager retries in background and eventually succeeds."""
-        mock_acme_client = AsyncMock()
+        mock_acme_client = Mock()
 
         # First call fails, second call succeeds
         mock_acme_client.request_certificate.side_effect = [
@@ -872,7 +872,7 @@ class TestACMEManagerRenewal:
             "key_file": "/tmp/test_key.pem",
         }
 
-        mock_tls_alpn_server = AsyncMock()
+        mock_tls_alpn_server = Mock()
 
         with (
             patch(
@@ -898,7 +898,7 @@ class TestACMEManagerRenewal:
 
     async def test_start_tls_alpn_background_retry_stops_on_manager_stop(self) -> None:
         """Test TLS-ALPN-01 background retry stops when manager is stopped."""
-        mock_acme_client = AsyncMock()
+        mock_acme_client = Mock()
 
         # Always fail on certificate request
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
@@ -914,7 +914,7 @@ class TestACMEManagerRenewal:
             "ca_cert_file": None,
         }
 
-        mock_tls_alpn_server = AsyncMock()
+        mock_tls_alpn_server = Mock()
 
         with patch(
             "vibectl.server.acme_manager.create_acme_client",

@@ -5,7 +5,7 @@ command_handler.py
 """
 
 from collections.abc import Callable, Generator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,7 +30,9 @@ def standard_output_flags() -> OutputFlags:
 def mock_components() -> Generator[dict, None, None]:
     """Create mock components for testing."""
     with (
-        patch("vibectl.live_display.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.live_display.update_memory", new=MagicMock()
+        ) as mock_update_memory,
         patch("vibectl.live_display.Config") as mock_config,
         patch("vibectl.live_display.console_manager") as mock_console,
         patch("vibectl.live_display.Table") as mock_table,
