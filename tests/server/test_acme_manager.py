@@ -1,5 +1,6 @@
 """Tests for ACME certificate manager functionality."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -175,6 +176,7 @@ class TestACMEManagerStartStop:
         self,
         mock_http_challenge_server: Mock,
         acme_config_http: dict[str, str | list[str]],
+        background_tasks: list[asyncio.Task],
     ) -> None:
         """Test start behavior when certificate provisioning fails."""
         manager = ACMEManager(
@@ -191,11 +193,20 @@ class TestACMEManagerStartStop:
             assert isinstance(result, Success)
             assert manager.is_running
 
+        # Track the renewal task and ensure proper shutdown to avoid
+        # pending-task warnings
+        if manager._renewal_task:
+            background_tasks.append(manager._renewal_task)
+
+        # Explicitly stop the manager to cancel internal tasks
+        await manager.stop()
+
     @pytest.mark.asyncio
     async def test_start_stop_with_renewal_task(
         self,
         mock_http_challenge_server: Mock,
         acme_config_http: dict[str, str | list[str]],
+        background_tasks: list[asyncio.Task],
     ) -> None:
         """Test start/stop with renewal task management."""
         manager = ACMEManager(
@@ -212,6 +223,9 @@ class TestACMEManagerStartStop:
             assert isinstance(result, Success)
             assert manager.is_running
             assert manager._renewal_task is not None
+
+            # Track the renewal task for cleanup
+            background_tasks.append(manager._renewal_task)
 
             # Stop manager
             await manager.stop()
@@ -779,7 +793,52 @@ class TestACMEManagerRenewal:
 
                 mock_provision.assert_called_once()
 
-    async def test_start_tls_alpn_continues_on_initial_failure(self) -> None:
+    async def test_start_http01_continues_on_initial_failure(
+        self, background_tasks: list[asyncio.Task]
+    ) -> None:
+        """Test HTTP-01 manager continues running when initial provisioning fails."""
+        mock_acme_client = Mock()
+        mock_acme_client.request_certificate.side_effect = ACMECertificateError(
+            "Initial certificate request failed"
+        )
+
+        # Configure for HTTP-01
+        config = {
+            "enabled": True,
+            "email": "test@example.com",
+            "domains": ["test.example.com"],
+            "directory_url": "https://acme.example.com/directory",
+            "challenge": {"type": "http-01"},
+            "ca_cert_file": None,
+        }
+
+        mock_http_challenge_server = Mock()
+
+        with patch(
+            "vibectl.server.acme_manager.create_acme_client",
+            return_value=mock_acme_client,
+        ):
+            manager = ACMEManager(
+                challenge_server=mock_http_challenge_server, acme_config=config
+            )
+
+            # Start should succeed and manager should continue running
+            result = await manager.start()
+
+            # HTTP-01 now continues running even when initial provisioning fails
+            assert isinstance(result, Success)
+            assert manager.is_running
+
+            # Track the renewal task for cleanup
+            if manager._renewal_task:
+                background_tasks.append(manager._renewal_task)
+
+            # Clean up
+            await manager.stop()
+
+    async def test_start_tls_alpn_continues_on_initial_failure(
+        self, background_tasks: list[asyncio.Task]
+    ) -> None:
         """Test TLS-ALPN-01 manager keeps running even if initial provisioning fails."""
         mock_acme_client = Mock()
         mock_acme_client.request_certificate.side_effect = ACMECertificateError(
@@ -815,43 +874,15 @@ class TestACMEManagerRenewal:
             assert isinstance(result, Success)
             assert manager.is_running
 
+            # Track the renewal task for cleanup
+            if manager._renewal_task:
+                background_tasks.append(manager._renewal_task)
+
             await manager.stop()
 
-    async def test_start_http01_continues_on_initial_failure(self) -> None:
-        """Test HTTP-01 manager continues running when initial provisioning fails."""
-        mock_acme_client = Mock()
-        mock_acme_client.request_certificate.side_effect = ACMECertificateError(
-            "Initial certificate request failed"
-        )
-
-        # Configure for HTTP-01
-        config = {
-            "enabled": True,
-            "email": "test@example.com",
-            "domains": ["test.example.com"],
-            "directory_url": "https://acme.example.com/directory",
-            "challenge": {"type": "http-01"},
-            "ca_cert_file": None,
-        }
-
-        mock_http_challenge_server = Mock()
-
-        with patch(
-            "vibectl.server.acme_manager.create_acme_client",
-            return_value=mock_acme_client,
-        ):
-            manager = ACMEManager(
-                challenge_server=mock_http_challenge_server, acme_config=config
-            )
-
-            # Start should succeed and manager should continue running
-            result = await manager.start()
-
-            # HTTP-01 now continues running even when initial provisioning fails
-            assert isinstance(result, Success)
-            assert manager.is_running
-
-    async def test_start_tls_alpn_background_retry_success(self) -> None:
+    async def test_start_tls_alpn_background_retry_success(
+        self, background_tasks: list[asyncio.Task]
+    ) -> None:
         """Test TLS-ALPN-01 manager retries in background and eventually succeeds."""
         mock_acme_client = Mock()
 
@@ -894,9 +925,15 @@ class TestACMEManagerRenewal:
             assert isinstance(result, Success)
             assert manager.is_running
 
+            # Track the renewal task for cleanup
+            if manager._renewal_task:
+                background_tasks.append(manager._renewal_task)
+
             await manager.stop()
 
-    async def test_start_tls_alpn_background_retry_stops_on_manager_stop(self) -> None:
+    async def test_start_tls_alpn_background_retry_stops_on_manager_stop(
+        self, background_tasks: list[asyncio.Task]
+    ) -> None:
         """Test TLS-ALPN-01 background retry stops when manager is stopped."""
         mock_acme_client = Mock()
 
@@ -929,6 +966,10 @@ class TestACMEManagerRenewal:
             result = await manager.start()
             assert isinstance(result, Success)
             assert manager.is_running
+
+            # Track the renewal task for cleanup
+            if manager._renewal_task:
+                background_tasks.append(manager._renewal_task)
 
             # Stop should succeed and stop background retry
             await manager.stop()

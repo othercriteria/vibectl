@@ -209,8 +209,10 @@ class TestALPNMultiplexerEdgeCases:
 
         # Mock TLS-ALPN server that raises exception
         mock_tls_alpn_server = Mock()
-        mock_tls_alpn_server._get_challenge_response.side_effect = Exception(
-            "Test error"
+        # Explicitly create a synchronous Mock for the synchronous
+        # _get_challenge_response method
+        mock_tls_alpn_server._get_challenge_response = Mock(
+            side_effect=Exception("Test error")
         )
 
         # Should return None and log warning on exception
@@ -245,15 +247,16 @@ class TestALPNMultiplexerEdgeCases:
             mock_writer.close = Mock()
             mock_writer.wait_closed = AsyncMock()
 
-            # Register mock handler
-            mock_handler = AsyncMock()
+            # Register mock handler with async handle_connection
+            mock_handler = Mock()
+            mock_handler.handle_connection = AsyncMock()
             multiplexer.register_handler("acme-tls/1", mock_handler)
 
             # Should handle certificate info error gracefully
             await multiplexer._handle_connection(mock_reader, mock_writer)
 
-            # Handler should still be called
-            mock_handler.handle_connection.assert_called_once()
+            # Handler should still be awaited
+            mock_handler.handle_connection.assert_awaited_once()
 
         import asyncio
 
@@ -282,15 +285,16 @@ class TestALPNMultiplexerEdgeCases:
             mock_writer.close = Mock()
             mock_writer.wait_closed = AsyncMock()
 
-            # Register mock handler
-            mock_handler = AsyncMock()
+            # Register mock handler with async handle_connection
+            mock_handler = Mock()
+            mock_handler.handle_connection = AsyncMock()
             multiplexer.register_handler("acme-tls/1", mock_handler)
 
             # Should handle connection info error gracefully
             await multiplexer._handle_connection(mock_reader, mock_writer)
 
-            # Handler should still be called
-            mock_handler.handle_connection.assert_called_once()
+            # Handler should still be awaited
+            mock_handler.handle_connection.assert_awaited_once()
 
         import asyncio
 
@@ -384,7 +388,9 @@ class TestACMEClientErrorPaths:
         """Test HTTP-01 challenge when submission fails."""
         client = ACMEClient()
         client._account_key = Mock()
-        client._client = Mock()
+        # Explicitly use Mock (not AsyncMock) for the ACME client since
+        # answer_challenge is sync
+        client._client = Mock(spec_set=["answer_challenge"])
         client._client.answer_challenge.side_effect = Exception("Submit error")
 
         # Mock challenge body

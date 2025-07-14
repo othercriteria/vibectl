@@ -156,56 +156,60 @@ class TestACMEBootstrapCertificates:
 
             assert result == mock_server_instance
 
-    @patch("vibectl.server.grpc_server.GRPCServer")
-    @patch("vibectl.server.cert_utils.ensure_certificate_exists")
-    @patch("vibectl.server.cert_utils.get_default_cert_paths")
-    @patch("vibectl.config_utils.get_config_dir")
     def test_create_grpc_server_acme_http01_uses_ensure_certificate(
         self,
-        mock_get_config_dir: Mock,
-        mock_get_default_paths: Mock,
-        mock_ensure_cert: Mock,
-        mock_grpc_server: Mock,
     ) -> None:
         """Test server creation with ACME HTTP-01 uses standard cert generation."""
-        # Setup mocks
-        mock_config_dir = Path("/test/config")
-        mock_get_config_dir.return_value = mock_config_dir
+        with (
+            patch("vibectl.config_utils.get_config_dir") as mock_get_config_dir,
+            patch(
+                "vibectl.server.cert_utils.get_default_cert_paths"
+            ) as mock_get_default_paths,
+            patch(
+                "vibectl.server.cert_utils.ensure_certificate_exists", new=Mock()
+            ) as mock_ensure_cert,
+            patch("vibectl.server.grpc_server.GRPCServer") as mock_grpc_server,
+        ):
+            # Setup mocks
+            mock_config_dir = Path("/test/config")
+            mock_get_config_dir.return_value = mock_config_dir
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            cert_file = str(Path(temp_dir) / "server.crt")
-            key_file = str(Path(temp_dir) / "server.key")
-            mock_get_default_paths.return_value = (cert_file, key_file)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                cert_file = str(Path(temp_dir) / "server.crt")
+                key_file = str(Path(temp_dir) / "server.key")
+                mock_get_default_paths.return_value = (cert_file, key_file)
 
-            mock_server_instance = Mock()
-            mock_grpc_server.return_value = mock_server_instance
+                # Configure mock to avoid AsyncMock behavior
+                mock_server_instance = Mock(spec=["start", "stop", "serve_forever"])
+                mock_grpc_server.return_value = mock_server_instance
 
-            # Server config with ACME HTTP-01 (not TLS-ALPN-01)
-            server_config = {
-                "server": {
-                    "host": "0.0.0.0",
-                    "port": 50051,
-                    "max_workers": 10,
-                    "default_model": "test-model",
-                },
-                "jwt": {"enabled": False},
-                "tls": {"enabled": True},
-                "acme": {
-                    "enabled": True,
-                    "challenge": {"type": "http-01"},
-                    "domains": ["api.example.com", "www.example.com"],
-                },
-            }
+                # Server config with ACME HTTP-01 (not TLS-ALPN-01)
+                server_config = {
+                    "server": {
+                        "host": "0.0.0.0",
+                        "port": 50051,
+                        "max_workers": 10,
+                        "default_model": "test-model",
+                    },
+                    "jwt": {"enabled": False},
+                    "tls": {"enabled": True},
+                    "acme": {
+                        "enabled": True,
+                        "challenge": {"type": "http-01"},
+                        "domains": ["api.example.com", "www.example.com"],
+                    },
+                }
 
-            # Call the function
-            result = _create_grpc_server_with_temp_certs(server_config)
+                # Call the function
+                result = _create_grpc_server_with_temp_certs(server_config)
 
-            # Verify ensure_certificate_exists was called (not the special ACME logic)
-            mock_ensure_cert.assert_called_once_with(
-                cert_file, key_file, hostname="localhost"
-            )
+                # Verify ensure_certificate_exists was called (not the special
+                # ACME logic)
+                mock_ensure_cert.assert_called_once_with(
+                    cert_file, key_file, hostname="localhost"
+                )
 
-            assert result == mock_server_instance
+                assert result == mock_server_instance
 
     @patch("vibectl.server.grpc_server.GRPCServer")
     @patch("vibectl.server.cert_utils.generate_self_signed_certificate")

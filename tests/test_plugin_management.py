@@ -1751,3 +1751,39 @@ class TestDualPromptTypePlugins:
         plugin = mock_plugin_store.get_plugin("dual-prompt-plugin")
         assert plugin is not None
         assert len(plugin.prompt_mappings) == 2
+
+    @patch("vibectl.subcommands.plugin_cmd.PluginStore")
+    @patch("vibectl.subcommands.plugin_cmd.Config")
+    async def test_run_plugin_uninstall_command_in_precedence(
+        self, mock_config_class: Mock, mock_store_class: Mock
+    ) -> None:
+        """Test uninstalling a plugin that's in the precedence list."""
+        # Setup mocks
+        mock_store = Mock()
+        mock_store_class.return_value = mock_store
+
+        mock_config = Mock()
+        mock_config_class.return_value = mock_config
+
+        # Mock plugin exists and is in precedence
+        mock_plugin = Mock()
+        mock_plugin.metadata.name = "test-plugin"
+        mock_store.get_plugin.return_value = mock_plugin
+
+        # Mock precedence list with our plugin
+        mock_config.get.return_value = ["test-plugin", "other-plugin"]
+        mock_config.set = Mock()  # Use regular Mock, not AsyncMock
+
+        # Call the uninstall command
+        result = await run_plugin_uninstall_command("test-plugin")
+
+        # Verify success
+        assert isinstance(result, Success)
+        assert "Uninstalled plugin 'test-plugin'" in result.message
+        assert "Removed from precedence list" in result.message
+
+        # Verify plugin was removed from store
+        mock_store.uninstall_plugin.assert_called_once_with("test-plugin")
+
+        # Verify precedence was updated (plugin removed from list)
+        mock_config.set.assert_called_once_with("plugins.precedence", ["other-plugin"])

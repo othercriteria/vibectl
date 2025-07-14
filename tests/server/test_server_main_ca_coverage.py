@@ -252,7 +252,9 @@ class TestCAStatusChecking:
         """Test _show_ca_status with unexpected exception."""
         with (
             tempfile.TemporaryDirectory() as temp_dir,
-            patch("vibectl.server.main.CAManager") as mock_ca_manager_class,
+            patch(
+                "vibectl.server.main.CAManager", new_callable=Mock
+            ) as mock_ca_manager_class,
         ):
             mock_ca_manager_class.side_effect = RuntimeError("Unexpected error")
 
@@ -320,6 +322,7 @@ class TestCertificateStatusHelper:
         self, mock_ca_manager_class: Mock
     ) -> None:
         """Test _check_certificate_status with missing certificate file."""
+        # Explicitly configure as sync mock to avoid AsyncMockMixin warnings
         mock_ca_manager = Mock()
         mock_ca_manager_class.return_value = mock_ca_manager
 
@@ -345,6 +348,7 @@ class TestCertificateStatusHelper:
         self, mock_ca_manager_class: Mock
     ) -> None:
         """Test _check_certificate_status with certificate info retrieval error."""
+        # Explicitly configure as sync mock to avoid AsyncMockMixin warnings
         mock_ca_manager = Mock()
         mock_ca_manager.get_certificate_info.side_effect = Exception("Cert info error")
         mock_ca_manager_class.return_value = mock_ca_manager

@@ -773,18 +773,28 @@ async def test_auto_command_with_natural_language_in_command(
     mock_sleep = Mock()
     monkeypatch.setattr("time.sleep", mock_sleep)
 
-    # Mock configure functions
-    mock_configure_output = Mock(return_value="output_flags")
+    # Mock configure functions - use spec to prevent AsyncMock child creation
+    # Import the actual functions to get proper specs
+    from vibectl.command_handler import configure_output_flags as real_configure_output
+    from vibectl.memory import (
+        configure_memory_flags as real_configure_memory,
+        get_memory as real_get_memory,
+    )
+
+    mock_configure_output = Mock(
+        spec=real_configure_output, return_value="output_flags"
+    )
     monkeypatch.setattr(
         "vibectl.subcommands.auto_cmd.configure_output_flags", mock_configure_output
     )
-    mock_configure_memory = Mock()
+
+    mock_configure_memory = Mock(spec=real_configure_memory)
     monkeypatch.setattr(
         "vibectl.subcommands.auto_cmd.configure_memory_flags", mock_configure_memory
     )
 
-    # Mock get_memory
-    mock_get_memory = Mock(return_value="Memory content")
+    # Mock get_memory - ensure it's a regular Mock with proper spec
+    mock_get_memory = Mock(spec=real_get_memory, return_value="Memory content")
     monkeypatch.setattr("vibectl.subcommands.auto_cmd.get_memory", mock_get_memory)
 
     # Create a mock run_vibe_command with a counter to control iterations
@@ -820,7 +830,7 @@ async def test_auto_command_with_natural_language_in_command(
         else:
             raise KeyboardInterrupt()
 
-    # Set up our mock
+    # Set up our mock - only this should be AsyncMock since run_vibe_command is async
     mock_vibe = AsyncMock(side_effect=mock_run_vibe)
     monkeypatch.setattr("vibectl.subcommands.auto_cmd.run_vibe_command", mock_vibe)
 

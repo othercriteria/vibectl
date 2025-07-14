@@ -480,7 +480,8 @@ async def test_plan_and_execute_final_commands_success(
     llm_remaining_request = "apply to staging namespace"
 
     # Mock the model and adapter
-    mock_adapter = AsyncMock()
+    mock_adapter = Mock()
+    mock_adapter.get_model.return_value = Mock()
     mock_get_model_adapter.return_value = mock_adapter
 
     # Mock the LLM response for final planning
@@ -496,9 +497,11 @@ async def test_plan_and_execute_final_commands_success(
         ]
     }
 
-    mock_adapter.execute_and_log_metrics.return_value = (
-        json.dumps(mock_plan_response),
-        LLMMetrics(token_input=10, token_output=20, latency_ms=100.0, call_count=1),
+    mock_adapter.execute_and_log_metrics = AsyncMock(
+        return_value=(
+            json.dumps(mock_plan_response),
+            LLMMetrics(token_input=10, token_output=20, latency_ms=100.0, call_count=1),
+        )
     )
 
     with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
@@ -512,9 +515,11 @@ async def test_plan_and_execute_final_commands_success(
             )
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread
 
                 result = await plan_and_execute_final_commands(
                     semantically_valid_manifests,
@@ -558,12 +563,18 @@ async def test_plan_and_execute_final_commands_parse_error(
     mock_get_model_adapter: MagicMock, test_config: Config
 ) -> None:
     """Test plan_and_execute_final_commands when LLM response can't be parsed."""
-    mock_adapter = AsyncMock()
+    mock_adapter = Mock()
+    mock_adapter.get_model.return_value = Mock()
     mock_get_model_adapter.return_value = mock_adapter
 
     # Mock LLM to return non-parseable response
-    mock_adapter.execute_and_log_metrics.side_effect = (
-        ValidationError.from_exception_data(
+    async def mock_execute_and_raise(
+        model: Any,
+        system_fragments: Any,
+        user_fragments: Any,
+        response_model: Any = None,
+    ) -> None:
+        raise ValidationError.from_exception_data(
             "Test",
             [
                 {
@@ -574,7 +585,8 @@ async def test_plan_and_execute_final_commands_parse_error(
                 }
             ],
         )
-    )
+
+    mock_adapter.execute_and_log_metrics = AsyncMock(side_effect=mock_execute_and_raise)
 
     result = await plan_and_execute_final_commands(
         semantically_valid_manifests=[],
@@ -641,9 +653,11 @@ async def test_execute_planned_commands_single_success(test_config: Config) -> N
             )
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread
 
                 result = await execute_planned_commands(
                     planned_commands,
@@ -695,12 +709,14 @@ metadata:
             data='{"items": [{"metadata": {"name": "test-pod"}}]}',
         )
 
-        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+        with patch(
+            "vibectl.execution.apply.handle_command_output", new_callable=AsyncMock
+        ) as mock_output:
             mock_output.return_value = Success(message="pod/test-pod created")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-
-                def mock_to_thread_side_effect(
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread_side_effect(
                     func: Any, *args: Any, **kwargs: Any
                 ) -> Any:
                     # Handle parameter name mismatch: cmd -> args
@@ -753,13 +769,17 @@ async def test_execute_planned_commands_kubectl_failure(test_config: Config) -> 
         show_streaming=False,
     )
 
-    with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
+    with patch("vibectl.execution.apply.run_kubectl", spec=True) as mock_kubectl:
         mock_kubectl.return_value = Error(error="file not found: nonexistent.yaml")
 
         with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-            mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                *args, **kwargs
-            )
+            # Return the result of calling the function directly
+            async def mock_to_thread_side_effect(
+                func: Any, *args: Any, **kwargs: Any
+            ) -> Error:
+                return Error(error="file not found: nonexistent.yaml")
+
+            mock_thread.side_effect = mock_to_thread_side_effect
 
             result = await execute_planned_commands(
                 planned_commands,
@@ -809,9 +829,11 @@ async def test_execute_planned_commands_empty_command_list(test_config: Config) 
             mock_output.return_value = Success(message="resource applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread
 
                 # Test with a modified command action that has empty commands
                 # after construction
@@ -920,13 +942,17 @@ async def test_execute_planned_commands_multiple_commands_mixed_results(
     with patch("vibectl.execution.apply.run_kubectl") as mock_kubectl:
         mock_kubectl.side_effect = mock_kubectl_side_effect
 
-        with patch("vibectl.execution.apply.handle_command_output") as mock_output:
+        with patch(
+            "vibectl.execution.apply.handle_command_output", new_callable=AsyncMock
+        ) as mock_output:
             mock_output.return_value = Success(message="resource applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread
 
                 result = await execute_planned_commands(
                     planned_commands,
@@ -978,9 +1004,11 @@ async def test_execute_planned_commands_yaml_manifest_without_stdin(
             mock_output.return_value = Success(message="deployment applied")
 
             with patch("vibectl.execution.apply.asyncio.to_thread") as mock_thread:
-                mock_thread.side_effect = lambda func, *args, **kwargs: func(
-                    *args, **kwargs
-                )
+                # Make side_effect return a coroutine since asyncio.to_thread is awaited
+                async def mock_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+                    return func(*args, **kwargs)
+
+                mock_thread.side_effect = mock_to_thread
 
                 result = await execute_planned_commands(
                     planned_commands,

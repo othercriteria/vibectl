@@ -47,6 +47,11 @@ async def test_config_auto_reload_success() -> None:
         sc.subscribe(_on_change)
         sc.start_auto_reload(poll_interval=0.05)
 
+        # Allow the watcher thread to start before we modify the file. A short
+        # async sleep keeps the test deterministic under heavy CI load without
+        # noticeably impacting total runtime (~0.1 s).
+        await asyncio.sleep(0.1)
+
         # Modify the file
         modified_cfg = {"server": {"host": "modified", "port": 1234}}
         _write_yaml(config_path, modified_cfg)
@@ -86,6 +91,11 @@ async def test_config_auto_reload_invalid_change() -> None:
 
         sc.subscribe(_fail_cb)
         sc.start_auto_reload(poll_interval=0.05)
+
+        # Ensure the watcher thread is running before we introduce malformed
+        # YAML. A brief pause avoids race conditions seen when the watcher had
+        # not yet performed its first poll.
+        await asyncio.sleep(0.1)
 
         # Write malformed YAML
         with open(config_path, "w", encoding="utf-8") as f:
@@ -130,6 +140,10 @@ async def test_config_auto_reload_multiple_changes() -> None:
 
         sc.subscribe(_cb)
         sc.start_auto_reload(poll_interval=0.05)
+
+        # Give the watcher thread a moment to spin up before the first update -
+        # eliminates occasional flakes under high load.
+        await asyncio.sleep(0.1)
 
         # First update
         _write_yaml(config_path, {"server": {"host": "v2", "port": 9999}})

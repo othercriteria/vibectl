@@ -8,7 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Changed
-- Planned: Robust async-testing refactor (WIP)
+- Robust async-testing refactor completed:
+  - Added shared async-test helpers (`fast_sleep`, `background_tasks`) for
+    event-loop-friendly sleep replacement and task management.
+  - Removed global `asyncio` monkey-patches; migrated existing stubs to
+    `AsyncMock` or lightweight async wrappers.
+  - Eliminated all `RuntimeWarning: coroutine ... was never awaited` messages
+    (17 → 0) across the entire suite.
+
+### Fixed
+- Stabilised `ServerConfig` auto-reload tests:
+  - Ensures watcher thread is active before file modifications, eliminating
+    intermittent flakiness in `test_config_auto_reload_*`.
 
 ## [0.11.3] - 2025-06-27
 

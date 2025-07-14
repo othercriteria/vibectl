@@ -10,10 +10,11 @@ For most CLI tests, use the cli_test_mocks fixture which provides all three.
 """
 
 from collections.abc import Generator
-from unittest.mock import MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from click.testing import CliRunner
+from asyncclick.testing import CliRunner
 
 from vibectl.cli import cli
 from vibectl.config import DEFAULT_CONFIG
@@ -87,16 +88,16 @@ def patch_kubectl_and_llm() -> Generator[None, None, None]:
 
 
 # Test initialization logic via main() entry point
+@pytest.mark.asyncio
 @patch("vibectl.model_adapter.validate_model_key_on_startup")
 @patch("vibectl.console.console_manager")  # Patch console_manager instance
 @patch("vibectl.config.Config")  # Patch Config class
 @patch("vibectl.cli.init_logging")  # Patch where it's looked up (in cli.py)
-def test_cli_init_with_theme(
+async def test_cli_init_with_theme(
     mock_init_logging: Mock,
     mock_config_class: Mock,
     mock_console_manager: Mock,  # Patches the instance
     mock_validate: Mock,
-    cli_runner: CliRunner,  # Use the fixture
 ) -> None:
     """Test CLI group initialization uses default theme via CliRunner."""
     # Setup Config mock instance behavior
@@ -115,10 +116,12 @@ def test_cli_init_with_theme(
     mock_validate.return_value = None  # Simulate valid key (no warning)
 
     # Import the cli group object itself
-    from vibectl.cli import cli
 
-    # Invoke the CLI without any subcommand
-    result = cli_runner.invoke(cli)  # type: ignore[arg-type] # No args means no subcommand
+    # Create async CLI runner directly for this test
+    async_cli_runner = CliRunner()
+
+    # Invoke the CLI without any subcommand using AsyncClick's async runner
+    result = await async_cli_runner.invoke(cli)  # type: ignore[arg-type] # No args means no subcommand
 
     # Assertions
     assert result.exit_code == 0  # Should exit cleanly
@@ -127,12 +130,10 @@ def test_cli_init_with_theme(
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
 @patch("vibectl.subcommands.just_cmd.Config")
-@patch("vibectl.cli.handle_result")
 async def test_just_general_exception(
-    mock_handle_result: Mock, mock_subprocess_run: Mock, mock_config_class: Mock
+    mock_config_class: Mock, mock_subprocess_run: Mock
 ) -> None:
     """Test just command handling when subprocess.run fails."""
-    just_cmd = cli.commands["just"]  # type: ignore[attr-defined]
     # Setup mock config get
     mock_config = mock_config_class.return_value
     mock_config.get.return_value = None  # No kubeconfig override
@@ -140,35 +141,36 @@ async def test_just_general_exception(
     error = Exception("Subprocess failed")
     mock_subprocess_run.side_effect = error
 
-    # Invoke command using await main
-    await just_cmd.main(["get", "pods"], standalone_mode=False)  # type: ignore[attr-defined]
+    # Call the function directly instead of via CLI command
+    from vibectl.subcommands.just_cmd import run_just_command
 
-    # Verify handle_result was called with an Error object containing the exception
-    mock_handle_result.assert_called_once()
-    args, _ = mock_handle_result.call_args
-    assert isinstance(args[0], Error)
+    result = await run_just_command(("get", "pods"))
+
+    # Verify the result is an Error object containing the exception
+    assert isinstance(result, Error)
     assert (
-        args[0].error == "Exception in 'just' subcommand"
+        result.error == "Exception in 'just' subcommand"
     )  # Use the actual error message
-    assert args[0].exception is error
+    assert result.exception is error
 
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
 @patch("vibectl.subcommands.just_cmd.Config")
-@patch("vibectl.cli.handle_result")
 async def test_just_passthrough_dash_n_after_resource(
-    mock_handle_result: Mock, mock_config: Mock, mock_subprocess_run: Mock
+    mock_config: Mock, mock_subprocess_run: Mock
 ) -> None:
     """Test 'just' passthrough: vibectl just get pods -n sandbox"""
-    just_cmd = cli.commands["just"]  # type: ignore[attr-defined]
     mock_config.return_value.get.return_value = None
     # Mock subprocess return value
     mock_subprocess_run.return_value = Mock(
         stdout="pods listed", stderr="", returncode=0
     )
 
-    await just_cmd.main(["get", "pods", "-n", "sandbox"], standalone_mode=False)  # type: ignore[attr-defined]
+    # Call the function directly instead of via CLI command
+    from vibectl.subcommands.just_cmd import run_just_command
+
+    result = await run_just_command(("get", "pods", "-n", "sandbox"))
 
     mock_subprocess_run.assert_called_once_with(
         ["kubectl", "get", "pods", "-n", "sandbox"],
@@ -176,28 +178,27 @@ async def test_just_passthrough_dash_n_after_resource(
         text=True,
         capture_output=True,
     )
-    # Check handle_result was called with Success
-    mock_handle_result.assert_called_once()
-    args, _ = mock_handle_result.call_args
-    assert isinstance(args[0], Success)
-    assert args[0].data == "pods listed"
+    # Check the result is Success
+    assert isinstance(result, Success)
+    assert result.data == "pods listed"
 
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
 @patch("vibectl.subcommands.just_cmd.Config")
-@patch("vibectl.cli.handle_result")
 async def test_just_passthrough_dash_n_before_resource(
-    mock_handle_result: Mock, mock_config: Mock, mock_subprocess_run: Mock
+    mock_config: Mock, mock_subprocess_run: Mock
 ) -> None:
     """Test 'just' passthrough: vibectl just -n sandbox get pods"""
-    just_cmd = cli.commands["just"]  # type: ignore[attr-defined]
     mock_config.return_value.get.return_value = None
     mock_subprocess_run.return_value = Mock(
         stdout="pods listed", stderr="", returncode=0
     )
 
-    await just_cmd.main(["-n", "sandbox", "get", "pods"], standalone_mode=False)  # type: ignore[attr-defined]
+    # Call the function directly instead of via CLI command
+    from vibectl.subcommands.just_cmd import run_just_command
+
+    result = await run_just_command(("-n", "sandbox", "get", "pods"))
 
     mock_subprocess_run.assert_called_once_with(
         ["kubectl", "-n", "sandbox", "get", "pods"],
@@ -205,57 +206,62 @@ async def test_just_passthrough_dash_n_before_resource(
         text=True,
         capture_output=True,
     )
-    mock_handle_result.assert_called_once()
-    args, _ = mock_handle_result.call_args
-    assert isinstance(args[0], Success)
-    assert args[0].data == "pods listed"
+    assert isinstance(result, Success)
+    assert result.data == "pods listed"
 
 
 @pytest.mark.asyncio
-@patch("vibectl.subcommands.just_cmd.subprocess.run")
+@patch("vibectl.subcommands.just_cmd.asyncio.to_thread", new_callable=AsyncMock)
 @patch("vibectl.subcommands.just_cmd.Config")
-@patch("vibectl.cli.handle_result")
 async def test_just_passthrough_dash_n_between_resource(
-    mock_handle_result: Mock, mock_config: Mock, mock_subprocess_run: Mock
+    mock_config: Mock, mock_to_thread: AsyncMock
 ) -> None:
     """Test 'just' passthrough: vibectl just get -n sandbox pods"""
-    just_cmd = cli.commands["just"]  # type: ignore[attr-defined]
     mock_config.return_value.get.return_value = None
-    mock_subprocess_run.return_value = Mock(
-        stdout="pods listed", stderr="", returncode=0
-    )
 
-    await just_cmd.main(["get", "-n", "sandbox", "pods"], standalone_mode=False)  # type: ignore[attr-defined]
+    # Mock the result of subprocess.run
+    mock_subprocess_result = Mock(stdout="pods listed", stderr="", returncode=0)
 
-    mock_subprocess_run.assert_called_once_with(
+    # Configure asyncio.to_thread to return the mock result
+    async def mock_to_thread_side_effect(func: Any, *args: Any, **kwargs: Any) -> Any:
+        if func.__name__ == "run":  # subprocess.run
+            return mock_subprocess_result
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = mock_to_thread_side_effect
+
+    # Call the function directly instead of via CLI command
+    from vibectl.subcommands.just_cmd import run_just_command
+
+    result = await run_just_command(("get", "-n", "sandbox", "pods"))
+
+    mock_to_thread.assert_called_once()
+    # Verify the arguments passed to asyncio.to_thread
+    call_args = mock_to_thread.call_args
+    assert call_args[0][1:] == (  # Skip the function itself, check the args
         ["kubectl", "get", "-n", "sandbox", "pods"],
-        check=True,
-        text=True,
-        capture_output=True,
     )
-    mock_handle_result.assert_called_once()
-    args, _ = mock_handle_result.call_args
-    assert isinstance(args[0], Success)
-    assert args[0].data == "pods listed"
+    assert call_args[1] == {"check": True, "text": True, "capture_output": True}
+    assert isinstance(result, Success)
+    assert result.data == "pods listed"
 
 
 @pytest.mark.asyncio
 @patch("vibectl.subcommands.just_cmd.subprocess.run")
 @patch("vibectl.subcommands.just_cmd.Config")
-@patch("vibectl.cli.handle_result")
 async def test_just_passthrough_namespace_long_flag(
-    mock_handle_result: Mock, mock_config: Mock, mock_subprocess_run: Mock
+    mock_config: Mock, mock_subprocess_run: Mock
 ) -> None:
     """Test 'just' passthrough: vibectl just get pods --namespace sandbox"""
-    just_cmd = cli.commands["just"]  # type: ignore[attr-defined]
     mock_config.return_value.get.return_value = None
     mock_subprocess_run.return_value = Mock(
         stdout="pods listed", stderr="", returncode=0
     )
 
-    await just_cmd.main(
-        ["get", "pods", "--namespace", "sandbox"], standalone_mode=False
-    )  # type: ignore[attr-defined]
+    # Call the function directly instead of via CLI command
+    from vibectl.subcommands.just_cmd import run_just_command
+
+    result = await run_just_command(("get", "pods", "--namespace", "sandbox"))
 
     mock_subprocess_run.assert_called_once_with(
         ["kubectl", "get", "pods", "--namespace", "sandbox"],
@@ -263,10 +269,8 @@ async def test_just_passthrough_namespace_long_flag(
         text=True,
         capture_output=True,
     )
-    mock_handle_result.assert_called_once()
-    args, _ = mock_handle_result.call_args
-    assert isinstance(args[0], Success)
-    assert args[0].data == "pods listed"
+    assert isinstance(result, Success)
+    assert result.data == "pods listed"
 
 
 def test_cli_no_subcommand_shows_welcome() -> None:

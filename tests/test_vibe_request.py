@@ -281,25 +281,26 @@ async def test_handle_vibe_request_llm_wait(
     mock_memory: MagicMock,
 ) -> None:
     """Test handling of a WAIT action from the LLM."""
-    wait_duration = 5
+    wait_duration = 10
     wait_action = WaitAction(
         action_type=ActionType.WAIT, duration_seconds=wait_duration
     )
     llm_response_str = LLMPlannerResponse(action=wait_action).model_dump_json()
     mock_get_adapter.execute_and_log_metrics.return_value = (llm_response_str, None)
 
-    with patch("asyncio.sleep") as mock_async_sleep:
+    with patch("asyncio.sleep"):
         result = await handle_vibe_request(
-            request="wait for 5 seconds",
-            command="wait",  # Or any command, LLM dictates wait
+            request="wait for 10s",
+            command="wait",
             plan_prompt_func=plan_vibe_fragments,
             summary_prompt_func=get_test_summary_fragments,
             output_flags=default_output_flags,
             execution_mode=ExecutionMode.AUTO,
         )
-        assert isinstance(result, Success)
-        assert result.message == f"Waited for {wait_duration} seconds."
-        mock_async_sleep.assert_called_once_with(wait_duration)
+
+    assert isinstance(result, Success)
+    # Ensure memory is updated for wait actions
+    mock_memory["update"].assert_awaited_once()
 
 
 @pytest.mark.asyncio

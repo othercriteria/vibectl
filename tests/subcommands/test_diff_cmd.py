@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,7 +52,12 @@ async def test_run_diff_command_success_no_differences(
     )
 
     mock_to_thread.return_value = mock_kubectl_result
-    mock_handle_command_output.return_value = mock_final_result
+
+    # Use AsyncMock properly by using side_effect with an async function
+    async def mock_handle_output(*args: Any, **kwargs: Any) -> Any:
+        return mock_final_result
+
+    mock_handle_command_output.side_effect = mock_handle_output
 
     result = await run_diff_command(
         resource="pod/my-pod",
@@ -149,7 +155,12 @@ async def test_run_diff_command_success_with_differences(
     )
 
     mock_to_thread.return_value = mock_kubectl_result
-    mock_handle_command_output.return_value = mock_final_result
+
+    # Use AsyncMock properly by using side_effect with an async function
+    async def mock_handle_output(*args: Any, **kwargs: Any) -> Any:
+        return mock_final_result
+
+    mock_handle_command_output.side_effect = mock_handle_output
 
     result = await run_diff_command(
         resource="deployment/my-app",
@@ -318,7 +329,12 @@ async def test_run_diff_command_handle_output_error(
     )
 
     mock_to_thread.return_value = mock_kubectl_as_input_to_handler
-    mock_handle_command_output.return_value = mock_handler_produces_this_success_obj
+
+    # Use AsyncMock properly by using side_effect with an async function
+    async def mock_handle_output(*args: Any, **kwargs: Any) -> Any:
+        return mock_handler_produces_this_success_obj
+
+    mock_handle_command_output.side_effect = mock_handle_output
 
     result = await run_diff_command(
         resource="configmap/my-config",
@@ -421,7 +437,7 @@ async def test_run_diff_command_vibe_missing_request(
 
 
 @pytest.mark.asyncio
-@patch("vibectl.subcommands.diff_cmd.handle_vibe_request")
+@patch("vibectl.subcommands.diff_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.subcommands.diff_cmd.diff_plan_prompt")
 @patch("vibectl.subcommands.diff_cmd.configure_output_flags")
 @patch("vibectl.subcommands.diff_cmd.configure_memory_flags")
@@ -431,7 +447,7 @@ async def test_run_diff_command_vibe_error_from_handler(
     mock_configure_memory_flags: MagicMock,
     mock_configure_output_flags: MagicMock,
     mock_diff_plan_prompt: MagicMock,
-    mock_handle_vibe_request: MagicMock,
+    mock_handle_vibe_request: AsyncMock,
 ) -> None:
     """Test run_diff_command with 'vibe' where handle_vibe_request returns Error."""
     mock_output_flags = MagicMock(spec=OutputFlags)

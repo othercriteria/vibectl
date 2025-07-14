@@ -285,7 +285,7 @@ class TestShowProxyStatus:
                 patch(
                     "vibectl.subcommands.setup_proxy_cmd.console_manager", test_console
                 ),
-                patch("os.environ.get") as mock_env,
+                patch("os.environ.get", new_callable=Mock) as mock_env,
             ):
 
                 def env_get_side_effect(key: str, default: Any = None) -> Any:

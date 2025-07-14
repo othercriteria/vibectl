@@ -270,7 +270,7 @@ async def test_audit_show_no_profile() -> None:
         patch.dict(os.environ, {"VIBECTL_ANTHROPIC_API_KEY": "dummy"}),
         patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class,
     ):
-        mock_config = Mock()
+        mock_config = Mock(spec=Config)
         mock_config.get_active_proxy_profile.return_value = None
         mock_config_class.return_value = mock_config
 
@@ -293,7 +293,9 @@ async def test_audit_show_disabled_logging(
     runner = CliRunner()
     with (
         patch.dict(os.environ, {"VIBECTL_ANTHROPIC_API_KEY": "dummy"}),
-        patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class,
+        patch(
+            "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+        ) as mock_config_class,
     ):
         mock_config = Mock()
         mock_config.get_active_proxy_profile.return_value = profile_name
@@ -382,7 +384,9 @@ async def test_audit_show_no_active_profile() -> None:
     runner = CliRunner()
 
     # Mock Config to return None for active profile
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         mock_config.get_active_proxy_profile.return_value = None
         mock_config_class.return_value = mock_config
@@ -402,7 +406,9 @@ async def test_audit_show_profile_not_found() -> None:
     """audit show should handle case where specified profile doesn't exist."""
     runner = CliRunner()
 
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         mock_config.get_proxy_profile.return_value = None
         mock_config_class.return_value = mock_config
@@ -422,7 +428,9 @@ async def test_audit_export_no_active_profile() -> None:
     """audit export should handle case where no active profile is set."""
     runner = CliRunner()
 
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         mock_config.get_active_proxy_profile.return_value = None
         mock_config_class.return_value = mock_config
@@ -442,7 +450,9 @@ async def test_audit_export_profile_not_found() -> None:
     """audit export should handle case where specified profile doesn't exist."""
     runner = CliRunner()
 
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         mock_config.get_proxy_profile.return_value = None
         mock_config_class.return_value = mock_config
@@ -527,7 +537,9 @@ async def test_audit_info_no_profiles() -> None:
     """audit info should handle case where no profiles are configured."""
     runner = CliRunner()
 
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         mock_config.list_proxy_profiles.return_value = []
         mock_config_class.return_value = mock_config
@@ -666,6 +678,7 @@ async def test_audit_commands_exception_handling() -> None:
         patch(
             "vibectl.subcommands.audit_cmd.Config",
             side_effect=Exception("Test error"),
+            new_callable=Mock,
         ),
         patch("vibectl.subcommands.audit_cmd.handle_exception") as mock_handle,
         patch.dict(os.environ, {"VIBECTL_ANTHROPIC_API_KEY": "dummy"}),
@@ -681,6 +694,7 @@ async def test_audit_commands_exception_handling() -> None:
         patch(
             "vibectl.subcommands.audit_cmd.Config",
             side_effect=Exception("Test error"),
+            new_callable=Mock,
         ),
         patch("vibectl.subcommands.audit_cmd.handle_exception") as mock_handle,
         patch.dict(os.environ, {"VIBECTL_ANTHROPIC_API_KEY": "dummy"}),
@@ -696,6 +710,7 @@ async def test_audit_commands_exception_handling() -> None:
         patch(
             "vibectl.subcommands.audit_cmd.Config",
             side_effect=Exception("Test error"),
+            new_callable=Mock,
         ),
         patch("vibectl.subcommands.audit_cmd.handle_exception") as mock_handle,
         patch.dict(os.environ, {"VIBECTL_ANTHROPIC_API_KEY": "dummy"}),
@@ -712,7 +727,9 @@ async def test_audit_info_profile_not_found_in_list() -> None:
     """Test audit info when a profile from list doesn't exist when retrieved."""
     runner = CliRunner()
 
-    with patch("vibectl.subcommands.audit_cmd.Config") as mock_config_class:
+    with patch(
+        "vibectl.subcommands.audit_cmd.Config", new_callable=Mock
+    ) as mock_config_class:
         mock_config = Mock()
         # Return a profile name but then return None when getting the profile
         mock_config.list_proxy_profiles.return_value = ["missing-profile"]

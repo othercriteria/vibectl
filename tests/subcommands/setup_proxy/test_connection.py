@@ -179,8 +179,11 @@ class TestTestProxyConnection:
             mock_request = Mock()
             _mock_request_class.return_value = mock_request
 
-            # Mock the executor call
-            mock_wait_for.return_value = mock_response
+            # Mock the executor call - make it properly awaitable
+            async def mock_wait_for_coro(*args: Any, **kwargs: Any) -> Any:
+                return mock_response
+
+            mock_wait_for.side_effect = mock_wait_for_coro
 
             result = await check_proxy_connection("vibectl-server://test.com:443")
 
@@ -379,7 +382,7 @@ class TestTestProxyConnection:
                 return_value=mock_proxy_config,
             ),
             patch("grpc.secure_channel") as mock_secure_channel,
-            patch("asyncio.wait_for") as mock_wait_for,
+            patch("asyncio.wait_for", new_callable=Mock) as mock_wait_for,
         ):
             mock_channel = Mock()
             mock_secure_channel.return_value = mock_channel
@@ -688,6 +691,8 @@ class TestTestProxyConnection:
             mock_channel = Mock()
             mock_channel_func.return_value = mock_channel
 
+            # Create a regular Mock (not AsyncMock) since GetServerInfo is called
+            # inside an executor as a sync call
             mock_stub = Mock()
             mock_stub.GetServerInfo.side_effect = mock_error
 

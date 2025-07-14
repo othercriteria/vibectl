@@ -7,6 +7,7 @@ position in the final command.
 
 import json
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -752,9 +753,14 @@ async def test_handle_vibe_request_action_command_empty_verb(
         "commands": ["", "pods"],  # Empty verb
     }
     llm_response_json = json.dumps({"action": command_action_empty_verb})
-    mock_adapter_instance.execute_and_log_metrics = AsyncMock(
-        return_value=(llm_response_json, None)
-    )
+
+    # Use a custom async function instead of AsyncMock to avoid warning
+    async def mock_execute_and_log_metrics(
+        *args: Any, **kwargs: Any
+    ) -> tuple[str, None]:
+        return (llm_response_json, None)
+
+    mock_adapter_instance.execute_and_log_metrics = mock_execute_and_log_metrics
 
     result = await handle_vibe_request(
         request="command action empty verb",

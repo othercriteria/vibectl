@@ -522,36 +522,36 @@ class TestCertificateStatusChecking:
         assert warnings_found is True  # Warnings for expiring certificate
         mock_cert_info.expires_soon.assert_called_with(30)
 
-    @patch("pathlib.Path.exists")
-    def test_check_certificate_status_expired(self, mock_exists: Mock) -> None:
+    def test_check_certificate_status_expired(self) -> None:
         """Test checking status of expired certificate."""
         from datetime import datetime, timedelta
 
         from vibectl.server.ca_manager import CertificateInfo
 
-        mock_exists.return_value = True
+        with patch.object(Path, "exists", return_value=True):
+            # Mock an expired certificate
+            mock_cert_info = Mock(spec=CertificateInfo)
+            mock_cert_info.is_expired = True
+            mock_cert_info.expires_soon.return_value = True
+            mock_cert_info.not_valid_after = datetime.now().astimezone() - timedelta(
+                days=5
+            )
 
-        # Mock an expired certificate
-        mock_cert_info = Mock(spec=CertificateInfo)
-        mock_cert_info.is_expired = True
-        mock_cert_info.expires_soon.return_value = True
-        mock_cert_info.not_valid_after = datetime.now().astimezone() - timedelta(days=5)
+            mock_ca_manager = Mock()
+            mock_ca_manager.get_certificate_info.return_value = mock_cert_info
 
-        mock_ca_manager = Mock()
-        mock_ca_manager.get_certificate_info.return_value = mock_cert_info
+            mock_table = Mock()
+            cert_path = Path("/test/cert.pem")
 
-        mock_table = Mock()
-        cert_path = Path("/test/cert.pem")
+            warnings_found = _check_certificate_status(
+                cert_path=cert_path,
+                cert_type="Server",
+                ca_manager=mock_ca_manager,
+                days=30,
+                status_table=mock_table,
+            )
 
-        warnings_found = _check_certificate_status(
-            cert_path=cert_path,
-            cert_type="Server",
-            ca_manager=mock_ca_manager,
-            days=30,
-            status_table=mock_table,
-        )
-
-        assert warnings_found is True  # Warnings for expired certificate
+            assert warnings_found is True  # Warnings for expired certificate
 
     @patch("pathlib.Path.exists")
     def test_check_certificate_status_missing_file(self, mock_exists: Mock) -> None:
@@ -660,7 +660,8 @@ class TestCAStatusDisplay:
         self, mock_glob: Mock, mock_exists: Mock, mock_ca_manager_class: Mock
     ) -> None:
         """Test CA status with explicit CA directory."""
-        mock_ca_manager = Mock()
+        # Explicitly configure as sync mock to avoid AsyncMockMixin warnings
+        mock_ca_manager = Mock(spec_set=[])
         mock_ca_manager_class.return_value = mock_ca_manager
 
         ca_dir = Path("/custom/ca")
@@ -670,7 +671,9 @@ class TestCAStatusDisplay:
         mock_glob.return_value = []
 
         with (
-            patch("vibectl.server.main._check_certificate_status") as mock_check,
+            patch(
+                "vibectl.server.main._check_certificate_status", new_callable=Mock
+            ) as mock_check,
         ):
             mock_check.return_value = False
 
@@ -700,7 +703,7 @@ class TestCertificateExpiryChecking:
     """Test certificate expiry checking functionality."""
 
     @patch("vibectl.server.main.ensure_config_dir")
-    @patch("vibectl.server.main.CAManager")
+    @patch("vibectl.server.main.CAManager", new_callable=Mock)
     @patch("pathlib.Path.exists")
     @patch("vibectl.server.main._check_certificate_status")
     @patch("vibectl.server.main.console_manager")
@@ -945,6 +948,7 @@ class TestCACommands:
         self, mock_handle_result: Mock, mock_create_cert: Mock
     ) -> None:
         """Test ca create-server-cert command."""
+        # Explicitly configure as sync mock to avoid AsyncMockMixin warnings
         mock_create_cert.return_value = Success(message="Certificate created")
 
         with tempfile.TemporaryDirectory() as temp_dir:

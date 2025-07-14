@@ -133,7 +133,9 @@ class TestRunVersionCommand:
         assert result == expected_error
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.version_cmd.handle_vibe_request")
+    @patch(
+        "vibectl.subcommands.version_cmd.handle_vibe_request", new_callable=AsyncMock
+    )
     @patch("vibectl.subcommands.version_cmd.configure_output_flags")
     @patch("vibectl.subcommands.version_cmd.configure_memory_flags")
     async def test_version_vibe_basic(
@@ -170,7 +172,9 @@ class TestRunVersionCommand:
         )
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.version_cmd.handle_vibe_request")
+    @patch(
+        "vibectl.subcommands.version_cmd.handle_vibe_request", new_callable=AsyncMock
+    )
     @patch("vibectl.subcommands.version_cmd.configure_output_flags")
     @patch("vibectl.subcommands.version_cmd.configure_memory_flags")
     async def test_version_vibe_multi_word_request(
@@ -227,7 +231,9 @@ class TestRunVersionCommand:
         assert "Missing request after 'vibe' command" in result.error
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.version_cmd.handle_vibe_request")
+    @patch(
+        "vibectl.subcommands.version_cmd.handle_vibe_request", new_callable=AsyncMock
+    )
     @patch("vibectl.subcommands.version_cmd.configure_output_flags")
     @patch("vibectl.subcommands.version_cmd.configure_memory_flags")
     async def test_version_vibe_error_propagation(
@@ -284,7 +290,9 @@ class TestRunVersionCommand:
 
     @pytest.mark.asyncio
     @patch("vibectl.subcommands.version_cmd.logger")
-    @patch("vibectl.subcommands.version_cmd.handle_vibe_request")
+    @patch(
+        "vibectl.subcommands.version_cmd.handle_vibe_request", new_callable=AsyncMock
+    )
     @patch("vibectl.subcommands.version_cmd.configure_output_flags")
     @patch("vibectl.subcommands.version_cmd.configure_memory_flags")
     async def test_version_vibe_logging(

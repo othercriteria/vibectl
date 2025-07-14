@@ -320,7 +320,7 @@ async def test_run_apply_command_vibe_missing_request(
     )
 
 
-@patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
+@patch("vibectl.subcommands.apply_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
@@ -332,7 +332,7 @@ async def test_run_apply_command_vibe_success(
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_handle_vibe_request: MagicMock,
+    mock_handle_vibe_request: AsyncMock,
 ) -> None:
     """Test run_apply_command successful vibe execution."""
     mock_config_instance = MagicMock(spec=Config)
@@ -398,7 +398,7 @@ async def test_run_apply_command_vibe_success(
     assert called_kwargs["output_flags"] is mock_output_flags
 
 
-@patch("vibectl.subcommands.apply_cmd.handle_vibe_request")
+@patch("vibectl.subcommands.apply_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.model_adapter.get_model_adapter")
 @patch("vibectl.subcommands.apply_cmd.Config")
 @patch("vibectl.subcommands.apply_cmd.configure_output_flags")
@@ -410,7 +410,7 @@ async def test_run_apply_command_vibe_error_from_handler(
     mock_configure_output_flags: MagicMock,
     mock_config_cls: MagicMock,
     mock_get_model_adapter: MagicMock,
-    mock_handle_vibe_request: MagicMock,
+    mock_handle_vibe_request: AsyncMock,
 ) -> None:
     """Test run_apply_command with vibe execution that returns an error."""
     mock_config_instance = MagicMock(spec=Config)

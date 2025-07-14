@@ -242,14 +242,23 @@ def cli_test_mocks() -> Generator[tuple[Mock, Mock, Mock, Mock], None, None]:
 @pytest.fixture
 def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
     """Fixture providing patched run_kubectl function specifically for CLI tests."""
+
+    # Create a custom async function to replace _process_vibe_output
+    async def mock_process_vibe_output(*args: Any, **kwargs: Any) -> "Success":
+        """Mock async function that returns a proper Success result."""
+        from vibectl.types import Success
+
+        return Success(data="Mock vibe output", message="Mock vibe message")
+
     with (
         patch("vibectl.command_handler.run_kubectl") as mock,
         patch("vibectl.command_handler.get_model_adapter") as mock_get_adapter_func,
         patch("vibectl.model_adapter.get_model") as mock_model_adapter_get_model,
         patch("vibectl.command_handler.model_adapter.get_model") as mock_cmd_model_get,
         patch(
-            "vibectl.command_handler._process_vibe_output", new_callable=AsyncMock
-        ) as mock_process_vibe,
+            "vibectl.command_handler._process_vibe_output",
+            side_effect=mock_process_vibe_output,
+        ),
     ):
         # Set up default mock behavior
         mock.return_value = Success(data="test output")
@@ -286,12 +295,10 @@ def mock_run_kubectl_for_cli() -> Generator[Mock, None, None]:
         # directly.  Patch this to return a stub model so that wait command
         # tests do not attempt to resolve real model names.
         mock_model_adapter_get_model.return_value = Mock(name="stub-llm-model-direct")
+        mock_cmd_model_get.return_value = Mock(name="stub-llm-model-cmd")
 
-        mock_cmd_model_get.return_value = mock_model_adapter_get_model.return_value
-
-        mock_process_vibe.return_value = (
-            None  # Skip vibe processing during wait CLI tests
-        )
+        # Mock the command handler's get_model too
+        mock_cmd_model_get.return_value = Mock(name="stub-llm-model-cmd")
 
         yield mock
 
@@ -347,15 +354,10 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     )
 
     # Setup for stream_execute
+    # Setup for stream_execute
     # stream_execute should be a AsyncMock that returns an async iterator.
     mock_adapter_instance.stream_execute = AsyncMock(
         name="stream_execute_mock_on_adapter_instance"
-    )
-
-    # Setup for stream_execute_and_log_metrics
-    # stream_execute_and_log_metrics should return a tuple of (async iterator, metrics)
-    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
-        name="stream_execute_and_log_metrics_mock_on_adapter_instance"
     )
 
     async def default_async_stream_generator() -> AsyncIterator[str]:
@@ -366,6 +368,12 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     # When mock_adapter_instance.stream_execute is called, it should return an
     # actual async iterator.
     mock_adapter_instance.stream_execute.return_value = default_async_stream_generator()
+
+    # Setup for stream_execute_and_log_metrics
+    # stream_execute_and_log_metrics should return a tuple of (async iterator, metrics)
+    mock_adapter_instance.stream_execute_and_log_metrics = AsyncMock(
+        name="stream_execute_and_log_metrics_mock_on_adapter_instance"
+    )
 
     # When mock_adapter_instance.stream_execute_and_log_metrics is called,
     # it should return a tuple of (async iterator, StreamingMetricsCollector)
@@ -378,9 +386,15 @@ def mock_get_adapter() -> Generator[MagicMock, None, None]:
     # Import and create a proper StreamingMetricsCollector mock
     # Create mock metrics collector
     mock_metrics_collector = MagicMock(spec=StreamingMetricsCollector)
-    mock_metrics_collector.get_metrics = AsyncMock(return_value=LLMMetrics())
     mock_metrics_collector.is_completed = True
 
+    # Use AsyncMock for get_metrics since it should be async
+    async def get_metrics_side_effect() -> LLMMetrics:
+        return LLMMetrics()
+
+    mock_metrics_collector.get_metrics = AsyncMock(side_effect=get_metrics_side_effect)
+
+    # Set up the return value as tuple
     mock_adapter_instance.stream_execute_and_log_metrics.return_value = (
         default_async_stream_generator_for_metrics(),
         mock_metrics_collector,
@@ -641,7 +655,7 @@ def reset_memory(request: pytest.FixtureRequest) -> Generator[None, None, None]:
         return
 
     # For all other tests, use the optimized version with no file I/O
-    with patch("vibectl.config.Config._save_config"):
+    with patch("vibectl.config.Config._save_config", new_callable=Mock):
         from vibectl.config import Config
 
         config = Config()
@@ -707,7 +721,7 @@ def in_memory_config() -> Generator[Config, None, None]:
     from vibectl.config import Config
 
     # Create a config in memory with patched file operations
-    with patch.object(Config, "_save_config", return_value=None):
+    with patch.object(Config, "_save_config", return_value=None, new_callable=Mock):
         # Create config with initialization but no file operations
         config = Config()
         yield config
@@ -740,18 +754,45 @@ async def background_tasks() -> AsyncGenerator[list[asyncio.Task[Any]], None]:
     """Fixture that tracks asyncio tasks and ensures they are cleaned up.
 
     Tests should append any long-lived tasks created with asyncio.create_task
-    to the returned list.  After the test, all tasks are cancelled/awaited to
-    prevent leaks and spurious warnings.
+    to the returned list.  After the test, *all* tasks (registered or not)
+    are cancelled/awaited to prevent leaks and spurious warnings like:
+
+        Task was destroyed but it is pending!
     """
     tasks: list[asyncio.Task] = []
     try:
+        # Provide the list to the test for explicit tracking if desired
         yield tasks
     finally:
+        # -------------------------------------------------------------
+        # 1. Cancel/await tasks that the test explicitly tracked
+        # -------------------------------------------------------------
         for task in tasks:
             if not task.done():
                 task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+        # -------------------------------------------------------------
+        # 2. Find *any other* pending tasks created during the test that
+        #    were *not* registered in the list above (e.g. background
+        #    monitor tasks started inside library code).  These tasks
+        #    are the main cause of the noisy RuntimeWarnings emitted by
+        #    pytest when the event loop closes.
+        # -------------------------------------------------------------
+        pending: set[asyncio.Task[Any]] = {
+            t
+            for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.done()
+        }
+        # Exclude the ones we already cancelled/awaited to avoid duplicates
+        pending.difference_update(tasks)
+
+        for task in pending:
+            task.cancel()
+
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 # --------------------------------------------------------------------------------------
