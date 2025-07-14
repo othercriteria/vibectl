@@ -367,4 +367,3 @@ The server's **default configuration is insecure**: it binds to `0.0.0.0` withou
 * Enable the HSTS header (`tls.hsts.enabled: true`) to guard against downgrade attacks.
 * Restrict or firewall the Prometheus metrics port; it is HTTP-only and unauthenticated.
 * Server-side TLS version is governed by gRPC defaults; enforcing a minimum version is planned.
-

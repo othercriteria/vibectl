@@ -123,7 +123,8 @@ async def test_scale_normal_execution() -> None:
             "vibectl.subcommands.scale_cmd.run_kubectl", new_callable=Mock
         ) as mock_run_kubectl,
         patch(
-            "vibectl.subcommands.scale_cmd.handle_command_output"
+            "vibectl.subcommands.scale_cmd.handle_command_output",
+            new_callable=AsyncMock,
         ) as mock_handle_output,
         patch("vibectl.cli.handle_result") as mock_handle_result,
     ):
@@ -151,7 +152,8 @@ async def test_scale_no_output() -> None:
             "vibectl.subcommands.scale_cmd.run_kubectl", new_callable=Mock
         ) as mock_run_kubectl,
         patch(
-            "vibectl.subcommands.scale_cmd.handle_command_output"
+            "vibectl.subcommands.scale_cmd.handle_command_output",
+            new_callable=AsyncMock,
         ) as mock_handle_output,
         patch("vibectl.cli.handle_result") as mock_handle_result,
     ):

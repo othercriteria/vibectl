@@ -1,4 +1,4 @@
-#!/bin/bash
+#! /usr/bin/env bash
 # Run tests in parallel without coverage
 # Usage: ./scripts/run_parallel_tests.sh
 

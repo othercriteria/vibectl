@@ -97,12 +97,16 @@ async def test_instructions_set_no_text(
 
 @pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("vibectl.cli.handle_exception")
+@patch("vibectl.cli.handle_exception", new_callable=Mock)
 async def test_instructions_set_config_save_error(
     mock_handle_exception: Mock,
     mock_config_class: Mock,
 ) -> None:
     """Test handling when config save fails."""
+    # Configure the mock to be synchronous
+    mock_handle_exception.return_value = None
+    mock_handle_exception.side_effect = None
+
     set_cmd = cli.commands["instructions"].commands["set"]  # type: ignore[attr-defined]
     mock_config = mock_config_class.return_value
     mock_config.save.side_effect = Exception("Save error")
@@ -145,12 +149,16 @@ async def test_instructions_show_empty(mock_config_class: Mock) -> None:
 
 @pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("vibectl.cli.handle_exception")
+@patch("vibectl.cli.handle_exception", new_callable=Mock)
 async def test_instructions_show_get_error(
     mock_handle_exception: Mock,
     mock_config_class: Mock,
 ) -> None:
     """Test handling when config get fails."""
+    # Configure the mock to be synchronous
+    mock_handle_exception.return_value = None
+    mock_handle_exception.side_effect = None
+
     show_cmd = cli.commands["instructions"].commands["show"]  # type: ignore[attr-defined]
     mock_config = mock_config_class.return_value
     mock_config.get.side_effect = Exception("Get error")
@@ -175,12 +183,16 @@ async def test_instructions_clear_basic(mock_config_class: Mock) -> None:
 
 @pytest.mark.asyncio
 @patch("vibectl.cli.Config")
-@patch("vibectl.cli.handle_exception")
+@patch("vibectl.cli.handle_exception", new_callable=Mock)
 async def test_instructions_clear_unset_error(
     mock_handle_exception: Mock,
     mock_config_class: Mock,
 ) -> None:
     """Test handling when config set fails during clear."""
+    # Configure the mock to be synchronous
+    mock_handle_exception.return_value = None
+    mock_handle_exception.side_effect = None
+
     clear_cmd = cli.commands["instructions"].commands["clear"]  # type: ignore[attr-defined]
     mock_config = mock_config_class.return_value
     mock_config.set.side_effect = Exception("Set error")

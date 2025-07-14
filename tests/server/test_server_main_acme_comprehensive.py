@@ -92,7 +92,11 @@ class TestComprehensiveACMETLSALPN01Flow:
         ) -> tuple[Mock, bytes]:
             return Mock(), b"challenge_validation_token_12345"
 
-        mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
+        # Explicitly create response_and_validation as Mock to avoid
+        # AsyncMock auto-creation
+        mock_tls_alpn_challenge.response_and_validation = Mock(
+            side_effect=mock_response_and_validation
+        )
 
         mock_challenge_body = Mock()
         mock_challenge_body.chall = mock_tls_alpn_challenge
@@ -396,7 +400,8 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_challenge_body.chall = mock_tls_alpn_challenge
 
         # Mock answer_challenge to fail (simulating unreachable server)
-        mock_client.answer_challenge.side_effect = Exception("Connection refused")
+        # Explicitly create as Mock to avoid AsyncMock auto-creation
+        mock_client.answer_challenge = Mock(side_effect=Exception("Connection refused"))
 
         client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
         client._client = mock_client
@@ -420,9 +425,9 @@ class TestComprehensiveACMETLSALPN01Flow:
     )  # Mock at ACMEManager level
     @pytest.mark.asyncio
     async def test_tls_alpn_acme_manager_complete_flow(
-        self, mock_create_client: Mock
+        self, mock_create_client: Mock, background_tasks: list[asyncio.Task]
     ) -> None:
-        """Test the complete TLS-ALPN ACME manager provisioning flow."""
+        """Test complete TLS-ALPN ACME manager flow with certificate provisioning."""
         from vibectl.server.acme_manager import ACMEManager
 
         # Mock TLS-ALPN server
@@ -439,84 +444,73 @@ class TestComprehensiveACMETLSALPN01Flow:
             "challenge": {"type": "tls-alpn-01"},
         }
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create initial bootstrap certificates (like the demo does)
-            cert_path = Path(str(temp_dir)) / "server.crt"
-            key_path = Path(str(temp_dir)) / "server.key"
-            cert_path.parent.mkdir(parents=True, exist_ok=True)
+        # Mock ACME client
+        mock_acme_client = Mock()
+        mock_acme_client.request_certificate.return_value = (
+            b"-----BEGIN CERTIFICATE-----\ntest cert\n-----END CERTIFICATE-----",
+            b"-----BEGIN PRIVATE KEY-----\ntest key\n-----END PRIVATE KEY-----",
+        )
+        mock_create_client.return_value = mock_acme_client
 
-            cert_path.write_text(
-                "-----BEGIN CERTIFICATE-----\nbootstrap\n-----END CERTIFICATE-----"
-            )
-            key_path.write_text(
-                "-----BEGIN PRIVATE KEY-----\nbootstrap\n-----END PRIVATE KEY-----"
-            )
+        # Create the ACME manager
+        acme_manager = ACMEManager(
+            challenge_server=None,  # No HTTP challenge server needed for TLS-ALPN-01
+            acme_config=acme_config,
+            cert_reload_callback=mock_cert_reload,
+            tls_alpn_challenge_server=mock_tls_alpn_server,
+        )
 
-            # Mock ACME client
-            mock_acme_client = Mock()
-            mock_create_client.return_value = mock_acme_client
+        # Start the manager (this should trigger certificate provisioning)
+        start_result = await acme_manager.start()
+        assert isinstance(start_result, Success)
 
-            # Mock successful certificate request
-            mock_acme_client.request_certificate.return_value = (
-                b"-----BEGIN CERTIFICATE-----\nreal_cert\n-----END CERTIFICATE-----",
-                b"-----BEGIN PRIVATE KEY-----\nreal_key\n-----END PRIVATE KEY-----",
-            )
+        # Track the renewal task for cleanup
+        if acme_manager._renewal_task:
+            background_tasks.append(acme_manager._renewal_task)
 
-            # Create the ACME manager with TLS-ALPN challenge server
-            acme_manager = ACMEManager(
-                challenge_server=None,  # No HTTP challenge server for TLS-ALPN-01
-                acme_config=acme_config,
-                cert_reload_callback=mock_cert_reload,
-                tls_alpn_challenge_server=mock_tls_alpn_server,
-            )
+        # Allow time for the background task to run
+        await asyncio.sleep(0.2)
 
-            # Start the manager (this should trigger certificate provisioning)
-            start_result = await acme_manager.start()
-            assert isinstance(start_result, Success)
+        # Verify the exact call that would provision certificates
+        mock_create_client.assert_called_once_with(
+            directory_url="https://pebble.test:14000/dir",
+            email="admin@vibectl.test",
+            ca_cert_file="/pebble-ca/ca.crt",
+            tls_alpn_challenge_server=mock_tls_alpn_server,
+        )
 
-            # Allow time for the background task to run
-            await asyncio.sleep(0.2)
+        # The ACMEManager uses its own configured cert paths and positional
+        # arguments
+        mock_acme_client.request_certificate.assert_called_once_with(
+            ["vibectl.test"],  # domains (positional)
+            "tls-alpn-01",  # challenge_type (positional)
+            str(
+                Path.home()
+                / ".config"
+                / "vibectl"
+                / "server"
+                / "acme-certs"
+                / "vibectl.test.crt"
+            ),
+            str(
+                Path.home()
+                / ".config"
+                / "vibectl"
+                / "server"
+                / "acme-certs"
+                / "vibectl.test.key"
+            ),
+        )
 
-            # Verify the exact call that would provision certificates
-            mock_create_client.assert_called_once_with(
-                directory_url="https://pebble.test:14000/dir",
-                email="admin@vibectl.test",
-                ca_cert_file="/pebble-ca/ca.crt",
-                tls_alpn_challenge_server=mock_tls_alpn_server,
-            )
-
-            # The ACMEManager uses its own configured cert paths and positional
-            # arguments
-            mock_acme_client.request_certificate.assert_called_once_with(
-                ["vibectl.test"],  # domains (positional)
-                "tls-alpn-01",  # challenge_type (positional)
-                str(
-                    Path.home()
-                    / ".config"
-                    / "vibectl"
-                    / "server"
-                    / "acme-certs"
-                    / "vibectl.test.crt"
-                ),
-                str(
-                    Path.home()
-                    / ".config"
-                    / "vibectl"
-                    / "server"
-                    / "acme-certs"
-                    / "vibectl.test.key"
-                ),
-            )
-
-            # Clean up
-            await acme_manager.stop()
+        # Clean up
+        await acme_manager.stop()
 
     @patch(
         "vibectl.server.acme_manager.create_acme_client"
     )  # Mock at ACMEManager level
     @pytest.mark.asyncio
     async def test_tls_alpn_acme_manager_certificate_request_failure(
-        self, mock_create_client: Mock
+        self, mock_create_client: Mock, background_tasks: list[asyncio.Task]
     ) -> None:
         """Test TLS-ALPN ACME manager when certificate request fails."""
         from vibectl.server.acme_manager import ACMEManager
@@ -582,6 +576,10 @@ class TestComprehensiveACMETLSALPN01Flow:
             # Manager should be running even though initial provisioning failed
             assert acme_manager.is_running
 
+            # Track the renewal task for cleanup
+            if acme_manager._renewal_task:
+                background_tasks.append(acme_manager._renewal_task)
+
             # Verify ACME client was created correctly (even though provisioning failed)
             mock_create_client.assert_called_once_with(
                 directory_url="https://pebble.test:14000/dir",
@@ -637,6 +635,7 @@ class TestComprehensiveACMETLSALPN01Flow:
         mock_request_cert: Mock,
         mock_ensure_client: Mock,
         mock_sleep: Mock,
+        background_tasks: list[asyncio.Task],
     ) -> None:
         """Test TLS-ALPN ACME manager when Pebble server is unreachable."""
         from vibectl.server.acme_manager import ACMEManager
@@ -669,8 +668,12 @@ class TestComprehensiveACMETLSALPN01Flow:
         # Simulate connection timeout/failure during directory fetch
         from requests.exceptions import ConnectionError
 
-        mock_net.get.side_effect = ConnectionError(
-            "HTTPSConnectionPool(host='pebble.test', port=14000): Max retries exceeded"
+        # Explicitly create get as Mock to avoid AsyncMock auto-creation
+        mock_net.get = Mock(
+            side_effect=ConnectionError(
+                "HTTPSConnectionPool(host='pebble.test', port=14000): "
+                "Max retries exceeded"
+            )
         )
 
         # Mock other components
@@ -694,6 +697,10 @@ class TestComprehensiveACMETLSALPN01Flow:
         # Should succeed because ACME client methods are mocked
         assert isinstance(start_result, Success)
 
+        # Track the renewal task for cleanup
+        if acme_manager._renewal_task:
+            background_tasks.append(acme_manager._renewal_task)
+
         # Allow time for the background task to run
         await asyncio.sleep(0.3)
 
@@ -702,6 +709,155 @@ class TestComprehensiveACMETLSALPN01Flow:
 
         # Clean up
         await acme_manager.stop()
+
+    @patch(
+        "vibectl.server.acme_client.ACMEClient._ensure_client"
+    )  # Mock client initialization
+    @patch(
+        "vibectl.server.acme_client.ACMEClient.request_certificate"
+    )  # Mock certificate request
+    @patch("vibectl.server.acme_client.time.sleep")  # Mock sleep to prevent hanging
+    @pytest.mark.asyncio
+    async def test_demo_hanging_scenario_reproduction(
+        self,
+        mock_sleep: Mock,
+        mock_request_cert: Mock,
+        mock_ensure_client: Mock,
+        background_tasks: list[asyncio.Task],
+    ) -> None:
+        """Test scenario that could cause demo hanging - with proper mocking."""
+        import asyncio
+
+        from vibectl.server.acme_manager import ACMEManager
+
+        # Mock TLS-ALPN server
+        mock_tls_alpn_server = Mock()
+
+        # Mock certificate reload callback
+        mock_cert_reload = Mock()
+
+        acme_config = {
+            "email": "admin@vibectl.test",
+            "domains": ["vibectl.test"],
+            "directory_url": "https://10.43.179.11:14000/dir",
+            "ca_cert_file": "/pebble-ca/ca.crt",
+            "challenge": {"type": "tls-alpn-01"},
+        }
+
+        # Mock ACME client methods to prevent network calls and hanging
+        mock_ensure_client.return_value = None
+        mock_request_cert.return_value = (
+            b"-----BEGIN CERTIFICATE-----\ntest cert\n-----END CERTIFICATE-----",
+            b"-----BEGIN PRIVATE KEY-----\ntest key\n-----END PRIVATE KEY-----",
+        )
+
+        # Create the ACME manager
+        acme_manager = ACMEManager(
+            challenge_server=None,  # No HTTP challenge server needed for TLS-ALPN-01
+            acme_config=acme_config,
+            cert_reload_callback=mock_cert_reload,
+            tls_alpn_challenge_server=mock_tls_alpn_server,
+        )
+
+        # Start the manager (should not hang with mocked client)
+        start_result = await acme_manager.start()
+
+        # Should succeed because we mocked the ACME client operations
+        assert isinstance(start_result, Success)
+
+        # Track the renewal task for cleanup
+        if acme_manager._renewal_task:
+            background_tasks.append(acme_manager._renewal_task)
+
+        # Allow some time for background task to run
+        await asyncio.sleep(0.2)
+
+        # Verify that certificate request was called
+        mock_request_cert.assert_called()
+
+        # Clean up
+        await acme_manager.stop()
+
+    @patch("vibectl.server.acme_client.client.ClientV2")
+    @patch(
+        "vibectl.server.acme_client.client.ClientNetwork"
+    )  # Mock network client to prevent actual connections
+    @patch("vibectl.server.acme_client.jose.JWKRSA")
+    @patch("vibectl.server.acme_client.messages")
+    @patch("vibectl.server.acme_client.time.sleep")  # Mock sleep to prevent hanging
+    def test_demo_pebble_connectivity_debugging(
+        self,
+        mock_sleep: Mock,
+        mock_messages: Mock,
+        mock_jwk_class: Mock,
+        mock_network_class: Mock,
+        mock_client_class: Mock,
+    ) -> None:
+        """Test the specific Pebble connectivity issues from the demo."""
+        # Mock network client to simulate Pebble connection issues
+        mock_net = Mock()
+        mock_network_class.return_value = mock_net
+        mock_net.get.side_effect = Exception("Connection refused to Pebble server")
+
+        client = ACMEClient(
+            directory_url="https://10.43.179.11:14000/dir",
+            email="admin@vibectl.test",
+            ca_cert_file="/pebble-ca/ca.crt",
+        )
+
+        # Should raise ACMECertificateError wrapping the connection error
+        with pytest.raises(
+            Exception,
+            match=(
+                "Failed to connect to ACME server.*Connection refused to Pebble server"
+            ),
+        ):
+            client._ensure_client()
+
+    @patch("vibectl.server.acme_client.client.ClientV2")
+    @patch("vibectl.server.acme_client.jose.JWKRSA")
+    @patch("vibectl.server.acme_client.messages")
+    def test_demo_alpn_multiplexer_integration_issue(
+        self, mock_messages: Mock, mock_jwk_class: Mock, mock_client_class: Mock
+    ) -> None:
+        """Test integration issues between ACME client and ALPN multiplexer."""
+        # Setup mocks
+        mock_tls_alpn_server = Mock()
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        mock_account_key = Mock()
+        mock_jwk_class.return_value = mock_account_key
+
+        # Mock challenge setup - fix the call signature
+        mock_tls_alpn_challenge = Mock()
+        mock_tls_alpn_challenge.typ = "tls-alpn-01"
+
+        def mock_response_and_validation(
+            account_key: Any, domain: str | None = None
+        ) -> tuple[Mock, bytes]:
+            return Mock(), b"test_validation_token"
+
+        mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
+
+        mock_challenge_body = Mock()
+        mock_challenge_body.chall = mock_tls_alpn_challenge
+
+        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
+        client._client = mock_client
+        client._account_key = mock_account_key
+
+        # Complete the TLS-ALPN challenge
+        client._complete_tls_alpn01_challenge(mock_challenge_body, "vibectl.test")
+
+        # Verify challenge was set up in the multiplexer
+        mock_tls_alpn_server.set_challenge.assert_called_once()
+        call_args = mock_tls_alpn_server.set_challenge.call_args[0]
+        assert call_args[0] == "vibectl.test"
+        assert isinstance(call_args[1], bytes)  # Should be challenge hash
+
+        # Verify challenge submission to ACME server
+        mock_client.answer_challenge.assert_called_once()
 
 
 class TestACMEIntegrationIssues:
@@ -774,47 +930,56 @@ class TestACMEIntegrationIssues:
         ):
             client._ensure_client()
 
-    @patch("vibectl.server.acme_client.client.ClientV2")
-    @patch("vibectl.server.acme_client.jose.JWKRSA")
-    @patch("vibectl.server.acme_client.messages")
     def test_acme_client_challenge_response_generation_failure(
-        self, mock_messages: Mock, mock_jwk_class: Mock, mock_client_class: Mock
+        self,
     ) -> None:
         """Test when challenge response generation fails."""
-        # Setup mocks
-        mock_tls_alpn_server = Mock()
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
-        mock_account_key = Mock()
-        mock_jwk_class.return_value = mock_account_key
-
-        # Mock challenge with failing response generation - fix the call signature
-        mock_tls_alpn_challenge = Mock()
-        mock_tls_alpn_challenge.typ = "tls-alpn-01"
-
-        def mock_response_and_validation(
-            account_key: Any, domain: str | None = None
-        ) -> None:
-            raise Exception("Invalid domain format for TLS-ALPN-01 challenge")
-
-        mock_tls_alpn_challenge.response_and_validation = mock_response_and_validation
-
-        mock_challenge_body = Mock()
-        mock_challenge_body.chall = mock_tls_alpn_challenge
-
-        client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
-        client._client = mock_client
-        client._account_key = mock_account_key
-
-        # Should raise the exception directly, not wrapped in ACMEValidationError
-        # because the exception happens during response generation, before submission
-        with pytest.raises(
-            Exception, match="Invalid domain format for TLS-ALPN-01 challenge"
+        with (
+            patch(
+                "vibectl.server.acme_client.client.ClientV2", new=Mock()
+            ) as mock_client_class,
+            patch(
+                "vibectl.server.acme_client.jose.JWKRSA", new=Mock()
+            ) as mock_jwk_class,
+            patch("vibectl.server.acme_client.messages", new=Mock()),
         ):
-            client._complete_tls_alpn01_challenge(
-                mock_challenge_body, "invalid..domain"
+            # Setup mocks
+            mock_tls_alpn_server = Mock()
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+
+            mock_account_key = Mock()
+            mock_jwk_class.return_value = mock_account_key
+
+            # Mock challenge with failing response generation - fix the call signature
+            mock_tls_alpn_challenge = Mock()
+            mock_tls_alpn_challenge.typ = "tls-alpn-01"
+
+            def mock_response_and_validation(
+                account_key: Any, domain: str | None = None
+            ) -> None:
+                raise Exception("Invalid domain format for TLS-ALPN-01 challenge")
+
+            mock_tls_alpn_challenge.response_and_validation = (
+                mock_response_and_validation
             )
+
+            mock_challenge_body = Mock()
+            mock_challenge_body.chall = mock_tls_alpn_challenge
+
+            client = ACMEClient(tls_alpn_challenge_server=mock_tls_alpn_server)
+            client._client = mock_client
+            client._account_key = mock_account_key
+
+            # Should raise the exception directly, not wrapped in
+            # ACMEValidationError because the exception happens during response
+            # generation, before submission
+            with pytest.raises(
+                Exception, match="Invalid domain format for TLS-ALPN-01 challenge"
+            ):
+                client._complete_tls_alpn01_challenge(
+                    mock_challenge_body, "invalid..domain"
+                )
 
     def test_missing_tls_alpn_challenge_server(self) -> None:
         """Test TLS-ALPN-01 challenge without challenge server."""
@@ -910,7 +1075,11 @@ class TestACMEDemoDebugging:
     @patch("vibectl.server.acme_client.time.sleep")  # Mock sleep to prevent hanging
     @pytest.mark.asyncio
     async def test_demo_hanging_scenario_reproduction(
-        self, mock_sleep: Mock, mock_request_cert: Mock, mock_ensure_client: Mock
+        self,
+        mock_sleep: Mock,
+        mock_request_cert: Mock,
+        mock_ensure_client: Mock,
+        background_tasks: list[asyncio.Task],
     ) -> None:
         """Test scenario that could cause demo hanging - with proper mocking."""
         import asyncio
@@ -951,6 +1120,10 @@ class TestACMEDemoDebugging:
 
         # Should succeed because we mocked the ACME client operations
         assert isinstance(start_result, Success)
+
+        # Track the renewal task for cleanup
+        if acme_manager._renewal_task:
+            background_tasks.append(acme_manager._renewal_task)
 
         # Allow some time for background task to run
         await asyncio.sleep(0.2)

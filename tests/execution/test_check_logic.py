@@ -2,7 +2,9 @@
 Tests for the 'vibectl check' execution logic.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from itertools import cycle
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -24,6 +26,36 @@ from vibectl.types import (
     Result,
     Success,
 )
+
+
+def create_update_memory_mock() -> AsyncMock:
+    """Create a mock for update_memory that returns a coroutine."""
+
+    return AsyncMock(return_value=None)
+
+
+def create_async_mock_with_side_effect(return_values: list) -> Mock:
+    """
+    Helper to create async mocks with proper side effects.
+
+    Args:
+        return_values: List of values to return. If single item, returns that value.
+                      If multiple items, cycles through them with call counting.
+    """
+    if len(return_values) == 1:
+        # Single return value
+        async def mock_coro(*args: Any, **kwargs: Any) -> Any:
+            return return_values[0]
+
+        return Mock(side_effect=mock_coro)
+    else:
+        # Multiple return values with cycling
+        value_cycle = cycle(return_values)
+
+        async def mock_coro(*args: Any, **kwargs: Any) -> Any:
+            return next(value_cycle)
+
+        return Mock(side_effect=mock_coro)
 
 
 @pytest.mark.asyncio
@@ -53,7 +85,10 @@ async def test_run_check_command_done_action_immediate_success() -> None:
     with (
         patch("vibectl.execution.check.Config", return_value=mock_config),
         patch("vibectl.execution.check.get_memory", return_value="Initial memory"),
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch(
             "vibectl.execution.check._get_check_llm_plan",
             return_value=Success(data=mock_llm_response, metrics=None),
@@ -98,7 +133,10 @@ async def test_run_check_command_done_action_immediate_false() -> None:
     with (
         patch("vibectl.execution.check.Config", return_value=mock_config),
         patch("vibectl.execution.check.get_memory", return_value="Initial memory"),
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch(
             "vibectl.execution.check._get_check_llm_plan",
             return_value=Success(data=mock_llm_response, metrics=None),
@@ -143,7 +181,10 @@ async def test_run_check_command_done_action_cannot_determine() -> None:
     with (
         patch("vibectl.execution.check.Config", return_value=mock_config),
         patch("vibectl.execution.check.get_memory", return_value="Initial memory"),
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch(
             "vibectl.execution.check._get_check_llm_plan",
             return_value=Success(data=mock_llm_response, metrics=None),
@@ -189,8 +230,8 @@ async def test_run_check_command_thought_then_done() -> None:
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
     # _get_check_llm_plan will be called twice
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_thought, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
@@ -201,7 +242,10 @@ async def test_run_check_command_thought_then_done() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Initial memory"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
     ):
         result: Result = await run_check_command(
@@ -249,8 +293,8 @@ async def test_run_check_command_command_then_done() -> None:
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_command, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
@@ -263,7 +307,10 @@ async def test_run_check_command_command_then_done() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Memory content"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
         patch(
             "vibectl.execution.check.is_kubectl_command_read_only", return_value=True
@@ -313,14 +360,17 @@ async def test_run_check_command_non_read_only_command_error() -> None:
     )
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
 
-    mock_get_plan = AsyncMock(
-        return_value=Success(data=mock_llm_response_command, metrics=None)
+    mock_get_plan = create_async_mock_with_side_effect(
+        [Success(data=mock_llm_response_command, metrics=None)]
     )
 
     with (
         patch("vibectl.execution.check.Config", return_value=mock_config),
         patch("vibectl.execution.check.get_memory", return_value="Memory content"),
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
         patch(
             "vibectl.execution.check.is_kubectl_command_read_only", return_value=False
@@ -368,21 +418,27 @@ async def test_run_check_command_wait_then_done() -> None:
     mock_llm_response_wait = LLMPlannerResponse(action=mock_wait_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_wait, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
     )
+
+    # Create a proper async mock for asyncio.sleep
+    mock_async_sleep = create_async_mock_with_side_effect([None])
 
     with (
         patch("vibectl.execution.check.Config", return_value=mock_config),
         patch(
             "vibectl.execution.check.get_memory", return_value="Memory content"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
-        patch("asyncio.sleep", new_callable=AsyncMock) as mock_async_sleep,
+        patch("asyncio.sleep", new=mock_async_sleep),
     ):
         result: Result = await run_check_command(
             predicate="Do I need to wait?",
@@ -423,8 +479,8 @@ async def test_run_check_command_error_action_then_done() -> None:
     mock_llm_response_error = LLMPlannerResponse(action=mock_error_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_error, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
@@ -435,7 +491,10 @@ async def test_run_check_command_error_action_then_done() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Memory content"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
     ):
         result: Result = await run_check_command(
@@ -478,8 +537,8 @@ async def test_run_check_command_feedback_action_then_done() -> None:
     mock_llm_response_feedback = LLMPlannerResponse(action=mock_feedback_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_feedback, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
@@ -490,7 +549,10 @@ async def test_run_check_command_feedback_action_then_done() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Memory content"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
     ):
         result: Result = await run_check_command(
@@ -527,8 +589,8 @@ async def test_run_check_command_max_iterations_reached() -> None:
     mock_llm_response_thought = LLMPlannerResponse(action=mock_thought_action)
 
     # _get_check_llm_plan will be called max_iterations times
-    mock_get_plan = AsyncMock(
-        return_value=Success(data=mock_llm_response_thought, metrics=None)
+    mock_get_plan = create_async_mock_with_side_effect(
+        [Success(data=mock_llm_response_thought, metrics=None)]
     )
 
     with (
@@ -536,7 +598,10 @@ async def test_run_check_command_max_iterations_reached() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Initial memory"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
     ):
         result: Result = await run_check_command(
@@ -583,7 +648,10 @@ async def test_run_check_command_llm_plan_error() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Initial memory"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch(
             "vibectl.execution.check._get_check_llm_plan", return_value=llm_error
         ) as mock_get_plan,
@@ -632,8 +700,8 @@ async def test_run_check_command_kubectl_error_then_done() -> None:
     mock_llm_response_command = LLMPlannerResponse(action=mock_command_action)
     mock_llm_response_done = LLMPlannerResponse(action=mock_done_action)
 
-    mock_get_plan = AsyncMock(
-        side_effect=[
+    mock_get_plan = create_async_mock_with_side_effect(
+        [
             Success(data=mock_llm_response_command, metrics=None),
             Success(data=mock_llm_response_done, metrics=None),
         ]
@@ -648,7 +716,10 @@ async def test_run_check_command_kubectl_error_then_done() -> None:
         patch(
             "vibectl.execution.check.get_memory", return_value="Memory content"
         ) as mock_get_memory,
-        patch("vibectl.execution.check.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.check.update_memory",
+            new_callable=create_update_memory_mock,
+        ) as mock_update_memory,
         patch("vibectl.execution.check._get_check_llm_plan", new=mock_get_plan),
         patch(
             "vibectl.execution.check.is_kubectl_command_read_only", return_value=True

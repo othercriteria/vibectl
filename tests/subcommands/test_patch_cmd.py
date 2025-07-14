@@ -159,7 +159,7 @@ class TestRunPatchCommand:
         assert result == expected_error
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")
+    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request", new_callable=AsyncMock)
     @patch("vibectl.subcommands.patch_cmd.configure_output_flags")
     @patch("vibectl.subcommands.patch_cmd.configure_memory_flags")
     async def test_patch_vibe_basic(
@@ -212,7 +212,7 @@ class TestRunPatchCommand:
         assert plan_prompt_func() == patch_plan_prompt()
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")
+    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request", new_callable=AsyncMock)
     @patch("vibectl.subcommands.patch_cmd.configure_output_flags")
     @patch("vibectl.subcommands.patch_cmd.configure_memory_flags")
     async def test_patch_vibe_multi_word_request(
@@ -283,7 +283,7 @@ class TestRunPatchCommand:
         mock_configure_memory.assert_called_once_with(False, False)
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")
+    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request", new_callable=AsyncMock)
     @patch("vibectl.subcommands.patch_cmd.configure_output_flags")
     @patch("vibectl.subcommands.patch_cmd.configure_memory_flags")
     async def test_patch_vibe_error_propagation(
@@ -357,7 +357,7 @@ class TestRunPatchCommand:
 
     @pytest.mark.asyncio
     @patch("vibectl.subcommands.patch_cmd.logger")
-    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")
+    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request", new_callable=AsyncMock)
     @patch("vibectl.subcommands.patch_cmd.configure_output_flags")
     @patch("vibectl.subcommands.patch_cmd.configure_memory_flags")
     async def test_patch_vibe_logging(
@@ -525,7 +525,7 @@ class TestRunPatchCommand:
         assert isinstance(result, Success)
 
     @pytest.mark.asyncio
-    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request")
+    @patch("vibectl.subcommands.patch_cmd.handle_vibe_request", new_callable=AsyncMock)
     @patch("vibectl.subcommands.patch_cmd.configure_output_flags")
     @patch("vibectl.subcommands.patch_cmd.configure_memory_flags")
     async def test_patch_vibe_empty_string_request(

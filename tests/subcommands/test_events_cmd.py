@@ -1,4 +1,5 @@
-from unittest.mock import Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -84,14 +85,14 @@ async def test_events_output_processing(
     assert actual_output_flags.model_name == str(DEFAULT_CONFIG["llm"]["model"])
 
 
-@patch("vibectl.subcommands.events_cmd.handle_vibe_request")
+@patch("vibectl.subcommands.events_cmd.handle_vibe_request", new_callable=AsyncMock)
 @patch("vibectl.subcommands.events_cmd.configure_memory_flags")
 @patch("vibectl.subcommands.events_cmd.configure_output_flags")
 @pytest.mark.asyncio
 async def test_events_vibe_path(
     mock_configure_output_flags: Mock,
     mock_configure_memory_flags: Mock,
-    mock_handle_vibe_request: Mock,
+    mock_handle_vibe_request: AsyncMock,
 ) -> None:
     """Test the 'vibe' path in the events command."""
     dummy_output_flags = OutputFlags(
@@ -167,9 +168,12 @@ async def test_events_watch_path(
         show_streaming=False,
     )
     mock_configure_output_flags.return_value = dummy_output_flags
-    mock_handle_watch_with_live_display.return_value = Success(
-        data="watch data successful"
-    )
+
+    # Configure as a simple async mock that returns a Success object
+    async def mock_async_return(*args: Any, **kwargs: Any) -> Success:
+        return Success(data="watch data successful")
+
+    mock_handle_watch_with_live_display.side_effect = mock_async_return
 
     events_command = cli.commands.get("events")
     assert events_command is not None, "'events' command not found in CLI"

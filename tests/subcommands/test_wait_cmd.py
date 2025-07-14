@@ -4,7 +4,7 @@ This module tests the CLI wait command of vibectl. All tests in this module
 should use appropriate mocking to prevent real calls to kubectl and LLM services.
 """
 
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -21,99 +21,18 @@ from vibectl.types import Error, MetricsDisplayMode, Result, Success
 
 @pytest.fixture
 def mock_run_kubectl_for_cli() -> Generator[MagicMock, None, None]:
-    """Mock run_kubectl to avoid actual kubectl calls.
+    """Patch vibectl.command_handler.run_kubectl so no real kubectl is executed."""
+    with patch("vibectl.command_handler.run_kubectl") as run_kubectl_mock:
+        run_kubectl_mock.return_value = Success(data="test wait output")
 
-    This fixture specifically patches both the CLI import path and command_handler path.
-    """
-    with (
-        patch("vibectl.command_handler.run_kubectl") as cli_mock,
-        patch("vibectl.command_handler.handle_command_output") as handler_mock,
-    ):
-        # Set up default responses
-        handler_mock.return_value = Success(data="test wait output")
-        cli_mock.return_value = Success(data="test wait output")
-
-        # Make CLI mock delegate to handler mock for consistent behavior
-        cli_mock.side_effect = handler_mock
-
-        # Add error response helper
+        # Helper for tests to simulate error responses
         def set_error_response(stderr: str = "test error") -> None:
-            """Configure mock to return an error response."""
-            error_msg = stderr if stderr else "Command failed"
-            error_obj = Error(error=error_msg)
-            handler_mock.return_value = error_obj
-            cli_mock.return_value = error_obj
+            error_msg = stderr or "Command failed"
+            run_kubectl_mock.return_value = Error(error=error_msg)
 
-        handler_mock.set_error_response = set_error_response
+        run_kubectl_mock.set_error_response = set_error_response  # type: ignore[attr-defined]
 
-        yield handler_mock
-
-
-@pytest.fixture
-def mock_handle_output_for_cli() -> Generator[MagicMock, None, None]:
-    """Mock handle_command_output for testing."""
-    with (
-        patch("vibectl.command_handler.handle_command_output") as cli_mock,
-        patch("vibectl.command_handler.handle_command_output") as handler_mock,
-    ):
-        # Make CLI mock delegate to handler mock
-        cli_mock.side_effect = handler_mock
-
-        yield handler_mock
-
-
-@pytest.fixture
-def mock_asyncio_for_wait() -> Generator[MagicMock, None, None]:
-    """Mock asyncio functionality for wait command tests to avoid coroutine warnings."""
-    # Create a mock event loop
-    mock_loop = MagicMock()
-    mock_loop.run_until_complete.side_effect = lambda coro: "pod/nginx condition met"
-    mock_loop.is_running.return_value = False
-
-    # Create synchronous (non-async) mocks to avoid coroutine warnings
-    def mock_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
-        """Mock sleep as a regular function to avoid coroutine warnings."""
-        return None
-
-    def mock_wait_for(coro: Any, timeout: float) -> Any:
-        """Mock wait_for as a regular function to avoid coroutine warnings."""
-        return None
-
-    def mock_to_thread(func: Callable, *args: Any, **kwargs: Any) -> Any:
-        """Mock to_thread as a regular function to avoid coroutine warnings."""
-        return "pod/nginx condition met"
-
-    def mock_create_task(coro: Any) -> MagicMock:
-        """Mock create_task to return a MagicMock instead of a Task object."""
-        # If we get a coroutine, close it to prevent warnings
-        if hasattr(coro, "close"):
-            coro.close()
-        task = MagicMock()
-        task.done.return_value = False
-        task.cancel.return_value = None
-        task.cancelled.return_value = False
-        task.result.return_value = None
-        return task
-
-    # Use a patch context manager to replace all asyncio functions we use
-    with (
-        # Mock asyncio functions
-        patch("asyncio.get_event_loop", return_value=mock_loop),
-        patch("asyncio.new_event_loop", return_value=mock_loop),
-        patch("asyncio.set_event_loop"),
-        # Replace all async functions with synchronous versions
-        patch("asyncio.sleep", mock_sleep),
-        patch("asyncio.wait_for", mock_wait_for),
-        patch("asyncio.to_thread", mock_to_thread),
-        patch("asyncio.create_task", mock_create_task),
-        # Replace asyncio exceptions with regular Exception to avoid awaiting issues
-        patch("asyncio.CancelledError", Exception),
-        patch("asyncio.TimeoutError", Exception),
-        # Also mock any direct asyncio imports in the test module
-        patch("asyncio.create_task", mock_create_task),
-        patch("asyncio.Future", MagicMock),
-    ):
-        yield mock_loop
+        yield run_kubectl_mock
 
 
 @pytest.fixture
@@ -131,12 +50,30 @@ def mock_console(monkeypatch: Any) -> Generator[MagicMock, None, None]:
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def _disable_vibe(monkeypatch: Any) -> None:
+    """Force show_vibe=False and a dummy model for all tests in this module."""
+
+    def _flags(**_kwargs: Any) -> OutputFlags:  # Accept any args from caller
+        return OutputFlags(
+            model_name="dummy-model",
+            show_raw_output=False,
+            show_vibe=False,
+            show_kubectl=False,
+            show_metrics=MetricsDisplayMode.NONE,
+            show_streaming=False,
+            warn_no_output=False,
+            warn_no_proxy=False,
+        )
+
+    monkeypatch.setattr("vibectl.command_handler.configure_output_flags", _flags)
+
+
 @pytest.mark.asyncio
 async def test_wait_basic(
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
+    mock_get_adapter: MagicMock,
 ) -> None:
     """Test wait command with basic arguments."""
     runner = CliRunner()
@@ -144,11 +81,6 @@ async def test_wait_basic(
 
     # Set up mock kubectl output
     mock_run_kubectl_for_cli.return_value = Success(data="pod/nginx condition met")
-
-    # Configure mock_asyncio_for_wait to return our result
-    mock_asyncio_for_wait.run_until_complete.return_value = Success(
-        data="pod/nginx condition met"
-    )
 
     # Invoke CLI synchronously - pytest-asyncio handles the loop
     result = await runner.invoke(
@@ -159,16 +91,15 @@ async def test_wait_basic(
 
     # Check results
     assert result.exit_code == 0
-    # Run kubectl will be called via asyncio.to_thread
-    mock_handle_output_for_cli.assert_called_once()
+    # Ensure run_kubectl was invoked
+    mock_run_kubectl_for_cli.assert_called()
 
 
 @pytest.mark.asyncio
 async def test_wait_with_args(
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
+    mock_get_adapter: MagicMock,
 ) -> None:
     """Test wait command with additional arguments."""
     runner = CliRunner()
@@ -193,8 +124,8 @@ async def test_wait_with_args(
 
     # Check results
     assert result.exit_code == 0
-    # Run kubectl will be called via asyncio.to_thread
-    mock_handle_output_for_cli.assert_called_once()
+    # Ensure run_kubectl was invoked
+    mock_run_kubectl_for_cli.assert_called()
 
 
 @patch("vibectl.subcommands.wait_cmd.configure_output_flags")
@@ -202,9 +133,8 @@ async def test_wait_with_args(
 async def test_wait_with_flags(
     mock_configure_flags: Mock,
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
+    mock_get_adapter: MagicMock,
 ) -> None:
     """Test wait command with vibectl-specific flags."""
     runner = CliRunner()
@@ -240,14 +170,13 @@ async def test_wait_with_flags(
     assert result.exit_code == 0
     # Check that we used the configured output flags
     mock_configure_flags.assert_called_once()
-    mock_handle_output_for_cli.assert_called_once()
+    # Ensure run_kubectl was invoked
+    mock_run_kubectl_for_cli.assert_called()
 
 
 @pytest.mark.asyncio
 async def test_wait_error_handling(
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
 ) -> None:
     """Test wait command error handling."""
@@ -269,6 +198,8 @@ async def test_wait_error_handling(
 
     # Check results - CLI should exit with non-zero status for errors
     assert result.exit_code == 1
+    # Ensure run_kubectl was invoked
+    mock_run_kubectl_for_cli.assert_called()
     # Make sure the error is being processed
     assert "timed out waiting for the condition" in result.output
 
@@ -325,28 +256,23 @@ async def test_wait_vibe_request_error(
 async def test_wait_vibe_no_request(
     mock_configure_output_flags: MagicMock,
     mock_configure_memory_flags: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
 ) -> None:
     """Test that the wait command properly handles missing vibe request."""
     runner = CliRunner()
-    # Invoke directly, expect error
+    # Invoke and verify non-zero exit code
     cmd_obj = cli.commands["wait"]
-    with pytest.raises(SystemExit) as exc_info:
-        # Use await directly
-        await runner.invoke(
-            cmd_obj,
-            ["vibe"],
-            catch_exceptions=False,  # Allow SystemExit to propagate for pytest.raises
-        )
-    assert exc_info.value.code != 0
+    result = await runner.invoke(
+        cmd_obj,
+        ["vibe"],
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
     # TODO: Check error message in console output? CliRunner is bypassed.
 
 
 @pytest.mark.asyncio
 async def test_wait_with_live_display_asyncio(
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
 ) -> None:
     """Test wait command with live display using asyncio."""
@@ -365,8 +291,9 @@ async def test_wait_with_live_display_asyncio(
     with patch.object(
         wait_cmd_module,
         "handle_wait_with_live_display",
-        new=mock_wait_live_display_async,
+        new_callable=AsyncMock,
     ) as mock_wait_live_display:
+        mock_wait_live_display.side_effect = mock_wait_live_display_async
         # Invoke directly
         cmd_obj = cli.commands["wait"]
         try:
@@ -386,8 +313,6 @@ async def test_wait_with_live_display_asyncio(
 @pytest.mark.asyncio
 async def test_wait_with_live_display_error_asyncio(
     mock_run_kubectl_for_cli: MagicMock,
-    mock_handle_output_for_cli: MagicMock,
-    mock_asyncio_for_wait: MagicMock,
     mock_memory: Mock,
 ) -> None:
     """Test wait command with live display handling errors using asyncio."""
@@ -406,23 +331,22 @@ async def test_wait_with_live_display_error_asyncio(
     with patch.object(
         wait_cmd_module,
         "handle_wait_with_live_display",
-        new=mock_error_live_display_async,
+        new_callable=AsyncMock,
     ) as mock_wait_live_display:
-        # Invoke directly, expect error exit
+        mock_wait_live_display.side_effect = mock_error_live_display_async
+        # Invoke and verify non-zero exit code
         cmd_obj = cli.commands["wait"]
-        with pytest.raises(SystemExit) as exc_info:
-            # Use await directly
-            await runner.invoke(
-                cmd_obj,
-                [
-                    "pod/nginx",
-                    "--for=condition=Ready",
-                    "--timeout=1s",
-                    "--live-display",
-                ],
-                catch_exceptions=False,  # Allow SystemExit to propagate
-            )
-        assert exc_info.value.code != 0
+        result = await runner.invoke(
+            cmd_obj,
+            [
+                "pod/nginx",
+                "--for=condition=Ready",
+                "--timeout=1s",
+                "--live-display",
+            ],
+            catch_exceptions=True,
+        )
+        assert result.exit_code != 0
         mock_wait_live_display.assert_called_once()
 
 

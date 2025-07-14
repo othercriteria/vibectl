@@ -372,9 +372,11 @@ class TestCertificateGeneration:
             regenerate=True,
         )
 
-    @patch("vibectl.server.main.cert_utils.ensure_certificate_exists")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.mkdir")
+    @patch(
+        "vibectl.server.main.cert_utils.ensure_certificate_exists", new_callable=Mock
+    )
+    @patch("pathlib.Path.exists", new_callable=Mock)
+    @patch("pathlib.Path.mkdir", new_callable=Mock)
     def test_perform_certificate_generation_error(
         self, mock_mkdir: Mock, mock_exists: Mock, mock_ensure_cert: Mock
     ) -> None:
@@ -394,9 +396,11 @@ class TestCertificateGeneration:
         assert isinstance(result, Error)
         assert "Certificate generation failed" in result.error
 
-    @patch("vibectl.server.main.cert_utils.ensure_certificate_exists")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.mkdir")
+    @patch(
+        "vibectl.server.main.cert_utils.ensure_certificate_exists", new_callable=Mock
+    )
+    @patch("pathlib.Path.exists", new_callable=Mock)
+    @patch("pathlib.Path.mkdir", new_callable=Mock)
     def test_perform_certificate_generation_exception(
         self, mock_mkdir: Mock, mock_exists: Mock, mock_ensure_cert: Mock
     ) -> None:
@@ -452,7 +456,7 @@ class TestServeCustomCommand:
 
     @patch("vibectl.server.main._load_and_validate_config")
     @patch("vibectl.server.main._create_and_start_server_common")
-    @patch("vibectl.server.main.handle_result")
+    @patch("vibectl.server.main.handle_result", new_callable=Mock)
     def test_serve_custom_command_with_all_options(
         self, mock_handle_result: Mock, mock_create_server: Mock, mock_load_config: Mock
     ) -> None:
@@ -612,8 +616,8 @@ class TestHandleResult:
         mock_console.print_error.assert_not_called()
         mock_exit.assert_called_once_with(0)
 
-    @patch("vibectl.server.main.console_manager")
-    @patch("sys.exit")
+    @patch("vibectl.server.main.console_manager", new_callable=Mock)
+    @patch("sys.exit", new_callable=Mock)
     def test_handle_result_error(self, mock_exit: Mock, mock_console: Mock) -> None:
         """Test handling error result."""
         result = Error(error="Something went wrong")
@@ -832,7 +836,10 @@ class TestErrorHandlingPaths:
         assert isinstance(result, Error)
         assert "Certificate provisioning failed" in result.error
 
-    @patch("vibectl.server.main._create_and_start_server_with_async_acme")
+    @patch(
+        "vibectl.server.main._create_and_start_server_with_async_acme",
+        new_callable=Mock,
+    )
     def test_create_and_start_server_acme_no_cert_data(
         self, mock_async_acme_server: Mock
     ) -> None:
@@ -969,7 +976,7 @@ class TestServerStartupErrorPaths:
     def test_create_default_config_write_permission_error(self) -> None:
         """Test create_default_config handles write permission errors."""
         import tempfile
-        from unittest.mock import patch
+        from unittest.mock import Mock, patch
 
         from vibectl.server.config import create_default_server_config
         from vibectl.types import Error
@@ -986,7 +993,9 @@ class TestServerStartupErrorPaths:
             exception=PermissionError("Permission denied"),
         )
         with patch(
-            "vibectl.server.config.ServerConfig.save", return_value=expected_error
+            "vibectl.server.config.ServerConfig.save",
+            new_callable=Mock,
+            return_value=expected_error,
         ):
             result = create_default_server_config(config_path)
 

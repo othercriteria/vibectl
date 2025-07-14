@@ -1,7 +1,7 @@
 """Tests for disable functionality in setup_proxy_cmd.py - proxy disabling."""
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from asyncclick.testing import CliRunner
@@ -66,6 +66,7 @@ class TestDisableProxy:
                 in_memory_config,
                 "set_active_proxy_profile",
                 side_effect=RuntimeError("Config error"),
+                new_callable=Mock,
             ),
         ):
             result = disable_proxy()
@@ -90,17 +91,20 @@ class TestSetupProxyDisableCLI:
                 "vibectl.subcommands.setup_proxy_cmd.Config",
                 return_value=in_memory_config,
             ),
-            patch("vibectl.subcommands.setup_proxy_cmd.disable_proxy") as mock_disable,
+            # Explicitly create Mock for synchronous functions to avoid
+            # AsyncMock auto-creation
             patch(
-                "vibectl.subcommands.setup_proxy_cmd.show_proxy_status"
+                "vibectl.subcommands.setup_proxy_cmd.disable_proxy",
+                new=Mock(return_value=Success(data="Proxy disabled")),
+            ) as mock_disable,
+            patch(
+                "vibectl.subcommands.setup_proxy_cmd.show_proxy_status", new=Mock()
             ) as mock_status,
             patch(
-                "vibectl.subcommands.setup_proxy_cmd.console_manager"
+                "vibectl.subcommands.setup_proxy_cmd.console_manager", new=Mock()
             ) as _mock_console,
             patch("asyncclick.confirm", return_value=True) as mock_confirm,
         ):
-            mock_disable.return_value = Success(data="Proxy disabled")
-
             runner = CliRunner()
             result = await runner.invoke(
                 cli,

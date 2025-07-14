@@ -1,5 +1,7 @@
 """Tests for setup-proxy configure command covering success and error paths."""
 
+from unittest.mock import Mock, patch
+
 import pytest
 
 from vibectl.subcommands import setup_proxy_cmd as spc
@@ -44,27 +46,45 @@ async def test_setup_proxy_configure_success(monkeypatch: pytest.MonkeyPatch) ->
             }
         )
 
-    monkeypatch.setattr(spc, "check_proxy_connection", _fake_check)
-    monkeypatch.setattr(spc, "Config", _DummyConfig)
-    monkeypatch.setattr(spc, "show_proxy_status", lambda: None)
-    monkeypatch.setattr(spc, "_print_server_info", lambda *a, **k: None)
-    monkeypatch.setattr(spc, "handle_exception", lambda *a, **k: None)
-
-    # Allow console output for debugging
-
-    # Call the click-wrapped async callback directly
-    await spc.setup_proxy_configure.callback(  # type: ignore[misc]
-        profile_name="testprof",
-        proxy_url="vibectl-server://localhost:443",
-        no_test=False,
-        ca_bundle=None,
-        jwt_path=None,
-        enable_sanitization=True,
-        enable_audit_logging=False,
-        no_sanitization_warnings=False,
-        activate=True,
-        no_activate=False,
+    # Mock sync functions with explicit Mock to override any global AsyncMock
+    mock_parse_proxy_url = Mock()
+    mock_parse_proxy_url.return_value = Mock(
+        host="localhost", port=443, use_tls=True, jwt_token=None
     )
+
+    mock_validate_proxy_url = Mock()
+    mock_validate_proxy_url.return_value = (True, None)
+
+    with (
+        patch(
+            "vibectl.subcommands.setup_proxy_cmd.parse_proxy_url", mock_parse_proxy_url
+        ),
+        patch(
+            "vibectl.subcommands.setup_proxy_cmd.validate_proxy_url",
+            mock_validate_proxy_url,
+        ),
+    ):
+        monkeypatch.setattr(spc, "check_proxy_connection", _fake_check)
+        monkeypatch.setattr(spc, "Config", _DummyConfig)
+        monkeypatch.setattr(spc, "show_proxy_status", lambda: None)
+        monkeypatch.setattr(spc, "_print_server_info", lambda *a, **k: None)
+        monkeypatch.setattr(spc, "handle_exception", lambda *a, **k: None)
+
+        # Allow console output for debugging
+
+        # Call the click-wrapped async callback directly
+        await spc.setup_proxy_configure.callback(  # type: ignore[misc]
+            profile_name="testprof",
+            proxy_url="vibectl-server://localhost:443",
+            no_test=False,
+            ca_bundle=None,
+            jwt_path=None,
+            enable_sanitization=True,
+            enable_audit_logging=False,
+            no_sanitization_warnings=False,
+            activate=True,
+            no_activate=False,
+        )
 
 
 @pytest.mark.asyncio
@@ -76,24 +96,42 @@ async def test_setup_proxy_configure_connection_failure_exits(
     async def _fail_check(*_: object, **__: object) -> Error:
         return Error(error="boom")
 
-    monkeypatch.setattr(spc, "check_proxy_connection", _fail_check)
-    monkeypatch.setattr(spc, "Config", _DummyConfig)
-    monkeypatch.setattr(spc, "show_proxy_status", lambda: None)
-    monkeypatch.setattr(spc, "_print_server_info", lambda *a, **k: None)
-    monkeypatch.setattr(spc, "handle_exception", lambda *a, **k: None)
+    # Mock sync functions with explicit Mock to override any global AsyncMock
+    mock_parse_proxy_url = Mock()
+    mock_parse_proxy_url.return_value = Mock(
+        host="localhost", port=443, use_tls=True, jwt_token=None
+    )
 
-    # Allow console output for debugging
+    mock_validate_proxy_url = Mock()
+    mock_validate_proxy_url.return_value = (True, None)
 
-    with pytest.raises(SystemExit):
-        await spc.setup_proxy_configure.callback(  # type: ignore[misc]
-            profile_name="bad",
-            proxy_url="vibectl-server://localhost:443",
-            no_test=False,
-            ca_bundle=None,
-            jwt_path=None,
-            enable_sanitization=False,
-            enable_audit_logging=False,
-            no_sanitization_warnings=False,
-            activate=False,
-            no_activate=True,
-        )
+    with (
+        patch(
+            "vibectl.subcommands.setup_proxy_cmd.parse_proxy_url", mock_parse_proxy_url
+        ),
+        patch(
+            "vibectl.subcommands.setup_proxy_cmd.validate_proxy_url",
+            mock_validate_proxy_url,
+        ),
+    ):
+        monkeypatch.setattr(spc, "check_proxy_connection", _fail_check)
+        monkeypatch.setattr(spc, "Config", _DummyConfig)
+        monkeypatch.setattr(spc, "show_proxy_status", lambda: None)
+        monkeypatch.setattr(spc, "_print_server_info", lambda *a, **k: None)
+        monkeypatch.setattr(spc, "handle_exception", lambda *a, **k: None)
+
+        # Allow console output for debugging
+
+        with pytest.raises(SystemExit):
+            await spc.setup_proxy_configure.callback(  # type: ignore[misc]
+                profile_name="bad",
+                proxy_url="vibectl-server://localhost:443",
+                no_test=False,
+                ca_bundle=None,
+                jwt_path=None,
+                enable_sanitization=False,
+                enable_audit_logging=False,
+                no_sanitization_warnings=False,
+                activate=False,
+                no_activate=True,
+            )

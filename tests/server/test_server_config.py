@@ -763,7 +763,7 @@ class TestServerConfig:
         # Create a config that will cause an exception during access
         with (
             patch.dict("os.environ", {}),
-            patch("vibectl.server.config.logger"),
+            patch("vibectl.server.config.logger", new=Mock()),
         ):
             # Mock config.get to raise an exception
             mock_config = Mock()

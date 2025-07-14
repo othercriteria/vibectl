@@ -248,10 +248,10 @@ async def test_logs_error_handling(
     new_callable=AsyncMock,
 )
 @patch("vibectl.command_handler.run_kubectl")
-@patch("vibectl.command_handler.handle_command_output")
+@patch("vibectl.command_handler.handle_command_output", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_logs_follow_uses_live_display(
-    mock_handle_command_output: Mock,
+    mock_handle_command_output: AsyncMock,
     mock_run_kubectl: Mock,
     mock_handle_watch_with_live_display: AsyncMock,
     cli_runner: CliRunner,

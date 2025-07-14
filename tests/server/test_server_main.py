@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from vibectl.server.config import (
@@ -263,11 +264,19 @@ class TestUtilityFunctions:
 
 
 class TestCLICommands:
-    """Test CLI command functionality."""
+    """Test CLI commands."""
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """Set up test runner."""
         self.runner = CliRunner()
+
+    @pytest.fixture(autouse=False)
+    async def cleanup_background_tasks(self, background_tasks: Any) -> Any:
+        """Ensure background tasks are properly cleaned up."""
+        # This fixture ensures that any background tasks created during
+        # server tests are properly managed and cleaned up
+        yield
+        # background_tasks fixture automatically handles cleanup
 
     @patch("vibectl.server.main._load_and_validate_config")
     @patch("vibectl.server.main.create_server")
@@ -413,7 +422,10 @@ class TestCLICommands:
         mock_server = Mock()
         mock_create_server.return_value = mock_server
 
-        with patch("vibectl.server.main.serve_custom") as mock_serve_custom:
+        # Use a proper Mock that won't trigger AsyncMockMixin warnings
+        with patch(
+            "vibectl.server.main.serve_custom", side_effect=lambda **kwargs: None
+        ) as mock_serve_custom:
             result = self.runner.invoke(serve)
 
             assert result.exit_code == 0
@@ -422,13 +434,21 @@ class TestCLICommands:
     @patch("vibectl.server.main.load_server_config")
     @patch("vibectl.server.config.ServerConfig.validate")
     @patch("vibectl.server.main._create_and_start_server_common")
+    @patch("vibectl.server.acme_manager.ACMEManager")
     def test_serve_command_smart_routing_acme(
         self,
+        mock_acme_manager_class: Mock,
         mock_create_server_common: Mock,
         mock_validate: Mock,
         mock_load_config: Mock,
     ) -> None:
         """Test serve command routes to ACME mode using common server creation."""
+        # Mock ACMEManager to prevent background tasks
+        mock_acme_manager = Mock()
+        mock_acme_manager.start.return_value = None
+        mock_acme_manager.stop.return_value = None
+        mock_acme_manager_class.return_value = mock_acme_manager
+
         mock_config = get_default_server_config()
         # ACME enabled = ACME mode
         mock_config["tls"]["enabled"] = True
@@ -436,6 +456,7 @@ class TestCLICommands:
         mock_load_config.return_value = Success(data=mock_config)
         mock_validate.return_value = Success(data=mock_config)
 
+        # Ensure the mock returns a regular Mock, not AsyncMock
         mock_create_server_common.return_value = Success(data="Server started")
 
         result = self.runner.invoke(serve)
@@ -570,9 +591,9 @@ class TestCLICommands:
 
         assert result.exit_code == 1
 
-    @patch("vibectl.server.main.ensure_config_dir")
-    @patch("vibectl.server.config.ServerConfig.create_default")
-    @patch("pathlib.Path.exists")
+    @patch("vibectl.server.main.ensure_config_dir", new_callable=Mock)
+    @patch("vibectl.server.config.ServerConfig.create_default", new_callable=Mock)
+    @patch("pathlib.Path.exists", new_callable=Mock)
     def test_init_config_command(
         self, mock_exists: Mock, mock_create_default: Mock, mock_ensure_dir: Mock
     ) -> None:
@@ -589,8 +610,8 @@ class TestCLICommands:
         mock_ensure_dir.assert_called_once_with("server")
         mock_create_default.assert_called_once()
 
-    @patch("vibectl.server.main.ensure_config_dir")
-    @patch("pathlib.Path.exists")
+    @patch("vibectl.server.main.ensure_config_dir", new_callable=Mock)
+    @patch("pathlib.Path.exists", new_callable=Mock)
     def test_init_config_file_exists_no_force(
         self, mock_exists: Mock, mock_ensure_dir: Mock
     ) -> None:
@@ -604,9 +625,9 @@ class TestCLICommands:
 
         assert result.exit_code == 1
 
-    @patch("vibectl.server.main.ensure_config_dir")
-    @patch("vibectl.server.config.ServerConfig.create_default")
-    @patch("pathlib.Path.exists")
+    @patch("vibectl.server.main.ensure_config_dir", new_callable=Mock)
+    @patch("vibectl.server.config.ServerConfig.create_default", new_callable=Mock)
+    @patch("pathlib.Path.exists", new_callable=Mock)
     def test_init_config_with_force(
         self, mock_exists: Mock, mock_create_default: Mock, mock_ensure_dir: Mock
     ) -> None:
@@ -622,7 +643,7 @@ class TestCLICommands:
         assert result.exit_code == 0
         mock_create_default.assert_called_once()
 
-    @patch("vibectl.server.main.ensure_config_dir")
+    @patch("vibectl.server.main.ensure_config_dir", new_callable=Mock)
     def test_init_config_error(self, mock_ensure_dir: Mock) -> None:
         """Test init config command with error."""
         mock_ensure_dir.side_effect = OSError("Permission denied")
@@ -643,8 +664,8 @@ class TestCLICommands:
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     @patch("vibectl.server.cert_utils.get_default_cert_paths")
     @patch("vibectl.server.main.get_config_dir")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.exists", new_callable=Mock)
+    @patch("pathlib.Path.mkdir", new_callable=Mock)
     def test_generate_certs_command_default(
         self,
         mock_mkdir: Mock,
@@ -677,8 +698,8 @@ class TestCLICommands:
 
     @patch("vibectl.server.cert_utils.ensure_certificate_exists")
     @patch("vibectl.server.main.get_config_dir")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.mkdir")
+    @patch("pathlib.Path.exists", new_callable=Mock)
+    @patch("pathlib.Path.mkdir", new_callable=Mock)
     def test_generate_certs_command_with_options(
         self,
         mock_mkdir: Mock,

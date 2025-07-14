@@ -1,6 +1,6 @@
 """Test that edit command properly captures vibe output for memory updates."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -193,7 +193,9 @@ spec:
                 data=mock_vibe_output, message="Patch applied successfully"
             ),
         ),
-        patch("vibectl.execution.edit.update_memory") as mock_update_memory,
+        patch(
+            "vibectl.execution.edit.update_memory", new_callable=AsyncMock
+        ) as mock_update_memory,
         patch("vibectl.execution.edit.console_manager"),
     ):
         # Mock update_memory to return metrics

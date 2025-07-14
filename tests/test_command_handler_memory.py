@@ -433,7 +433,9 @@ async def test_handle_vibe_request_updates_memory_on_error(
     mock_test_summary_fragments: SummaryPromptFragmentFunc,
 ) -> None:
     """Test handle_vibe_request updates memory when LLM planning results in an error."""
-    with patch("vibectl.execution.vibe.update_memory") as mock_vibe_update_memory:
+    with patch(
+        "vibectl.execution.vibe.update_memory", new_callable=AsyncMock
+    ) as mock_vibe_update_memory:
         mock_vibe_update_memory.return_value = LLMMetrics(
             token_input=1, token_output=1, latency_ms=1, total_processing_duration_ms=2
         )
