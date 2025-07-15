@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stabilised `ServerConfig` auto-reload tests:
   - Ensures watcher thread is active before file modifications, eliminating
     intermittent flakiness in `test_config_auto_reload_*`.
+  - Atomic config file writes via `ServerConfig.save()` to prevent partially-written
+    files and eliminate CI race-condition flakes; expanded unit tests for
+    configuration I/O paths improve coverage.
 
 ## [0.11.3] - 2025-06-27
 

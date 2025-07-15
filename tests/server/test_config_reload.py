@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 import threading
 from pathlib import Path
@@ -16,11 +17,18 @@ from vibectl.server.config import ServerConfig, Success
 
 
 def _write_yaml(path: Path, data: dict) -> None:
-    """Helper that atomically writes YAML to *path* (best-effort)."""
-    # Use json+dump to ensure consistent mtime update across platforms
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, indent=2, default_flow_style=False)
-        f.flush()
+    """Helper that atomically writes YAML to *path*."""
+    # Write to temporary file in the same directory, then atomic replace so that
+    # watchers never observe a partially-written file.
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, suffix=path.suffix or "", delete=False, encoding="utf-8"
+    ) as tmp:
+        yaml.dump(data, tmp, indent=2, default_flow_style=False)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+
+    os.replace(tmp_path, path)
 
 
 @pytest.mark.asyncio
@@ -97,10 +105,10 @@ async def test_config_auto_reload_invalid_change() -> None:
         # not yet performed its first poll.
         await asyncio.sleep(0.1)
 
-        # Write malformed YAML
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write("invalid: [\n")
-            f.flush()
+        # Write malformed YAML atomically to avoid triggering partial-read races
+        tmp_path = config_path.with_suffix(".tmp")
+        tmp_path.write_text("invalid: [\n", encoding="utf-8")
+        os.replace(tmp_path, config_path)
 
         # Give watcher some time
         await asyncio.sleep(0.3)

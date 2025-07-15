@@ -6,6 +6,8 @@ following the same patterns as the main CLI configuration.
 
 import json
 import logging
+import os
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -171,11 +173,28 @@ class ServerConfig:
             # Create directory if it doesn't exist
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            # Write to a temporary file in the same directory first, then atomically
+            # replace the target path. This guarantees that any watcher thread will
+            # either see the *previous* complete file or the *new* complete file,
+            # but never a partially-written one, eliminating race conditions that
+            # caused CI flakes.
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=self.config_path.parent,
+                suffix=self.config_path.suffix or "",
+                delete=False,
+                encoding="utf-8",
+            ) as tmp_file:
                 if self.config_path.suffix.lower() == ".json":
-                    json.dump(config, f, indent=2)
+                    json.dump(config, tmp_file, indent=2)
                 else:
-                    yaml.dump(config, f, default_flow_style=False, indent=2)
+                    yaml.dump(config, tmp_file, default_flow_style=False, indent=2)
+
+                # Flush buffers and fsync to ensure data is on disk before rename.
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+
+            os.replace(tmp_file.name, self.config_path)
 
             self._config_cache = config
             logger.info(f"Server configuration saved to {self.config_path}")
