@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     configuration I/O paths improve coverage.
 
 * Fixed missing `pre-commit` dev dependency which caused Git pre-commit hooks to be skipped; restored the dependency in `pyproject.toml` and Nix `devShell` to ensure hooks run automatically again.
+* Resolved regression where root-level `--show-raw-output` flag was not
+  propagated to sub-commands: `configure_output_flags` now consults
+  ContextVar overrides directly when an individual command doesn’t specify
+  the flag, restoring expected behaviour and fixing failing
+  `test_global_flag_contextvar_transduction`.
 
 ## [0.11.3] - 2025-06-27
 

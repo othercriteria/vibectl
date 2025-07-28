@@ -289,7 +289,13 @@ def run_kubectl_with_yaml(
                             f"Failed to clean up temporary file: {cleanup_error}"
                         )
     except Exception as e:
-        logger.error("Error executing YAML command: %s", e, exc_info=True)
+        # Avoid exc_info=True here because tests may monkeypatch re.sub, which
+        # logging uses internally when formatting exceptions.  Leaving it on
+        # would let that monkey-patch crash the logger and fail tests that are
+        # intentionally raising a ValueError from re.sub.  The traceback is
+        # still available from the returned Error object if the caller wishes
+        # to inspect it.
+        logger.error("Error executing YAML command: %s", e)
         return Error(error=f"Error executing YAML command: {e}", exception=e)
 
 
