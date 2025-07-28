@@ -376,13 +376,14 @@ async def describe(
     include_model=False,
     include_show_metrics=False,
     include_show_streaming=False,
-    include_show_raw_output=False,
+    include_show_raw_output=True,
     include_live_display=True,
 )
 async def logs(
     resource: str,
     args: tuple,
     show_vibe: bool | None,
+    show_raw_output: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
     live_display: bool = True,
@@ -392,6 +393,7 @@ async def logs(
         resource=resource,
         args=args,
         show_vibe=show_vibe,
+        show_raw_output=show_raw_output,
         freeze_memory=freeze_memory,
         unfreeze_memory=unfreeze_memory,
         live_display=live_display,

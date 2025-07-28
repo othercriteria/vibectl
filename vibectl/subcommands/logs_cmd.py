@@ -14,6 +14,7 @@ async def run_logs_command(
     resource: str,
     args: tuple[str, ...],
     *,
+    show_raw_output: bool | None = None,
     show_vibe: bool | None = None,
     freeze_memory: bool = False,
     unfreeze_memory: bool = False,
@@ -28,6 +29,7 @@ async def run_logs_command(
     )
 
     output_flags = configure_output_flags(
+        show_raw_output=show_raw_output,
         show_vibe=show_vibe,
     )
     configure_memory_flags(freeze_memory, unfreeze_memory)
