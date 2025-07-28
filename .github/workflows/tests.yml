@@ -28,11 +28,11 @@ jobs:
 
     - name: Install dependencies from lock file
       run: |
-        uv pip install -r uv.lock
+        uv pip install --system -r uv.lock
 
     - name: Install project in editable mode
       run: |
-        uv pip install -e .
+        uv pip install --system -e .
 
     - name: Lint with ruff
       run: |
