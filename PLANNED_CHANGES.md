@@ -18,3 +18,7 @@ The project now uses uv for fast, deterministic dependency resolution and lockin
 - **Documentation** added to both STRUCTURE.md and TESTING.md explaining the workflow
 
 This ensures reproducible builds across different environments and faster dependency resolution.
+
+## TODO
+
+- [ ] Replace deprecated datetime.datetime.utcnow() usages with timezone-aware alternatives (datetime.now(datetime.UTC))
