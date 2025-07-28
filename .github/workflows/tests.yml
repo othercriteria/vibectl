@@ -21,20 +21,25 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
+    - name: Install uv
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov
-        pip install -e ".[dev]"
+        pip install uv
+
+    - name: Install dependencies from lock file
+      run: |
+        uv pip install -r uv.lock
+
+    - name: Install project in editable mode
+      run: |
+        uv pip install -e .
 
     - name: Lint with ruff
       run: |
-        pip install ruff
         ruff check .
 
     - name: Type check with mypy
       run: |
-        pip install mypy
         mypy vibectl tests
 
     - name: Test with pytest
