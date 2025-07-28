@@ -27,6 +27,38 @@ These versions are tested in our CI/CD pipeline using GitHub Actions.
 - Access to a Kubernetes cluster
 - An LLM API key
 
+## Development Environment Setup
+
+### Dependency Management with uv
+
+This project uses **uv** for fast, deterministic dependency resolution and locking:
+
+#### Setting up the Environment
+
+1. **Nix Development Shell** (Recommended):
+   ```bash
+   nix develop  # Automatically includes uv and sets up environment
+   ```
+
+2. **Manual Setup** (Alternative):
+   ```bash
+   pip install uv
+   uv pip install -r uv.lock  # Install locked dependencies
+   ```
+
+#### Managing Dependencies
+
+- **Add new dependencies**: Edit `pyproject.toml` (for runtime) or `[project.optional-dependencies].dev` (for testing)
+- **Update lock file**: Run `make lock` after adding dependencies
+- **Install dependencies**: Happens automatically in Nix shell, or manually with `uv pip install -r uv.lock`
+
+#### Benefits for Testing
+
+- **Reproducible test environments**: Locked versions ensure consistent behavior across machines
+- **Fast dependency resolution**: uv's resolver is significantly faster than pip
+- **Conflict detection**: uv catches dependency conflicts early in the resolution process
+- **Committed lock files**: Ensures CI/CD and development environments are identical
+
 ## Test Types
 
 ### Unit Tests

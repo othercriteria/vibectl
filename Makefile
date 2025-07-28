@@ -208,4 +208,4 @@ dev-install: install-dev grpc-check grpc-gen ## Install development dependencies
 ##@ Dependency Management
 
 lock: ## Regenerate uv.lock file
-	uv pip compile --extra=dev --output-file=uv.lock
+	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock
