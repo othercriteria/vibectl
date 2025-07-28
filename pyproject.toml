@@ -60,6 +60,7 @@ dev = [
     "asyncmock>=0.4.2",
     "grpc-stubs>=1.53.0",
     "types-protobuf>=4.24.0",
+    "uv>=0.1.0",  # uv for dependency resolution and locking
 ]
 
 [project.scripts]

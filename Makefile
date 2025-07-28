@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
 .DEFAULT_GOAL := help
 
 PYTHON_FILES = vibectl tests
@@ -204,3 +204,8 @@ grpc-check: ## Check if gRPC dependencies are available
 
 # Add grpc-gen as a dependency for development setup
 dev-install: install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
+
+##@ Dependency Management
+
+lock: ## Regenerate uv.lock file
+	uv pip compile --extra=dev --output-file=uv.lock

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Planned: Introduce uv-based dependency locking workflow (WIP)
+
 ### Changed
 - Robust async-testing refactor completed:
   - Added shared async-test helpers (`fast_sleep`, `background_tasks`) for
