@@ -700,45 +700,8 @@ def configure_output_flags(
     show_metrics: MetricsDisplayMode | None = None,
     show_streaming: bool | None = None,
 ) -> OutputFlags:
-    """Configure OutputFlags taking ContextVar overrides into account.
-
-    The root ``vibectl`` CLI group stores global flag values in ContextVars.
-    When any parameter here is ``None`` we check for such an override before
-    finally falling back to the persistent value in ``Config`` (handled by
-    :py:meth:`OutputFlags.from_args`).
-    """
-
-    # ------------------------------------------------------------------
-    # Helper - consult overrides only when the caller did *not* pass an
-    # explicit value.  Import is local to avoid hard dependency cycles.
-    # ------------------------------------------------------------------
-    def _fallback(value: object | None, key: str) -> object | None:
-        if value is not None:
-            return value
-        try:
-            from vibectl.overrides import get_override  # local import to avoid cycles
-
-            overridden, override_val = get_override(key)
-            if overridden:
-                return _t.cast(object, override_val)
-        except Exception:  # pragma: no cover - defensive
-            # Either overrides not available or raised unexpectedly; ignore.
-            pass
-        return None
-
-    import typing as _t
-
-    show_raw_output = _t.cast(
-        bool | None, _fallback(show_raw_output, "display.show_raw_output")
-    )
-    show_vibe = _t.cast(bool | None, _fallback(show_vibe, "display.show_vibe"))
-    show_kubectl = _t.cast(bool | None, _fallback(show_kubectl, "display.show_kubectl"))
-    show_metrics = _t.cast(
-        MetricsDisplayMode | None, _fallback(show_metrics, "display.show_metrics")
-    )
-    show_streaming = _t.cast(
-        bool | None, _fallback(show_streaming, "display.show_streaming")
-    )
+    """Configure OutputFlags with the given parameters."""
+    # Use OutputFlags.from_args which handles all the config logic
 
     return OutputFlags.from_args(
         model=model,

@@ -112,12 +112,9 @@ async def test_logs_with_flags(
 
     # Verify configure_output_flags called with no explicit per-subcommand
     # overrides.
-    # Ensure configure_output_flags called exactly once and captured kwargs
-    mock_configure_flags.assert_called_once()
-    _, cfg_kwargs = mock_configure_flags.call_args
-    # show_vibe should be None and show_raw_output should be explicitly passed
-    assert cfg_kwargs.get("show_vibe") is None
-    assert "show_raw_output" in cfg_kwargs and cfg_kwargs["show_raw_output"] is None
+    mock_configure_flags.assert_called_once_with(
+        show_vibe=None,
+    )
 
 
 @patch("vibectl.command_handler.run_kubectl")
@@ -359,10 +356,9 @@ async def test_logs_follow_with_show_vibe_flag(
     assert exc_info.value.code == 0
 
     # Verify configure_output_flags was called correctly with explicit show_vibe
-    mock_configure_output_flags.assert_called_once()
-    _, cfg_kwargs = mock_configure_output_flags.call_args
-    assert cfg_kwargs.get("show_vibe") is True
-    assert "show_raw_output" in cfg_kwargs and cfg_kwargs["show_raw_output"] is None
+    mock_configure_output_flags.assert_called_once_with(
+        show_vibe=True,
+    )
 
     # Verify handle_watch_with_live_display was called correctly
     mock_handle_watch_with_live_display.assert_called_once_with(
