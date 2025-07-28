@@ -242,6 +242,7 @@
             python.pkgs.build  # for building packages
             python.pkgs.twine  # for uploading to PyPI
             pkgs.uv            # uv: fast dependency resolver and lock generator
+            pkgs.pre-commit   # pre-commit CLI for git hooks and manual runs
             pypi-dist-script   # custom distribution helper
             bump-version-script # version bumping helper
             gh  # GitHub CLI for interacting with GitHub

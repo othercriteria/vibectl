@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     files and eliminate CI race-condition flakes; expanded unit tests for
     configuration I/O paths improve coverage.
 
+* Fixed missing `pre-commit` dev dependency which caused Git pre-commit hooks to be skipped; restored the dependency in `pyproject.toml` and Nix `devShell` to ensure hooks run automatically again.
+
 ## [0.11.3] - 2025-06-27
 
 ### Added
