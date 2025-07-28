@@ -28,10 +28,14 @@ async def run_logs_command(
         live_display,
     )
 
-    output_flags = configure_output_flags(
-        show_raw_output=show_raw_output,
-        show_vibe=show_vibe,
-    )
+    # Build kwargs for configure_output_flags dynamically to avoid passing
+    # show_raw_output when it wasn't explicitly provided. Tests expect the
+    # sub-command to forward **only** parameters with concrete values.
+    cfg_kwargs: dict[str, object] = {"show_vibe": show_vibe}
+    if show_raw_output is not None:
+        cfg_kwargs["show_raw_output"] = show_raw_output
+
+    output_flags = configure_output_flags(**cfg_kwargs)  # type: ignore[arg-type]
     configure_memory_flags(freeze_memory, unfreeze_memory)
 
     if resource == "vibe":
