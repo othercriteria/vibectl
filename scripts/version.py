@@ -1,6 +1,36 @@
 import argparse
+import re
 import subprocess
+from enum import Enum
 from pathlib import Path
+
+
+class BumpType(str, Enum):
+    patch = "patch"
+    minor = "minor"
+    major = "major"
+
+
+def _parse_version(version: str) -> tuple[int, int, int]:
+    major_s, minor_s, patch_s = version.split(".")
+    return int(major_s), int(minor_s), int(patch_s)
+
+
+def _bump_version(cur: tuple[int, int, int], bump: BumpType) -> tuple[int, int, int]:
+    major, minor, patch = cur
+    if bump == BumpType.major:
+        return major + 1, 0, 0
+    if bump == BumpType.minor:
+        return major, minor + 1, 0
+    return major, minor, patch + 1  # patch
+
+
+def _update_pyproject(new_version: str, pyproject_path: Path) -> None:
+    text = pyproject_path.read_text()
+    updated = re.sub(
+        r'version\s*=\s*"\d+\.\d+\.\d+"', f'version = "{new_version}"', text
+    )
+    pyproject_path.write_text(updated)
 
 
 def get_version() -> str:
@@ -57,10 +87,30 @@ def main() -> None:
         action="store_false",
         help="Actually execute git commands (tag/push)",
     )
+    parser.add_argument(
+        "--bump",
+        type=BumpType,
+        choices=list(BumpType),
+        help="Bump semantic version (patch/minor/major) and update pyproject.toml",
+    )
     parser.set_defaults(dry_run=True)
     args = parser.parse_args()
 
     version = get_version()
+
+    if args.bump:
+        pj_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        cur_tup = _parse_version(version)
+        new_tup = _bump_version(cur_tup, args.bump)
+        new_version = ".".join(str(i) for i in new_tup)
+        print(f"Current version: {version} -> New version: {new_version}")
+        if args.dry_run:
+            print("[dry-run] Would update pyproject.toml with new version")
+        else:
+            _update_pyproject(new_version, pj_path)
+            print("Updated pyproject.toml with new version")
+        # after bump, override variable for potential tagging
+        version = new_version
 
     if args.tag or args.push:
         tag(version, dry_run=args.dry_run)

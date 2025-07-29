@@ -11,27 +11,6 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         python = pkgs.python311;
-
-        # Helper script wrapper for bump_version.py
-        bump-version-script = pkgs.writeScriptBin "bump-version" ''
-          #!/usr/bin/env bash
-          # Wrapper for bump_version.py script
-
-          # Find the script in the current directory
-          SCRIPT_PATH="$(dirname "$0")/../bump_version.py"
-
-          if [ ! -f "$SCRIPT_PATH" ]; then
-            SCRIPT_PATH="./bump_version.py"
-          fi
-
-          if [ ! -f "$SCRIPT_PATH" ]; then
-            echo "Error: bump_version.py script not found"
-            exit 1
-          fi
-
-          # Run the script with all arguments passed through
-          python "$SCRIPT_PATH" "$@"
-        '';
       in
       {
         devShells.default = pkgs.mkShell {
@@ -46,7 +25,6 @@
             python.pkgs.twine  # for uploading to PyPI
             pkgs.uv            # uv: fast dependency resolver and lock generator
             pkgs.pre-commit   # pre-commit CLI for git hooks and manual runs
-            bump-version-script # version bumping helper
             gh  # GitHub CLI for interacting with GitHub
             docker
             docker-buildx

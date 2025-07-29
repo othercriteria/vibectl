@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage ci-check wheel release check-coverage clean update-deps install install-dev install-pre-commit bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage ci-check wheel release check-coverage clean update-deps install install-dev install-pre-commit update-changelog grpc-gen grpc-clean grpc-check dev-install lock bump-patch bump-minor bump-major
 .DEFAULT_GOAL := help
 
 # Determine project virtualenv Python
@@ -103,26 +103,7 @@ update-changelog:  ## Update CHANGELOG.md for a new release
 		exit 1; \
 	fi
 
-bump-patch: update-changelog  ## Bump patch version (0.0.x)
-	@if command -v bump-version >/dev/null 2>&1; then \
-		bump-version patch; \
-	else \
-		python ./bump_version.py patch; \
-	fi
-
-bump-minor: update-changelog  ## Bump minor version (0.x.0)
-	@if command -v bump-version >/dev/null 2>&1; then \
-		bump-version minor; \
-	else \
-		python ./bump_version.py minor; \
-	fi
-
-bump-major: update-changelog  ## Bump major version (x.0.0)
-	@if command -v bump-version >/dev/null 2>&1; then \
-		bump-version major; \
-	else \
-		python ./bump_version.py major; \
-	fi
+# Version bump targets removed – use manual edit or future make publish flow
 
 ##@ Packaging & Release
 
@@ -169,3 +150,12 @@ dev-install: install-dev grpc-check grpc-gen ## Install development dependencies
 
 lock: ## Regenerate uv.lock file
 	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock
+
+bump-patch: update-changelog ## Bump patch version via scripts/version.py
+	python scripts/version.py --bump patch --no-dry-run
+
+bump-minor: update-changelog ## Bump minor version via scripts/version.py
+	python scripts/version.py --bump minor --no-dry-run
+
+bump-major: update-changelog ## Bump major version via scripts/version.py
+	python scripts/version.py --bump major --no-dry-run
