@@ -580,3 +580,17 @@ These items build upon the V1 client-side security hardening released in 0.12.0 
    - Verify JWT loading, CA bundle resolution, sanitization & audit logging.
 
 (Imported from the now-removed `PLANNED_CHANGES.md`.)
+
+## Build Tooling Backlog
+
+- Evaluate migrating Makefile tasks to [Poe the Poet](https://github.com/nat-n/poethepoet) once Makefile stabilises further.
+  - Add `poe` task definitions in `pyproject.toml` mirroring current make targets.
+  - Replace Makefile bodies with thin `poe` wrappers or retire Makefile entirely.
+  - Update CI to use `poe quality` in place of `make ci-check`.
+  - Ensure developer ergonomics remain (tab-completion, help etc.).
+
+10→- Evaluate replacing `dmypy` with [Pyright](https://github.com/microsoft/pyright) for faster type checking.
+  - Add `pyright` to dev dependencies and pre-commit hook.
+  - Configure basic `tool.pyright` section in `pyproject.toml` (exclude proto stubs).
+  - Add `make pyright` target (optional) and consider switching `typecheck` after diagnostics are resolved.
+  - Compare runtime (dmypy vs pyright) and error parity; decide on migration.
