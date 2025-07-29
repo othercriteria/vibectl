@@ -114,8 +114,8 @@ This document provides an overview of the project's structure and organization.
   - `scripts/` - Helper shell scripts used by Cursor rules to enable complex, multi-step actions or to work around tool limitations with multi-line commands. Scripts in this directory are typically called by the `command` field in a rule's action block.
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `pyproject.toml` - Python project configuration and dependencies
-- `Makefile` - Build and development automation
-- `flake.nix` & `flake.lock` - Nix development environment
+- `Makefile` - Build and development automation (now the **single source of truth** for lint/test/build/release targets; replaces previous pypi-dist helper wrapper)
+- `flake.nix` & `flake.lock` - Nix development environment (devShell no longer auto-creates virtualenv or installs Python packages, aligning with goal of "no hidden installs")
 - `.envrc` - direnv configuration for environment activation
 
 ### Dependency Management

@@ -39,6 +39,7 @@ repos:
               vibectl/proto/llm_proxy_pb2_grpc\.py
           )$
 
+  # Removed dmypy hook in make-only-release refactor – use mypy via Makefile
   # dmypy (mypy daemon) for faster type checking
   - repo: local
     hooks:

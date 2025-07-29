@@ -192,10 +192,11 @@ Each demo has its own `README.md` with step‑by‑step instructions.
 ## 🧪 Development & Testing
 
 ```bash
-flake develop     # or: make install-dev
-make check        # ruff + mypy + pytest
-make test-fast    # quick subset
-make bump-patch   # bump version with changelog guard
+flake develop        # or: make install-dev
+make ci-check        # lint + typecheck + full tests + coverage
+make test-fast       # quick subset for rapid iteration
+make bump-patch      # dry-run patch bump (add DRY_RUN=0 to write)
+make publish         # build, upload, tag (dry-run by default; set PUBLISH_DRY_RUN=0)
 ```
 
 *Server-side roadmap:* see **`TODO-SERVER.md`** for detailed vibectl-server tasks and security hardening goals (e.g., certificate transparency monitoring).
