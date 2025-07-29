@@ -152,6 +152,7 @@ lock: ## Regenerate uv.lock file
 	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock
 
 # optional DRY_RUN env var controls whether bump writes to file
+DRY_RUN?=1
 BUMP_FLAGS=$(if $(filter 0,$(DRY_RUN)),--no-dry-run,)
 
 bump-patch: update-changelog ## Bump patch version via scripts/version.py
@@ -164,11 +165,20 @@ bump-major: update-changelog ## Bump major version via scripts/version.py
 	python scripts/version.py --bump major $(BUMP_FLAGS)
 
 # Publish to PyPI (requires credentials in ~/.pypirc or env vars). Controlled by PUBLISH_DRY_RUN (default 1)
+PUBLISH_DRY_RUN?=1
 PUBLISH_FLAGS=$(if $(filter 0,$(PUBLISH_DRY_RUN)),--no-dry-run,)
+
+define run_or_echo
+ifeq ($(PUBLISH_DRY_RUN),0)
+	$(1)
+else
+	@echo "[dry-run] $(1)"
+endif
+endef
 
 publish: release ## Build & upload to PyPI, then tag & push git tag
 	@VERSION=$$(python scripts/version.py); \
 	 echo "Ready to publish version $$VERSION to PyPI"; \
 	 read -p "Continue? (y/n) " ans; [ "$$ans" = "y" ]; \
-	 twine upload dist/*; \
+	 $(call run_or_echo,twine upload dist/*); \
 	 python scripts/version.py --tag --push $(PUBLISH_FLAGS)
