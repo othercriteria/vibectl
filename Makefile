@@ -165,8 +165,9 @@ grpc-check: ## Check if gRPC dependencies are available
 # Ensure .venv exists with uv and generate gRPC stubs after deps
 dev-install: venv install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
 
-## Dependency management
-lock:  ## Regenerate lock file (TOML v1)
+## Dependency management (uv.lock is canonical; pylock.toml is derived)
+lock:  ## Regenerate lock files (uv.lock + pylock.toml)
+	uv lock --upgrade
 	uv pip compile pyproject.toml --extra=dev \
 		--output-file=pylock.toml \
 		--format=pylock.toml \
