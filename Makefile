@@ -151,11 +151,14 @@ dev-install: install-dev grpc-check grpc-gen ## Install development dependencies
 lock: ## Regenerate uv.lock file
 	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock
 
+# optional DRY_RUN env var controls whether bump writes to file
+BUMP_FLAGS=$(if $(filter 0,$(DRY_RUN)),--no-dry-run,)
+
 bump-patch: update-changelog ## Bump patch version via scripts/version.py
-	python scripts/version.py --bump patch --no-dry-run
+	python scripts/version.py --bump patch $(BUMP_FLAGS)
 
 bump-minor: update-changelog ## Bump minor version via scripts/version.py
-	python scripts/version.py --bump minor --no-dry-run
+	python scripts/version.py --bump minor $(BUMP_FLAGS)
 
 bump-major: update-changelog ## Bump major version via scripts/version.py
-	python scripts/version.py --bump major --no-dry-run
+	python scripts/version.py --bump major $(BUMP_FLAGS)
