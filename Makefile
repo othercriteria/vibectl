@@ -1,8 +1,10 @@
 .PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
 .DEFAULT_GOAL := help
 
-# Use uv's pip wrapper for fast, reproducible installs
-PIP=uv pip install
+# Determine project virtualenv Python
+VENV_PY=.venv/bin/python
+# Use uv's pip wrapper to install into the project virtualenv
+PIP=uv pip install -p $(VENV_PY) --break-system-packages
 
 PYTHON_FILES = vibectl tests
 
@@ -144,19 +146,23 @@ bump-major: update-changelog  ## Bump major version (x.0.0)
 
 pypi-build:  ## Build package distributions for PyPI
 	@if command -v pypi-dist >/dev/null 2>&1; then \
+		# Ensure the 'build' module is available in the current Python env \
+		$(PIP) --upgrade build; \
 		pypi-dist build; \
 	else \
 		echo "NixOS pypi-dist not found. Running alternate build command..."; \
-		python -m pip install --upgrade build; \
+		$(PIP) --upgrade build; \
 		python -m build; \
 	fi
 
 pypi-test:  ## Test package in a clean environment
 	@if command -v pypi-dist >/dev/null 2>&1; then \
+		# Ensure the 'build' module is available for the test step as well \
+		$(PIP) --upgrade build; \
 		pypi-dist test; \
 	else \
 		echo "NixOS pypi-dist not found. Running alternate test command..."; \
-		python -m pip install --upgrade build virtualenv; \
+		$(PIP) --upgrade build virtualenv; \
 		VERSION=$$(grep -Po '^version = "\K[^"]+' pyproject.toml); \
 		python -m virtualenv test_env; \
 		. test_env/bin/activate && \
@@ -169,7 +175,7 @@ pypi-upload:  ## Upload package to PyPI
 		pypi-dist pypi; \
 	else \
 		echo "NixOS pypi-dist not found. Running alternate upload command..."; \
-		python -m pip install --upgrade twine; \
+		$(PIP) --upgrade twine; \
 		twine upload dist/*; \
 	fi
 
