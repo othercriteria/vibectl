@@ -52,9 +52,17 @@ def mock_console(monkeypatch: Any) -> Generator[MagicMock, None, None]:
 
 @pytest.fixture(autouse=True)
 def _disable_vibe(monkeypatch: Any) -> None:
-    """Force show_vibe=False and a dummy model for all tests in this module."""
+    """Force show_vibe=False and a dummy model for all tests in this module.
 
-    def _flags(**_kwargs: Any) -> OutputFlags:  # Accept any args from caller
+    We need to patch *both* the original function in ``vibectl.command_handler`` **and**
+    the already imported alias inside ``vibectl.subcommands.wait_cmd``.  The latter
+    was imported with ``from vibectl.command_handler import configure_output_flags``
+    at module import time, so patching only the source module would leave the alias
+    unchanged and allow Vibe processing (and therefore real LLM calls) to slip
+    through in some error-handling code paths.
+    """
+
+    def _flags(**_kwargs: Any) -> OutputFlags:  # Accept any params from caller
         return OutputFlags(
             model_name="dummy-model",
             show_raw_output=False,
@@ -66,7 +74,9 @@ def _disable_vibe(monkeypatch: Any) -> None:
             warn_no_proxy=False,
         )
 
+    # Patch both the original and the re-exported alias used by wait_cmd
     monkeypatch.setattr("vibectl.command_handler.configure_output_flags", _flags)
+    monkeypatch.setattr("vibectl.subcommands.wait_cmd.configure_output_flags", _flags)
 
 
 @pytest.mark.asyncio
