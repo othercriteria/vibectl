@@ -30,21 +30,13 @@ jobs:
       run: |
         uv pip install --system -r uv.lock
 
-    - name: Install project in editable mode
+    - name: Install project (including dev dependencies)
       run: |
-        uv pip install --system -e .
+        uv pip install --system -e ".[dev]"
 
-    - name: Lint with ruff
+    - name: Run quality checks
       run: |
-        ruff check .
-
-    - name: Type check with mypy
-      run: |
-        mypy vibectl tests
-
-    - name: Test with pytest
-      run: |
-        python -m pytest --cov=vibectl --cov-report=xml --cov-config=.coveragerc
+        make ci-check
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

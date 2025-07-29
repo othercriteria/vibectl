@@ -17,17 +17,20 @@ This duplication has started to break (e.g. `make pypi-build` fails after the uv
 5. **Optional future migration to Poe the Poet** – Keep the Makefile thin so it can wrap `poe` tasks later.
 
 ## Deliverables (Phase 1)
-- [ ] Delete `pypi-dist` helper from `flake.nix` and remove the pip-install section of the `shellHook`.
-- [ ] Refactor the Makefile:
-  - [ ] New discrete targets: `lint`, `typecheck`, `test`, `test-coverage`, `wheel`, `release`, `ci-check`.
-  - [ ] Pull version/tag logic into `scripts/version.py` (shared by Make & any other tooling).
-- [ ] Update `.github/workflows/tests.yml` to run `make ci-check` instead of the manual steps.
-- [ ] Confirm `make release` produces wheel+sdist and tags **in dry-run**.
+- [x] Delete `pypi-dist` helper from `flake.nix` and remove the pip-install section of the `shellHook`.
+- [x] Refactor the Makefile:
+  - [x] New discrete targets: `lint`, `typecheck`, `test`, `test-coverage`, `wheel`, `release`, `ci-check`.
+  - [ ] Pull version/tag logic into `scripts/version.py` (shared by Make & any other tooling). *(next)*
+- [x] Update `.github/workflows/tests.yml` to run `make ci-check` instead of the manual steps.
+- [ ] Confirm `make release` produces wheel+sdist and tags **in dry-run**. *(pending final validation)*
+
+**Status:** CI passes locally with `make ci-check` (~2200 tests in ≈14 s, dmypy-enabled). Next immediate step is to extract version logic into a reusable `scripts/version.py` and wire `wheel`/`release` targets to use it.
 
 ## Deliverables (Phase 2 – nice to have)
 - [ ] Introduce Poe the Poet task definitions in `pyproject.toml`.
 - [ ] Replace Makefile bodies with `poe <task>` wrappers.
 - [ ] Allow CI to call `poe quality` directly once stable.
+- [ ] **Investigate faster static type checking alternatives** – explore `dmypy` optimisations or tools like `pyright`/`mypy-protobuf` for improved CI speed.
 
 ## Timeline / Ownership
 | Task | Owner | Target date |

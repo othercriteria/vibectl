@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage ci-check wheel release check-coverage clean update-deps install install-dev install-pre-commit bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
 .DEFAULT_GOAL := help
 
 # Determine project virtualenv Python
@@ -42,22 +42,26 @@ format:  ## Format code using ruff
 lint:  ## Lint and fix code using ruff and all pre-commit hooks
 	pre-commit run --all-files
 
-typecheck:  ## Run static type checking using mypy daemon
-	dmypy run -- $(PYTHON_FILES)
+typecheck: | dmypy-start  ## Run static type checking using dmypy (falls back to mypy if daemon unavailable)
+	@if command -v dmypy >/dev/null 2>&1; then \
+		dmypy run -- $(PYTHON_FILES) || { echo "dmypy failed, falling back to mypy"; mypy $(PYTHON_FILES); }; \
+	else \
+		echo "dmypy not found, running mypy"; \
+		mypy $(PYTHON_FILES); \
+	fi
 
 ##@ Type Checking Daemon Management
+dmypy-status:  ## Show dmypy status if available
+	@command -v dmypy >/dev/null 2>&1 && dmypy status || echo "dmypy not installed"
 
-dmypy-status:  ## Show mypy daemon status
-	dmypy status
+dmypy-start:  ## Start dmypy daemon
+	@command -v dmypy >/dev/null 2>&1 && (dmypy status || dmypy start) || echo "dmypy not installed"
 
-dmypy-start:  ## Start mypy daemon
-	dmypy status || dmypy start
+dmypy-stop:  ## Stop dmypy daemon
+	@command -v dmypy >/dev/null 2>&1 && dmypy stop || echo "dmypy not installed"
 
-dmypy-stop:  ## Stop mypy daemon
-	dmypy stop
-
-dmypy-restart:  ## Restart mypy daemon
-	dmypy restart
+dmypy-restart:  ## Restart dmypy daemon
+	@command -v dmypy >/dev/null 2>&1 && dmypy restart || echo "dmypy not installed"
 
 ##@ Testing
 
@@ -79,34 +83,12 @@ test-quick:  ## Ultra-fast feedback – run pytest quietly excluding slow tests,
 
 ##@ Quality and Verification
 
-check: install-dev format lint typecheck test  ## Run all code quality checks and tests (with parallel execution)
+# Consolidated CI check target – run lint, typecheck, and full test suite (no auto-formatting)
+ci-check: lint typecheck test-coverage  ## Run linter, static checks, and tests with coverage (intended for CI)
 
-check-coverage: install-dev format lint typecheck test-coverage  ## Run code quality checks and tests with coverage report
+check: install-dev format lint typecheck test  ## Local convenience target that also formats code
 
-pypi-check:  ## Run code quality checks without reinstalling (for CI/release)
-	pre-commit run --all-files
-	mypy $(PYTHON_FILES)
-	pytest -v  # Run tests with verbose output to easily spot failures
-
-##@ Cleanup
-
-clean:  ## Clean up python cache files and build artifacts
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	find . -type f -name "*.pyd" -delete
-	find . -type f -name ".coverage" -delete
-	find . -type d -name "*.egg-info" -exec rm -rf {} +
-	find . -type d -name "*.egg" -exec rm -rf {} +
-	find . -type d -name ".pytest_cache" -exec rm -rf {} +
-	find . -type d -name ".ruff_cache" -exec rm -rf {} +
-	find . -type d -name ".mypy_cache" -exec rm -rf {} +
-	find . -type d -name "dist" -exec rm -rf {} +
-	find . -type d -name "build" -exec rm -rf {} +
-	rm -rf htmlcov/
-	rm -f coverage.xml
-	rm -f .dmypy.json
-	@echo "Cleaned up build artifacts and cache files"
+check-coverage: install-dev format lint typecheck test-coverage  ## Local convenience target with coverage report
 
 ##@ Version Management
 
@@ -142,54 +124,16 @@ bump-major: update-changelog  ## Bump major version (x.0.0)
 		python ./bump_version.py major; \
 	fi
 
-##@ PyPI Distribution (NixOS)
+##@ Packaging & Release
 
-pypi-build:  ## Build package distributions for PyPI
-	@if command -v pypi-dist >/dev/null 2>&1; then \
-		# Ensure the 'build' module is available in the current Python env \
-		$(PIP) --upgrade build; \
-		pypi-dist build; \
-	else \
-		echo "NixOS pypi-dist not found. Running alternate build command..."; \
-		$(PIP) --upgrade build; \
-		python -m build; \
-	fi
+# Build wheel and sdist using the standard Python build module
+wheel:  ## Build wheel and sdist into dist/
+	$(PIP) --upgrade build  # ensure build is present
+	python -m build
 
-pypi-test:  ## Test package in a clean environment
-	@if command -v pypi-dist >/dev/null 2>&1; then \
-		# Ensure the 'build' module is available for the test step as well \
-		$(PIP) --upgrade build; \
-		pypi-dist test; \
-	else \
-		echo "NixOS pypi-dist not found. Running alternate test command..."; \
-		$(PIP) --upgrade build virtualenv; \
-		VERSION=$$(grep -Po '^version = "\K[^"]+' pyproject.toml); \
-		python -m virtualenv test_env; \
-		. test_env/bin/activate && \
-		pip install dist/vibectl-$$VERSION-py3-none-any.whl || { pip install llm-anthropic && vibectl --version; }; \
-		rm -rf test_env; \
-	fi
-
-pypi-upload:  ## Upload package to PyPI
-	@if command -v pypi-dist >/dev/null 2>&1; then \
-		pypi-dist pypi; \
-	else \
-		echo "NixOS pypi-dist not found. Running alternate upload command..."; \
-		$(PIP) --upgrade twine; \
-		twine upload dist/*; \
-	fi
-
-pypi-release: clean pypi-check pypi-build pypi-test pypi-upload  ## Run all checks and publish to PyPI
-	@echo "Package successfully published to PyPI"
-	@if command -v pypi-dist >/dev/null 2>&1; then \
-		pypi-dist tag; \
-	else \
-		echo "NixOS pypi-dist not found. Creating tag manually..."; \
-		VERSION=$$(grep -Po '^version = "\K[^"]+' pyproject.toml); \
-		git tag "v$$VERSION"; \
-		git push origin "v$$VERSION"; \
-	fi
-	@echo "Release v$$(grep -Po '^version = "\K[^"]+' pyproject.toml) completed!"
+# Dry-run release convenience wrapper (build + basic checks)
+release: clean ci-check wheel  ## Build distributions after checks (does NOT upload)
+	@echo "Distributions built in dist/ – inspect and upload manually as needed."
 
 # gRPC code generation
 grpc-gen: ## Generate gRPC Python stubs from proto definitions
