@@ -826,3 +826,36 @@ try:
     _model_adapter_mod.get_model_adapter = _delegating_get_adapter  # type: ignore[attr-defined]
 except ModuleNotFoundError:  # Defensive: should never happen in test env
     pass
+
+
+# NEW FIXTURE: Skip slow network readiness wait in ACME manager tests
+# This autouse fixture patches the `_wait_for_http01_readiness` coroutine so
+# that it returns immediately during unit tests.  The production implementation
+# attempts to open a real TCP connection to verify that the HTTP-01 challenge
+# Service is routable, which can take several seconds (or hang entirely) in the
+# isolated CI environment.  By overriding it with an `AsyncMock` we eliminate
+# unnecessary network calls and avoid flaky timeouts - especially when the
+# pytest-timeout plugin is configured with a 5 s per-test limit.
+@pytest.fixture(autouse=True)
+def _skip_http01_readiness_checks(
+    request: pytest.FixtureRequest, mocker: MockerFixture
+) -> None:
+    """Patch ACMEManager._wait_for_http01_readiness except when explicitly tested.
+
+    The readiness helper is unit-tested in *tests/server/test_acme_readiness.py*.
+    For **all other tests** we skip the real network polling to avoid flaky
+    timeouts in CI.  We detect the readiness-specific tests by inspecting the
+    current test file path and **only** apply the patch when we are *not*
+    inside that module.
+    """
+
+    # If the test path ends with test_acme_readiness.py we leave the original
+    # implementation intact so that its behaviour can be asserted.
+    if "test_acme_readiness.py" in str(request.node.fspath):
+        return  # Do *not* patch
+
+    # For all other tests, replace the coroutine with a fast no-op.
+    mocker.patch(
+        "vibectl.server.acme_manager.ACMEManager._wait_for_http01_readiness",
+        new=AsyncMock(return_value=None),
+    )

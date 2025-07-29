@@ -1,5 +1,8 @@
-.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage check check-coverage clean update-deps install install-dev install-pre-commit pypi-build pypi-test pypi-upload pypi-release pypi-check bump-patch bump-minor bump-major update-changelog grpc-gen grpc-clean grpc-check dev-install lock
 .DEFAULT_GOAL := help
+
+# Use uv's pip wrapper for fast, reproducible installs
+PIP=uv pip install
 
 PYTHON_FILES = vibectl tests
 
@@ -11,20 +14,22 @@ help:  ## Display this help message
 ##@ Installation and Setup
 
 install:  ## Install package and dependencies
-	python -m pip install -e "."
+	$(PIP) -e "."
 
 install-dev:  ## Install development dependencies and pre-commit hooks
-	python -m pip install -e ".[dev]"
-	python -m pip install pydantic  # Ensure pydantic is installed
+	# Ensure latest pip with system package overrides
+	$(PIP) --upgrade pip
+	$(PIP) -e ".[dev]"
+	$(PIP) pydantic  # Ensure pydantic is installed (workaround for pydantic stubs)
 	$(MAKE) install-pre-commit
 
 install-pre-commit:  ## Install pre-commit hooks
-	python -m pip install pre-commit
+	$(PIP) pre-commit
 	pre-commit install
 
 update-deps:  ## Update pip and all dependencies
-	python -m pip install --upgrade pip
-	python -m pip install --upgrade -e ".[dev]"
+	$(PIP) --upgrade pip
+	$(PIP) --upgrade -e ".[dev]"
 
 ##@ Development Tools
 
@@ -202,5 +207,13 @@ grpc-check: ## Check if gRPC dependencies are available
 	@python -c "import grpc; print('✓ grpc available')" || (echo "✗ grpc not available - install grpcio" && exit 1)
 	@echo "All gRPC dependencies available"
 
-# Add grpc-gen as a dependency for development setup
+# Ensure .venv exists with uv and generate gRPC stubs after deps
 dev-install: install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
+	@if [ ! -d .venv ]; then \
+		uv venv .venv; \
+	fi
+
+##@ Dependency Management
+
+lock: ## Regenerate uv.lock file
+	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock

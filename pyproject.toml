@@ -60,6 +60,8 @@ dev = [
     "asyncmock>=0.4.2",
     "grpc-stubs>=1.53.0",
     "types-protobuf>=4.24.0",
+    "pre-commit>=3.7.0",  # Needed for git pre-commit hooks to run
+    "uv>=0.1.0",  # uv for dependency resolution and locking
 ]
 
 [project.scripts]

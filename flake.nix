@@ -241,6 +241,8 @@
             python.pkgs.wheel
             python.pkgs.build  # for building packages
             python.pkgs.twine  # for uploading to PyPI
+            pkgs.uv            # uv: fast dependency resolver and lock generator
+            pkgs.pre-commit   # pre-commit CLI for git hooks and manual runs
             pypi-dist-script   # custom distribution helper
             bump-version-script # version bumping helper
             gh  # GitHub CLI for interacting with GitHub
@@ -268,7 +270,9 @@
             # Install development dependencies only the first time to speed up shell startup
             if [ ! -f .venv/.dev-installed ]; then
               echo "Installing development dependencies (first-run only)..."
-              pip install -e ".[dev]"
+              # Work around PEP 668 "externally-managed" restrictions in Nix Python
+              # Newer versions of pip refuse installs without the flag even inside a virtualenv
+              pip install --break-system-packages -e ".[dev]"
               llm install llm-anthropic
               touch .venv/.dev-installed
             fi
@@ -281,6 +285,13 @@
             echo ""
 
             echo "Welcome to vibectl development environment!"
+            echo "Welcome to vibectl development environment!"
+
+            # Ensure virtualenv's bin directory comes first in PATH
+            export PATH="$(pwd)/.venv/bin:$PATH"
+
+            # Show which vibectl will be used
+            which vibectl || true
             echo "Python version: $(python --version)"
             echo "Virtual environment: $(which python)"
           '';
