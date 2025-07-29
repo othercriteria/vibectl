@@ -127,6 +127,13 @@ wheel:  ## Build wheel and sdist into dist/
 	$(PIP) --upgrade build  # ensure build is present
 	python -m build
 
+# ---------------------------------------------------------------------------
+# Maintenance helpers
+# ---------------------------------------------------------------------------
+
+clean: ## Remove build artifacts and caches
+	rm -rf build dist *.egg-info .pytest_cache
+
 # Dry-run release convenience wrapper (build + basic checks)
 release: clean ci-check wheel  ## Build distributions, show next manual tag command
 	@VERSION=$$(python scripts/version.py); \
