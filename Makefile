@@ -128,7 +128,7 @@ release: clean ci-check wheel  ## Build distributions, show next manual tag comm
 # gRPC code generation
 grpc-gen: ## Generate gRPC Python stubs from proto definitions
 	@echo "Generating gRPC Python stubs..."
-	python -m grpc_tools.protoc \
+	$(VENV_PY) -m grpc_tools.protoc \
 		--python_out=. \
 		--grpc_python_out=. \
 		--proto_path=. \
@@ -143,8 +143,8 @@ grpc-clean: ## Clean generated gRPC files
 
 grpc-check: ## Check if gRPC dependencies are available
 	@echo "Checking gRPC dependencies..."
-	@python -c "import grpc_tools.protoc; print('✓ grpc_tools available')" || (echo "✗ grpc_tools not available - install grpcio-tools" && exit 1)
-	@python -c "import grpc; print('✓ grpc available')" || (echo "✗ grpc not available - install grpcio" && exit 1)
+	@$(VENV_PY) -c "import grpc_tools.protoc; print('✓ grpc_tools available')" || (echo "✗ grpc_tools not available - install grpcio-tools" && exit 1)
+	@$(VENV_PY) -c "import grpc; print('✓ grpc available')" || (echo "✗ grpc not available - install grpcio" && exit 1)
 	@echo "All gRPC dependencies available"
 
 # Ensure .venv exists with uv and generate gRPC stubs after deps
