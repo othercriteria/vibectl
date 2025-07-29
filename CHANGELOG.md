@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.11.6] - 2025-07-29
+
 ### Changed
 - Dependency lock file renamed from `uv.lock` to `pylock.toml` and updated build tooling (`make lock`, CI) to generate/consume TOML v1 format.
 
