@@ -33,22 +33,37 @@ def _update_pyproject(new_version: str, pyproject_path: Path) -> None:
     pyproject_path.write_text(updated)
 
 
+def _version_from_pyproject() -> str | None:
+    """Return version string from pyproject.toml if present."""
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if pyproject_path.exists():
+        for line in pyproject_path.read_text().splitlines():
+            if line.strip().startswith("version") and "=" in line:
+                return line.split("=", 1)[1].strip().strip('"')
+    return None
+
+
 def get_version() -> str:
-    """Return the current vibectl version using importlib metadata fallback."""
+    """Return the project version.
+
+    Priority:
+    1. Version declared in pyproject.toml (source of truth for builds)
+    2. Installed package metadata (editable installs or wheels already installed)
+    """
+
+    pj_ver = _version_from_pyproject()
+    if pj_ver:
+        return pj_ver
+
+    # Fallback to runtime metadata
     try:
-        # Try runtime package metadata first (works in editable installs too)
         from importlib import metadata
 
         return metadata.version("vibectl")
     except Exception:
-        # Fallback to parsing pyproject.toml (no external toml library dependency)
-        pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
-        if pyproject_path.exists():
-            for line in pyproject_path.read_text().splitlines():
-                if line.strip().startswith("version") and "=" in line:
-                    # version = "0.11.4"
-                    return line.split("=", 1)[1].strip().strip('"')
-        return "unknown"
+        pass
+
+    return "unknown"
 
 
 def tag(version: str, dry_run: bool = True) -> None:
