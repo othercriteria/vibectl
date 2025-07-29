@@ -38,19 +38,15 @@
             # Fix gRPC tools library loading issue in Nix
             export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH
 
-            # (make-only-release) Removed automatic virtualenv creation & hidden pip installs.
-
-            echo "Welcome to vibectl development environment!"
             echo "Welcome to vibectl development environment!"
 
             # Re-add .venv bin directory to PATH if the virtualenv exists (needed for dmypy & other tools)
             if [ -d .venv ]; then
               export PATH="$(pwd)/.venv/bin:$PATH"
             fi
-            # Show which vibectl will be used
-            which vibectl || true
             echo "Python version: $(python --version)"
             echo "Virtual environment: $(which python)"
+            echo "vibectl: $(which vibectl)"
           '';
         };
       }

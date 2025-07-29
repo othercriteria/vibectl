@@ -49,26 +49,34 @@ format:  ## Format code using ruff
 lint:  ## Lint and fix code using ruff and all pre-commit hooks
 	pre-commit run --all-files
 
-typecheck: | dmypy-start  ## Run static type checking using dmypy (falls back to mypy if daemon unavailable)
-	@if command -v dmypy >/dev/null 2>&1; then \
-		dmypy run -- $(PYTHON_FILES) || { echo "dmypy failed, falling back to mypy"; mypy $(PYTHON_FILES); }; \
-	else \
-		echo "dmypy not found, running mypy"; \
-		mypy $(PYTHON_FILES); \
-	fi
+# Static type checking -----------------------------------------------------
+# Use dmypy for speed **but** force it to run with the exact Python interpreter
+# inside our project virtualenv.  This avoids mismatches that previously caused
+# missing-plugin errors (e.g. pydantic).
+
+MYPY_DMYPY = $(VENV_PY) -m mypy.dmypy
+
+typecheck: venv dmypy-start  ## Run static type checking using dmypy, fallback to mypy
+	@$(MYPY_DMYPY) run -- $(PYTHON_FILES) || { \
+		echo "dmypy failed, falling back to regular mypy"; \
+		$(VENV_PY) -m mypy $(PYTHON_FILES); \
+	}
 
 ##@ Type Checking Daemon Management
-dmypy-status:  ## Show dmypy status if available
-	@command -v dmypy >/dev/null 2>&1 && dmypy status || echo "dmypy not installed"
+dmypy-status: venv  ## Show dmypy status (uses virtualenv interpreter)
+	@$(MYPY_DMYPY) status || true
 
-dmypy-start:  ## Start dmypy daemon
-	@command -v dmypy >/dev/null 2>&1 && (dmypy status || dmypy start) || echo "dmypy not installed"
+dmypy-start: venv  ## Start dmypy daemon with venv interpreter if not running
+	@# Install mypy inside .venv on CI cold-start if it is missing
+	@if [ ! -x "$(VENV_PY%/python)%/mypy" ] && ! $(VENV_PY) -m pip show mypy >/dev/null 2>&1; then \
+		$(PIP) mypy; \
+	fi
+	@$(MYPY_DMYPY) status >/dev/null 2>&1 || $(MYPY_DMYPY) start
 
-dmypy-stop:  ## Stop dmypy daemon
-	@command -v dmypy >/dev/null 2>&1 && dmypy stop || echo "dmypy not installed"
+dmypy-stop: venv  ## Stop dmypy daemon
+	@$(MYPY_DMYPY) status >/dev/null 2>&1 && $(MYPY_DMYPY) stop || true
 
-dmypy-restart:  ## Restart dmypy daemon
-	@command -v dmypy >/dev/null 2>&1 && dmypy restart || echo "dmypy not installed"
+dmypy-restart: dmypy-stop dmypy-start  ## Restart dmypy daemon
 
 ##@ Testing
 

@@ -426,13 +426,25 @@ def test_run_kubectl_with_yaml_file_cleanup_error(
         mock_unlink.assert_called_once_with("/tmp/fake_temp_file.yaml")  # Check path
 
 
-@patch("re.sub")  # Patch re.sub directly for this test
-def test_run_kubectl_with_yaml_general_error(mock_re_sub: MagicMock) -> None:
+def test_run_kubectl_with_yaml_general_error() -> None:
     """Test general Exception handling during YAML processing."""
-    mock_re_sub.side_effect = ValueError("Regex error")
+    # Patch only for the first call inside k8s_utils; restore afterwards so that
+    # Python's logging (which also uses re.sub indirectly via textwrap.dedent)
+    # is unaffected.
+    import vibectl.k8s_utils as k8_re_mod  # type: ignore
 
-    args = ["apply", "-f", "-"]
-    result = run_kubectl_with_yaml(args, TEST_YAML_CONTENT)
+    original_sub = k8_re_mod.re.sub  # type: ignore[attr-defined]
+
+    from typing import NoReturn
+
+    def one_shot_raise(*args: object, **kwargs: object) -> NoReturn:
+        # Restore original immediately, then raise.
+        k8_re_mod.re.sub = original_sub  # type: ignore[attr-defined]
+        raise ValueError("Regex error")
+
+    with patch("vibectl.k8s_utils.re.sub", side_effect=one_shot_raise):
+        args = ["apply", "-f", "-"]
+        result = run_kubectl_with_yaml(args, TEST_YAML_CONTENT)
 
     assert isinstance(result, Error)
     assert "Error executing YAML command: Regex error" in result.error
