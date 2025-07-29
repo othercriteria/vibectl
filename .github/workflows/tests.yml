@@ -28,7 +28,7 @@ jobs:
 
     - name: Install dependencies from lock file
       run: |
-        uv pip install --system -r uv.lock
+        uv pip install --system -r pylock.toml
 
     - name: Install project (including dev dependencies)
       run: |

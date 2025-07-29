@@ -165,10 +165,12 @@ grpc-check: ## Check if gRPC dependencies are available
 # Ensure .venv exists with uv and generate gRPC stubs after deps
 dev-install: venv install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
 
-##@ Dependency Management
-
-lock: ## Regenerate uv.lock file
-	uv pip compile pyproject.toml --extra=dev --output-file=uv.lock
+## Dependency management
+lock:  ## Regenerate lock file (TOML v1)
+	uv pip compile pyproject.toml --extra=dev \
+		--output-file=pylock.toml \
+		--format=pylock.toml \
+		--python 3.11
 
 # optional DRY_RUN env var controls whether bump writes to file
 DRY_RUN?=1
