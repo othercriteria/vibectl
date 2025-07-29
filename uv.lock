@@ -26,6 +26,8 @@ attrs==25.3.0
     # via aiohttp
 blinker==1.9.0
     # via flask
+build==1.2.2.post1
+    # via vibectl (pyproject.toml)
 cachetools==5.5.2
     # via google-auth
 certifi==2025.7.14
@@ -148,7 +150,9 @@ oauthlib==3.3.1
 openai==1.97.1
     # via llm
 packaging==25.0
-    # via pytest
+    # via
+    #   build
+    #   pytest
 pathspec==0.12.1
     # via mypy
 pip==25.1.1
@@ -196,6 +200,8 @@ pyjwt==2.10.1
     # via vibectl (pyproject.toml)
 pyopenssl==25.1.0
     # via acme
+pyproject-hooks==1.2.0
+    # via build
 pyrfc3339==2.0.1
     # via acme
 pytest==8.4.1

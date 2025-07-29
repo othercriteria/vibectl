@@ -62,6 +62,7 @@ dev = [
     "types-protobuf>=4.24.0",
     "pre-commit>=3.7.0",  # Needed for git pre-commit hooks to run
     "uv>=0.1.0",  # uv for dependency resolution and locking
+    "build>=1.2.1",  # ensure python -m build is available
 ]
 
 [project.scripts]
