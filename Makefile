@@ -6,6 +6,13 @@ VENV_PY=.venv/bin/python
 # Use uv's pip wrapper to install into the project virtualenv
 PIP=uv pip install -p $(VENV_PY) --break-system-packages
 
+# --- New: ensure virtual environment exists before any pip operations ---
+.PHONY: venv
+venv: ## Create local Python virtual environment (.venv) if it does not exist
+	@if [ ! -d .venv ]; then \
+		uv venv .venv; \
+	fi
+
 PYTHON_FILES = vibectl tests
 
 help:  ## Display this help message
@@ -15,10 +22,10 @@ help:  ## Display this help message
 
 ##@ Installation and Setup
 
-install:  ## Install package and dependencies
+install: venv  ## Install package and dependencies
 	$(PIP) -e "."
 
-install-dev:  ## Install development dependencies and pre-commit hooks
+install-dev: venv  ## Install development dependencies and pre-commit hooks
 	# Ensure latest pip with system package overrides
 	$(PIP) --upgrade pip
 	$(PIP) -e ".[dev]"
@@ -141,10 +148,7 @@ grpc-check: ## Check if gRPC dependencies are available
 	@echo "All gRPC dependencies available"
 
 # Ensure .venv exists with uv and generate gRPC stubs after deps
-dev-install: install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
-	@if [ ! -d .venv ]; then \
-		uv venv .venv; \
-	fi
+dev-install: venv install-dev grpc-check grpc-gen ## Install development dependencies and generate gRPC code
 
 ##@ Dependency Management
 
