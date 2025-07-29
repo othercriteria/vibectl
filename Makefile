@@ -132,8 +132,10 @@ wheel:  ## Build wheel and sdist into dist/
 	python -m build
 
 # Dry-run release convenience wrapper (build + basic checks)
-release: clean ci-check wheel  ## Build distributions after checks (does NOT upload)
-	@echo "Distributions built in dist/ – inspect and upload manually as needed."
+release: clean ci-check wheel  ## Build distributions, show next manual tag command
+	@VERSION=$$(python scripts/version.py); \
+	 echo "Distributions built in dist/ (version $$VERSION)."; \
+	 echo "Run: python scripts/version.py --tag --push --no-dry-run  to tag & push when ready.";
 
 # gRPC code generation
 grpc-gen: ## Generate gRPC Python stubs from proto definitions
