@@ -1,4 +1,4 @@
-.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage ci-check wheel release check-coverage clean update-deps install install-dev install-pre-commit update-changelog grpc-gen grpc-clean grpc-check dev-install lock bump-patch bump-minor bump-major
+.PHONY: help format lint typecheck dmypy-status dmypy-start dmypy-stop dmypy-restart test test-serial test-coverage ci-check wheel release publish check-coverage clean update-deps install install-dev install-pre-commit update-changelog grpc-gen grpc-clean grpc-check dev-install lock bump-patch bump-minor bump-major
 .DEFAULT_GOAL := help
 
 # Determine project virtualenv Python
@@ -162,3 +162,13 @@ bump-minor: update-changelog ## Bump minor version via scripts/version.py
 
 bump-major: update-changelog ## Bump major version via scripts/version.py
 	python scripts/version.py --bump major $(BUMP_FLAGS)
+
+# Publish to PyPI (requires credentials in ~/.pypirc or env vars). Controlled by PUBLISH_DRY_RUN (default 1)
+PUBLISH_FLAGS=$(if $(filter 0,$(PUBLISH_DRY_RUN)),--no-dry-run,)
+
+publish: release ## Build & upload to PyPI, then tag & push git tag
+	@VERSION=$$(python scripts/version.py); \
+	 echo "Ready to publish version $$VERSION to PyPI"; \
+	 read -p "Continue? (y/n) " ans; [ "$$ans" = "y" ]; \
+	 twine upload dist/*; \
+	 python scripts/version.py --tag --push $(PUBLISH_FLAGS)
