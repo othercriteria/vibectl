@@ -180,17 +180,9 @@ bump-major: update-changelog ## Bump major version via scripts/version.py
 PUBLISH_DRY_RUN?=1
 PUBLISH_FLAGS=$(if $(filter 0,$(PUBLISH_DRY_RUN)),--no-dry-run,)
 
-define run_or_echo
-ifeq ($(PUBLISH_DRY_RUN),0)
-	$(1)
-else
-	@echo "[dry-run] $(1)"
-endif
-endef
-
 publish: release ## Build & upload to PyPI, then tag & push git tag
 	@VERSION=$$(python scripts/version.py); \
 	 echo "Ready to publish version $$VERSION to PyPI"; \
 	 read -p "Continue? (y/n) " ans; [ "$$ans" = "y" ]; \
-	 $(call run_or_echo,twine upload dist/*); \
+	 if [ "$(PUBLISH_DRY_RUN)" = "0" ]; then twine upload dist/*; else echo "[dry-run] twine upload dist/*"; fi; \
 	 python scripts/version.py --tag --push $(PUBLISH_FLAGS)
