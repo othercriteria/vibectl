@@ -147,7 +147,13 @@ pypi-build:  ## Build package distributions for PyPI
 		pypi-dist build; \
 	else \
 		echo "NixOS pypi-dist not found. Running alternate build command..."; \
-		python -m pip install --upgrade build; \
+		# Ensure the 'build' module is available in the active interpreter (works even inside .venv) \
+		python - <<'PY'
+import importlib.util, subprocess, sys
+if importlib.util.find_spec('build') is None:
+    print('Installing build into current environment...')
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'build'])
+PY
 		python -m build; \
 	fi
 
