@@ -124,8 +124,7 @@ update-changelog:  ## Update CHANGELOG.md for a new release
 
 # Build wheel and sdist using the standard Python build module
 wheel:  ## Build wheel and sdist into dist/
-	$(PIP) --upgrade build  # ensure build is present
-	python -m build
+	uv build  # faster Rust frontend; still uses Hatchling backend
 
 # ---------------------------------------------------------------------------
 # Maintenance helpers

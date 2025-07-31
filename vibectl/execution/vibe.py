@@ -495,7 +495,7 @@ async def _confirm_and_execute_plan(
         )
     except RecoverableApiError as api_err:
         logger.warning(
-            f"Recoverable API error during command handling: {api_err}", exc_info=True
+            f"Recoverable API error during Vibe processing: {api_err}", exc_info=True
         )
         console_manager.print_error(f"API Error: {api_err}")
         # create_api_error is in command_handler, so we need to import it or
@@ -778,7 +778,7 @@ async def _get_llm_plan(
         RecoverableApiError
     ) as api_err:  # Catch recoverable API errors during execute
         logger.warning(
-            f"Recoverable API error during Vibe planning: {api_err}", exc_info=True
+            f"Recoverable API error during Vibe processing: {api_err}", exc_info=True
         )
         # Print API error before returning
         console_manager.print_error(f"API Error: {api_err}")
