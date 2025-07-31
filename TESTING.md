@@ -18,6 +18,8 @@ of tests, test coverage goals, and best practices.
 `vibectl` aims to support recent, stable Python versions. We currently test against:
 
 - Python 3.11+
+- Python 3.12
+- Python 3.13
 
 These versions are tested in our CI/CD pipeline using GitHub Actions.
 
@@ -136,7 +138,7 @@ Tests run automatically on GitHub Actions:
 - Release creation
 
 The workflow includes:
-1. Testing on all supported Python versions (3.10, 3.11, 3.12)
+1. Testing on all supported Python versions (3.11, 3.12, 3.13)
 2. Running linters (ruff)
 3. Type checking (mypy)
 4. Running tests with coverage

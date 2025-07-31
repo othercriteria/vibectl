@@ -3,7 +3,7 @@ name = "vibectl"
 version = "0.11.6"
 description = "A vibes-based alternative to kubectl"
 authors = [
-    { name = "Daniel Klein", email = "othercriteria@gmail.com" }
+    { name = "Daniel Klein", email = "daniel@bight.ai" }
 ]
 dependencies = [
     "acme>=4.0.0,<5.0.0",
@@ -37,6 +37,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
@@ -63,6 +64,7 @@ dev = [
     "pre-commit>=3.7.0",  # Needed for git pre-commit hooks to run
     "uv>=0.1.0",  # uv for dependency resolution and locking
     "build>=1.2.1",  # ensure python -m build is available
+    "hatchling>=1.18.0",  # build backend (temporary workaround for uv2nix until uv supports --include build)
 ]
 
 [project.scripts]
