@@ -28,7 +28,7 @@ jobs:
 
     - name: Install dependencies from uv.lock
       run: |
-        uv sync --system --locked
+        uv sync --locked
 
     - name: Install project (including dev dependencies)
       run: |

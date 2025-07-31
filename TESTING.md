@@ -43,14 +43,14 @@ This project uses **uv** for fast, deterministic dependency resolution and locki
 2. **Manual Setup** (Alternative):
    ```bash
    pip install uv
-   uv sync --system --locked  # Install locked dependencies from uv.lock
+   uv sync --locked  # Install locked dependencies from uv.lock
    ```
 
 #### Managing Dependencies
 
 - **Add new dependencies**: Edit `pyproject.toml` (for runtime) or `[project.optional-dependencies].dev` (for testing)
 - **Update lock file**: Run `make lock` after adding dependencies
-- **Install dependencies**: Happens automatically in Nix shell, or manually with `uv sync --system --locked`
+- **Install dependencies**: Happens automatically in Nix shell, or manually with `uv sync --locked`
 
 #### Benefits for Testing
 
